@@ -1,5 +1,5 @@
-# Compiled binaries
-qdfgen
+# Compiled binaries (root-only — does not match the cmd/qdfgen package)
+/qdfgen
 *.exe
 *.test
 

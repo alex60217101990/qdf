@@ -1,0 +1,54 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - gosec
+    - nilerr
+    - unconvert
+
+  settings:
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+    errcheck:
+      # fmt.Fprintf / fmt.Fprintln to a bytes.Buffer cannot fail; ignore
+      # them in the generator output path.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        - G301  # MkdirAll uses 0755 so users on multi-user boxes can read generated source
+        - G306  # 0o644 is the right mode for a Go source file we write
+        - G115  # narrowing conversions in tag/length encoders are bounded by switch arms
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck, gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0
