@@ -1,0 +1,59 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - qdf_reflect2
+    - qdf_simd
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - nilerr
+    - prealloc
+    - unconvert
+    - unparam
+
+  settings:
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+    gosec:
+      excludes:
+        - G103  # unsafe usage is intentional
+        - G115  # integer overflow bounded by CheckLength
+
+  exclusions:
+    rules:
+      - path: _qdf\.go
+        linters: [revive, gocritic, staticcheck]
+      - path: internal/codegen_test/
+        linters: [revive, gocritic]
+      - path: bench/
+        linters: [errcheck, prealloc, gosec]
+      - path: _test\.go
+        linters: [errcheck, gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0

@@ -1,0 +1,92 @@
+name: bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchtime:
+        description: "go test -benchtime value"
+        required: false
+        default: "2s"
+      pattern:
+        description: "Bench name regex"
+        required: false
+        default: "."
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: bench
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+            internal/codegen_test/go.sum
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gocache-bench-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/*.go') }}
+          restore-keys: |
+            gocache-bench-${{ runner.os }}-
+
+      - name: bench (default tags)
+        working-directory: bench
+        env:
+          BENCH_TIME: ${{ inputs.benchtime }}
+          BENCH_PATTERN: ${{ inputs.pattern }}
+        run: |
+          set -euo pipefail
+          go test -bench="${BENCH_PATTERN}" -benchmem -benchtime="${BENCH_TIME}" -run=^$ -timeout=15m | tee bench.txt
+
+      - name: bench (-tags qdf_reflect2)
+        working-directory: bench
+        env:
+          BENCH_TIME: ${{ inputs.benchtime }}
+          BENCH_PATTERN: ${{ inputs.pattern }}
+        run: |
+          set -euo pipefail
+          go test -tags qdf_reflect2 -bench="${BENCH_PATTERN}" -benchmem -benchtime="${BENCH_TIME}" -run=^$ -timeout=15m | tee bench_reflect2.txt
+
+      - name: bench (-tags qdf_simd, GOEXPERIMENT=simd)
+        working-directory: bench
+        env:
+          BENCH_TIME: ${{ inputs.benchtime }}
+          BENCH_PATTERN: ${{ inputs.pattern }}
+          GOEXPERIMENT: simd
+        run: |
+          set -euo pipefail
+          go test -tags qdf_simd -bench="${BENCH_PATTERN}" -benchmem -benchtime="${BENCH_TIME}" -run=^$ -timeout=15m | tee bench_simd.txt
+
+      - name: codegen bench
+        working-directory: internal/codegen_test
+        env:
+          BENCH_TIME: ${{ inputs.benchtime }}
+        run: |
+          set -euo pipefail
+          go test -run TestGenerate -count=1 .
+          go test -bench=. -benchmem -benchtime="${BENCH_TIME}" -run=^$ -timeout=10m | tee bench_codegen.txt
+
+      - name: upload bench artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.sha }}
+          path: |
+            bench/bench.txt
+            bench/bench_reflect2.txt
+            bench/bench_simd.txt
+            internal/codegen_test/bench_codegen.txt
+          retention-days: 30

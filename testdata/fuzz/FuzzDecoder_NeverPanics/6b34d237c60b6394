@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("QDF\x01\xf9\xd4\x02\x81Ayyyy")

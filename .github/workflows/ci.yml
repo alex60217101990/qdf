@@ -1,0 +1,164 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref. Saves CI minutes on PR rebases.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26"
+  # GOEXPERIMENT=simd unlocks the qdf_simd build tag on amd64.
+  GOEXPERIMENT: simd
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+            cmd/qdfgen/go.sum
+            internal/codegen_test/go.sum
+
+      # Cache the Go build cache separately. setup-go already caches the
+      # module download cache (~/go/pkg/mod), but the build cache makes
+      # the biggest difference on incremental runs.
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+          key: gocache-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum', '**/*.go') }}
+          restore-keys: |
+            gocache-${{ runner.os }}-${{ env.GO_VERSION }}-
+
+      - name: go env
+        run: |
+          go version
+          go env GOMODCACHE GOCACHE
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test (default, -race)
+        run: go test -race -count=1 -timeout=5m ./...
+
+      - name: test (-tags qdf_reflect2, -race)
+        run: go test -tags qdf_reflect2 -race -count=1 -timeout=5m ./...
+
+      - name: test (-tags qdf_simd, -race)
+        run: go test -tags qdf_simd -race -count=1 -timeout=5m ./...
+
+      - name: test (-tags qdf_reflect2 qdf_simd, -race)
+        run: go test -tags 'qdf_reflect2 qdf_simd' -race -count=1 -timeout=5m ./...
+
+      - name: build qdfgen
+        working-directory: cmd/qdfgen
+        run: go build ./...
+
+      - name: codegen test (two-phase)
+        working-directory: internal/codegen_test
+        run: |
+          # First phase emits sample_qdf.go; second phase exercises the
+          # generated methods. Both phases must pass.
+          go test -run TestGenerate -count=1 .
+          go test -race -count=1 -timeout=5m .
+
+      - name: TestSizes (bench module, no benchmarks)
+        working-directory: bench
+        run: go test -run TestSizes -count=1 -timeout=2m .
+
+  lint:
+    name: lint (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: root
+            working-directory: .
+          - module: bench
+            working-directory: bench
+          - module: qdfgen
+            working-directory: cmd/qdfgen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+            cmd/qdfgen/go.sum
+            internal/codegen_test/go.sum
+
+      - name: golangci-lint (${{ matrix.module }})
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: ${{ matrix.working-directory }}
+          # The action caches its own analysis layer keyed on go.sum hash.
+          args: --timeout=5m
+
+  fuzz-smoke:
+    name: fuzz (30s smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gocache-fuzz-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum', '**/*.go') }}
+          restore-keys: |
+            gocache-fuzz-${{ runner.os }}-${{ env.GO_VERSION }}-
+
+      # Persist the fuzz corpus between runs so newly discovered inputs
+      # accumulate across CI builds. Restore is best-effort.
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: testdata/fuzz
+          key: fuzz-corpus-${{ github.sha }}
+          restore-keys: |
+            fuzz-corpus-
+
+      - name: FuzzDecoder_NeverPanics (30s)
+        run: go test -run=^$ -fuzz=FuzzDecoder_NeverPanics -fuzztime=30s -timeout=2m
+
+      - name: FuzzRoundTrip_StringSlice (30s)
+        run: go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice -fuzztime=30s -timeout=2m
+
+      # Re-run the seed + persisted corpus as a regression check.
+      - name: Fuzz corpus regression
+        run: go test -run='Fuzz' -count=1 -timeout=2m

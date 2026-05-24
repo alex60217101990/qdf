@@ -1,0 +1,298 @@
+package qdf
+
+import (
+	"reflect"
+	"unsafe"
+)
+
+// Specialized fast paths for slices of common primitive element types.
+// Selected in fillDesc when the element kind matches.
+
+var (
+	sliceStringType  = reflect.TypeFor[[]string]()
+	sliceIntType     = reflect.TypeFor[[]int]()
+	sliceInt32Type   = reflect.TypeFor[[]int32]()
+	sliceInt64Type   = reflect.TypeFor[[]int64]()
+	sliceUint32Type  = reflect.TypeFor[[]uint32]()
+	sliceUint64Type  = reflect.TypeFor[[]uint64]()
+	sliceFloat32Type = reflect.TypeFor[[]float32]()
+	sliceFloat64Type = reflect.TypeFor[[]float64]()
+	sliceBoolType    = reflect.TypeFor[[]bool]()
+)
+
+// installSliceFastPath returns (encode, decode, true) if t is a recognized
+// primitive slice. Returns (_, _, false) for the generic case.
+func installSliceFastPath(t reflect.Type) (
+	enc func(*Encoder, unsafe.Pointer) error,
+	dec func(*Decoder, unsafe.Pointer) error,
+	ok bool,
+) {
+	switch t {
+	case sliceStringType:
+		return encodeSliceString, decodeSliceString, true
+	case sliceIntType:
+		return encodeSliceInt, decodeSliceInt, true
+	case sliceInt32Type:
+		return encodeSliceInt32, decodeSliceInt32, true
+	case sliceInt64Type:
+		return encodeSliceInt64, decodeSliceInt64, true
+	case sliceUint32Type:
+		return encodeSliceUint32, decodeSliceUint32, true
+	case sliceUint64Type:
+		return encodeSliceUint64, decodeSliceUint64, true
+	case sliceFloat32Type:
+		return encodeSliceFloat32, decodeSliceFloat32, true
+	case sliceFloat64Type:
+		return encodeSliceFloat64, decodeSliceFloat64, true
+	case sliceBoolType:
+		return encodeSliceBool, decodeSliceBool, true
+	}
+	return nil, nil, false
+}
+
+// ----- []string -----
+
+func encodeSliceString(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]string)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteString(s[i])
+	}
+	return nil
+}
+func decodeSliceString(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]string, n)
+	for i := range n {
+		v, err := d.ReadString()
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*(*[]string)(p) = out
+	return nil
+}
+
+// ----- []int / []int32 / []int64 / []uint32 / []uint64 -----
+
+func encodeSliceInt(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]int)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteInt(int64(s[i]))
+	}
+	return nil
+}
+func decodeSliceInt(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]int, n)
+	for i := range n {
+		v, err := d.ReadInt()
+		if err != nil {
+			return err
+		}
+		out[i] = int(v)
+	}
+	*(*[]int)(p) = out
+	return nil
+}
+func encodeSliceInt32(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]int32)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteInt(int64(s[i]))
+	}
+	return nil
+}
+func decodeSliceInt32(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]int32, n)
+	for i := range n {
+		v, err := d.ReadInt()
+		if err != nil {
+			return err
+		}
+		out[i] = int32(v)
+	}
+	*(*[]int32)(p) = out
+	return nil
+}
+func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]int64)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteInt(s[i])
+	}
+	return nil
+}
+func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]int64, n)
+	for i := range n {
+		v, err := d.ReadInt()
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*(*[]int64)(p) = out
+	return nil
+}
+func encodeSliceUint32(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]uint32)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteUint(uint64(s[i]))
+	}
+	return nil
+}
+func decodeSliceUint32(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]uint32, n)
+	for i := range n {
+		v, err := d.ReadUint()
+		if err != nil {
+			return err
+		}
+		out[i] = uint32(v)
+	}
+	*(*[]uint32)(p) = out
+	return nil
+}
+func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]uint64)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteUint(s[i])
+	}
+	return nil
+}
+func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]uint64, n)
+	for i := range n {
+		v, err := d.ReadUint()
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*(*[]uint64)(p) = out
+	return nil
+}
+
+// ----- []float32 / []float64 -----
+
+func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]float32)(p)
+	return encodeSliceFloat32Impl(e, s)
+}
+func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]float32, n)
+	for i := range n {
+		v, err := d.ReadFloat32()
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*(*[]float32)(p) = out
+	return nil
+}
+func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]float64)(p)
+	return encodeSliceFloat64Impl(e, s)
+}
+func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]float64, n)
+	for i := range n {
+		v, err := d.ReadFloat64()
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*(*[]float64)(p) = out
+	return nil
+}
+
+// ----- []bool -----
+
+func encodeSliceBool(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]bool)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteBool(s[i])
+	}
+	return nil
+}
+func decodeSliceBool(d *Decoder, p unsafe.Pointer) error {
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	if err := d.CheckLength(n, 1); err != nil {
+		return err
+	}
+	out := make([]bool, n)
+	for i := range n {
+		v, err := d.ReadBool()
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*(*[]bool)(p) = out
+	return nil
+}

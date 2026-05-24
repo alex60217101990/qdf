@@ -1,0 +1,28 @@
+version: "2"
+
+# Benchmarks deliberately discard errors and reuse loops in ways the
+# strict linters object to. Keep the format/vet/staticcheck baseline,
+# drop the noisy stuff.
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - bodyclose
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0

@@ -1,0 +1,59 @@
+name: fuzz-extended
+
+# Longer fuzz run on a schedule. The PR / push fuzz job in ci.yml is a
+# 30 s smoke; this one runs ten minutes per target nightly.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-extended
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzDecoder_NeverPanics, FuzzRoundTrip_StringSlice]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gocache-fuzz-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/*.go') }}
+          restore-keys: |
+            gocache-fuzz-${{ runner.os }}-
+
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: testdata/fuzz/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+
+      - name: ${{ matrix.target }} (10m)
+        run: go test -run=^$ -fuzz=${{ matrix.target }} -fuzztime=10m -timeout=15m
+
+      - name: Upload new corpus on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          path: testdata/fuzz/${{ matrix.target }}
+          retention-days: 14
