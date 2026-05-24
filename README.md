@@ -9,7 +9,7 @@
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 
 <p align="center">
-  <img src="images/qdf-logo-4.png" alt="qdf — Quantum Density Format" width="640">
+  <img src="images/qdf-logo.png" alt="qdf — Quantum Density Format" width="640">
 </p>
 
 **Quantum-inspired data serialization format designed for ultra-fast
