@@ -652,14 +652,23 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			f := &fields[i]
 			if e.state != nil && len(f.name) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
 				if id, ok := e.state.lookupOrAssign(f.name); ok {
-					e.buf = append(e.buf, tagStateRef)
-					e.buf = appendUvarint(e.buf, uint64(id))
+					// Routed through emitStateRef so the Markov-0
+					// predictor sees this state-ref emission. Without
+					// this, the next WriteString / WriteBytes that
+					// happens to hit the SAME intern ID as a non-
+					// updated lastID would erroneously collapse to
+					// tagStateRepeat and decode to the wrong value.
+					e.emitStateRef(id)
 				} else {
-					_ = id
 					e.buf = append(e.buf, f.preInternStr...)
+					e.state.lastID = id
+					e.state.lastValid = true
 				}
 			} else {
 				e.buf = append(e.buf, f.preFast...)
+				if e.state != nil {
+					e.state.lastValid = false
+				}
 			}
 			if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
 				return err
