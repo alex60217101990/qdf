@@ -1,6 +1,48 @@
 package qdf
 
-import "slices"
+import (
+	"math"
+	"slices"
+	"unsafe"
+)
+
+// QPack raw-LE codec kind byte. Low two bits encode the element width as
+// log2(bytes); next two bits encode the type family (uint, int, float).
+const (
+	qpackRawW1 = 0
+	qpackRawW2 = 1
+	qpackRawW4 = 2
+	qpackRawW8 = 3
+
+	qpackRawFamUint  = 0 << 2
+	qpackRawFamInt   = 1 << 2
+	qpackRawFamFloat = 2 << 2
+
+	qpackKindUint8   = qpackRawFamUint | qpackRawW1
+	qpackKindUint16  = qpackRawFamUint | qpackRawW2
+	qpackKindUint32  = qpackRawFamUint | qpackRawW4
+	qpackKindUint64  = qpackRawFamUint | qpackRawW8
+	qpackKindInt8    = qpackRawFamInt | qpackRawW1
+	qpackKindInt16   = qpackRawFamInt | qpackRawW2
+	qpackKindInt32   = qpackRawFamInt | qpackRawW4
+	qpackKindInt64   = qpackRawFamInt | qpackRawW8
+	qpackKindFloat32 = qpackRawFamFloat | qpackRawW4
+	qpackKindFloat64 = qpackRawFamFloat | qpackRawW8
+)
+
+func qpackRawWidthBytes(kind byte) int {
+	switch kind & 0x03 {
+	case qpackRawW1:
+		return 1
+	case qpackRawW2:
+		return 2
+	case qpackRawW4:
+		return 4
+	case qpackRawW8:
+		return 8
+	}
+	return 0
+}
 
 // QPack codec helpers. Each codec emits a single self-described tagged
 // payload that replaces the per-element tag stream for one slice. The
@@ -63,6 +105,275 @@ func (e *Encoder) writePackedBool(s []bool) {
 		}
 	}
 	e.buf = out
+}
+
+// writePackedRawBytes emits a tagPackRaw header followed by the supplied
+// little-endian payload. n is the element count; payload length must
+// equal n * widthFromKind(kind).
+func (e *Encoder) writePackedRawBytes(kind byte, n int, payload []byte) {
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+len(payload))
+	out = append(out, tagPackRaw, kind)
+	out = appendUvarint(out, uint64(n))
+	out = append(out, payload...)
+	e.buf = out
+}
+
+// writePackedUint64Slice writes []uint64 as a raw-LE bulk payload. On a
+// little-endian target this is a single memmove; on big-endian, an
+// element-wise LE emit loop.
+func (e *Encoder) writePackedUint64Slice(s []uint64) {
+	n := len(s)
+	if nativeLittleEndian && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*8)
+		e.writePackedRawBytes(qpackKindUint64, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*8)
+	out = append(out, tagPackRaw, qpackKindUint64)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = appendU64(out, v)
+	}
+	e.buf = out
+}
+
+func (e *Encoder) writePackedInt64Slice(s []int64) {
+	n := len(s)
+	if nativeLittleEndian && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*8)
+		e.writePackedRawBytes(qpackKindInt64, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*8)
+	out = append(out, tagPackRaw, qpackKindInt64)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = appendU64(out, uint64(v))
+	}
+	e.buf = out
+}
+
+func (e *Encoder) writePackedUint32Slice(s []uint32) {
+	n := len(s)
+	if nativeLittleEndian && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*4)
+		e.writePackedRawBytes(qpackKindUint32, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*4)
+	out = append(out, tagPackRaw, qpackKindUint32)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = appendU32(out, v)
+	}
+	e.buf = out
+}
+
+func (e *Encoder) writePackedInt32Slice(s []int32) {
+	n := len(s)
+	if nativeLittleEndian && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*4)
+		e.writePackedRawBytes(qpackKindInt32, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*4)
+	out = append(out, tagPackRaw, qpackKindInt32)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = appendU32(out, uint32(v))
+	}
+	e.buf = out
+}
+
+func (e *Encoder) writePackedFloat32Slice(s []float32) {
+	n := len(s)
+	if nativeLittleEndian && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*4)
+		e.writePackedRawBytes(qpackKindFloat32, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*4)
+	out = append(out, tagPackRaw, qpackKindFloat32)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = appendU32(out, math.Float32bits(v))
+	}
+	e.buf = out
+}
+
+func (e *Encoder) writePackedFloat64Slice(s []float64) {
+	n := len(s)
+	if nativeLittleEndian && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*8)
+		e.writePackedRawBytes(qpackKindFloat64, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*8)
+	out = append(out, tagPackRaw, qpackKindFloat64)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = appendU64(out, math.Float64bits(v))
+	}
+	e.buf = out
+}
+
+// readPackedRawHeader consumes the kind byte and varuint length that
+// follow a tagPackRaw tag (the tag itself must already be consumed). It
+// returns the element count and a slice aliasing the LE payload. The
+// caller's expected kind must match the on-wire kind.
+func (d *Decoder) readPackedRawHeader(expectKind byte) (int, []byte, error) {
+	if d.i >= len(d.buf) {
+		return 0, nil, ErrShortBuffer
+	}
+	k := d.buf[d.i]
+	d.i++
+	if k != expectKind {
+		return 0, nil, ErrTypeMismatch
+	}
+	n64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return 0, nil, ErrInvalidLength
+	}
+	d.i += nr
+	w := qpackRawWidthBytes(k)
+	if w == 0 {
+		return 0, nil, ErrBadTag
+	}
+	if n64 > uint64(len(d.buf)-d.i)/uint64(w) {
+		return 0, nil, ErrShortBuffer
+	}
+	n := int(n64)
+	nBytes := n * w
+	body := d.buf[d.i : d.i+nBytes]
+	d.i += nBytes
+	return n, body, nil
+}
+
+func (d *Decoder) readPackedUint64Slice() ([]uint64, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindUint64)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uint64, n)
+	if n == 0 {
+		return out, nil
+	}
+	if nativeLittleEndian {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*8)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = readU64(body[i*8:])
+	}
+	return out, nil
+}
+
+func (d *Decoder) readPackedInt64Slice() ([]int64, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindInt64)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int64, n)
+	if n == 0 {
+		return out, nil
+	}
+	if nativeLittleEndian {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*8)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = int64(readU64(body[i*8:]))
+	}
+	return out, nil
+}
+
+func (d *Decoder) readPackedUint32Slice() ([]uint32, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindUint32)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uint32, n)
+	if n == 0 {
+		return out, nil
+	}
+	if nativeLittleEndian {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*4)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = readU32(body[i*4:])
+	}
+	return out, nil
+}
+
+func (d *Decoder) readPackedInt32Slice() ([]int32, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindInt32)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int32, n)
+	if n == 0 {
+		return out, nil
+	}
+	if nativeLittleEndian {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*4)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = int32(readU32(body[i*4:]))
+	}
+	return out, nil
+}
+
+func (d *Decoder) readPackedFloat32Slice() ([]float32, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindFloat32)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float32, n)
+	if n == 0 {
+		return out, nil
+	}
+	if nativeLittleEndian {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*4)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = math.Float32frombits(readU32(body[i*4:]))
+	}
+	return out, nil
+}
+
+func (d *Decoder) readPackedFloat64Slice() ([]float64, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindFloat64)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float64, n)
+	if n == 0 {
+		return out, nil
+	}
+	if nativeLittleEndian {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*8)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = math.Float64frombits(readU64(body[i*8:]))
+	}
+	return out, nil
 }
 
 // readPackedBool decodes a bool slice written by writePackedBool. The tag

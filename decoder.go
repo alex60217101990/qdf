@@ -728,6 +728,27 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += nBytes
 		return nil
+	case tagPackRaw:
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		k := d.buf[d.i]
+		d.i++
+		w := qpackRawWidthBytes(k)
+		if w == 0 {
+			return ErrBadTag
+		}
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if n64 > uint64(len(d.buf)-d.i)/uint64(w) {
+			return ErrShortBuffer
+		}
+		d.i += int(n64) * w
+		return nil
 	}
 	return ErrBadTag
 }

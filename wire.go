@@ -70,6 +70,7 @@ const (
 	// QPack codec tags (0xE3..0xEF). Each opens a self-described payload
 	// that replaces the per-element tag stream for a single slice.
 	tagPackBool = 0xE3 // bitpacked []bool: tag, varuint(n), ceil(n/8) bytes (LSB-first)
+	tagPackRaw  = 0xE4 // raw-LE numeric: tag, kind byte, varuint(n), n*width bytes (LE)
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1
