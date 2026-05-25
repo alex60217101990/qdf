@@ -13,6 +13,11 @@ const (
 // Flag bits in the 5th header byte.
 const (
 	FlagDense byte = 1 << 0
+	// FlagQPack signals that the encoder may emit QPack codec tags
+	// (0xE3..0xEF). A decoder that does not recognize the tags will fail
+	// with ErrBadTag on the first packed slice; the flag is an early hint
+	// so callers can refuse the buffer up front.
+	FlagQPack byte = 1 << 1
 )
 
 // Tag bytes.
@@ -61,6 +66,10 @@ const (
 	tagInternStr = 0xE0
 	tagStateRef  = 0xE1
 	tagInternBin = 0xE2
+
+	// QPack codec tags (0xE3..0xEF). Each opens a self-described payload
+	// that replaces the per-element tag stream for a single slice.
+	tagPackBool = 0xE3 // bitpacked []bool: tag, varuint(n), ceil(n/8) bytes (LSB-first)
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1

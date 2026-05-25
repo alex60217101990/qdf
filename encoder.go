@@ -24,6 +24,11 @@ type Encoder struct {
 	// maxStateEntries caps the intern table. Past the cap, new strings go
 	// in line; existing IDs still resolve.
 	maxStateEntries int
+
+	// qpack switches the slice fast paths to QPack codecs (bitpack, FOR,
+	// Gorilla, raw-LE bulk). When set, the header's FlagQPack bit is
+	// emitted as an early hint to legacy readers.
+	qpack bool
 }
 
 // Mode selects the wire dialect.
@@ -121,9 +126,22 @@ func (e *Encoder) writeHeader() {
 	if e.mode == Dense {
 		flag |= FlagDense
 	}
+	if e.qpack {
+		flag |= FlagQPack
+	}
 	e.buf = append(e.buf, Magic0, Magic1, Magic2, Version1, flag)
 	e.headerOut = true
 }
+
+// SetQPack toggles QPack codec emission. When true, slice fast paths
+// produce packed/encoded forms (bitpacked bools, FOR-packed integers,
+// Gorilla-encoded floats, raw-LE bulk) instead of per-element tag streams.
+// Setting must happen before the first write of the value (the header is
+// emitted lazily and carries the FlagQPack hint when this is on).
+func (e *Encoder) SetQPack(v bool) { e.qpack = v }
+
+// QPack reports whether QPack codec emission is enabled.
+func (e *Encoder) QPack() bool { return e.qpack }
 
 // EnsureHeader forces a header write if one has not been emitted yet.
 func (e *Encoder) EnsureHeader() { e.writeHeader() }

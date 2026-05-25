@@ -715,6 +715,19 @@ func (d *Decoder) Skip() error {
 	case tagStateRef:
 		_, err := d.readStringBytes()
 		return err
+	case tagPackBool:
+		d.i++
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		nBytes := (int(n64) + 7) >> 3
+		if d.i+nBytes > len(d.buf) {
+			return ErrShortBuffer
+		}
+		d.i += nBytes
+		return nil
 	}
 	return ErrBadTag
 }

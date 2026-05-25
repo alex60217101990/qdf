@@ -271,6 +271,10 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 
 func encodeSliceBool(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]bool)(p)
+	if e.qpack {
+		e.writePackedBool(s)
+		return nil
+	}
 	e.WriteArrayHeader(len(s))
 	for i := range s {
 		e.WriteBool(s[i])
@@ -278,6 +282,19 @@ func encodeSliceBool(e *Encoder, p unsafe.Pointer) error {
 	return nil
 }
 func decodeSliceBool(d *Decoder, p unsafe.Pointer) error {
+	t, err := d.peekTag()
+	if err != nil {
+		return err
+	}
+	if t == tagPackBool {
+		d.i++
+		out, err := d.readPackedBool()
+		if err != nil {
+			return err
+		}
+		*(*[]bool)(p) = out
+		return nil
+	}
 	n, err := d.ReadArrayHeader()
 	if err != nil {
 		return err
