@@ -547,11 +547,69 @@ The test suite runs under `-race` and covers:
   on alternation, invalidates correctly across an inline-string
   emission, stays in sync with `Decoder.Skip`, and round-trips through
   the public `MarshalDense` / `Unmarshal` boundary.
+- **Property-based round-trip fuzzers** (`fuzz_property_test.go`)
+  drive a deterministic value generator from the fuzz bytes, encode
+  through every Marshal entry point, and assert
+  `Unmarshal(Marshal(v)) == v`. Targets cover Int64Slice,
+  Uint64Slice, Float64Slice, BoolSlice, MapStringInt, StructTriad,
+  and an AllModesAgree fuzzer that asserts the three encoder
+  dialects decode to the same Go value. Caught one Markov-0
+  predictor bug in `encodeStruct` (commit `dfc30ae`).
+- **Golden-file wire pinning** (`testdata/golden/*.bin`,
+  `golden_test.go`): every representative payload has its
+  Marshal / MarshalQPack / MarshalDense bytes committed to disk. A
+  later wire-format change either matches the bytes byte-for-byte
+  or fails the test. Map-shaped cases skip the byte-pin half
+  (Go map iteration is randomised) but keep the decode-and-compare
+  half. Regenerate intentionally via `go test -run TestGolden -update`.
+- **Deterministic truncation matrix** (`truncation_test.go`, ~2700
+  sub-tests): for every representative payload, every prefix
+  `payload[:i]` is fed through Unmarshal into six destination
+  types, every 4th byte is mutated to one of nine "bad"
+  alternatives (00, FF, 80, 55, AA, and every QPack tag), and
+  malformed 5-byte headers are exhaustively rejected. The decoder
+  must return a typed error in every case; panic budget is zero.
+- **Unknown-field skip** (`unknown_field_test.go`): encoder writes a
+  10-field struct, decoder declares only 3; subsequent declared
+  fields still decode correctly. Each of the 10 fields is also
+  pulled out alone via its own single-field destination type.
+- **Pathological-shape stress** (`stress_nesting_test.go`):
+  256-deep linked list, 512-key map, balanced binary tree
+  (depth 12), 1 MiB string + 1 MiB []byte + 100k-element u64/f64
+  vectors, and a 2000-deep chain under `debug.SetMaxStack(64 MiB)`.
+- **Realistic payload corpus** (`realistic_corpus_test.go`):
+  telemetry batches with repeating service/region/level fields,
+  metric time-series, wide column-store rows with recursive
+  Children — round-tripped through every Marshal entry point and
+  cross-checked for three-way agreement.
+- **Allocation-budget tests** (`alloc_budget_test.go`): each hot
+  entry point has an upper-bound allocation budget enforced via
+  `testing.AllocsPerRun`. A regression in alloc count fails CI
+  rather than silently bloating downstream callers.
+- **Tag and named-type matrix** (`tag_matrix_test.go`): every
+  primitive type is exercised through a named alias (`type MyInt
+  int64`), the tag fallback chain `qdf` → `json` → field name is
+  verified, the `qdf:"-"` skip directive is checked via a
+  `map[string]any` decode, and embedded-struct (non-)flattening is
+  pinned.
+- **Differential testing** (`bench/diff_test.go`): qdf round-trips
+  agree semantically with `encoding/json` and
+  `github.com/vmihailenco/msgpack/v5` on a shared payload,
+  including NaN / ±Inf / ±0 preservation against msgpack.
+- Known limitation: like vmihailenco/msgpack, the encoder does not
+  detect pointer cycles and will stack-overflow when given one.
+  Detection would cost a per-call set on the hot path. Callers
+  must avoid cycles or use a wrapper type. The case is captured as
+  a documented `t.Skip` in `cycle_test.go`.
 - Fuzz: `FuzzDecoder_NeverPanics`, `FuzzRoundTrip_StringSlice`,
-  `FuzzQPackBool`, `FuzzQPackRawUint64` with a persistent corpus under
-  `testdata/fuzz/`. 2 M+ executions clean after the Phase 9d Skip-
-  overflow fix; the original repro that triggered the fix is saved as
-  `testdata/fuzz/FuzzDecoder_NeverPanics/91886d615691492c`.
+  `FuzzQPackBool`, `FuzzQPackRawUint64`, `FuzzRoundTrip_Int64Slice`,
+  `FuzzRoundTrip_Uint64Slice`, `FuzzRoundTrip_Float64Slice`,
+  `FuzzRoundTrip_BoolSlice`, `FuzzRoundTrip_MapStringInt`,
+  `FuzzRoundTrip_StructTriad`, `FuzzRoundTrip_AllModesAgree` —
+  persistent corpus under `testdata/fuzz/`. 10 M+ executions
+  clean across the suite after the Skip-overflow and
+  encodeStruct-predictor fixes; both repros are saved under
+  `testdata/fuzz/`.
 
 Length prefixes are validated against the remaining buffer
 (`Decoder.CheckLength`) before any `make`, so a hostile payload
@@ -563,11 +621,28 @@ encoding a value > 2^62 cannot drive the decoder cursor negative.
 ```bash
 go test -race -count=1 ./...
 
-# Fuzz (extend -fuzztime as desired)
-go test -run=^$ -fuzz=FuzzDecoder_NeverPanics      -fuzztime=30s
-go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice    -fuzztime=30s
-go test -run=^$ -fuzz=FuzzQPackBool                -fuzztime=30s
-go test -run=^$ -fuzz=FuzzQPackRawUint64           -fuzztime=30s
+# Property-based round-trip fuzz (each fuzzer asserts
+# Unmarshal(Marshal(v)) == v on randomly generated values)
+go test -run=^$ -fuzz=FuzzRoundTrip_StructTriad     -fuzztime=60s
+go test -run=^$ -fuzz=FuzzRoundTrip_AllModesAgree   -fuzztime=60s
+go test -run=^$ -fuzz=FuzzRoundTrip_Int64Slice      -fuzztime=30s
+go test -run=^$ -fuzz=FuzzRoundTrip_Uint64Slice     -fuzztime=30s
+go test -run=^$ -fuzz=FuzzRoundTrip_Float64Slice    -fuzztime=30s
+go test -run=^$ -fuzz=FuzzRoundTrip_BoolSlice       -fuzztime=30s
+go test -run=^$ -fuzz=FuzzRoundTrip_MapStringInt    -fuzztime=30s
+
+# Decoder safety fuzz (asserts never-panic on hostile input)
+go test -run=^$ -fuzz=FuzzDecoder_NeverPanics       -fuzztime=30s
+go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice     -fuzztime=30s
+go test -run=^$ -fuzz=FuzzQPackBool                 -fuzztime=30s
+go test -run=^$ -fuzz=FuzzQPackRawUint64            -fuzztime=30s
+
+# Differential vs msgpack and encoding/json
+go test -C bench -run=TestDiff -count=1
+
+# Regenerate wire-format golden fixtures (intentional after a wire
+# bump only)
+go test -run=TestGolden -update
 
 # Build-tag combinations
 go test -tags qdf_reflect2          -race ./...
@@ -605,6 +680,18 @@ qdf/
 ├── reflect_encode.go       reflect-based encode/decode with descriptor cache
 ├── wire.go                 tag constants + varint
 ├── errors.go
+├── fuzz_test.go                  decoder-safety fuzzers
+├── fuzz_property_test.go         property-based round-trip fuzzers
+├── golden_test.go                wire-format goldens (testdata/golden/*.bin)
+├── truncation_test.go            prefix / mutation / header rejection matrix
+├── unknown_field_test.go         decoder skips unknown fields cleanly
+├── stress_nesting_test.go        deep-chain, wide-map, tree, big-primitive stress
+├── realistic_corpus_test.go      telemetry / metric-series / wide-row round-trips
+├── alloc_budget_test.go          AllocsPerRun upper-bound checks per hot entry
+├── tag_matrix_test.go            named-type, qdf:"-", json fallback, embedded
+├── cycle_test.go                 deep finite chain + documented cycle limitation
+├── entanglement_test.go          tagStateRepeat Markov-0 predictor coverage
+├── qpack_completeness_test.go    end-to-end coverage across all Marshal entries
 ├── internal/
 │   ├── bufpool/        size-classed sharded byte-slice pool
 │   ├── intern/         decoder-side string-key intern cache
