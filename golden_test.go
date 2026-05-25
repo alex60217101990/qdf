@@ -29,6 +29,11 @@ type goldenCase struct {
 	name  string
 	value any // encoded source; decoder gets a fresh pointer of the same type
 	zero  func() any
+	// nonDeterministic marks cases (notably Go maps) whose encoded byte
+	// sequence depends on Go's randomised iteration order. The decode-
+	// then-compare half of the round-trip still runs; only the byte-
+	// pin half is skipped.
+	nonDeterministic bool
 }
 
 func goldenCases() []goldenCase {
@@ -93,9 +98,10 @@ func goldenCases() []goldenCase {
 			zero:  func() any { v := []bool{}; return &v },
 		},
 		{
-			name:  "map_string_int",
-			value: map[string]int{"a": 1, "b": 2, "c": 3},
-			zero:  func() any { v := map[string]int{}; return &v },
+			name:             "map_string_int",
+			value:            map[string]int{"a": 1, "b": 2, "c": 3},
+			zero:             func() any { v := map[string]int{}; return &v },
+			nonDeterministic: true,
 		},
 	}
 }
@@ -142,7 +148,7 @@ func runGolden(t *testing.T, dialect string, encode func(any) ([]byte, error)) {
 				}
 				t.Fatal(err)
 			}
-			if !bytes.Equal(want, got) {
+			if !c.nonDeterministic && !bytes.Equal(want, got) {
 				t.Fatalf("wire mismatch:\n want=%x\n  got=%x", want, got)
 			}
 			// Decode from the on-disk bytes (not the just-encoded ones)
