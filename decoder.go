@@ -778,6 +778,47 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += bodyBytes
 		return nil
+	case tagPackDeltaFor:
+		d.i++
+		if d.i+2 > len(d.buf) {
+			return ErrShortBuffer
+		}
+		d.i++ // skip kind
+		bitsPer := int(d.buf[d.i])
+		d.i++
+		if bitsPer > qpackForMaxBits {
+			return ErrBadTag
+		}
+		// firstVal varuint
+		_, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		// minDelta varuint
+		_, nr = readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		n := int(n64)
+		if n >= 2 {
+			bodyBits := (n - 1) * bitsPer
+			bodyBytes := bodyBits >> 3
+			if bodyBits&7 != 0 {
+				bodyBytes++
+			}
+			if d.i+bodyBytes > len(d.buf) {
+				return ErrShortBuffer
+			}
+			d.i += bodyBytes
+		}
+		return nil
 	}
 	return ErrBadTag
 }

@@ -74,6 +74,12 @@ const (
 	tagPackFor  = 0xE5 // Frame-of-Reference bitpacked integer slice:
 	//                    tag, kind, bits (0..56), min varuint (zigzag for signed),
 	//                    varuint(n), ceil(n*bits/8) bytes (LSB-first).
+	tagPackDeltaFor = 0xE6 // Delta + zigzag + Frame-of-Reference integer slice:
+	//                    tag, kind, bits (0..56),
+	//                    first value (varuint or zigzag varuint),
+	//                    minDelta (zigzag varuint),
+	//                    varuint(n),
+	//                    ceil((n-1)*bits/8) bytes (LSB-first) of (Δᵢ - minDelta).
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1
