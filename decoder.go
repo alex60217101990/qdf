@@ -778,6 +778,41 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += bodyBytes
 		return nil
+	case tagPackGorilla:
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		k := d.buf[d.i]
+		d.i++
+		w := qpackRawWidthBytes(k)
+		if w != 4 && w != 8 {
+			return ErrBadTag
+		}
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if n64 == 0 {
+			return nil
+		}
+		if d.i+w > len(d.buf) {
+			return ErrShortBuffer
+		}
+		d.i += w
+		// numBits varuint
+		nb64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		bodyBytes := (int(nb64) + 7) >> 3
+		if d.i+bodyBytes > len(d.buf) {
+			return ErrShortBuffer
+		}
+		d.i += bodyBytes
+		return nil
 	case tagPackDeltaFor:
 		d.i++
 		if d.i+2 > len(d.buf) {

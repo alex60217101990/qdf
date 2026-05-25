@@ -74,6 +74,10 @@ const (
 	tagPackFor  = 0xE5 // Frame-of-Reference bitpacked integer slice:
 	//                    tag, kind, bits (0..56), min varuint (zigzag for signed),
 	//                    varuint(n), ceil(n*bits/8) bytes (LSB-first).
+	tagPackGorilla  = 0xE7 // Gorilla XOR-coded float slice:
+	//                    tag, kind (qpackKindFloat32/64), varuint(n),
+	//                    first value (4 or 8 LE bytes), varuint(numBits),
+	//                    ceil(numBits/8) bytes of MSB-first XOR-delta bit-stream.
 	tagPackDeltaFor = 0xE6 // Delta + zigzag + Frame-of-Reference integer slice:
 	//                    tag, kind, bits (0..56),
 	//                    first value (varuint or zigzag varuint),
