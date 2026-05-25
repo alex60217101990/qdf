@@ -16,26 +16,26 @@ import (
 type bigPayload struct {
 	Name string `qdf:"name"`
 
-	Empty []uint64 `qdf:"empty"`
-	OneU  []uint64 `qdf:"oneu"`
-	OneI  []int64  `qdf:"onei"`
-	OneB  []bool   `qdf:"oneb"`
+	Empty []uint64  `qdf:"empty"`
+	OneU  []uint64  `qdf:"oneu"`
+	OneI  []int64   `qdf:"onei"`
+	OneB  []bool    `qdf:"oneb"`
 	OneF  []float64 `qdf:"onef"`
 
-	Bools    []bool    `qdf:"bools"`
-	Bytes    []byte    `qdf:"bytes"`
-	U8       []uint8   `qdf:"u8"`
-	I8       []int8    `qdf:"i8"`
-	U16      []uint16  `qdf:"u16"`
-	I16      []int16   `qdf:"i16"`
-	U32      []uint32  `qdf:"u32"`
-	I32      []int32   `qdf:"i32"`
-	U64      []uint64  `qdf:"u64"`
-	I64      []int64   `qdf:"i64"`
-	Ints     []int     `qdf:"ints"`
-	F32      []float32 `qdf:"f32"`
-	F64      []float64 `qdf:"f64"`
-	Strs     []string  `qdf:"strs"`
+	Bools []bool    `qdf:"bools"`
+	Bytes []byte    `qdf:"bytes"`
+	U8    []uint8   `qdf:"u8"`
+	I8    []int8    `qdf:"i8"`
+	U16   []uint16  `qdf:"u16"`
+	I16   []int16   `qdf:"i16"`
+	U32   []uint32  `qdf:"u32"`
+	I32   []int32   `qdf:"i32"`
+	U64   []uint64  `qdf:"u64"`
+	I64   []int64   `qdf:"i64"`
+	Ints  []int     `qdf:"ints"`
+	F32   []float32 `qdf:"f32"`
+	F64   []float64 `qdf:"f64"`
+	Strs  []string  `qdf:"strs"`
 
 	MaxedU64    []uint64  `qdf:"maxu64"`
 	MinIntsI64  []int64   `qdf:"miniii"`
@@ -80,26 +80,26 @@ func makeBigPayload(t *testing.T) bigPayload {
 	}
 
 	return bigPayload{
-		Name:    "completeness-test",
-		Empty:   []uint64{},
-		OneU:    []uint64{42},
-		OneI:    []int64{-7},
-		OneB:    []bool{true},
-		OneF:    []float64{3.14},
-		Bools:   []bool{true, false, true, true, false, false, true, false, true},
-		Bytes:   []byte{0x00, 0xFF, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56},
-		U8:      []uint8{0, 1, 127, 128, 255},
-		I8:      []int8{-128, -1, 0, 1, 127},
-		U16:     []uint16{0, 1, 65535},
-		I16:     []int16{-32768, 0, 32767},
-		U32:     []uint32{0, 1, math.MaxUint32, 12345},
-		I32:     []int32{math.MinInt32, -1, 0, 1, math.MaxInt32},
-		U64:     mkU(33),
-		I64:     mkI(33),
-		Ints:    []int{-1 << 30, -1, 0, 1, 1 << 30},
-		F32:     []float32{0, -0, 1.5, -2.25, 1e-30, 1e30},
-		F64:     []float64{0, -0, 1.5, -2.25, 1e-300, 1e300},
-		Strs:    []string{"hello", "world", "hello", "", "long-string-that-might-be-interned"},
+		Name:  "completeness-test",
+		Empty: []uint64{},
+		OneU:  []uint64{42},
+		OneI:  []int64{-7},
+		OneB:  []bool{true},
+		OneF:  []float64{3.14},
+		Bools: []bool{true, false, true, true, false, false, true, false, true},
+		Bytes: []byte{0x00, 0xFF, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56},
+		U8:    []uint8{0, 1, 127, 128, 255},
+		I8:    []int8{-128, -1, 0, 1, 127},
+		U16:   []uint16{0, 1, 65535},
+		I16:   []int16{-32768, 0, 32767},
+		U32:   []uint32{0, 1, math.MaxUint32, 12345},
+		I32:   []int32{math.MinInt32, -1, 0, 1, math.MaxInt32},
+		U64:   mkU(33),
+		I64:   mkI(33),
+		Ints:  []int{-1 << 30, -1, 0, 1, 1 << 30},
+		F32:   []float32{0, -0, 1.5, -2.25, 1e-30, 1e30},
+		F64:   []float64{0, -0, 1.5, -2.25, 1e-300, 1e300},
+		Strs:  []string{"hello", "world", "hello", "", "long-string-that-might-be-interned"},
 
 		MaxedU64:    []uint64{math.MaxUint64, math.MaxUint64 - 1, 0, 1},
 		MinIntsI64:  []int64{math.MinInt64, math.MinInt64 + 1, 0, math.MaxInt64},

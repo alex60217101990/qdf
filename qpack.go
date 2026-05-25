@@ -80,7 +80,6 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 			}
 			c := hdr + body
 			if c < bestCost {
-				bestCost = c
 				codec = qpackDeltaFor
 			}
 		}
@@ -120,7 +119,6 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 			}
 			c := hdr + body
 			if c < bestCost {
-				bestCost = c
 				codec = qpackDeltaFor
 			}
 		}

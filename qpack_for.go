@@ -178,7 +178,7 @@ func (e *Encoder) writePackedForUint64Slice(s []uint64, mn uint64, bitsPer int) 
 	// Reuse a small stack-allocated chunk buffer for the delta values.
 	var chunk [64]uint64
 	for i := 0; i < n; i += len(chunk) {
-		end := min(i + len(chunk), n)
+		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
 			chunk[j] = v - mn
 		}
@@ -241,7 +241,7 @@ func (e *Encoder) writePackedForInt64Slice(s []int64, mn int64, bitsPer int) {
 	mnU := uint64(mn)
 	var chunk [64]uint64
 	for i := 0; i < n; i += len(chunk) {
-		end := min(i + len(chunk), n)
+		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
 			chunk[j] = uint64(v) - mnU
 		}

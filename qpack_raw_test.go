@@ -101,7 +101,8 @@ func TestQPackRaw_Uint32Int32_RoundTrip(t *testing.T) {
 }
 
 func TestQPackRaw_Float32_RoundTrip(t *testing.T) {
-	in := []float32{0, -0, 1.5, -2.25, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1))}
+	in := make([]float32, 0, 107)
+	in = append(in, 0, -0, 1.5, -2.25, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1)))
 	for i := range 100 {
 		in = append(in, float32(i)*0.1)
 	}
@@ -132,7 +133,8 @@ func TestQPackRaw_Float32_RoundTrip(t *testing.T) {
 }
 
 func TestQPackRaw_Float64_RoundTrip(t *testing.T) {
-	in := []float64{0, -0, 1.5, -2.25, math.NaN(), math.Inf(1), math.Inf(-1)}
+	in := make([]float64, 0, 107)
+	in = append(in, 0, -0, 1.5, -2.25, math.NaN(), math.Inf(1), math.Inf(-1))
 	for i := range 100 {
 		in = append(in, float64(i)*0.1)
 	}

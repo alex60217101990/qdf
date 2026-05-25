@@ -81,9 +81,7 @@ func TestMTF_SizeWinOnLargeHotSet(t *testing.T) {
 		tokens[i] = "tok-" + strconv.Itoa(i+10000)
 	}
 	in := make([]string, 0, Nunique+Nrefs)
-	for _, s := range tokens {
-		in = append(in, s)
-	}
+	in = append(in, tokens...)
 	// Hot subset: tokens 200..207 (whose intern IDs > 128).
 	for i := range Nrefs {
 		in = append(in, tokens[200+i%8])
@@ -142,9 +140,7 @@ func BenchmarkMTF_SizeOnSyntheticHotSet(b *testing.B) {
 		tokens[i] = "tok-" + strconv.Itoa(i+10000)
 	}
 	in := make([]string, 0, Nunique+Nrefs)
-	for _, s := range tokens {
-		in = append(in, s)
-	}
+	in = append(in, tokens...)
 	for i := range Nrefs {
 		in = append(in, tokens[200+i%8])
 	}

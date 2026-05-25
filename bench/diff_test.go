@@ -177,10 +177,10 @@ func TestDiff_QDFAgreesWithMsgpack_FloatEdgeCases(t *testing.T) {
 // the comparison to values JSON can represent precisely.
 func TestDiff_IntegerBoundaries(t *testing.T) {
 	type intHolder struct {
-		I32  int32  `json:"i32"  msgpack:"i32"  qdf:"i32"`
-		I64  int64  `json:"i64"  msgpack:"i64"  qdf:"i64"`
-		U32  uint32 `json:"u32"  msgpack:"u32"  qdf:"u32"`
-		U53  uint64 `json:"u53"  msgpack:"u53"  qdf:"u53"`
+		I32 int32  `json:"i32"  msgpack:"i32"  qdf:"i32"`
+		I64 int64  `json:"i64"  msgpack:"i64"  qdf:"i64"`
+		U32 uint32 `json:"u32"  msgpack:"u32"  qdf:"u32"`
+		U53 uint64 `json:"u53"  msgpack:"u53"  qdf:"u53"`
 	}
 	in := intHolder{
 		I32: math.MaxInt32,

@@ -204,9 +204,9 @@ func TestMisc_TimeEdges(t *testing.T) {
 		time.Unix(0, 0).UTC(),
 		time.Unix(1, 0).UTC(),
 		time.Unix(-1, 0).UTC(),
-		time.Unix(1<<30, 0).UTC(),     // year 2004
-		time.Unix(1<<31, 0).UTC(),     // year 2038, the famous one
-		time.Unix(-1<<30, 0).UTC(),    // year 1935
+		time.Unix(1<<30, 0).UTC(),  // year 2004
+		time.Unix(1<<31, 0).UTC(),  // year 2038, the famous one
+		time.Unix(-1<<30, 0).UTC(), // year 1935
 		time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(1700, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
@@ -243,10 +243,10 @@ func TestMisc_EmptyStructRoot(t *testing.T) {
 func TestMisc_UnicodeKeys(t *testing.T) {
 	// Multi-byte UTF-8 keys inside a Dense intern table.
 	in := map[string]int{
-		"привет":   1,
-		"こんにちは": 2,
-		"السلام":   3,
-		"hello":    4,
+		"привет": 1,
+		"こんにちは":  2,
+		"السلام": 3,
+		"hello":  4,
 	}
 	for label, enc := range map[string]func(any) ([]byte, error){
 		"Marshal":      Marshal,

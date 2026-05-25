@@ -45,19 +45,11 @@ func (r *fuzzReader) pull(n int) []byte {
 	return out
 }
 
-func (r *fuzzReader) u8() uint8  { b := r.pull(1); return b[0] }
-func (r *fuzzReader) u16() uint16 { return binary.LittleEndian.Uint16(r.pull(2)) }
+func (r *fuzzReader) u8() uint8   { b := r.pull(1); return b[0] }
 func (r *fuzzReader) u32() uint32 { return binary.LittleEndian.Uint32(r.pull(4)) }
 func (r *fuzzReader) u64() uint64 { return binary.LittleEndian.Uint64(r.pull(8)) }
 func (r *fuzzReader) i64() int64  { return int64(r.u64()) }
 func (r *fuzzReader) i32() int32  { return int32(r.u32()) }
-func (r *fuzzReader) f32() float32 {
-	v := math.Float32frombits(r.u32())
-	if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
-		return 0
-	}
-	return v
-}
 func (r *fuzzReader) f64() float64 {
 	v := math.Float64frombits(r.u64())
 	if math.IsNaN(v) || math.IsInf(v, 0) {
@@ -80,7 +72,7 @@ func (r *fuzzReader) str(maxLen int) string {
 	out := make([]byte, n)
 	for i := range out {
 		// Bias towards ASCII to also exercise fixstr-eligible alphabet.
-		out[i] = byte(r.u8() & 0x7F)
+		out[i] = r.u8() & 0x7F
 	}
 	return string(out)
 }
@@ -96,21 +88,6 @@ func floatSliceEqual(a, b []float64) bool {
 			continue
 		}
 		if math.Float64bits(a[i]) != math.Float64bits(b[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func float32SliceEqual(a, b []float32) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if math.IsNaN(float64(a[i])) && math.IsNaN(float64(b[i])) {
-			continue
-		}
-		if math.Float32bits(a[i]) != math.Float32bits(b[i]) {
 			return false
 		}
 	}
@@ -281,13 +258,13 @@ func FuzzRoundTrip_MapStringInt(f *testing.F) {
 // --- FuzzRoundTrip_StructTriad --------------------------------------
 
 type fuzzTriad struct {
-	ID      int64    `qdf:"id"`
-	Name    string   `qdf:"name"`
-	Tags    []string `qdf:"tags"`
-	Counts  []int    `qdf:"counts"`
+	ID      int64     `qdf:"id"`
+	Name    string    `qdf:"name"`
+	Tags    []string  `qdf:"tags"`
+	Counts  []int     `qdf:"counts"`
 	Vec     []float64 `qdf:"vec"`
-	Active  bool     `qdf:"active"`
-	Padding []byte   `qdf:"padding"`
+	Active  bool      `qdf:"active"`
+	Padding []byte    `qdf:"padding"`
 }
 
 func FuzzRoundTrip_StructTriad(f *testing.F) {

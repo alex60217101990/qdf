@@ -135,13 +135,13 @@ func TestHeader_RejectsAllBadVariants(t *testing.T) {
 	// panic and not a silent accept.
 	body := []byte{0xC0} // tagNil — a trivially valid body
 	cases := map[string][]byte{
-		"empty":         {},
-		"one_byte":      {'Q'},
-		"two_bytes":     {'Q', 'D'},
-		"three_bytes":   {'Q', 'D', 'F'},
-		"four_bytes":    {'Q', 'D', 'F', 0x01},
-		"bad_magic":     {'X', 'Y', 'Z', 0x01, 0x00},
-		"bad_version_0": {'Q', 'D', 'F', 0x00, 0x00},
+		"empty":          {},
+		"one_byte":       {'Q'},
+		"two_bytes":      {'Q', 'D'},
+		"three_bytes":    {'Q', 'D', 'F'},
+		"four_bytes":     {'Q', 'D', 'F', 0x01},
+		"bad_magic":      {'X', 'Y', 'Z', 0x01, 0x00},
+		"bad_version_0":  {'Q', 'D', 'F', 0x00, 0x00},
 		"bad_version_ff": {'Q', 'D', 'F', 0xFF, 0x00},
 	}
 	for name, header := range cases {
@@ -193,7 +193,7 @@ func TestTruncation_TagCoverage(t *testing.T) {
 		}
 	}
 	if len(seen) < 12 {
-		var got []string
+		got := make([]string, 0, len(seen))
 		for b := range seen {
 			got = append(got, fmt.Sprintf("%02x", b))
 		}

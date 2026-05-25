@@ -196,4 +196,3 @@ func (d *decState) get(id uint32) ([]byte, bool) {
 	}
 	return d.values[id], true
 }
-

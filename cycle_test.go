@@ -107,4 +107,3 @@ func TestCycle_RecursiveStructLegal(t *testing.T) {
 		t.Fatalf("nested: %+v", out)
 	}
 }
-

@@ -12,10 +12,10 @@ func TestDeltaForUint64_RoundTrip(t *testing.T) {
 	cases := [][]uint64{
 		nil,
 		{42},
-		{42, 42, 42, 42, 42},                                 // const => minDelta=0, bits=0
-		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},                      // strict +1
-		{1_700_000_000, 1_700_000_001, 1_700_000_003},        // unix ns-ish
-		{100, 200, 150, 250, 300, 200, 400},                  // mixed direction
+		{42, 42, 42, 42, 42},            // const => minDelta=0, bits=0
+		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, // strict +1
+		{1_700_000_000, 1_700_000_001, 1_700_000_003},             // unix ns-ish
+		{100, 200, 150, 250, 300, 200, 400},                       // mixed direction
 		{math.MaxUint64 - 10, math.MaxUint64 - 5, math.MaxUint64}, // near MaxUint64
 	}
 	for _, in := range cases {

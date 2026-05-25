@@ -218,28 +218,31 @@ func (e *Encoder) writePackedGorillaFloat32Slice(s []float32) {
 }
 
 // readPackedGorillaHeader consumes kind, n, firstVal, numBits, body.
-// The tag itself must already be consumed.
-func (d *Decoder) readPackedGorillaHeader(expectKind byte) (n int, firstU64 uint64, body []byte, numBits int, err error) {
+// The tag itself must already be consumed. The numBits varuint is
+// validated and consumed but not returned — callers walk the body
+// via a bitReader that stops at numBits internally; surfacing the
+// value made it unused (caught by unparam).
+func (d *Decoder) readPackedGorillaHeader(expectKind byte) (n int, firstU64 uint64, body []byte, err error) {
 	if d.i >= len(d.buf) {
-		return 0, 0, nil, 0, ErrShortBuffer
+		return 0, 0, nil, ErrShortBuffer
 	}
 	k := d.buf[d.i]
 	d.i++
 	if k != expectKind {
-		return 0, 0, nil, 0, ErrTypeMismatch
+		return 0, 0, nil, ErrTypeMismatch
 	}
 	n64, nr := readUvarint(d.buf[d.i:])
 	if nr <= 0 {
-		return 0, 0, nil, 0, ErrInvalidLength
+		return 0, 0, nil, ErrInvalidLength
 	}
 	d.i += nr
 	n = int(n64)
 	if n == 0 {
-		return n, 0, nil, 0, nil
+		return n, 0, nil, nil
 	}
 	w := qpackRawWidthBytes(k)
 	if d.i+w > len(d.buf) {
-		return 0, 0, nil, 0, ErrShortBuffer
+		return 0, 0, nil, ErrShortBuffer
 	}
 	switch w {
 	case 4:
@@ -247,40 +250,39 @@ func (d *Decoder) readPackedGorillaHeader(expectKind byte) (n int, firstU64 uint
 	case 8:
 		firstU64 = readU64(d.buf[d.i:])
 	default:
-		return 0, 0, nil, 0, ErrBadTag
+		return 0, 0, nil, ErrBadTag
 	}
 	d.i += w
 	if n == 1 {
 		// numBits must be 0 but still encoded.
 		nb64, nr := readUvarint(d.buf[d.i:])
 		if nr <= 0 {
-			return 0, 0, nil, 0, ErrInvalidLength
+			return 0, 0, nil, ErrInvalidLength
 		}
 		d.i += nr
 		if nb64 != 0 {
-			return 0, 0, nil, 0, ErrBadTag
+			return 0, 0, nil, ErrBadTag
 		}
-		return n, firstU64, nil, 0, nil
+		return n, firstU64, nil, nil
 	}
 	nb64, nr := readUvarint(d.buf[d.i:])
 	if nr <= 0 {
-		return 0, 0, nil, 0, ErrInvalidLength
+		return 0, 0, nil, ErrInvalidLength
 	}
 	d.i += nr
 	// uint64 bounds check before signed cast.
 	rem := uint64(len(d.buf) - d.i)
 	if nb64 > rem*8 {
-		return 0, 0, nil, 0, ErrShortBuffer
+		return 0, 0, nil, ErrShortBuffer
 	}
-	numBits = int(nb64)
 	bodyBytes := int((nb64 + 7) / 8)
 	body = d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	return n, firstU64, body, numBits, nil
+	return n, firstU64, body, nil
 }
 
 func (d *Decoder) readPackedGorillaFloat64Slice() ([]float64, error) {
-	n, firstU, body, _, err := d.readPackedGorillaHeader(qpackKindFloat64)
+	n, firstU, body, err := d.readPackedGorillaHeader(qpackKindFloat64)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +346,7 @@ func (d *Decoder) readPackedGorillaFloat64Slice() ([]float64, error) {
 }
 
 func (d *Decoder) readPackedGorillaFloat32Slice() ([]float32, error) {
-	n, firstU, body, _, err := d.readPackedGorillaHeader(qpackKindFloat32)
+	n, firstU, body, err := d.readPackedGorillaHeader(qpackKindFloat32)
 	if err != nil {
 		return nil, err
 	}

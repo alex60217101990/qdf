@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"reflect"
 	"testing"
@@ -112,7 +113,7 @@ func TestStream_EOFAtStreamEnd(t *testing.T) {
 	}
 	var trailing streamMsg
 	err := dec.Decode(&trailing)
-	if err != io.EOF {
+	if !errors.Is(err, io.EOF) {
 		t.Fatalf("expected io.EOF, got %v", err)
 	}
 }

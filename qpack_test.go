@@ -231,4 +231,3 @@ func BenchmarkQPackBool_Decode(b *testing.B) {
 		})
 	}
 }
-

@@ -169,10 +169,10 @@ func TestStress_BigPrimitives(t *testing.T) {
 	}
 
 	type bigStruct struct {
-		S      string    `qdf:"s"`
-		B      []byte    `qdf:"b"`
-		U      []uint64  `qdf:"u"`
-		F      []float64 `qdf:"f"`
+		S string    `qdf:"s"`
+		B []byte    `qdf:"b"`
+		U []uint64  `qdf:"u"`
+		F []float64 `qdf:"f"`
 	}
 	in := bigStruct{S: longString, B: long, U: bigU64, F: bigF64}
 

@@ -114,8 +114,8 @@ func TestUnmarshalDirect_AcceptsBothEncoders(t *testing.T) {
 
 func TestUnmarshalDirect_HeaderValidation(t *testing.T) {
 	cases := map[string][]byte{
-		"short":      {},
-		"bad-magic":  {'X', 'Y', 'Z', 1, 0},
+		"short":       {},
+		"bad-magic":   {'X', 'Y', 'Z', 1, 0},
 		"bad-version": {'Q', 'D', 'F', 0xEE, 0},
 	}
 	for name, buf := range cases {

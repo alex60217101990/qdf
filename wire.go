@@ -84,7 +84,7 @@ const (
 	//                    raw intern ID. Used when uvarintLen(rank) <
 	//                    uvarintLen(id) so the wire never grows over
 	//                    the plain tagStateRef encoding.
-	tagPackGorilla  = 0xE7 // Gorilla XOR-coded float slice:
+	tagPackGorilla = 0xE7 // Gorilla XOR-coded float slice:
 	//                    tag, kind (qpackKindFloat32/64), varuint(n),
 	//                    first value (4 or 8 LE bytes), varuint(numBits),
 	//                    ceil(numBits/8) bytes of MSB-first XOR-delta bit-stream.
