@@ -44,6 +44,99 @@ func qpackRawWidthBytes(kind byte) int {
 	return 0
 }
 
+// pickU64Codec analyses a []uint64 and decides which QPack codec yields
+// the smallest wire form. Cost of the scan is O(n) (min/max + delta
+// stats), which is dominated by the encode itself.
+func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits int) {
+	n := len(s)
+	codec = qpackRaw
+	if n == 0 {
+		return
+	}
+	// raw cost: tag + kind + nVarUint + 8n
+	rawCost := 2 + uvarintLen(uint64(n)) + 8*n
+
+	var mx uint64
+	mn, mx = minMaxU64(s)
+	forBits = bitsForDelta(mx - mn)
+	bestCost := rawCost
+	if forBits <= qpackForMaxBits {
+		c := qpackForSizeUnsigned(n, forBits, mn)
+		if c < bestCost {
+			bestCost = c
+			codec = qpackFor
+		}
+	}
+	if n >= 4 {
+		first, minDelta, deltaBits = computeDeltaStatsU64(s)
+		if deltaBits <= qpackForMaxBits {
+			hdr := 3 + uvarintLen(first) + uvarintLen(zigzagEncode64(minDelta)) + uvarintLen(uint64(n))
+			body := 0
+			if n >= 2 {
+				body = ((n - 1) * deltaBits) >> 3
+				if ((n-1)*deltaBits)&7 != 0 {
+					body++
+				}
+			}
+			c := hdr + body
+			if c < bestCost {
+				bestCost = c
+				codec = qpackDeltaFor
+			}
+		}
+	}
+	return
+}
+
+func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits int) {
+	n := len(s)
+	codec = qpackRaw
+	if n == 0 {
+		return
+	}
+	rawCost := 2 + uvarintLen(uint64(n)) + 8*n
+
+	var mx int64
+	mn, mx = minMaxI64(s)
+	forBits = bitsForDelta(uint64(mx) - uint64(mn))
+	bestCost := rawCost
+	if forBits <= qpackForMaxBits {
+		c := qpackForSizeSigned(n, forBits, mn)
+		if c < bestCost {
+			bestCost = c
+			codec = qpackFor
+		}
+	}
+	if n >= 4 {
+		first, minDelta, deltaBits = computeDeltaStatsI64(s)
+		if deltaBits <= qpackForMaxBits {
+			hdr := 3 + uvarintLen(zigzagEncode64(first)) + uvarintLen(zigzagEncode64(minDelta)) + uvarintLen(uint64(n))
+			body := 0
+			if n >= 2 {
+				body = ((n - 1) * deltaBits) >> 3
+				if ((n-1)*deltaBits)&7 != 0 {
+					body++
+				}
+			}
+			c := hdr + body
+			if c < bestCost {
+				bestCost = c
+				codec = qpackDeltaFor
+			}
+		}
+	}
+	return
+}
+
+// qpackCodec identifies which QPack codec to invoke for a numeric slice.
+type qpackCodec uint8
+
+const (
+	qpackRaw qpackCodec = iota
+	qpackFor
+	qpackDeltaFor
+)
+
 // QPack codec helpers. Each codec emits a single self-described tagged
 // payload that replaces the per-element tag stream for one slice. The
 // codecs are opt-in (Encoder.SetQPack); decoders accept the new tags
