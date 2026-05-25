@@ -48,10 +48,15 @@ func bitPackU64LE(out []byte, vals []uint64, bitsPer int) {
 }
 
 // bitUnpackU64LE reads len(out)*bits bits from in. bits must be in
-// [1, 56]. in must have len >= ceil(len(out)*bits/8). The body
-// dispatches to bitUnpackU64LEFast (a 128-bit sliding-window decoder
-// with 64-bit bulk loads).
+// [1, 56]. in must have len >= ceil(len(out)*bits/8). Byte-aligned
+// widths take a dedicated zero-extend fast path (asm under qdf_simd on
+// amd64, otherwise scalar memcpy-with-mask); other widths use the
+// 128-bit sliding window decoder.
 func bitUnpackU64LE(out []uint64, in []byte, bitsPer int) {
+	if bitsPer == 32 {
+		unpackBits32(out, in)
+		return
+	}
 	bitUnpackU64LEFast(out, in, bitsPer)
 }
 

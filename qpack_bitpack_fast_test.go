@@ -74,5 +74,13 @@ func BenchmarkBitUnpackFast(b *testing.B) {
 				bitUnpackU64LEFast(out, body, bits)
 			}
 		})
+		// Dispatcher path — exercises the qdf_simd asm fast path when
+		// the build tag is set.
+		b.Run("dispatch/"+tag, func(b *testing.B) {
+			b.SetBytes(int64(cfg.n * 8))
+			for b.Loop() {
+				bitUnpackU64LE(out, body, bits)
+			}
+		})
 	}
 }
