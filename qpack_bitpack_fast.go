@@ -33,7 +33,7 @@ func bitUnpackU64LEFast(out []uint64, in []byte, bitsPer int) {
 	pos := 0
 	end := len(in)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Refill: ensure 128-bit window has at least `b` valid bits.
 		// Invariant: when we enter the refill, have < b <= 56, so the
 		// remaining bits all live in lo and hi is zero.

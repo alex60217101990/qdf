@@ -40,6 +40,13 @@ coverage by `TestPool_ConcurrentEncoders` + the full `-race` test sweep.
   +FOR reaches 512× compression on monotonic timestamp vectors.
 - **Generic `MarshalT[T]`**: -1 alloc and 25-40 % faster than the
   `any`-boxing entry points on small/medium payloads. Same wire.
+- **`MarshalDirect[T Marshaler]`**: 1.55× faster than `Marshal` on
+  generated types, 1 alloc per call, 3× less peak memory. Fast-mode
+  only (Dense falls back to the reflect path so the intern table is
+  resolved correctly).
+- **`tagStateRepeat` (Dense, Markov-0 predictor)**: ~50 % size cut on
+  payloads with repeating service / region / level fields, on top of
+  the existing Dense intern table.
 - **`qdf_simd` (AVX2)**: 22-53× faster bit-unpack at byte-aligned
   widths (~50 GB/s, memory-bound). CPUID-gated; runtime falls back
   cleanly on older amd64.
@@ -188,6 +195,57 @@ Same wire output, fewer allocations per call.
 | encode (n=64)                     |    460 ns/op   |    350 ns/op  |  1.30×  |
 | allocs                            |    3           |    2          |  -1     |
 | heap bytes                        |    192 B       |    112 B      |  -80 B  |
+
+## Direct entry points (no `descOf`)
+
+`MarshalDirect[T Marshaler]` / `UnmarshalDirect[T Unmarshaler]` go one
+step further: with the receiver method known at compile time (`qdfgen`
+output or hand-written), they skip the descriptor cache lookup and the
+runtime interface assertion that `encodeMarshaler` does inside the
+reflect path. Same wire bytes; Fast-mode only.
+
+| Encode (Sample fixture, 11 fields) | ns/op | B/op | allocs |
+| ---------------------------------- | ----: | ---: | -----: |
+| json                               | 1800  |  576 |      8 |
+| qdf_reflect (`Marshal`)            |  580  |  480 |      3 |
+| qdf_codegen (`(*T).MarshalQDF`)    |  530  |  504 |      6 |
+| **qdf_direct (`MarshalDirect`)**   | **364** | **160** | **1** |
+
+Encode is 1.55× faster than the reflect path, with one third of the
+allocations and 3× less peak memory. Decode runs at parity with the
+reflect path when the `UnmarshalQDF` method is well-written
+(`qdfgen` uses `Decoder.InternKey` for keys and matches the pooled
+key-intern cache the reflect path relies on). Ad-hoc receivers that
+build a fresh Decoder per call regress decode noticeably — the
+docstring spells this out.
+
+## Markov-0 state-ref predictor (`tagStateRepeat`)
+
+Dense mode now collapses a state-ref whose ID equals the immediately
+preceding emission to a single byte (the `0xE8` tag). The encoder side
+also invalidates the chain on any inline-string emission so a later
+`tagStateRepeat` cannot resurrect a stale ID across an uninterned
+value. Wire savings on synthetic single-token vs alternating-token
+batches:
+
+| n elements | alternating (no predictor hit) | all-same (predictor every time) | delta   |
+| ---------: | -----------------------------: | ------------------------------: | ------: |
+|         16 |                          81 B  |                          49 B   |  -40 %  |
+|        256 |                         563 B  |                         291 B   |  -48 %  |
+|       1024 |                       2 099 B  |                       1 059 B   |  -50 %  |
+
+Real workloads where the predictor pays off:
+
+- Log batches: same `service`, `region`, `level`, `env` across most
+  events.
+- Columnar rows where a few "tag" columns rarely change.
+- Repeated nested keys produced by the reflect / codegen field-name
+  emit path.
+
+Forward-compat note: a legacy decoder that does not know `0xE8` will
+fail with `ErrBadTag` on first contact rather than silently
+mis-decode. The encoder only emits the tag in Dense mode, so Fast
+buffers stay byte-identical to previous versions.
 
 ## Codegen (no reflection) — `Sample` fixture
 
