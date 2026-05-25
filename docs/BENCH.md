@@ -247,6 +247,62 @@ fail with `ErrBadTag` on first contact rather than silently
 mis-decode. The encoder only emits the tag in Dense mode, so Fast
 buffers stay byte-identical to previous versions.
 
+## Move-To-Front state-ref coding (`tagStateMTF`)
+
+Dense additionally encodes a state-ref's LRU rank instead of its raw
+intern ID when the rank's varuint is strictly shorter (`0xE9` tag).
+Catches "hot subset defined late in intern order" patterns that the
+Markov-0 predictor on its own misses.
+
+Synthetic stress: 256 unique strings, every intern ID > 200 so the
+raw varuint is 2 bytes, followed by 4 000 references rotating
+through a hot subset of 8 items.
+
+    MarshalDense + Markov-0 + MTF      10 824 bytes
+    MarshalDense + Markov-0 only      ~15 000 bytes (estimated, raw refs)
+    MarshalDense + neither            ~18 000 bytes
+
+The encoder picks `tagStateMTF` only when its rank varuint is strictly
+shorter than the raw id varuint, so the wire never grows over plain
+`tagStateRef`. The decoder mirrors the LRU chain so all three forms
+(repeat / ref / mtf) co-exist on the same wire.
+
+## Realistic corpus
+
+Built-in `realistic_corpus_test.go` builders produce three shapes
+that mirror real telemetry workloads. Numbers below are encoded
+sizes (`TestSizes_RealisticCorpus`) plus encode latency
+(`BenchmarkCorpus_TelemetryBatch1000`, Intel i7-9750H, 3 runs).
+
+### TelemetryBatch (1 000 events, repeating service / region / level)
+
+|              | bytes   | vs json   | encode ns/op |
+| ------------ | ------: | --------: | -----------: |
+| json         | 252 497 |     1.00× |            — |
+| qdf_fast     | 186 674 |     0.74× |       272 k  |
+| qdf_qpack    | 186 674 |     0.74× |       261 k  |
+| **qdf_dense**| **73 104** | **0.29×** |    1.0 M    |
+
+Dense pays ~4× on CPU for a **3.5× size reduction** vs JSON and
+**2.5× vs qdf_fast** — string-intern + Markov-0 + MTF collapse the
+repeating service / region / level / host fields. QPack does not help
+much here because the per-event numeric fields are scalar (TS, Span,
+Trace, Duration) rather than slice-shaped.
+
+### MetricSeries (1 024 numeric timestamps + values)
+
+|              | bytes   | vs json   |
+| ------------ | ------: | --------: |
+| json         |  30 043 |     1.00× |
+| qdf_fast     |  14 442 |     0.48× |
+| **qdf_qpack**| **8 307** | **0.28×** |
+| qdf_dense    |   8 315 |     0.28× |
+
+Here QPack pulls its weight: the `[]int64` timestamp column is
+monotonic and Delta+FOR compresses it to near-zero bytes per
+element; the `[]float64` value column uses raw-LE bulk. Dense and
+QPack converge because the string overhead is tiny.
+
 ## Codegen (no reflection) — `Sample` fixture
 
 11-field struct with nested struct, slice, map, pointer, fixed array,
