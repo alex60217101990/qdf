@@ -78,6 +78,12 @@ const (
 	//                    a state-ref whose ID equals the immediately
 	//                    previous state-ref emission is encoded as a
 	//                    single byte (no varuint payload).
+	tagStateMTF = 0xE9 // Move-To-Front coding for Dense state-refs:
+	//                    encodes the MTF rank (position in the LRU
+	//                    list of recently-emitted IDs) instead of the
+	//                    raw intern ID. Used when uvarintLen(rank) <
+	//                    uvarintLen(id) so the wire never grows over
+	//                    the plain tagStateRef encoding.
 	tagPackGorilla  = 0xE7 // Gorilla XOR-coded float slice:
 	//                    tag, kind (qpackKindFloat32/64), varuint(n),
 	//                    first value (4 or 8 LE bytes), varuint(numBits),

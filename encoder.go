@@ -271,15 +271,34 @@ func (e *Encoder) WriteString(s string) {
 	e.writeStringInline(s)
 }
 
-// emitStateRef writes a state-ref to id, collapsing to tagStateRepeat
-// when the predictor says id matches the previous emission.
+// emitStateRef writes a state-ref to id. Three forms are possible,
+// the encoder picks the smallest:
+//
+//	tagStateRepeat                   1 byte total, when id == lastID
+//	tagStateMTF + varuint(rank)      1 + uvarintLen(rank) bytes
+//	tagStateRef + varuint(id)        1 + uvarintLen(id) bytes
+//
+// MTF rank comes from the encState LRU. The wire never grows over the
+// plain tagStateRef encoding because we only pick MTF when its rank
+// varuint is strictly shorter than the raw id varuint.
+//
+// Every successful emit moves id to the LRU head so the decoder's
+// mirror chain stays in sync.
 func (e *Encoder) emitStateRef(id uint32) {
 	if e.state.lastValid && e.state.lastID == id {
 		e.buf = append(e.buf, tagStateRepeat)
+		// id is already at LRU head from the previous emission;
+		// no reorder needed. lastID stays the same.
 		return
 	}
-	e.buf = append(e.buf, tagStateRef)
-	e.buf = appendUvarint(e.buf, uint64(id))
+	rank := e.state.lruMoveToFront(id)
+	if uvarintLen(uint64(rank)) < uvarintLen(uint64(id)) {
+		e.buf = append(e.buf, tagStateMTF)
+		e.buf = appendUvarint(e.buf, uint64(rank))
+	} else {
+		e.buf = append(e.buf, tagStateRef)
+		e.buf = appendUvarint(e.buf, uint64(id))
+	}
 	e.state.lastID = id
 	e.state.lastValid = true
 }

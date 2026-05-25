@@ -462,7 +462,31 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		if !ok {
 			return nil, ErrUnknownStateID
 		}
+		// Mirror encoder's LRU update so a subsequent tagStateMTF
+		// resolves to the same ID position.
+		d.state.lruMoveToFront(uint32(id64))
 		d.state.lastID = uint32(id64)
+		d.state.lastValid = true
+		return out, nil
+	case tagStateMTF:
+		rank64, n := readUvarint(d.buf[d.i:])
+		if n <= 0 {
+			return nil, ErrInvalidLength
+		}
+		d.i += n
+		if d.state == nil {
+			return nil, ErrUnknownStateID
+		}
+		id, ok := d.state.lruIDAtRank(uint32(rank64))
+		if !ok {
+			return nil, ErrUnknownStateID
+		}
+		out, ok := d.state.get(id)
+		if !ok {
+			return nil, ErrUnknownStateID
+		}
+		d.state.lruMoveToFront(id)
+		d.state.lastID = id
 		d.state.lastValid = true
 		return out, nil
 	case tagStateRepeat:
@@ -742,7 +766,7 @@ func (d *Decoder) Skip() error {
 		// in sync with the stream.
 		_, err := d.readStringBytes()
 		return err
-	case tagStateRef, tagStateRepeat:
+	case tagStateRef, tagStateRepeat, tagStateMTF:
 		_, err := d.readStringBytes()
 		return err
 	case tagPackBool:
