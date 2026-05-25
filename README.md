@@ -596,11 +596,21 @@ The test suite runs under `-race` and covers:
   agree semantically with `encoding/json` and
   `github.com/vmihailenco/msgpack/v5` on a shared payload,
   including NaN / ±Inf / ±0 preservation against msgpack.
-- Known limitation: like vmihailenco/msgpack, the encoder does not
-  detect pointer cycles and will stack-overflow when given one.
-  Detection would cost a per-call set on the hot path. Callers
-  must avoid cycles or use a wrapper type. The case is captured as
-  a documented `t.Skip` in `cycle_test.go`.
+- **Pointer-cycle detection** via depth counter: the encoder
+  increments `Encoder.depth` on every pointer dereference and
+  returns `ErrCycleDetected` once the count exceeds
+  `DefaultMaxDepth` (10000). Cheaper than a per-pointer set (no
+  allocation per call) and catches both genuine `*T → *T` cycles
+  and pathologically deep payloads. Override the cap via
+  `Encoder.SetMaxDepth`.
+- **OOM protection** on every length-prefixed read path: a
+  hostile varuint encoding a value > 2^62 cannot drive the
+  decoder cursor negative because the byte-count check happens
+  in `uint64` against `(len(d.buf) - d.i) * 8 / bitsPer` *before*
+  any signed cast. Applies to tagPackBool/Raw/For/DeltaFor/Gorilla
+  in both the slice-read and Skip paths.
+- **Stream Close idempotency**: both `StreamEncoder.Close` and
+  `StreamDecoder.Close` are safe to call multiple times.
 - Fuzz: `FuzzDecoder_NeverPanics`, `FuzzRoundTrip_StringSlice`,
   `FuzzQPackBool`, `FuzzQPackRawUint64`, `FuzzRoundTrip_Int64Slice`,
   `FuzzRoundTrip_Uint64Slice`, `FuzzRoundTrip_Float64Slice`,
@@ -692,6 +702,11 @@ qdf/
 ├── cycle_test.go                 deep finite chain + documented cycle limitation
 ├── entanglement_test.go          tagStateRepeat Markov-0 predictor coverage
 ├── qpack_completeness_test.go    end-to-end coverage across all Marshal entries
+├── oom_protection_test.go        hostile huge-length-prefix rejection
+├── concurrent_stress_test.go     1000-goroutine round-trip, pool churn, per-G streams
+├── interface_matrix_test.go      `any` field dynamic-type matrix
+├── reset_and_edges_test.go       Encoder.Reset coverage + pointer/misc edges
+├── stream_edges_test.go          chunked I/O, EOF mid-message, Close idempotency
 ├── internal/
 │   ├── bufpool/        size-classed sharded byte-slice pool
 │   ├── intern/         decoder-side string-key intern cache
