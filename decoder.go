@@ -359,6 +359,11 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Inline (non-intern) string / bin reads break the Markov-0 chain so
+	// a subsequent tagStateRepeat cannot resurrect a stale state-ref
+	// from before the inline emission. State-ref and intern branches
+	// below restore the invariant explicitly.
+	invalidateLast := d.state != nil
 	// fixstr
 	if t >= tagFixstr && t <= tagFixstr|tagFixstrMask {
 		n := int(t & tagFixstrMask)
@@ -367,6 +372,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		}
 		out := d.buf[d.i : d.i+n]
 		d.i += n
+		if invalidateLast {
+			d.state.lastValid = false
+		}
 		return out, nil
 	}
 	switch t {
@@ -381,6 +389,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		}
 		out := d.buf[d.i : d.i+n]
 		d.i += n
+		if invalidateLast {
+			d.state.lastValid = false
+		}
 		return out, nil
 	case tagStr16, tagBin16:
 		if d.i+2 > len(d.buf) {
@@ -393,6 +404,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		}
 		out := d.buf[d.i : d.i+n]
 		d.i += n
+		if invalidateLast {
+			d.state.lastValid = false
+		}
 		return out, nil
 	case tagStr32, tagBin32:
 		if d.i+4 > len(d.buf) {
@@ -405,6 +419,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		}
 		out := d.buf[d.i : d.i+n]
 		d.i += n
+		if invalidateLast {
+			d.state.lastValid = false
+		}
 		return out, nil
 	case tagInternStr, tagInternBin:
 		// Read length-prefixed payload, then register it in the state table.
@@ -428,7 +445,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		// Register the bytes as-is; they alias the input. If the caller
 		// later turns this into a copy, the table still references the alias
 		// which is fine for the lifetime of the buffer.
-		d.state.append(out)
+		id := d.state.append(out)
+		d.state.lastID = id
+		d.state.lastValid = true
 		return out, nil
 	case tagStateRef:
 		id64, n := readUvarint(d.buf[d.i:])
@@ -440,6 +459,17 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 			return nil, ErrUnknownStateID
 		}
 		out, ok := d.state.get(uint32(id64))
+		if !ok {
+			return nil, ErrUnknownStateID
+		}
+		d.state.lastID = uint32(id64)
+		d.state.lastValid = true
+		return out, nil
+	case tagStateRepeat:
+		if d.state == nil || !d.state.lastValid {
+			return nil, ErrUnknownStateID
+		}
+		out, ok := d.state.get(d.state.lastID)
 		if !ok {
 			return nil, ErrUnknownStateID
 		}
@@ -712,7 +742,7 @@ func (d *Decoder) Skip() error {
 		// in sync with the stream.
 		_, err := d.readStringBytes()
 		return err
-	case tagStateRef:
+	case tagStateRef, tagStateRepeat:
 		_, err := d.readStringBytes()
 		return err
 	case tagPackBool:
@@ -722,11 +752,14 @@ func (d *Decoder) Skip() error {
 			return ErrInvalidLength
 		}
 		d.i += nr
-		nBytes := (int(n64) + 7) >> 3
-		if d.i+nBytes > len(d.buf) {
+		// Validate the element count in uint64 BEFORE the signed cast so
+		// a hostile varuint cannot drive nBytes negative and corrupt
+		// d.i. n64 elements need ceil(n64/8) bytes.
+		rem := uint64(len(d.buf) - d.i)
+		if n64 > rem*8 {
 			return ErrShortBuffer
 		}
-		d.i += nBytes
+		d.i += int((n64 + 7) >> 3)
 		return nil
 	case tagPackRaw:
 		d.i++
@@ -772,11 +805,14 @@ func (d *Decoder) Skip() error {
 			return ErrInvalidLength
 		}
 		d.i += nr
-		bodyBytes := (int(n64)*bitsPer + 7) >> 3
-		if d.i+bodyBytes > len(d.buf) {
+		// Same overflow guard as tagPackBool. n64 elements times
+		// bitsPer bits => ceil/8 bytes; validate in uint64 to avoid the
+		// sign-bit pitfall on a hostile varuint.
+		rem := uint64(len(d.buf) - d.i)
+		if bitsPer > 0 && n64 > rem*8/uint64(bitsPer) {
 			return ErrShortBuffer
 		}
-		d.i += bodyBytes
+		d.i += int((n64*uint64(bitsPer) + 7) / 8)
 		return nil
 	case tagPackGorilla:
 		d.i++
@@ -807,11 +843,11 @@ func (d *Decoder) Skip() error {
 			return ErrInvalidLength
 		}
 		d.i += nr
-		bodyBytes := (int(nb64) + 7) >> 3
-		if d.i+bodyBytes > len(d.buf) {
+		rem := uint64(len(d.buf) - d.i)
+		if nb64 > rem*8 {
 			return ErrShortBuffer
 		}
-		d.i += bodyBytes
+		d.i += int((nb64 + 7) >> 3)
 		return nil
 	case tagPackDeltaFor:
 		d.i++
@@ -841,17 +877,15 @@ func (d *Decoder) Skip() error {
 			return ErrInvalidLength
 		}
 		d.i += nr
-		n := int(n64)
-		if n >= 2 {
-			bodyBits := (n - 1) * bitsPer
-			bodyBytes := bodyBits >> 3
-			if bodyBits&7 != 0 {
-				bodyBytes++
-			}
-			if d.i+bodyBytes > len(d.buf) {
+		if n64 >= 2 {
+			// Body holds (n-1) elements at bitsPer each. Compute the
+			// byte size in uint64 to keep the bounds check overflow-safe.
+			bodyBits := (n64 - 1) * uint64(bitsPer)
+			bodyBytes := (bodyBits + 7) >> 3
+			if bodyBytes > uint64(len(d.buf)-d.i) {
 				return ErrShortBuffer
 			}
-			d.i += bodyBytes
+			d.i += int(bodyBytes)
 		}
 		return nil
 	}

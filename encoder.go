@@ -229,17 +229,36 @@ func (e *Encoder) WriteString(s string) {
 	if e.state != nil && len(s) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
 		id, ok := e.state.lookupOrAssign(s)
 		if ok {
-			e.buf = append(e.buf, tagStateRef)
-			e.buf = appendUvarint(e.buf, uint64(id))
+			e.emitStateRef(id)
 			return
 		}
 		_ = id
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
+		e.state.lastID = id
+		e.state.lastValid = true
 		return
 	}
+	if e.state != nil {
+		// Inline emission of an uninterned scalar breaks the
+		// previous-state-ref invariant the Markov-0 predictor relies on.
+		e.state.lastValid = false
+	}
 	e.writeStringInline(s)
+}
+
+// emitStateRef writes a state-ref to id, collapsing to tagStateRepeat
+// when the predictor says id matches the previous emission.
+func (e *Encoder) emitStateRef(id uint32) {
+	if e.state.lastValid && e.state.lastID == id {
+		e.buf = append(e.buf, tagStateRepeat)
+		return
+	}
+	e.buf = append(e.buf, tagStateRef)
+	e.buf = appendUvarint(e.buf, uint64(id))
+	e.state.lastID = id
+	e.state.lastValid = true
 }
 
 // WriteStringInline forces an in-line encoding even when Dense intern would
@@ -277,15 +296,19 @@ func (e *Encoder) WriteBytes(b []byte) {
 		key := unsafestr.String(b)
 		id, ok := e.state.lookupOrAssign(key)
 		if ok {
-			e.buf = append(e.buf, tagStateRef)
-			e.buf = appendUvarint(e.buf, uint64(id))
+			e.emitStateRef(id)
 			return
 		}
 		_ = id
 		e.buf = append(e.buf, tagInternBin)
 		e.buf = appendUvarint(e.buf, uint64(len(b)))
 		e.buf = append(e.buf, b...)
+		e.state.lastID = id
+		e.state.lastValid = true
 		return
+	}
+	if e.state != nil {
+		e.state.lastValid = false
 	}
 	e.writeBytesInline(b)
 }

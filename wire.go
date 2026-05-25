@@ -74,6 +74,10 @@ const (
 	tagPackFor  = 0xE5 // Frame-of-Reference bitpacked integer slice:
 	//                    tag, kind, bits (0..56), min varuint (zigzag for signed),
 	//                    varuint(n), ceil(n*bits/8) bytes (LSB-first).
+	tagStateRepeat = 0xE8 // Markov-0 predictor for Dense state-refs:
+	//                    a state-ref whose ID equals the immediately
+	//                    previous state-ref emission is encoded as a
+	//                    single byte (no varuint payload).
 	tagPackGorilla  = 0xE7 // Gorilla XOR-coded float slice:
 	//                    tag, kind (qpackKindFloat32/64), varuint(n),
 	//                    first value (4 or 8 LE bytes), varuint(numBits),

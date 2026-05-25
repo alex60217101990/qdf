@@ -7,6 +7,12 @@ package qdf
 
 type encState struct {
 	ids map[string]uint32
+
+	// lastID and lastValid track the most-recently-emitted state-ref ID
+	// for the tagStateRepeat Markov-0 predictor: a state-ref equal to
+	// the immediately preceding emission is encoded as a single byte.
+	lastID    uint32
+	lastValid bool
 }
 
 func newEncState() *encState {
@@ -15,6 +21,8 @@ func newEncState() *encState {
 
 func (e *encState) reset() {
 	clear(e.ids)
+	e.lastID = 0
+	e.lastValid = false
 }
 
 // lookupOrAssign returns (id, hit). On a miss a fresh entry is installed
@@ -33,11 +41,20 @@ func (e *encState) lookupOrAssign(key string) (uint32, bool) {
 
 type decState struct {
 	values [][]byte
+
+	// Mirror of encState's lastID/lastValid. tagStateRepeat resolves to
+	// values[lastID] without consuming a varuint.
+	lastID    uint32
+	lastValid bool
 }
 
 func newDecState() *decState { return &decState{values: make([][]byte, 0, 64)} }
 
-func (d *decState) reset() { d.values = d.values[:0] }
+func (d *decState) reset() {
+	d.values = d.values[:0]
+	d.lastID = 0
+	d.lastValid = false
+}
 
 func (d *decState) append(b []byte) uint32 {
 	id := uint32(len(d.values))
