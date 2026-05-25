@@ -3,19 +3,25 @@
 Measured on Darwin amd64 / Intel i7-9750H @ 2.6 GHz. Go 1.26.0.
 `go test -bench=. -benchmem -benchtime=2s` in `bench/`.
 
-Five operating modes compared:
+Operating modes compared:
 
-- **qdf_fast** — default build. Reflect-based with specialized fast paths
-  for common slice (`[]string`, `[]int*`, `[]uint*`, `[]float32/64`,
-  `[]bool`) and map (`map[string]{string,int,int64,any}`) types.
-- **qdf_dense** — qdf_fast + inline state-table interning for repeating
-  strings.
+- **qdf_fast** — default build. Reflect-based with specialized fast
+  paths for common slice (`[]string`, `[]int*`, `[]uint*`,
+  `[]float32/64`, `[]bool`) and map types.
+- **qdf_qpack** — Fast mode + QPack codecs (bit-packed bool, raw-LE,
+  Frame-of-Reference, Delta+FOR; Gorilla XOR available explicitly) for
+  numeric and bool slices. Auto-selects the smallest predicted form
+  per slice.
+- **qdf_dense** — qdf_qpack + inline state-table interning for
+  repeating strings (logs, columnar telemetry).
 - **qdf_codegen** — code-generated `MarshalQDF`/`UnmarshalQDF` from
   `cmd/qdfgen` (no runtime reflection).
-- **qdf_fast + qdf_reflect2** (opt-in build tag) — swaps `reflect.MakeSlice`
-  / `reflect.MakeMapWithSize` for `modern-go/reflect2` unsafe equivalents.
-- **qdf_fast + qdf_simd** (opt-in build tag, needs `GOEXPERIMENT=simd` on
-  amd64) — tighter inlined float-slice encode loop.
+- **qdf_fast + qdf_reflect2** (opt-in build tag) — swap
+  `reflect.MakeSlice` / `MakeMapWithSize` for `modern-go/reflect2`
+  unsafe equivalents.
+- **qdf_fast + qdf_simd** (opt-in build tag) — AVX2 asm
+  bit-unpack at the byte-aligned widths (8 / 16 / 32 bits per slot);
+  ~50 GB/s, runtime CPUID gate, scalar fallback otherwise.
 
 vs. `encoding/json` (stdlib) and `github.com/vmihailenco/msgpack/v5`.
 
@@ -29,9 +35,16 @@ coverage by `TestPool_ConcurrentEncoders` + the full `-race` test sweep.
   numeric vectors, 4-6× on log batches.
 - **Decode**: qdf beats both on every payload. 2-7× over msgpack,
   4-9× over json.
-- **Realistic / unique-data**: pool wins survive. UniqueLog (fresh
-  payload per iter) is 1.4-1.6× faster than json/msgpack encode and
-  3-4× faster on decode.
+- **QPack (numeric/bool slices)**: 5× smaller wire than json, 21×
+  faster encode, 80× faster decode on a mixed numeric payload. Delta
+  +FOR reaches 512× compression on monotonic timestamp vectors.
+- **Generic `MarshalT[T]`**: -1 alloc and 25-40 % faster than the
+  `any`-boxing entry points on small/medium payloads. Same wire.
+- **`qdf_simd` (AVX2)**: 22-53× faster bit-unpack at byte-aligned
+  widths (~50 GB/s, memory-bound). CPUID-gated; runtime falls back
+  cleanly on older amd64.
+- **Realistic / unique-data**: pool wins survive. UniqueLog is
+  1.4-1.6× faster than json/msgpack encode and 3-4× faster on decode.
 - **Concurrent**: parallel decode is 1.4-1.7× faster than json/msgpack.
 - **Size**: Dense mode = **43% of json**, **58% of msgpack** on log
   batches (without an external compression layer).
@@ -119,12 +132,62 @@ both ways without an opt-in build tag.
 | Decode []float32×512 | 72 928 | 28 521  | **3960** | 3928     | **7.20×**  |
 
 The wire format matches the native little-endian layout on amd64 and
-arm64, so the bulk float path collapses to a tight LE-store loop. Go's
-runtime memmove already exploits SIMD for byte copy; the 17-29 % win
-the `qdf_simd` tag delivers comes from removing the per-element
-typeDesc indirection rather than from new instructions. The build-tag
-hook is there so future passes (batch varint decode, hash-keyed intern
-table, UTF-8 validation) can plug in real intrinsics where they help.
+arm64, so the bulk float path collapses to a tight LE-store loop.
+
+## QPack codecs — head-to-head
+
+Payload: 256 booleans, 512 monotonic `uint64` (timestamps), 512 `int64`,
+256 `float64` — the shape a metrics or columnar batch produces.
+
+| Format        | Bytes  | Encode ns/op | Decode ns/op |
+| ------------- | -----: | -----------: | -----------: |
+| json          | 10 739 |       48 000 |      200 000 |
+| msgpack       | 11 808 |       64 000 |       80 000 |
+| qdf_fast      |  6 694 |        6 500 |       14 000 |
+| **qdf_qpack** |  **2 132** | **2 300** |  **2 600** |
+| **qdf_dense** |  **2 134** | **2 500** |  **2 500** |
+
+QPack auto-selects, per slice, between four codecs by predicted wire
+size: bit-packed bool, raw-LE bulk, Frame-of-Reference + bit-pack,
+and Delta + zigzag + FOR. Gorilla XOR is available for floats via the
+low-level helpers but not auto-selected (its bit-level work makes it
+~100× slower than raw-LE memmove; only worth it when size matters
+more than CPU).
+
+On a 1024-element monotonic Unix-second timestamp vector the Delta+FOR
+codec collapses the wire from 8 201 bytes (raw) to **16 bytes** —
+a 512× reduction.
+
+## QPack micro-benchmarks (in-package, `qdf_simd` tag where noted)
+
+Bit-unpack throughput at 1024 elements per call, median of 5:
+
+| Bits | Scalar (orig)   | Pure-Go 128-bit window | AVX2 (qdf_simd)   | vs scalar |
+| ---: | --------------: | ---------------------: | ----------------: | --------: |
+|    8 |      3 450 ns/op |               3 450 ns/op |    **152 ns/op** | **22×**   |
+|   16 |      4 790 ns/op |               3 530 ns/op |    **145 ns/op** | **33×**   |
+|   32 |      8 070 ns/op |               4 330 ns/op |    **152 ns/op** | **53×**   |
+|   56 |     13 340 ns/op |          **5 412 ns/op** |   (no asm path)  | **2.47×** |
+
+The AVX2 path (`VPMOVZX{B,W,D}Q` + `VMOVDQU`) hits ~50 GB/s on the
+byte-aligned widths — effectively memory-bandwidth bound. Non-byte-
+aligned widths (1..7, 9..15, 17..31, 33..56) stay on the pure-Go
+sliding-window decoder, which still beats the original byte-at-a-time
+loop by 1.85× to 2.5×.
+
+## Generic API (no `any` boxing)
+
+`MarshalT[T]` / `UnmarshalT[T]` skip the `interface{}` conversion and
+the reflect copy that `Marshal(v any)` needs for value-typed inputs.
+Same wire output, fewer allocations per call.
+
+| Op (mixed struct, 5 u64 + 3 bool) | `Marshal(any)` | `MarshalT[T]` | Speedup |
+| --------------------------------- | -------------: | ------------: | ------: |
+| encode (n=0 empty slice)          |    285 ns/op   |    170 ns/op  |  1.67×  |
+| encode (n=4 small slice)          |    287 ns/op   |    175 ns/op  |  1.65×  |
+| encode (n=64)                     |    460 ns/op   |    350 ns/op  |  1.30×  |
+| allocs                            |    3           |    2          |  -1     |
+| heap bytes                        |    192 B       |    112 B      |  -80 B  |
 
 ## Codegen (no reflection) — `Sample` fixture
 
@@ -249,16 +312,22 @@ What the test suite verifies (all under `-race`):
 # Default build
 go test -race -count=1 ./...
 
-# Bench (default)
+# Cross-format bench (Marshal vs MarshalQPack vs MarshalDense vs json/msgpack)
+cd bench && go test -bench='BenchmarkQPack_' -benchmem -benchtime=2s
+
+# Whole-suite bench
 cd bench && go test -bench=. -benchmem -benchtime=2s -timeout=10m
 
-# reflect2 fast path
-go test -tags qdf_reflect2 -race ./...
-cd bench && go test -tags qdf_reflect2 -bench=. -benchmem -benchtime=2s
+# QPack codec micro-benchmarks (root module)
+go test -bench='BenchmarkQPack' -benchmem -benchtime=2s
 
-# SIMD-tag bench (amd64 needs GOEXPERIMENT)
-GOEXPERIMENT=simd go test -tags qdf_simd -race ./...
-cd bench && GOEXPERIMENT=simd go test -tags qdf_simd -bench=. -benchmem -benchtime=2s
+# AVX2 bit-unpack (asm under qdf_simd; CPUID-gated at run time)
+go test -tags qdf_simd -bench='BenchmarkBitUnpackFast' -benchmem -benchtime=2s
+
+# Build-tag race sweeps
+go test -tags qdf_reflect2          -race ./...
+go test -tags qdf_simd              -race ./...
+go test -tags "qdf_simd qdf_reflect2" -race ./...
 
 # Codegen
 cd internal/codegen_test
@@ -266,6 +335,8 @@ go test -run TestGenerate .
 go test -bench=. -benchmem -benchtime=2s
 
 # Fuzz
-go test -run=^$ -fuzz=FuzzDecoder_NeverPanics -fuzztime=30s
-go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice -fuzztime=30s
+go test -run=^$ -fuzz=FuzzDecoder_NeverPanics      -fuzztime=30s
+go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice    -fuzztime=30s
+go test -run=^$ -fuzz=FuzzQPackBool                -fuzztime=30s
+go test -run=^$ -fuzz=FuzzQPackRawUint64           -fuzztime=30s
 ```

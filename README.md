@@ -55,9 +55,10 @@ the practical subset of that idea:
 | ------------------------ | ---------------------------- |
 | **State set** — the discrete values a position can take. | The Dense-mode intern table. The first occurrence of a string or `[]byte` value writes it in full and assigns it a stable ID. |
 | **Wavefunction collapse** — a single observation picks one state. | Every subsequent occurrence emits a `state_ref` tag plus a varint ID. Decoding "collapses" the reference back to its stored value. |
-| **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
-| **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Not in MVP. The wire format reserves tag space for it; an inference layer would sit above the current encoder. |
-| **Probabilistic / arithmetic coding** — drive the residual stream to its Shannon limit. | Not in MVP. The state-table + back-reference pair already captures most of the win on real telemetry payloads; arithmetic coding would buy more bytes at a real CPU cost. |
+| **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Numeric and bool slices use QPack codecs (FOR, Delta+FOR, Gorilla XOR, raw-LE bulk) that auto-select the smallest predicted form per slice. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
+| **Probabilistic / residual coding** — predict, then store only the deviation. | QPack's Delta+FOR codec is exactly this for monotonic integer sequences: encode the first value plus the bit-packed residual against a `aᵢ = aᵢ₋₁ + minΔ` predictor. Gorilla does the same for floats by XOR-ing each sample against the previous one and storing the differing bits only. |
+| **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Not yet. The wire format reserves tag space at `0xE8..0xEF` and an inference layer would sit above the current encoder. |
+| **Arithmetic / range coding (rANS)** — push the encoded stream to its Shannon limit. | Not yet. The state-table + back-reference pair plus QPack already captures most of the practical win on telemetry workloads; rANS would buy further compression at a CPU cost. |
 
 The conceptual roadmap (state table → entanglement graph → predictive
 encoder) is preserved in the codebase: tag space and the encoder
@@ -133,7 +134,19 @@ Tag space is msgpack-inspired with a few additions:
 | `0xD5..0xD7`         | map8 / map16 / map32                          |
 | `0xD8..0xDF`         | negfixint (-1..-8)                            |
 | `0xE0..0xE2`         | intern\_str / state\_ref / intern\_bin (Dense)|
+| `0xE3`               | QPack: bit-packed `[]bool`                    |
+| `0xE4`               | QPack: raw-LE numeric slice                   |
+| `0xE5`               | QPack: Frame-of-Reference bit-packed ints     |
+| `0xE6`               | QPack: Delta + zigzag + FOR (monotonic ints)  |
+| `0xE7`               | QPack: Gorilla XOR-coded float slice          |
+| `0xE8..0xEF`         | reserved (entanglement / rANS / future)       |
 | `0xF0..0xF3`         | ext / timestamp                               |
+
+The 5th header byte holds two flag bits: `FlagDense` (`0x01`) for the
+intern dialect, and `FlagQPack` (`0x02`) as an early hint that the body
+may carry codec tags from the `0xE3..0xE7` block. A legacy decoder that
+does not know the QPack tags fails with `ErrBadTag` on first contact;
+it never decodes a packed payload as scalar by accident.
 
 All multi-byte integers and floats are little-endian. amd64 and arm64
 are the supported targets.
@@ -190,8 +203,8 @@ func main() {
 | Mode           | API                | When to use                                                  |
 | -------------- | ------------------ | ------------------------------------------------------------ |
 | `qdf.Fast`     | `Marshal`          | Default. Tightest CPU cost; size comparable to msgpack.      |
-| `qdf.Dense`    | `MarshalDense`     | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices use QPack codecs. |
-| `qdf.QPack`    | `MarshalQPack`     | Fast mode + QPack codecs for numeric/bool slices. Best when you have a small number of unique strings but lots of numeric data. |
+| `qdf.Dense`    | `MarshalDense`     | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices also use QPack codecs. |
+| QPack (Fast+codecs) | `MarshalQPack` | Fast mode + QPack codecs for numeric/bool slices. Best when the payload has few unique strings but lots of numeric data (vectors, embeddings, timestamps). |
 
 ```go
 b, _ := qdf.MarshalDense(rows)  // string interning + QPack
@@ -200,6 +213,32 @@ b, _ := qdf.MarshalQPack(rows)  // QPack only, no string interning
 
 A single decoder handles all three. `qdf.Unmarshal` reads the header
 flag and picks the right path automatically.
+
+### Generic API (Go 1.18+ generics)
+
+`Marshal(v any)` boxes the argument through `interface{}` and then
+makes one reflect copy for value-typed inputs. The generic helpers
+skip both: `T` is fixed at the call site, `reflect.TypeFor[T]()`
+resolves at compile time, and `unsafe.Pointer(&v)` points directly at
+the caller's stack.
+
+| Generic                    | Equivalent to       |
+| -------------------------- | ------------------- |
+| `MarshalT[T any]`          | `Marshal`           |
+| `MarshalQPackT[T any]`     | `MarshalQPack`      |
+| `MarshalDenseT[T any]`     | `MarshalDense`      |
+| `AppendMarshalT[T any]`    | `AppendMarshal`     |
+| `UnmarshalT[T any]`        | `Unmarshal`         |
+
+Wire output is byte-identical. The win is on the encode side: one
+fewer allocation per call (-80 B) and 25–40 % faster on small/medium
+payloads.
+
+```go
+buf, _ := qdf.MarshalT(event)
+var out Event
+_ = qdf.UnmarshalT(buf, &out)
+```
 
 ### QPack: math-driven slice codecs
 
@@ -379,7 +418,19 @@ shared intern table across messages.
 cd bench
 go test -bench=. -benchmem -benchtime=2s -timeout=10m
 
+# QPack head-to-head (Marshal / MarshalQPack / MarshalDense
+# / json / msgpack on the same numeric+bool payload)
+go test -bench='BenchmarkQPack_' -benchmem
+
+# QPack micro-benchmarks (codec internals, in the root module)
+cd ..
+go test -bench='BenchmarkQPack' -benchmem
+
+# AVX2 bit-unpack (asm, requires CPUID AVX2 at run time)
+go test -tags qdf_simd -bench='BenchmarkBitUnpackFast' -benchmem
+
 # Realistic unique-data scenarios
+cd bench
 go test -bench='BenchmarkEncode_UniqueLog|BenchmarkDecode_UniqueLog|BenchmarkEncode_MixedTypes|BenchmarkEncode_RandomSize' -benchmem
 
 # Encoded sizes
@@ -395,18 +446,25 @@ go test -bench=. -benchmem -benchtime=2s
 
 ## Build tags
 
-Opt-in fast paths. None are required for the numbers above; the
-defaults already include the specialised slice / map encoders.
+Opt-in fast paths. None are required for the headline numbers; the
+defaults already include the specialised slice / map encoders, the
+QPack codecs, and a 128-bit sliding-window bit-unpacker for FOR / Delta+FOR.
 
-| Tag             | Effect                                                  | Build prerequisite      |
-| --------------- | ------------------------------------------------------- | ----------------------- |
-| `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` for `modern-go/reflect2` unsafe equivalents. | none                    |
-| `qdf_simd`      | Tighter inlined loop for `[]float32` / `[]float64` encode. 17–29 % over the default float path. | `GOEXPERIMENT=simd` on amd64; none on arm64 |
+| Tag             | Effect                                                                                                  | Build prerequisite |
+| --------------- | ------------------------------------------------------------------------------------------------------- | ------------------ |
+| `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` for `modern-go/reflect2` unsafe equivalents. Smaller decode allocations on map / slice heavy workloads. | none — pure Go     |
+| `qdf_simd`      | AVX2 fast path for QPack bit-unpack at bits ∈ {8, 16, 32}. 22-53× over the pure-Go path on those widths (≈ 50 GB/s, memory-bandwidth bound). Runtime CPUID gate via `golang.org/x/sys/cpu`; older amd64 without AVX2 transparently falls back to the scalar zero-extend. Non-amd64 targets compile a stub. | amd64; AVX2 detected at run time |
 
 ```bash
 go build -tags qdf_reflect2 ./...
-GOEXPERIMENT=simd go build -tags qdf_simd ./...
+go build -tags qdf_simd ./...
+go build -tags "qdf_simd qdf_reflect2" ./...   # combined
 ```
+
+The `qdf_simd` path only changes behaviour for QPack-encoded numeric
+slices whose chosen codec is FOR or Delta+FOR at one of the byte-aligned
+bit widths; other widths and other codecs run the pure-Go path
+unchanged.
 
 ---
 
@@ -426,8 +484,27 @@ The test suite runs under `-race` and covers:
   versa).
 - Streaming with mixed message types under Dense intern.
 - Concurrency: 32 × 500 marshal+unmarshal goroutines under `-race`.
-- Fuzz: `FuzzDecoder_NeverPanics` and `FuzzRoundTrip_StringSlice` with
-  3 M+ iterations and a persistent corpus under `testdata/fuzz/`.
+- QPack codecs: each codec (bitpack-bool, raw-LE, FOR, Delta+FOR,
+  Gorilla) has its own round-trip suite covering edge cases — empty
+  slices, single elements, near-`MaxUint64`, `MinInt64`, NaN / ±Inf /
+  ±0 / denormals, monotonic / constant / mixed-direction sequences.
+- `TestCompleteness_AllModes` runs one big payload (every QPack-
+  eligible type, every edge case, nested structs, maps, string
+  interning) through `Marshal`, `MarshalQPack`, and `MarshalDense`,
+  then asserts bit-for-bit IEEE-754 equality for floats and
+  `reflect.DeepEqual` elsewhere.
+- `TestCompleteness_StreamingDense` exercises three messages through
+  `NewStreamEncoder` in Dense mode (carries QPack + shared intern
+  table); `TestCompleteness_FuzzRandomStructsQPack` generates 50
+  random struct shapes and round-trips them through all three
+  encoders.
+- AVX2 bit-unpack (under `qdf_simd`) has parity tests against scalar
+  zero-extend for `n` in `{0,1,2,3,4,5,7,8,9,15,16,17,1000,4096}` at
+  bits ∈ {8, 16, 32}, plus a `bitPackU64LE → bitUnpackU64LE` round-
+  trip.
+- Fuzz: `FuzzDecoder_NeverPanics`, `FuzzRoundTrip_StringSlice`,
+  `FuzzQPackBool`, `FuzzQPackRawUint64` with a persistent corpus under
+  `testdata/fuzz/`.
 
 Length prefixes are validated against the remaining buffer
 (`Decoder.CheckLength`) before any `make`, so a hostile payload
@@ -437,12 +514,15 @@ claiming a multi-billion-element map cannot OOM the process.
 go test -race -count=1 ./...
 
 # Fuzz (extend -fuzztime as desired)
-go test -run=^$ -fuzz=FuzzDecoder_NeverPanics -fuzztime=30s
-go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice -fuzztime=30s
+go test -run=^$ -fuzz=FuzzDecoder_NeverPanics      -fuzztime=30s
+go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice    -fuzztime=30s
+go test -run=^$ -fuzz=FuzzQPackBool                -fuzztime=30s
+go test -run=^$ -fuzz=FuzzQPackRawUint64           -fuzztime=30s
 
 # Build-tag combinations
-go test -tags qdf_reflect2 -race ./...
-GOEXPERIMENT=simd go test -tags qdf_simd -race ./...
+go test -tags qdf_reflect2          -race ./...
+go test -tags qdf_simd              -race ./...
+go test -tags "qdf_simd qdf_reflect2" -race ./...
 ```
 
 ---
@@ -451,23 +531,28 @@ GOEXPERIMENT=simd go test -tags qdf_simd -race ./...
 
 ```
 qdf/
-├── qdf.go              public API: Marshal, MarshalDense, MarshalQPack, Unmarshal, AppendMarshal
-├── encoder.go          *Encoder + tag emitters
-├── decoder.go          *Decoder + length validation + key intern
-├── stream.go           streaming encoder/decoder
-├── state.go            Dense intern table
-├── maps_fast.go        type-specific map encoders/decoders
-├── slices_fast.go      type-specific slice encoders/decoders + QPack dispatch
-├── qpack.go            shared QPack constants, raw-LE codec, auto-select
-├── qpack_for.go        Frame-of-Reference bitpacked integer codec
-├── qpack_delta.go      Delta + zigzag + FOR codec for monotonic integers
-├── qpack_gorilla.go    Gorilla XOR float codec
-├── endian_le.go/be.go  native-endian guard for unsafe slice aliasing
-├── floats_default.go   default float-slice bulk path
-├── floats_simd.go      tighter loop under -tags qdf_simd
-├── reflect_alloc*.go   slice/map allocator (default vs reflect2)
-├── reflect_encode.go   reflect-based encode/decode with descriptor cache
-├── wire.go             tag constants + varint
+├── qdf.go                  public API: Marshal, MarshalDense, MarshalQPack, Unmarshal, AppendMarshal
+├── qdf_generic.go          generic helpers: MarshalT, MarshalDenseT, MarshalQPackT, UnmarshalT, AppendMarshalT
+├── encoder.go              *Encoder + tag emitters
+├── decoder.go              *Decoder + length validation + key intern
+├── stream.go               streaming encoder/decoder
+├── state.go                Dense intern table
+├── maps_fast.go            type-specific map encoders/decoders
+├── slices_fast.go          type-specific slice encoders/decoders + QPack dispatch
+├── qpack.go                shared QPack constants, raw-LE codec, per-slice codec selector
+├── qpack_for.go            Frame-of-Reference bit-packed integer codec
+├── qpack_delta.go          Delta + zigzag + FOR for monotonic integers
+├── qpack_gorilla.go        Gorilla XOR float codec
+├── qpack_bitpack_fast.go   128-bit sliding-window bit-unpacker (default fast path)
+├── qpack_simd_amd64.s      AVX2 zero-extend for bits ∈ {8,16,32} (under qdf_simd)
+├── qpack_simd_amd64.go     CPUID gate + dispatch (under qdf_simd)
+├── qpack_simd_stub.go      scalar fallback for everything else
+├── endian_le.go/be.go      native-endian guard for unsafe slice aliasing
+├── floats_default.go       default float-slice bulk path
+├── floats_simd.go          tighter loop for float-slice encode under qdf_simd
+├── reflect_alloc*.go       slice/map allocator (default vs reflect2)
+├── reflect_encode.go       reflect-based encode/decode with descriptor cache
+├── wire.go                 tag constants + varint
 ├── errors.go
 ├── internal/
 │   ├── bufpool/        size-classed sharded byte-slice pool
