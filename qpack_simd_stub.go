@@ -11,3 +11,17 @@ func unpackBits32(out []uint64, in []byte) {
 		out[i] = uint64(binary.LittleEndian.Uint32(in[i*4:]))
 	}
 }
+
+// unpackBits16 fallback.
+func unpackBits16(out []uint64, in []byte) {
+	for i := range out {
+		out[i] = uint64(binary.LittleEndian.Uint16(in[i*2:]))
+	}
+}
+
+// unpackBits8 fallback.
+func unpackBits8(out []uint64, in []byte) {
+	for i := range out {
+		out[i] = uint64(in[i])
+	}
+}

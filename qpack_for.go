@@ -53,7 +53,14 @@ func bitPackU64LE(out []byte, vals []uint64, bitsPer int) {
 // amd64, otherwise scalar memcpy-with-mask); other widths use the
 // 128-bit sliding window decoder.
 func bitUnpackU64LE(out []uint64, in []byte, bitsPer int) {
-	if bitsPer == 32 {
+	switch bitsPer {
+	case 8:
+		unpackBits8(out, in)
+		return
+	case 16:
+		unpackBits16(out, in)
+		return
+	case 32:
 		unpackBits32(out, in)
 		return
 	}

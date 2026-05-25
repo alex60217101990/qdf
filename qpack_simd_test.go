@@ -56,3 +56,77 @@ func TestUnpackBits32_RoundTripVsBitPack(t *testing.T) {
 		}
 	}
 }
+
+func scalarUnpackBits16(out []uint64, in []byte) {
+	for i := range out {
+		out[i] = uint64(binary.LittleEndian.Uint16(in[i*2:]))
+	}
+}
+
+func scalarUnpackBits8(out []uint64, in []byte) {
+	for i := range out {
+		out[i] = uint64(in[i])
+	}
+}
+
+func TestUnpackBits16_Parity(t *testing.T) {
+	rng := rand.New(rand.NewSource(13))
+	for _, n := range []int{0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 1000, 4096} {
+		in := make([]byte, n*2)
+		for i := range in {
+			in[i] = byte(rng.Uint32())
+		}
+		ref := make([]uint64, n)
+		scalarUnpackBits16(ref, in)
+		got := make([]uint64, n)
+		unpackBits16(got, in)
+		if !reflect.DeepEqual(ref, got) {
+			for i := range ref {
+				if ref[i] != got[i] {
+					t.Fatalf("16: n=%d [%d] ref=%d got=%d", n, i, ref[i], got[i])
+				}
+			}
+		}
+	}
+}
+
+func TestUnpackBits8_Parity(t *testing.T) {
+	rng := rand.New(rand.NewSource(17))
+	for _, n := range []int{0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 1000, 4096} {
+		in := make([]byte, n)
+		for i := range in {
+			in[i] = byte(rng.Uint32())
+		}
+		ref := make([]uint64, n)
+		scalarUnpackBits8(ref, in)
+		got := make([]uint64, n)
+		unpackBits8(got, in)
+		if !reflect.DeepEqual(ref, got) {
+			for i := range ref {
+				if ref[i] != got[i] {
+					t.Fatalf("8: n=%d [%d] ref=%d got=%d", n, i, ref[i], got[i])
+				}
+			}
+		}
+	}
+}
+
+func TestUnpackBits816_RoundTrip(t *testing.T) {
+	rng := rand.New(rand.NewSource(19))
+	for _, b := range []int{8, 16} {
+		mask := uint64(1)<<uint(b) - 1
+		for _, n := range []int{0, 1, 4, 5, 8, 1000, 4096} {
+			vals := make([]uint64, n)
+			for i := range vals {
+				vals[i] = rng.Uint64() & mask
+			}
+			body := make([]byte, (n*b+7)>>3)
+			bitPackU64LE(body, vals, b)
+			out := make([]uint64, n)
+			bitUnpackU64LE(out, body, b)
+			if !reflect.DeepEqual(vals, out) {
+				t.Fatalf("b=%d n=%d mismatch", b, n)
+			}
+		}
+	}
+}
