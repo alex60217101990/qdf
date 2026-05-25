@@ -48,8 +48,16 @@ func bitPackU64LE(out []byte, vals []uint64, bitsPer int) {
 }
 
 // bitUnpackU64LE reads len(out)*bits bits from in. bits must be in
-// [1, 56]. in must have len >= ceil(len(out)*bits/8).
+// [1, 56]. in must have len >= ceil(len(out)*bits/8). The body
+// dispatches to bitUnpackU64LEFast (a 128-bit sliding-window decoder
+// with 64-bit bulk loads).
 func bitUnpackU64LE(out []uint64, in []byte, bitsPer int) {
+	bitUnpackU64LEFast(out, in, bitsPer)
+}
+
+// bitUnpackU64LEScalar is the original byte-at-a-time decoder, kept as
+// a parity reference for the fast path's tests.
+func bitUnpackU64LEScalar(out []uint64, in []byte, bitsPer int) {
 	if bitsPer == 0 {
 		for i := range out {
 			out[i] = 0
