@@ -546,6 +546,12 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		}
 		n := rv.Len()
 		e.WriteMapHeader(n)
+		// MapRange beats reflect.Value.Seq2 (Go 1.26) here by ~2x on
+		// throughput and ~2x on allocations: Seq2 boxes the (k, v)
+		// pair into closure arguments per yield, while MapRange
+		// reuses a single *MapIter and exposes Key/Value via
+		// reflect.Value (struct, no per-element heap). See
+		// BenchmarkMapIter_MapRangeOriginal vs BenchmarkMapIter_Seq2.
 		iter := rv.MapRange()
 		for iter.Next() {
 			kp := reflectValueAddr(iter.Key())
