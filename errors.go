@@ -11,4 +11,5 @@ var (
 	ErrInvalidLength  = errors.New("qdf: invalid length prefix")
 	ErrUnknownStateID = errors.New("qdf: unknown state-table id")
 	ErrUnsupported    = errors.New("qdf: unsupported type")
+	ErrCycleDetected  = errors.New("qdf: pointer cycle detected (max depth exceeded)")
 )

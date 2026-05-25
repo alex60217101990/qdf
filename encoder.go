@@ -29,7 +29,19 @@ type Encoder struct {
 	// Gorilla, raw-LE bulk). When set, the header's FlagQPack bit is
 	// emitted as an early hint to legacy readers.
 	qpack bool
+
+	// depth tracks nested pointer/struct traversal. Pointer cycles do
+	// not crash the process; encodePtr increments depth on entry and
+	// returns ErrCycleDetected when it exceeds maxDepth. Lightweight
+	// alternative to a per-pointer set (no allocation per call).
+	depth    int
+	maxDepth int
 }
+
+// DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
+// large enough for any legitimate payload (10 000) while still
+// rejecting genuine cycles before the goroutine stack overflows.
+const DefaultMaxDepth = 10_000
 
 // Mode selects the wire dialect.
 type Mode uint8
@@ -51,6 +63,7 @@ func NewEncoder(mode Mode) *Encoder {
 		mode:            mode,
 		minIntern:       4,
 		maxStateEntries: 1 << 14,
+		maxDepth:        DefaultMaxDepth,
 	}
 	if mode == Dense {
 		e.state = newEncState()
@@ -75,7 +88,17 @@ func (e *Encoder) Reset() {
 	if e.state != nil {
 		e.state.reset()
 	}
+	e.depth = 0
+	if e.maxDepth == 0 {
+		e.maxDepth = DefaultMaxDepth
+	}
 }
+
+// SetMaxDepth caps reflect-path pointer/struct recursion. The default
+// (DefaultMaxDepth = 10000) is sufficient for any normal payload and
+// rejects pointer cycles before they stack-overflow the goroutine.
+// Set to 0 to disable the check (legacy behaviour).
+func (e *Encoder) SetMaxDepth(d int) { e.maxDepth = d }
 
 // Bytes returns the encoded payload. It aliases the encoder's buffer and
 // is only valid until the next write or Reset.

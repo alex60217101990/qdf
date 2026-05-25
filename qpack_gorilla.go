@@ -267,11 +267,13 @@ func (d *Decoder) readPackedGorillaHeader(expectKind byte) (n int, firstU64 uint
 		return 0, 0, nil, 0, ErrInvalidLength
 	}
 	d.i += nr
-	numBits = int(nb64)
-	bodyBytes := (numBits + 7) >> 3
-	if d.i+bodyBytes > len(d.buf) {
+	// uint64 bounds check before signed cast.
+	rem := uint64(len(d.buf) - d.i)
+	if nb64 > rem*8 {
 		return 0, 0, nil, 0, ErrShortBuffer
 	}
+	numBits = int(nb64)
+	bodyBytes := int((nb64 + 7) / 8)
 	body = d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
 	return n, firstU64, body, numBits, nil

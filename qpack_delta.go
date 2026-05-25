@@ -201,18 +201,18 @@ func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsign
 		return 0, 0, 0, 0, 0, nil, ErrInvalidLength
 	}
 	d.i += nr
-	n = int(n64)
-	if n < 2 {
-		return bitsPer, unsignedFirst, signedFirst, minDelta, n, nil, nil
+	if n64 < 2 {
+		return bitsPer, unsignedFirst, signedFirst, minDelta, int(n64), nil, nil
 	}
-	bodyBits := (n - 1) * bitsPer
-	bodyBytes := bodyBits >> 3
-	if bodyBits&7 != 0 {
-		bodyBytes++
-	}
-	if d.i+bodyBytes > len(d.buf) {
+	// Validate in uint64 before the signed cast; the same body-shape
+	// overflow that produced a reverse-range panic in readPackedForHeader
+	// applies here.
+	rem := uint64(len(d.buf) - d.i)
+	if bitsPer > 0 && (n64-1) > rem*8/uint64(bitsPer) {
 		return 0, 0, 0, 0, 0, nil, ErrShortBuffer
 	}
+	n = int(n64)
+	bodyBytes := int(((n64-1)*uint64(bitsPer) + 7) / 8)
 	body = d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
 	return bitsPer, unsignedFirst, signedFirst, minDelta, n, body, nil

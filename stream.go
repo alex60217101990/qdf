@@ -51,9 +51,13 @@ func (s *StreamEncoder) Flush() error {
 	return nil
 }
 
-// Close flushes pending data and releases the scratch buffer to the pool.
-// The underlying writer is not closed.
+// Close flushes pending data and releases the scratch buffer to the
+// pool. The underlying writer is not closed. Idempotent: subsequent
+// calls are a safe no-op.
 func (s *StreamEncoder) Close() error {
+	if s.enc == nil {
+		return nil
+	}
 	if err := s.Flush(); err != nil {
 		return err
 	}
@@ -127,9 +131,12 @@ func (s *StreamDecoder) refillIfNeeded() error {
 	}
 }
 
-// Close releases the scratch buffer to the pool. The underlying reader is
-// not closed.
+// Close releases the scratch buffer to the pool. The underlying reader
+// is not closed. Idempotent: subsequent calls are a safe no-op.
 func (s *StreamDecoder) Close() error {
+	if s.dec == nil {
+		return nil
+	}
 	*s.buf = s.dec.buf
 	bufpool.Put(s.buf)
 	s.buf = nil

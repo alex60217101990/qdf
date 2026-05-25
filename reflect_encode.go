@@ -615,6 +615,18 @@ func encodePtr(elem *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			e.WriteNil()
 			return nil
 		}
+		// Depth-based cycle guard. Cheaper than a per-pointer set and
+		// catches both genuine *T->*T cycles and pathologically deep
+		// payloads. maxDepth==0 disables the check for callers that
+		// know their input is acyclic.
+		if e.maxDepth != 0 {
+			e.depth++
+			if e.depth > e.maxDepth {
+				e.depth--
+				return ErrCycleDetected
+			}
+			defer func() { e.depth-- }()
+		}
 		return elem.encode(e, raw)
 	}
 }

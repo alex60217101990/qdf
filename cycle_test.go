@@ -21,14 +21,24 @@ type cyclicPtr struct {
 	Next *cyclicPtr `qdf:"next"`
 }
 
-// Known limitation: the encoder, like vmihailenco/msgpack and unlike
-// encoding/json, does not detect pointer cycles and will stack-
-// overflow if given one. Detection would cost a per-call set on the
-// hot path; the project documents the constraint and asks callers to
-// avoid genuine cycles. The test below is *skipped* to make the
-// limitation visible in the test inventory without crashing CI.
-func TestCycle_PointerCycle_Skipped(t *testing.T) {
-	t.Skip("known limitation: encoder does not detect pointer cycles (see README)")
+// Pointer cycle detection: the encoder bumps a depth counter on each
+// pointer dereference and returns ErrCycleDetected once depth exceeds
+// the encoder's maxDepth (default 10000). Cheaper than a per-pointer
+// set and catches both genuine *T->*T cycles and pathologically deep
+// payloads.
+func TestCycle_PointerCycleDetected(t *testing.T) {
+	a := &cyclicPtr{V: 1}
+	b := &cyclicPtr{V: 2}
+	a.Next = b
+	b.Next = a // genuine cycle
+
+	_, err := Marshal(a)
+	if err == nil {
+		t.Fatal("expected ErrCycleDetected on pointer cycle")
+	}
+	if err.Error() != ErrCycleDetected.Error() {
+		t.Fatalf("got %v, want %v", err, ErrCycleDetected)
+	}
 }
 
 // Value-typed cycle through a pointer chain that is finite in length

@@ -39,11 +39,13 @@ const (
 
 var (
 	fastEncPool = sync.Pool{
-		New: func() any { return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf)} },
+		New: func() any {
+			return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf), maxDepth: DefaultMaxDepth}
+		},
 	}
 	fastQPackEncPool = sync.Pool{
 		New: func() any {
-			return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf), qpack: true}
+			return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf), qpack: true, maxDepth: DefaultMaxDepth}
 		},
 	}
 	denseEncPool = sync.Pool{
@@ -55,6 +57,7 @@ var (
 				minIntern:       4,
 				maxStateEntries: 1 << 14,
 				qpack:           true,
+				maxDepth:        DefaultMaxDepth,
 			}
 		},
 	}

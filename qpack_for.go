@@ -283,11 +283,19 @@ func (d *Decoder) readPackedForHeader(expectKind byte) (bitsPer int, unsignedMin
 		return 0, 0, 0, 0, nil, ErrInvalidLength
 	}
 	d.i += nr
-	n = int(n64)
-	bodyBytes := (n*bitsPer + 7) >> 3
-	if d.i+bodyBytes > len(d.buf) {
+	// Validate body size in uint64 BEFORE the signed cast. A hostile
+	// varuint with n64 > MaxInt would otherwise wrap int(n64) to
+	// negative and the bounds check in the original form
+	// (`d.i + bodyBytes > len(d.buf)`) accepts a negative bodyBytes,
+	// then `d.buf[d.i : d.i+bodyBytes]` panics with a reverse-range
+	// slice. Same shape as the Skip-path overflow fixed earlier;
+	// applies to the body-reading path here too.
+	rem := uint64(len(d.buf) - d.i)
+	if bitsPer > 0 && n64 > rem*8/uint64(bitsPer) {
 		return 0, 0, 0, 0, nil, ErrShortBuffer
 	}
+	n = int(n64)
+	bodyBytes := int((n64*uint64(bitsPer) + 7) / 8)
 	body = d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
 	return bitsPer, unsignedMin, signedMin, n, body, nil
