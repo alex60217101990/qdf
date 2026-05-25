@@ -1,5 +1,7 @@
 package qdf
 
+import "strings"
+
 // Intern table backing Dense mode. The encoder maintains a string→ID
 // map; the decoder maintains the matching ID-ordered list of byte
 // slices. IDs are assigned in encode order starting at 0. There is no
@@ -34,8 +36,11 @@ func (e *encState) lookupOrAssign(key string) (uint32, bool) {
 		return id, true
 	}
 	id := uint32(len(e.ids))
-	stable := string(copyToBytes(key))
-	e.ids[stable] = id
+	// strings.Clone allocates exactly one immutable backing array and
+	// returns a string header that aliases it. The previous
+	// `string(copyToBytes(key))` did the same work but paid for two
+	// allocations: a []byte buffer then a string copy of it.
+	e.ids[strings.Clone(key)] = id
 	return id, false
 }
 
@@ -69,8 +74,3 @@ func (d *decState) get(id uint32) ([]byte, bool) {
 	return d.values[id], true
 }
 
-func copyToBytes(s string) []byte {
-	b := make([]byte, len(s))
-	copy(b, s)
-	return b
-}

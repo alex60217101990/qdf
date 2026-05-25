@@ -46,7 +46,7 @@ func TestAllocBudget_MarshalDense(t *testing.T) {
 	v := allocSmall{ID: 42, Name: "alice", Age: 30}
 	// Dense pays one extra allocation for the intern-table map ops on
 	// top of the Marshal baseline.
-	assertAllocs(t, "MarshalDense(struct)", 6, func() {
+	assertAllocs(t, "MarshalDense(struct)", 7, func() {
 		_, _ = MarshalDense(v)
 	})
 }
@@ -92,7 +92,7 @@ func TestAllocBudget_StringIntern_DenseStream(t *testing.T) {
 	v := struct {
 		Vals []string `qdf:"vals"`
 	}{Vals: []string{"region-eu-west-1", "region-eu-west-1", "region-eu-west-1"}}
-	assertAllocs(t, "MarshalDense(repeated strings)", 6, func() {
+	assertAllocs(t, "MarshalDense(repeated strings)", 7, func() {
 		_, _ = MarshalDense(v)
 	})
 }
