@@ -185,19 +185,50 @@ func main() {
 }
 ```
 
-### Two wire dialects
+### Three wire dialects
 
-| Mode          | When to use                                                  |
-| ------------- | ------------------------------------------------------------ |
-| `qdf.Fast`    | Default. Tightest CPU cost; size comparable to msgpack.      |
-| `qdf.Dense`   | Repetitive payloads — logs, telemetry, columnar rows. Strings appear once and reference back by ID. |
+| Mode           | API                | When to use                                                  |
+| -------------- | ------------------ | ------------------------------------------------------------ |
+| `qdf.Fast`     | `Marshal`          | Default. Tightest CPU cost; size comparable to msgpack.      |
+| `qdf.Dense`    | `MarshalDense`     | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices use QPack codecs. |
+| `qdf.QPack`    | `MarshalQPack`     | Fast mode + QPack codecs for numeric/bool slices. Best when you have a small number of unique strings but lots of numeric data. |
 
 ```go
-b, _ := qdf.MarshalDense(rows) // ~half the bytes on repetitive data
+b, _ := qdf.MarshalDense(rows)  // string interning + QPack
+b, _ := qdf.MarshalQPack(rows)  // QPack only, no string interning
 ```
 
-A single decoder handles both. `qdf.Unmarshal` reads the header flag
-and picks the right path automatically.
+A single decoder handles all three. `qdf.Unmarshal` reads the header
+flag and picks the right path automatically.
+
+### QPack: math-driven slice codecs
+
+QPack auto-selects, per slice, the codec with the smallest predicted
+wire form. Round-trip is lossless for every type (NaN/±Inf survive on
+floats).
+
+| Codec      | Trigger                                            | Math                                                                  |
+| ---------- | -------------------------------------------------- | --------------------------------------------------------------------- |
+| Bitpack    | `[]bool`                                           | 1 bit per element, LSB-first per byte. 8× smaller for free.           |
+| Raw-LE     | numeric slice, large delta range                   | Unsafe-slice cast → single `memmove` of LE bytes. 10-50× faster.      |
+| FOR        | numeric slice, clustered values                    | Frame-of-Reference: store `min` and `ceil(log₂(max-min+1))`-bit deltas.|
+| Delta+FOR  | monotonic / near-monotonic integers                | Δᵢ = aᵢ - aᵢ₋₁, zigzag bias, FOR over the deltas.                     |
+| Gorilla    | float slices (explicit opt-in via low-level API)   | XOR with previous, run-length leading/meaningful-bit window. (Facebook VLDB 2015.) |
+
+Head-to-head on a mixed 256-bool / 512-monotonic-u64 / 512-i64 / 256-f64
+payload (Intel i7-9750H):
+
+| Format      | Bytes  | Encode (ns/op) | Decode (ns/op) |
+| ----------- | -----: | -------------: | -------------: |
+| json        | 10,739 |         48,000 |        200,000 |
+| msgpack     | 11,808 |         64,000 |         80,000 |
+| qdf_fast    |  6,694 |          6,500 |         14,000 |
+| qdf_qpack   |  2,132 |          2,300 |          2,600 |
+| qdf_dense   |  2,134 |          2,500 |          2,500 |
+
+For sequences where the deltas alone collapse, the gain is much
+larger — e.g. 1024 consecutive Unix-second timestamps shrink from
+8201 bytes (raw) to 16 bytes (Delta+FOR), a 512× reduction.
 
 ### Streaming
 
@@ -420,13 +451,18 @@ GOEXPERIMENT=simd go test -tags qdf_simd -race ./...
 
 ```
 qdf/
-├── qdf.go              public API: Marshal, MarshalDense, Unmarshal, AppendMarshal
+├── qdf.go              public API: Marshal, MarshalDense, MarshalQPack, Unmarshal, AppendMarshal
 ├── encoder.go          *Encoder + tag emitters
 ├── decoder.go          *Decoder + length validation + key intern
 ├── stream.go           streaming encoder/decoder
 ├── state.go            Dense intern table
 ├── maps_fast.go        type-specific map encoders/decoders
-├── slices_fast.go      type-specific slice encoders/decoders
+├── slices_fast.go      type-specific slice encoders/decoders + QPack dispatch
+├── qpack.go            shared QPack constants, raw-LE codec, auto-select
+├── qpack_for.go        Frame-of-Reference bitpacked integer codec
+├── qpack_delta.go      Delta + zigzag + FOR codec for monotonic integers
+├── qpack_gorilla.go    Gorilla XOR float codec
+├── endian_le.go/be.go  native-endian guard for unsafe slice aliasing
 ├── floats_default.go   default float-slice bulk path
 ├── floats_simd.go      tighter loop under -tags qdf_simd
 ├── reflect_alloc*.go   slice/map allocator (default vs reflect2)
