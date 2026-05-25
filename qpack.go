@@ -159,44 +159,10 @@ func (e *Encoder) writePackedBool(s []bool) {
 	out = out[:start+nBytes]
 	body := out[start : start+nBytes]
 	clear(body)
-	// Eight-element unroll keeps the inner branch out of the hot loop.
-	// The bool layout in Go is one byte per element, so we can read 8
-	// booleans at a time and build the packed byte without a per-bit
-	// branch.
-	i := 0
-	for ; i+8 <= n; i += 8 {
-		var b byte
-		if s[i] {
-			b |= 1 << 0
-		}
-		if s[i+1] {
-			b |= 1 << 1
-		}
-		if s[i+2] {
-			b |= 1 << 2
-		}
-		if s[i+3] {
-			b |= 1 << 3
-		}
-		if s[i+4] {
-			b |= 1 << 4
-		}
-		if s[i+5] {
-			b |= 1 << 5
-		}
-		if s[i+6] {
-			b |= 1 << 6
-		}
-		if s[i+7] {
-			b |= 1 << 7
-		}
-		body[i>>3] = b
-	}
-	for ; i < n; i++ {
-		if s[i] {
-			body[i>>3] |= 1 << uint(i&7)
-		}
-	}
+	// packBoolsBitsLSB dispatches to AVX2 (VPSLLW + VPMOVMSKB, 32
+	// bools per iteration) under qdf_simd on amd64; everything else
+	// falls back to a scalar bit-by-bit pack.
+	packBoolsBitsLSB(body, s, n)
 	e.buf = out
 }
 

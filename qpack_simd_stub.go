@@ -25,3 +25,12 @@ func unpackBits8(out []uint64, in []byte) {
 		out[i] = uint64(in[i])
 	}
 }
+
+// packBoolsBitsLSB fallback: plain scalar bit-by-bit pack.
+func packBoolsBitsLSB(dst []byte, src []bool, n int) {
+	for i := range n {
+		if src[i] {
+			dst[i>>3] |= 1 << uint(i&7)
+		}
+	}
+}

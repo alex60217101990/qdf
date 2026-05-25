@@ -111,6 +111,35 @@ func TestUnpackBits8_Parity(t *testing.T) {
 	}
 }
 
+func TestPackBoolsBitsLSB_Parity(t *testing.T) {
+	scalar := func(dst []byte, src []bool, n int) {
+		for i := range n {
+			if src[i] {
+				dst[i>>3] |= 1 << uint(i&7)
+			}
+		}
+	}
+	rng := rand.New(rand.NewSource(23))
+	for _, n := range []int{0, 1, 7, 8, 9, 31, 32, 33, 63, 64, 65, 127, 128, 129, 1000, 4096} {
+		src := make([]bool, n)
+		for i := range src {
+			src[i] = rng.Int31()&1 == 1
+		}
+		nBytes := (n + 7) >> 3
+		got := make([]byte, nBytes)
+		want := make([]byte, nBytes)
+		scalar(want, src, n)
+		packBoolsBitsLSB(got, src, n)
+		if !reflect.DeepEqual(got, want) {
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("n=%d byte[%d] got=%02x want=%02x", n, i, got[i], want[i])
+				}
+			}
+		}
+	}
+}
+
 func TestUnpackBits816_RoundTrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(19))
 	for _, b := range []int{8, 16} {

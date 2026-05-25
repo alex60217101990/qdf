@@ -22,6 +22,28 @@ func unpackBits16AVX2(out []uint64, in []byte, n int)
 //go:noescape
 func unpackBits8AVX2(out []uint64, in []byte, n int)
 
+//go:noescape
+func packBoolsAVX2Block32(out []byte, in []bool, blocks int)
+
+// packBoolsBitsLSB writes n booleans from src as ceil(n/8) bytes into
+// dst, LSB-first (bool i -> bit (i%8) of dst[i/8]). dst must have
+// length ceil(n/8) and be cleared. With qdf_simd and AVX2, blocks of
+// 32 go through a Plan9-asm path that uses VPSLLW + VPMOVMSKB to pack
+// 32 bools per iteration; the tail (n%32) uses a scalar loop.
+func packBoolsBitsLSB(dst []byte, src []bool, n int) {
+	off := 0
+	if hasAVX2 && n >= 32 {
+		blocks := n >> 5
+		packBoolsAVX2Block32(dst, src, blocks)
+		off = blocks << 5
+	}
+	for i := off; i < n; i++ {
+		if src[i] {
+			dst[i>>3] |= 1 << uint(i&7)
+		}
+	}
+}
+
 // unpackBits32 zero-extends a bitsPer=32 packed stream into out. With
 // the qdf_simd build tag and AVX2 it dispatches to a Plan9-asm loop
 // that lifts 4 u32 to 4 u64 per VPMOVZXDQ + VMOVDQU pair.

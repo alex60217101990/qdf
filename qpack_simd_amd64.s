@@ -117,3 +117,39 @@ tailloop_8:
 done_8:
 	VZEROUPPER
 	RET
+
+// func packBoolsAVX2Block32(out []byte, in []bool, blocks int)
+//
+// Packs `blocks * 32` booleans from in (each one Go byte, value 0 or
+// 1) into `blocks * 4` bytes of out, LSB-first: bool i -> bit (i%8)
+// of out[i/8].
+//
+// Strategy: load 32 bytes at a time, shift every 16-bit lane left
+// by 7 so each bool's bit 0 moves to bit 7 of its byte (the byte
+// stays either 0x00 or 0x80 because only bit 0 was ever set), then
+// VPMOVMSKB extracts the 32 high bits into a 32-bit GP register and
+// the resulting mask matches the wire ordering. 32 bools per
+// iteration. Tail (n%32 stragglers) is handled in Go.
+//
+// Caller guarantees len(out) >= blocks*4, len(in) >= blocks*32,
+// AVX2 available, and every byte of in is strictly 0 or 1.
+TEXT ·packBoolsAVX2Block32(SB), NOSPLIT, $0-56
+	MOVQ out_base+0(FP), DI
+	MOVQ in_base+24(FP), SI
+	MOVQ blocks+48(FP), CX
+
+loop32_bp:
+	TESTQ CX, CX
+	JZ    done_bp
+	VMOVDQU   (SI), Y0
+	VPSLLW    $7, Y0, Y0
+	VPMOVMSKB Y0, AX
+	MOVL      AX, (DI)
+	ADDQ      $32, SI
+	ADDQ      $4, DI
+	DECQ      CX
+	JMP       loop32_bp
+
+done_bp:
+	VZEROUPPER
+	RET
