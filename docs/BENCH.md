@@ -38,6 +38,10 @@ coverage by `TestPool_ConcurrentEncoders` + the full `-race` test sweep.
 - **QPack (numeric/bool slices)**: 5× smaller wire than json, 21×
   faster encode, 80× faster decode on a mixed numeric payload. Delta
   +FOR reaches 512× compression on monotonic timestamp vectors.
+- **Large realistic payload (~150 MiB)**: qdf_dense encodes 7.5×
+  faster than json, decodes 8.1× faster, with a working-set delta
+  of just 9.7 MiB for a 43.7 MiB output (json's encode allocator
+  delta is 199 MiB for the same payload).
 - **Generic `MarshalT[T]`**: -1 alloc and 25-40 % faster than the
   `any`-boxing entry points on small/medium payloads. Same wire.
 - **`MarshalDirect[T Marshaler]`**: 1.55× faster than `Marshal` on
@@ -302,6 +306,66 @@ Here QPack pulls its weight: the `[]int64` timestamp column is
 monotonic and Delta+FOR compresses it to near-zero bytes per
 element; the `[]float64` value column uses raw-LE bulk. Dense and
 QPack converge because the string overhead is tiny.
+
+## Large payload (~150 MiB JSON-equivalent)
+
+Driven by `bench/largepayload_test.go`. The builder emits a struct
+of N records, every record carrying every qdf-supported field type:
+scalar ints/floats/bools, low-cardinality hot strings (service /
+region / level / host), unique-per-record UUIDs, nested map +
+string slice, `[]int32` path, `[]byte` blob, `[]float64` vector.
+
+Numbers below come from `TestSizes_LargePayload` (sizes, N = 200 000)
+and `TestMem_LargePayload` (encode/decode latency + working-set
+delta, N = 100 000) on Intel i7-9750H, Go 1.26.0. Both helpers skip
+under `-short`. Reproduce:
+
+```bash
+go test -C bench -run TestSizes_LargePayload -count=1 -timeout=10m
+go test -C bench -run TestMem_LargePayload   -count=1 -timeout=10m
+```
+
+### Encoded size (200 000 records)
+
+| Format        |    bytes  |  MiB   | vs json |
+| ------------- | --------: | -----: | ------: |
+| json          | 149 006 973 | 142.10 |   1.00× |
+| msgpack       |  97 508 774 |  92.99 |   0.65× |
+| qdf_fast      |  96 462 436 |  91.99 |   0.65× |
+| qdf_qpack     |  94 008 854 |  89.65 |   0.63× |
+| **qdf_dense** | **92 820 231** | **88.52** | **0.62×** |
+
+Dense's compression ceiling here is set by the 200 000 unique UUIDs
+which cannot dedupe (each ~36 bytes literal). The win shows in
+encode/decode latency and memory below.
+
+### Encode / decode latency + working-set delta (100 000 records)
+
+| Format        | bytes (MiB) | encode (ms) | decode (ms) | encode heap delta (MiB) |
+| ------------- | ----------: | ----------: | ----------: | ----------------------: |
+| json          |       71.08 |       1 070 |       1 744 |                  199.10 |
+| msgpack       |       46.51 |         296 |         597 |                   64.01 |
+| qdf_fast      |       46.01 |     **142** |     **300** |                   94.14 |
+| qdf_qpack     |       44.84 |         147 |         231 |                   92.95 |
+| **qdf_dense** |   **43.70** |         169 |     **216** |                **9.73** |
+
+Speedups vs json: qdf_fast encode **7.5×**, qdf_dense decode **8.1×**.
+Speedups vs msgpack: qdf_fast encode **2.1×**, qdf_dense decode
+**2.8×**.
+
+The most surprising line is qdf_dense's encode heap-delta of
+**9.7 MiB** for a 43.7 MiB output. `MarshalDense` reuses a pooled
+encoder buffer plus the intern table; the produced wire is `slices.
+Clone`-d for the caller, but the pool buffer survives and shrinks
+per-call working-set proportionally. json builds a fresh buffer per
+call and the allocator delta is 4.5× the output size. msgpack falls
+between the two.
+
+Decode heap deltas are omitted from the table: forced `runtime.GC()`
+inside the timing window reclaims the encoded buffer in the same
+sample so the delta reads negative for several formats and the
+number stops being useful. The latency column captures the real
+decode work.
 
 ## Codegen (no reflection) — `Sample` fixture
 

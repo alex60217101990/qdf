@@ -1,0 +1,56 @@
+name: govulncheck
+
+# Go vulnerability scanner. Runs daily on schedule + on push to main
+# so a CVE filed against a transitive dependency surfaces within 24 h.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: govulncheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: scan (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: root
+            working-directory: .
+          - module: bench
+            working-directory: bench
+          - module: qdfgen
+            working-directory: cmd/qdfgen
+          - module: codegen_test
+            working-directory: internal/codegen_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+            cmd/qdfgen/go.sum
+            internal/codegen_test/go.sum
+
+      - name: install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: scan ${{ matrix.module }}
+        working-directory: ${{ matrix.working-directory }}
+        run: govulncheck ./...

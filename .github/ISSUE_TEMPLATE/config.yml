@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/alex60217101990/qdf/security/advisories/new
+    about: Report a security issue privately (panic on hostile input, OOM, memory corruption). See SECURITY.md.

@@ -486,6 +486,44 @@ and Delta+FOR compresses it to near-zero bytes per element; the
 `[]float64` value column rides raw-LE bulk. Dense and QPack converge
 because string overhead is tiny.
 
+#### Large payload (~150 MiB, 200 000 records, every supported type)
+
+`bench/largepayload_test.go` builds a 200 000-record corpus that
+exercises every qdf-supported field type (scalars, hot/cold strings,
+nested map, `[]int32` / `[]float64`, `[]byte`, UUIDs) and measures
+size + encode/decode latency + working-set memory delta across json,
+msgpack, qdf_fast, qdf_qpack, qdf_dense.
+
+Sizes (200 000 records):
+
+| Format       |   bytes (MiB) |  vs json |
+| ------------ | ------------: | -------: |
+| json         |       142.10  |    1.00× |
+| msgpack      |        92.99  |    0.65× |
+| qdf_fast     |        91.99  |    0.65× |
+| qdf_qpack    |        89.65  |    0.63× |
+| **qdf_dense** |     **88.52** | **0.62×** |
+
+Latency + memory (100 000 records):
+
+| Format        | encode (ms) | decode (ms) | encode heap delta |
+| ------------- | ----------: | ----------: | ----------------: |
+| json          |       1 070 |       1 744 |          199 MiB  |
+| msgpack       |         296 |         597 |           64 MiB  |
+| qdf_fast      |     **142** |         300 |           94 MiB  |
+| qdf_qpack     |         147 |         231 |           93 MiB  |
+| **qdf_dense** |         169 |     **216** |       **9.7 MiB** |
+
+Reproduce:
+
+```bash
+go test -C bench -run TestSizes_LargePayload -count=1 -timeout=10m
+go test -C bench -run TestMem_LargePayload   -count=1 -timeout=10m
+```
+
+Both helpers skip under `-short`; the size test allocates ~600 MiB
+during the run, the mem test ~400 MiB.
+
 ### Reproduce
 
 ```bash
