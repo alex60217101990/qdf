@@ -71,6 +71,9 @@ const (
 	// that replaces the per-element tag stream for a single slice.
 	tagPackBool = 0xE3 // bitpacked []bool: tag, varuint(n), ceil(n/8) bytes (LSB-first)
 	tagPackRaw  = 0xE4 // raw-LE numeric: tag, kind byte, varuint(n), n*width bytes (LE)
+	tagPackFor  = 0xE5 // Frame-of-Reference bitpacked integer slice:
+	//                    tag, kind, bits (0..56), min varuint (zigzag for signed),
+	//                    varuint(n), ceil(n*bits/8) bytes (LSB-first).
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1

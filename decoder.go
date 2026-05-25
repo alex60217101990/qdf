@@ -749,6 +749,35 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += int(n64) * w
 		return nil
+	case tagPackFor:
+		d.i++
+		if d.i+2 > len(d.buf) {
+			return ErrShortBuffer
+		}
+		// kind, bits
+		d.i++ // skip kind
+		bitsPer := int(d.buf[d.i])
+		d.i++
+		if bitsPer > qpackForMaxBits {
+			return ErrBadTag
+		}
+		// min varuint
+		_, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		bodyBytes := (int(n64)*bitsPer + 7) >> 3
+		if d.i+bodyBytes > len(d.buf) {
+			return ErrShortBuffer
+		}
+		d.i += bodyBytes
+		return nil
 	}
 	return ErrBadTag
 }
