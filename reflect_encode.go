@@ -538,6 +538,8 @@ func decodeArray(elem *typeDesc, stride uintptr, n int) func(*Decoder, unsafe.Po
 }
 
 func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) error {
+	keyType := t.Key()
+	valType := t.Elem()
 	return func(e *Encoder, p unsafe.Pointer) error {
 		rv := reflect.NewAt(t, p).Elem()
 		if rv.IsNil() {
@@ -552,10 +554,21 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		// reuses a single *MapIter and exposes Key/Value via
 		// reflect.Value (struct, no per-element heap). See
 		// BenchmarkMapIter_MapRangeOriginal vs BenchmarkMapIter_Seq2.
+		//
+		// SetIterKey/SetIterValue (Go 1.18+) write the current map
+		// iter entry into a pre-allocated addressable reflect.Value.
+		// Without them, reflectValueAddr would have to materialise a
+		// fresh reflect.New(T).Elem() per element — 2 allocs per map
+		// entry on the previous path, O(N) total. Now the two
+		// scratch Values are allocated once before the loop and reused.
+		keyHolder := reflect.New(keyType).Elem()
+		valHolder := reflect.New(valType).Elem()
+		kp := unsafe.Pointer(keyHolder.UnsafeAddr())
+		vp := unsafe.Pointer(valHolder.UnsafeAddr())
 		iter := rv.MapRange()
 		for iter.Next() {
-			kp := reflectValueAddr(iter.Key())
-			vp := reflectValueAddr(iter.Value())
+			keyHolder.SetIterKey(iter)
+			valHolder.SetIterValue(iter)
 			if err := k.encode(e, kp); err != nil {
 				return err
 			}
@@ -565,15 +578,6 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		}
 		return nil
 	}
-}
-
-// reflectValueAddr returns an addressable copy of v's data so we can use
-// unsafe.Pointer on it. reflect.Value.Pointer is only valid for chan, map,
-// pointer, slice, etc.; for value types we need to copy via reflect.New.
-func reflectValueAddr(v reflect.Value) unsafe.Pointer {
-	tmp := reflect.New(v.Type()).Elem()
-	tmp.Set(v)
-	return unsafe.Pointer(tmp.UnsafeAddr())
 }
 
 func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) error {

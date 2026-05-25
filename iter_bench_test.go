@@ -42,3 +42,24 @@ func BenchmarkMapIter_Seq2(b *testing.B) {
 		_ = sum
 	}
 }
+
+// Generic map type that does NOT match a maps_fast.go fast-path.
+// Forces encodeMap to be used and exercises the SetIterKey/Value
+// allocation reduction.
+func BenchmarkEncodeGenericMap(b *testing.B) {
+	type rec struct {
+		A int     `qdf:"a"`
+		B float64 `qdf:"b"`
+	}
+	type holder struct {
+		M map[string]rec `qdf:"m"`
+	}
+	v := holder{M: make(map[string]rec, 64)}
+	for i := range 64 {
+		v.M[string(rune('a'+i%26))+string(rune('A'+i/26))] = rec{A: i, B: float64(i) * 0.5}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = Marshal(v)
+	}
+}
