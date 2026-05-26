@@ -65,8 +65,15 @@ type encState struct {
 	// streams emit a handful of struct types, so a slice beats a map
 	// on lookup cost AND keeps the race-detector instrumentation off
 	// the hot path.
+	//
+	// lastShapeTd / lastShapeID memoise the most-recent successful
+	// shape lookup so a run of identical-type struct emits (the
+	// common "array of T" case) is a one-pointer compare per record
+	// instead of a slice scan.
 	shapes        []encShape
 	shapeBindings []shapeBinding
+	lastShapeTd   *typeDesc
+	lastShapeID   uint32
 }
 
 // shapeBinding is a (typeDesc → wire shape ID) pair. Stored in a
@@ -101,6 +108,8 @@ func (e *encState) reset() {
 	}
 	e.shapes = e.shapes[:0]
 	e.shapeBindings = e.shapeBindings[:0]
+	e.lastShapeTd = nil
+	e.lastShapeID = 0
 }
 
 // shapeForType returns the wire shape ID bound to t in this encoder's
@@ -108,9 +117,15 @@ func (e *encState) reset() {
 //
 //go:nosplit
 func (e *encState) shapeForType(t *typeDesc) uint32 {
+	if e.lastShapeTd == t && e.lastShapeID != 0 {
+		return e.lastShapeID
+	}
 	for i := range e.shapeBindings {
 		if e.shapeBindings[i].td == t {
-			return e.shapeBindings[i].id
+			id := e.shapeBindings[i].id
+			e.lastShapeTd = t
+			e.lastShapeID = id
+			return id
 		}
 	}
 	return 0
@@ -118,6 +133,8 @@ func (e *encState) shapeForType(t *typeDesc) uint32 {
 
 func (e *encState) shapeBindType(t *typeDesc, id uint32) {
 	e.shapeBindings = append(e.shapeBindings, shapeBinding{td: t, id: id})
+	e.lastShapeTd = t
+	e.lastShapeID = id
 }
 
 // shapeDeclare reserves the next sequential wire ID and returns it.
@@ -142,7 +159,10 @@ func (e *encState) pairLookup(prev, curr uint32) (uint8, bool) {
 	if r.n == 0 {
 		return 0, false
 	}
-	for i := uint8(0); i < r.n; i++ {
+	if r.items[0] == curr {
+		return 0, true
+	}
+	for i := uint8(1); i < r.n; i++ {
 		if r.items[i] == curr {
 			return i, true
 		}
@@ -268,6 +288,27 @@ func (e *encState) lruMoveToFront(id uint32) uint32 {
 	e.lruPrev[e.lruHead] = id
 	e.lruHead = id
 	return rank
+}
+
+// lruMoveFront does the same unlink+insert-at-head as lruMoveToFront
+// but skips the rank walk. Use when the caller does not need the
+// rank (e.g. raw state-ref where MTF cannot win).
+//
+//go:nosplit
+func (e *encState) lruMoveFront(id uint32) {
+	if e.lruHead == id {
+		return
+	}
+	p := e.lruPrev[id]
+	n := e.lruNext[id]
+	e.lruNext[p] = n
+	if n != lruInvalidID {
+		e.lruPrev[n] = p
+	}
+	e.lruPrev[id] = lruInvalidID
+	e.lruNext[id] = e.lruHead
+	e.lruPrev[e.lruHead] = id
+	e.lruHead = id
 }
 
 // lookupOrAssign returns (id, hit). On a miss a fresh entry is installed

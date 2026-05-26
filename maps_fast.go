@@ -3,8 +3,6 @@ package qdf
 import (
 	"reflect"
 	"unsafe"
-
-	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
 
 // Specialised encoders / decoders for the most common Go map shapes,
@@ -240,5 +238,3 @@ func decodeMapStringAny(d *Decoder, p unsafe.Pointer) error {
 	*(*map[string]any)(p) = m
 	return nil
 }
-
-var _ = unsafestr.String

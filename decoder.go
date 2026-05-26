@@ -830,6 +830,9 @@ func (d *Decoder) Skip() error {
 				return ErrInvalidLength
 			}
 			d.i += n
+			if err := d.CheckLength(int(cnt64), 1); err != nil {
+				return err
+			}
 			cnt = int(cnt64)
 			sh, _ := d.state.shapeDeclare()
 			sh.keyIDs = make([]uint32, 0, cnt)

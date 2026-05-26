@@ -124,7 +124,11 @@ const (
 // lengths. The encoder always appends; the decoder returns the consumed
 // length so the caller can advance its cursor.
 
+//go:nosplit
 func appendUvarint(b []byte, x uint64) []byte {
+	if x < 0x80 {
+		return append(b, byte(x))
+	}
 	for x >= 0x80 {
 		b = append(b, byte(x)|0x80)
 		x >>= 7
@@ -134,7 +138,12 @@ func appendUvarint(b []byte, x uint64) []byte {
 
 // readUvarint decodes a ULEB128 and returns value, bytes-consumed. n==0 means
 // not enough input; n<0 means overflow (>10 bytes).
+//
+//go:nosplit
 func readUvarint(b []byte) (uint64, int) {
+	if len(b) > 0 && b[0] < 0x80 {
+		return uint64(b[0]), 1
+	}
 	var x uint64
 	var shift uint
 	for i, c := range b {

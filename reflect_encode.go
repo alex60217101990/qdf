@@ -2,7 +2,6 @@ package qdf
 
 import (
 	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -265,7 +264,6 @@ func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) {
 	}
 	// stable order = source order (no sort) — matches encoding/json behavior
 	// for fixed-layout decode.
-	_ = sort.Strings
 	return out, nil
 }
 

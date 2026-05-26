@@ -255,7 +255,6 @@ func (e *Encoder) WriteString(s string) {
 			e.emitStateRef(id)
 			return
 		}
-		_ = id
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
@@ -326,15 +325,19 @@ func (e *Encoder) emitStateRef(id uint32) {
 			}
 		}
 	}
-	// MTF — compute rank lazily because lruMoveToFront mutates state.
-	// We MUST move-to-front regardless of which tag we emit so the
-	// decoder mirror stays in sync, but the rank value is only useful
-	// when we actually pick MTF.
-	rank := e.state.lruMoveToFront(id)
-	if rankLen := uvarintLen(uint64(rank)); rankLen < bestPayload {
-		bestTag = tagStateMTF
-		bestPayload = rankLen
-		bestPayloadVal = uint64(rank)
+	// MTF rank is bounded by len(intern table). The rank varuint can
+	// only beat the raw id varuint when idLen > 1 (id ≥ 128). For
+	// small intern tables we skip the LRU walk entirely and just
+	// reorder the chain — saving an O(rank) scan on every ref.
+	if idLen > 1 {
+		rank := e.state.lruMoveToFront(id)
+		if rankLen := uvarintLen(uint64(rank)); rankLen < bestPayload {
+			bestTag = tagStateMTF
+			bestPayload = rankLen
+			bestPayloadVal = uint64(rank)
+		}
+	} else {
+		e.state.lruMoveFront(id)
 	}
 	e.buf = append(e.buf, bestTag)
 	e.buf = appendUvarint(e.buf, bestPayloadVal)
@@ -383,7 +386,6 @@ func (e *Encoder) WriteBytes(b []byte) {
 			e.emitStateRef(id)
 			return
 		}
-		_ = id
 		e.buf = append(e.buf, tagInternBin)
 		e.buf = appendUvarint(e.buf, uint64(len(b)))
 		e.buf = append(e.buf, b...)
