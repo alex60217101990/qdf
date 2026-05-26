@@ -126,8 +126,18 @@ const (
 
 //go:nosplit
 func appendUvarint(b []byte, x uint64) []byte {
+	// 3-byte unrolled fast path. Covers values up to 2^21 = 2 097 151
+	// which is well past the default maxStateEntries (16 384) and
+	// covers every state-ref / shape ID / fixstr length in practical
+	// payloads. Multi-byte values fall through to the loop.
 	if x < 0x80 {
 		return append(b, byte(x))
+	}
+	if x < 0x4000 {
+		return append(b, byte(x)|0x80, byte(x>>7))
+	}
+	if x < 0x200000 {
+		return append(b, byte(x)|0x80, byte(x>>7)|0x80, byte(x>>14))
 	}
 	for x >= 0x80 {
 		b = append(b, byte(x)|0x80)
@@ -138,6 +148,12 @@ func appendUvarint(b []byte, x uint64) []byte {
 
 // readUvarint decodes a ULEB128 and returns value, bytes-consumed. n==0 means
 // not enough input; n<0 means overflow (>10 bytes).
+//
+// The 1-byte branch stays inline (cost ≤ 80) — most varints in
+// practice are state-ref ranks / shape IDs / small lengths < 128.
+// Multi-byte values fall through to the loop below, which is
+// extracted into a non-inlinable slow path on purpose so the hot
+// path keeps its inline budget.
 //
 //go:nosplit
 func readUvarint(b []byte) (uint64, int) {
