@@ -25,7 +25,7 @@ func BenchmarkDecode_UniqueLog(b *testing.B) {
 	for i, e := range entries {
 		jsonBufs[i], _ = json.Marshal(e)
 		msgpackBufs[i], _ = msgpack.Marshal(e)
-		qdfBufs[i], _ = qdf.Marshal(&e)
+		qdfBufs[i], _ = qdf.Marshal(&e, qdf.OptSpeed)
 	}
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()
@@ -72,7 +72,7 @@ func BenchmarkDecodeParallel_UniqueLog(b *testing.B) {
 	for i, e := range entries {
 		jsonBufs[i], _ = json.Marshal(e)
 		msgpackBufs[i], _ = msgpack.Marshal(e)
-		qdfBufs[i], _ = qdf.Marshal(&e)
+		qdfBufs[i], _ = qdf.Marshal(&e, qdf.OptSpeed)
 	}
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()

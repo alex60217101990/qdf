@@ -60,6 +60,6 @@ func BenchmarkEncodeGenericMap(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = Marshal(v)
+		_, _ = Marshal(v, OptSpeed)
 	}
 }

@@ -58,19 +58,19 @@ func BenchmarkQPack_Encode(b *testing.B) {
 	b.Run("qdf_fast", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = qdf.Marshal(v)
+			_, _ = qdf.Marshal(v, qdf.OptSpeed)
 		}
 	})
 	b.Run("qdf_qpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = qdf.MarshalQPack(v)
+			_, _ = qdf.Marshal(v, qdf.OptQPack)
 		}
 	})
 	b.Run("qdf_dense", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = qdf.MarshalDense(v)
+			_, _ = qdf.Marshal(v, qdf.OptBalanced)
 		}
 	})
 }
@@ -79,9 +79,9 @@ func BenchmarkQPack_Decode(b *testing.B) {
 	v := samplePayload()
 	jb, _ := json.Marshal(v)
 	mb, _ := msgpack.Marshal(v)
-	fb, _ := qdf.Marshal(v)
-	qb, _ := qdf.MarshalQPack(v)
-	db, _ := qdf.MarshalDense(v)
+	fb, _ := qdf.Marshal(v, qdf.OptSpeed)
+	qb, _ := qdf.Marshal(v, qdf.OptQPack)
+	db, _ := qdf.Marshal(v, qdf.OptBalanced)
 	b.Logf("size json=%d msgpack=%d qdf_fast=%d qdf_qpack=%d qdf_dense=%d", len(jb), len(mb), len(fb), len(qb), len(db))
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()

@@ -124,8 +124,11 @@ func NewEncoderOnBuf(buf []byte, mode Mode) *Encoder {
 	return e
 }
 
-// Reset truncates the buffer and resets the intern table. Capacities are
-// preserved. Mode and tuning knobs are not touched.
+// Reset truncates the buffer and resets the intern table. Capacities
+// are preserved. opts / mode / qpack are also reset to OptSpeed so a
+// pooled encoder does not leak its previous configuration into the
+// next caller — apply the desired options explicitly via applyOpts /
+// SetQPack after Reset.
 func (e *Encoder) Reset() {
 	e.buf = e.buf[:0]
 	e.headerOut = false
@@ -136,6 +139,9 @@ func (e *Encoder) Reset() {
 	if e.maxDepth == 0 {
 		e.maxDepth = DefaultMaxDepth
 	}
+	e.opts = OptSpeed
+	e.mode = Fast
+	e.qpack = false
 }
 
 // SetMaxDepth caps reflect-path pointer/struct recursion. The default

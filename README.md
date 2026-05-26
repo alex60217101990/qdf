@@ -194,7 +194,7 @@ func main() {
         Attrs:  map[string]string{"region": "eu-west-1", "version": "v3"},
     }
 
-    b, err := qdf.Marshal(in)
+    b, err := qdf.Marshal(in, qdf.OptSpeed)
     if err != nil {
         panic(err)
     }
@@ -208,30 +208,39 @@ func main() {
 }
 ```
 
-### Three wire dialects
+### Encode profile is per-call
 
-| Mode           | API                | When to use                                                  |
-| -------------- | ------------------ | ------------------------------------------------------------ |
-| `qdf.Fast`     | `Marshal`          | Default. Tightest CPU cost; size comparable to msgpack.      |
-| `qdf.Dense`    | `MarshalDense`     | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices also use QPack codecs. |
-| QPack (Fast+codecs) | `MarshalQPack` | Fast mode + QPack codecs for numeric/bool slices. Best when the payload has few unique strings but lots of numeric data (vectors, embeddings, timestamps). |
+There is one encode entry point — `Marshal(v, opts)` — and the
+`opts` bit-mask picks which codecs run for that specific call. The
+convenience bundles cover the common tradeoffs:
+
+| Bundle             | When to use                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| `qdf.OptSpeed`     | Fast path. Tightest CPU cost; size comparable to msgpack. Drop-in for `encoding/json` behaviour. |
+| `qdf.OptBalanced`  | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices use QPack codecs; struct shapes intern; Markov-1 + MTF run on state-refs. |
+| `qdf.OptCompression` | Alias for `OptBalanced` today. Reserved so future heavy-CPU codecs (rANS, dictionary preloading) can opt in without breaking the bundle name. |
+| custom mix         | Or-combine individual bits (`OptDense \| OptQPack \| OptShapeIntern …`) when one of the bundles is one click off the desired tradeoff. |
 
 ```go
-b, _ := qdf.MarshalDense(rows)  // string interning + QPack
-b, _ := qdf.MarshalQPack(rows)  // QPack only, no string interning
+b, _ := qdf.Marshal(event,    qdf.OptSpeed)        // hot path
+b, _ := qdf.Marshal(batch,    qdf.OptBalanced)     // telemetry / logs
+b, _ := qdf.Marshal(snapshot, qdf.OptCompression)  // backup / archive
+b, _ := qdf.Marshal(payload,                       // tuned mix
+    qdf.OptDense|qdf.OptQPack|qdf.OptShapeIntern)
 ```
 
-A single decoder handles all three. `qdf.Unmarshal` reads the header
-flag and picks the right path automatically.
+A single `qdf.Unmarshal` reads everything. The wire header is self-
+describing; the receiver never has to know which option mix the
+sender picked.
 
-### Dense mode internals — what to expect
+### Dense mode internals — what each bit buys you
 
-Dense mode (`MarshalDense`, or any stream constructed with `qdf.Dense`)
-runs four wire-level optimisations on top of Fast. They are all
-automatic — there are no flags to flip — and they share one rule:
+`OptDense` activates the inline intern table. The four codec bits
+that compose `OptBalanced` layer on top of it. They share one rule:
 **the encoder picks the shortest variant per emission, so Dense wire
-is never larger than the same payload in Fast.** If the predictors do
-not pay, the byte cost is identical to a plain state-ref.
+is never larger than the same payload at `OptSpeed`.** If the
+predictors do not pay, the byte cost is identical to a plain
+state-ref.
 
 | Tag | Predictor | Wins when | Doesn't help when |
 | --- | --------- | --------- | ----------------- |
@@ -251,42 +260,19 @@ vocabulary of strings and a stable struct shape repeat thousands of
 times. Expected envelope: 25 – 55 % smaller than JSON at 2–6× the
 encode speed.
 
-**Where it is *not* worth it:** single-shot encodes of small unique
-payloads (Markov / shape predictors never reach their amortisation
-point, you pay ≤ 2 bytes of prelude for nothing), or strict-throughput
-paths where decode CPU is the bottleneck — Dense decode is ~15 %
-slower than Fast because of the state-table lookups. Reach for `Fast`
-or `QPack` there.
+**Where Dense is *not* worth it:** single-shot encodes of small
+unique payloads (Markov / shape predictors never reach their
+amortisation point, you pay ≤ 2 bytes of prelude for nothing), or
+strict-throughput paths where decode CPU is the bottleneck — Dense
+decode is ~15 % slower than Fast because of the state-table lookups.
+Reach for `OptSpeed` or `OptQPack` there.
 
 **Where it is wrong:** *cryptographic / forensic* contexts that need
 byte-stable wire across implementations and versions. Dense embeds
 predictor state, intern-ID ordering, and shape IDs that depend on
-emission order. Use Fast if you hash or sign the wire.
+emission order. Use `OptSpeed` if you hash or sign the wire.
 
-### Per-call options (`MarshalWith`)
-
-The three top-level entry points (`Marshal`, `MarshalDense`,
-`MarshalQPack`) are presets. When a single program needs different
-encode profiles per call — say "max compression for this backup
-blob" and "max throughput on this hot path" — use `MarshalWith` and
-combine bits from the `qdf.Options` bit-mask. The same `Unmarshal`
-reads everything because the wire is self-describing.
-
-```go
-// Backup → squeeze every byte.
-b, _ := qdf.MarshalWith(snapshot, qdf.OptCompression)
-
-// Hot path → minimum CPU, no codecs.
-b, _ := qdf.MarshalWith(event, qdf.OptSpeed)
-
-// Tuned: Dense intern + shape interning, but skip MTF rank coding to
-// trade a few bytes for less encode CPU.
-b, _ := qdf.MarshalWith(payload,
-    qdf.OptDense | qdf.OptQPack | qdf.OptShapeIntern)
-
-// Generic equivalent — same zero-alloc guarantees as MarshalT.
-b, _ := qdf.MarshalTWith(event, qdf.OptBalanced)
-```
+### Bit reference
 
 | Bit | What it gates |
 | --- | -------------- |
@@ -298,15 +284,15 @@ b, _ := qdf.MarshalTWith(event, qdf.OptBalanced)
 
 | Bundle | Composition |
 | ------ | ----------- |
-| `OptSpeed`       | `0` — Fast mode, no codecs. Equivalent to `Marshal`. |
-| `OptBalanced`    | `OptDense \| OptQPack \| OptShapeIntern \| OptPairPred \| OptMTF` — equivalent to `MarshalDense`. |
-| `OptCompression` | Alias for `OptBalanced` today; reserved so future heavy-CPU codecs (rANS, dictionary preloading) can opt in without breaking the bundle name. |
+| `OptSpeed`       | `0` — Fast mode, no codecs. |
+| `OptBalanced`    | `OptDense \| OptQPack \| OptShapeIntern \| OptPairPred \| OptMTF`. |
+| `OptCompression` | Alias for `OptBalanced` today; reserved for future heavy-CPU codecs (rANS, dictionary preloading). |
 
-`Options` is a `uint32` carried by value, so `MarshalWith` /
-`AppendMarshalWith` add **zero per-call allocations** over the
-preset entry points. Encoders are pooled in a single shared pool
-(`customEncPool`) keyed only by buffer; the configuration is applied
-on each acquire via `applyOpts`. Markov-0 (`tagStateRepeat`, `0xE8`)
+`Options` is a `uint32` carried by value, so `Marshal` and
+`AppendMarshal` add **zero per-call allocations** over the pool /
+output-clone overhead. Encoders are pooled in a single shared pool
+(`encPool`) keyed only by buffer; the configuration is applied on
+each acquire via `applyOpts`. Markov-0 (`tagStateRepeat`, `0xE8`)
 is always on inside `OptDense` because it costs nothing on the wire
 when the predictor misses.
 
@@ -317,26 +303,24 @@ encoder API for those.
 
 ### Generic API (Go 1.18+ generics)
 
-`Marshal(v any)` boxes the argument through `interface{}` and then
-makes one reflect copy for value-typed inputs. The generic helpers
-skip both: `T` is fixed at the call site, `reflect.TypeFor[T]()`
-resolves at compile time, and `unsafe.Pointer(&v)` points directly at
-the caller's stack.
+`Marshal(v any, opts)` boxes the argument through `interface{}` and
+then makes one reflect copy for value-typed inputs. The generic
+helpers skip both: `T` is fixed at the call site,
+`reflect.TypeFor[T]()` resolves at compile time, and
+`unsafe.Pointer(&v)` points directly at the caller's stack.
 
-| Generic                    | Equivalent to       |
-| -------------------------- | ------------------- |
-| `MarshalT[T any]`          | `Marshal`           |
-| `MarshalQPackT[T any]`     | `MarshalQPack`      |
-| `MarshalDenseT[T any]`     | `MarshalDense`      |
-| `AppendMarshalT[T any]`    | `AppendMarshal`     |
-| `UnmarshalT[T any]`        | `Unmarshal`         |
+| Generic                    | Equivalent to                 |
+| -------------------------- | ----------------------------- |
+| `MarshalT[T any]`          | `Marshal` (typed)             |
+| `AppendMarshalT[T any]`    | `AppendMarshal` (typed)       |
+| `UnmarshalT[T any]`        | `Unmarshal` (typed)           |
 
 Wire output is byte-identical. The win is on the encode side: one
 fewer allocation per call (-80 B) and 25–40 % faster on small/medium
 payloads.
 
 ```go
-buf, _ := qdf.MarshalT(event)
+buf, _ := qdf.MarshalT(event, qdf.OptSpeed)
 var out Event
 _ = qdf.UnmarshalT(buf, &out)
 ```
@@ -632,8 +616,8 @@ during the run, the mem test ~400 MiB.
 cd bench
 go test -bench=. -benchmem -benchtime=2s -timeout=10m
 
-# QPack head-to-head (Marshal / MarshalQPack / MarshalDense
-# / json / msgpack on the same numeric+bool payload)
+# QPack head-to-head: Marshal(_, OptSpeed) vs Marshal(_, OptQPack)
+# vs Marshal(_, OptBalanced) vs json / msgpack on the same payload
 go test -bench='BenchmarkQPack_' -benchmem
 
 # QPack micro-benchmarks (codec internals, in the root module)
@@ -722,7 +706,7 @@ The test suite runs under `-race` and covers:
   ±0 / denormals, monotonic / constant / mixed-direction sequences.
 - `TestCompleteness_AllModes` runs one big payload (every QPack-
   eligible type, every edge case, nested structs, maps, string
-  interning) through `Marshal`, `MarshalQPack`, and `MarshalDense`,
+  interning) through `OptSpeed`, `OptQPack`, and `OptBalanced`,
   then asserts bit-for-bit IEEE-754 equality for floats and
   `reflect.DeepEqual` elsewhere.
 - `TestCompleteness_StreamingDense` exercises three messages through
@@ -738,7 +722,7 @@ The test suite runs under `-race` and covers:
   predictor fires on runs of identical interned values, does not fire
   on alternation, invalidates correctly across an inline-string
   emission, stays in sync with `Decoder.Skip`, and round-trips through
-  the public `MarshalDense` / `Unmarshal` boundary.
+  the public `Marshal(v, OptBalanced)` / `Unmarshal` boundary.
 - **Property-based round-trip fuzzers** (`fuzz_property_test.go`)
   drive a deterministic value generator from the fuzz bytes, encode
   through every Marshal entry point, and assert
@@ -749,7 +733,7 @@ The test suite runs under `-race` and covers:
   predictor bug in `encodeStruct` (commit `dfc30ae`).
 - **Golden-file wire pinning** (`testdata/golden/*.bin`,
   `golden_test.go`): every representative payload has its
-  Marshal / MarshalQPack / MarshalDense bytes committed to disk. A
+  OptSpeed / OptQPack / OptBalanced bytes committed to disk. A
   later wire-format change either matches the bytes byte-for-byte
   or fails the test. Map-shaped cases skip the byte-pin half
   (Go map iteration is randomised) but keep the decode-and-compare
@@ -858,8 +842,8 @@ go test -tags "qdf_simd qdf_reflect2" -race ./...
 
 ```
 qdf/
-├── qdf.go                  public API: Marshal, MarshalDense, MarshalQPack, Unmarshal, AppendMarshal
-├── qdf_generic.go          generic helpers: MarshalT, MarshalDenseT, MarshalQPackT, UnmarshalT, AppendMarshalT
+├── qdf.go                  public API: Options bit-mask, Marshal, AppendMarshal, Unmarshal
+├── qdf_generic.go          generic helpers: MarshalT, AppendMarshalT, UnmarshalT
 ├── qdf_direct.go           reflection-free shortcut: MarshalDirect / UnmarshalDirect / AppendMarshalDirect
 ├── encoder.go              *Encoder + tag emitters
 ├── decoder.go              *Decoder + length validation + key intern

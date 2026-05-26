@@ -1,26 +1,29 @@
 // Package qdf is a compact, streaming-friendly binary serialization
 // format.
 //
-// Two wire dialects share the same tag space:
+// One encode entry point: Marshal(v, opts). The Options bit-mask
+// picks which codecs run for that call. Convenience bundles cover
+// the common tradeoffs:
 //
-//   - Fast — tagged binary, no per-message dictionary. Used by Marshal.
-//   - Dense — Fast plus an inline string-interning table. Repeated values
-//     and keys collapse to small backward references. Used by MarshalDense
-//     and by NewStreamEncoder when constructed with the Dense mode.
+//	OptSpeed       — Fast mode, no codecs (matches encoding/json shape)
+//	OptBalanced    — Dense + QPack + shape interning + Markov-1 + MTF
+//	OptCompression — alias for OptBalanced today; reserved for future
+//	                 heavy-CPU codecs (rANS, dictionary preloading)
 //
-// A single decoder handles both. The wire header carries a flag bit that
-// the decoder reads on first call.
+// A single decoder handles every variant; the wire header self-
+// describes the dialect.
 //
-//	b, err := qdf.Marshal(v)
+//	b, err := qdf.Marshal(v, qdf.OptSpeed)        // hot path
+//	b, err := qdf.Marshal(v, qdf.OptBalanced)     // telemetry / logs
+//	b, err := qdf.Marshal(v, qdf.OptCompression)  // backup / archive
+//
 //	err := qdf.Unmarshal(b, &v)
 //
-//	b, err := qdf.MarshalDense(v)        // smaller on repetitive payloads
-//
-//	enc := qdf.NewStreamEncoder(w, qdf.Dense)
+//	enc := qdf.NewStreamEncoder(w, qdf.OptBalanced)
 //	dec := qdf.NewStreamDecoder(r)
 //
-// Marshal and MarshalDense return a freshly-allocated slice owned by the
-// caller. AppendMarshal is the zero-extra-copy variant.
+// Marshal returns a freshly-allocated slice owned by the caller.
+// AppendMarshal is the zero-extra-copy variant.
 package qdf
 
 import (
@@ -43,9 +46,9 @@ const (
 // Pre-built bundles cover the common "max speed", "balanced", and
 // "max compression" use cases without having to remember the layout.
 //
-// Options carry by value (uint32) so MarshalWith / AppendMarshalWith
-// add zero allocations over a plain Marshal call. The encoder checks
-// each bit with a single AND on the hot path.
+// Options carry by value (uint32) so Marshal / AppendMarshal add zero
+// allocations over the pool / output-clone overhead. The encoder
+// checks each bit with a single AND on the hot path.
 type Options uint32
 
 const (
@@ -85,8 +88,9 @@ const (
 	OptSpeed Options = 0
 
 	// OptBalanced bundles every codec that does not trade CPU for
-	// compression beyond its sweet spot. Wire-format match for the
-	// default MarshalDense entry point.
+	// compression beyond its sweet spot. The right default for
+	// telemetry, log batches, and any payload with repetitive
+	// strings or numeric slices.
 	OptBalanced Options = OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
 
 	// OptCompression is an alias for OptBalanced today. The constant
@@ -102,47 +106,23 @@ const (
 func (o Options) Has(bit Options) bool { return o&bit != 0 }
 
 var (
-	fastEncPool = sync.Pool{
-		New: func() any {
-			return &Encoder{mode: Fast, opts: OptSpeed, buf: make([]byte, 0, initialEncBuf), maxDepth: DefaultMaxDepth}
-		},
-	}
-	fastQPackEncPool = sync.Pool{
-		New: func() any {
-			return &Encoder{mode: Fast, opts: OptQPack, buf: make([]byte, 0, initialEncBuf), qpack: true, maxDepth: DefaultMaxDepth}
-		},
-	}
-	denseEncPool = sync.Pool{
+	// encPool serves every Marshal / AppendMarshal call. Encoders are
+	// reconfigured via applyOpts on each acquire so a single pool
+	// covers any Options combination; the buffer + intern table are
+	// reused across calls when the cap fits maxPooledBuf.
+	encPool = sync.Pool{
 		New: func() any {
 			return &Encoder{
-				mode:            Dense,
-				opts:            OptBalanced,
 				buf:             make([]byte, 0, initialEncBuf),
 				state:           newEncState(),
 				minIntern:       4,
 				maxStateEntries: 1 << 14,
-				qpack:           true,
 				maxDepth:        DefaultMaxDepth,
 			}
 		},
 	}
 	decPool = sync.Pool{
 		New: func() any { return &Decoder{} },
-	}
-	// customEncPool serves MarshalWith / AppendMarshalWith. Encoders
-	// are reconfigured via applyOpts on each acquire so a single pool
-	// covers any Options combination; the buffer + intern table are
-	// reused across calls when the cap fits maxPooledBuf.
-	customEncPool = sync.Pool{
-		New: func() any {
-			return &Encoder{
-				buf:             make([]byte, 0, initialEncBuf),
-				state:           newEncState(),
-				minIntern:       4,
-				maxStateEntries: 1 << 14,
-				maxDepth:        DefaultMaxDepth,
-			}
-		},
 	}
 )
 
@@ -154,114 +134,50 @@ func putEnc(enc *Encoder, pool *sync.Pool) {
 	pool.Put(enc)
 }
 
-// Marshal encodes v in Fast mode. The returned slice is freshly allocated
-// and owned by the caller.
-func Marshal(v any) ([]byte, error) {
-	enc := fastEncPool.Get().(*Encoder)
-	enc.Reset()
-	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &fastEncPool)
-		return nil, err
-	}
-	out := slices.Clone(enc.buf)
-	fastEncPool.Put(enc)
-	return out, nil
-}
-
-// MarshalDense encodes v in Dense mode. Repeated strings and bytes are
-// emitted once and back-referenced by ID; numeric and bool slices are
-// auto-packed via QPack codecs (bitpacked bools, raw-LE/FOR/Delta-FOR
-// for integers, raw-LE for floats). Output is smaller on repetitive and
-// numeric payloads at a small CPU cost.
-func MarshalDense(v any) ([]byte, error) {
-	enc := denseEncPool.Get().(*Encoder)
-	enc.Reset()
-	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &denseEncPool)
-		return nil, err
-	}
-	out := slices.Clone(enc.buf)
-	denseEncPool.Put(enc)
-	return out, nil
-}
-
-// MarshalQPack encodes v in Fast mode with QPack codecs enabled. Wire
-// is identical to Marshal for scalars and strings, but []bool is
-// bit-packed and numeric slices use raw-LE / FOR / Delta-FOR auto-
-// selected by minimum size. The output is a strict superset of the
-// wire surface accepted by Unmarshal; a Marshal-only consumer that has
-// not been updated to handle the QPack tags will fail with ErrBadTag.
-func MarshalQPack(v any) ([]byte, error) {
-	enc := fastQPackEncPool.Get().(*Encoder)
-	enc.Reset()
-	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &fastQPackEncPool)
-		return nil, err
-	}
-	out := slices.Clone(enc.buf)
-	fastQPackEncPool.Put(enc)
-	return out, nil
-}
-
-// MarshalWith encodes v with the given option bit-mask. Combine bits
-// with | to opt into individual codecs, or use one of the OptSpeed /
-// OptBalanced / OptCompression bundles. Zero allocations beyond the
-// existing pool / output-clone overhead.
+// Marshal encodes v with the given option bit-mask. Combine bits with
+// | to opt into individual codecs, or use one of the OptSpeed /
+// OptBalanced / OptCompression bundles.
 //
-//	b, _ := qdf.MarshalWith(snapshot, qdf.OptCompression)   // backup
-//	b, _ := qdf.MarshalWith(event,    qdf.OptSpeed)         // hot path
-//	b, _ := qdf.MarshalWith(payload,                        // tuned
+//	b, _ := qdf.Marshal(event,    qdf.OptSpeed)         // hot path
+//	b, _ := qdf.Marshal(batch,    qdf.OptBalanced)      // telemetry
+//	b, _ := qdf.Marshal(snapshot, qdf.OptCompression)   // backup
+//	b, _ := qdf.Marshal(payload,                        // tuned
 //	    qdf.OptDense|qdf.OptQPack|qdf.OptShapeIntern)
-func MarshalWith(v any, opts Options) ([]byte, error) {
-	enc := customEncPool.Get().(*Encoder)
+func Marshal(v any, opts Options) ([]byte, error) {
+	enc := encPool.Get().(*Encoder)
 	enc.Reset()
 	enc.applyOpts(opts)
 	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &customEncPool)
+		putEnc(enc, &encPool)
 		return nil, err
 	}
 	out := slices.Clone(enc.buf)
-	customEncPool.Put(enc)
+	encPool.Put(enc)
 	return out, nil
 }
 
-// AppendMarshalWith is the AppendMarshal equivalent of MarshalWith.
-// dst is reused as the output buffer; the slice header may be
-// reseated if dst's capacity is insufficient.
-func AppendMarshalWith(dst []byte, v any, opts Options) ([]byte, error) {
-	enc := customEncPool.Get().(*Encoder)
+// AppendMarshal encodes v and appends the result to dst. Reuse the
+// returned slice as dst on the next call to avoid per-message
+// allocations.
+func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
+	enc := encPool.Get().(*Encoder)
 	enc.Reset()
 	enc.applyOpts(opts)
 	enc.buf = dst
 	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &customEncPool)
+		putEnc(enc, &encPool)
 		return dst, err
 	}
 	out := enc.buf
 	enc.buf = nil
-	customEncPool.Put(enc)
+	encPool.Put(enc)
 	return out, nil
 }
 
-// AppendMarshal encodes v in Fast mode and appends the result to dst.
-// Reuse the returned slice as dst on the next call to avoid per-message
-// allocations.
-func AppendMarshal(dst []byte, v any) ([]byte, error) {
-	enc := fastEncPool.Get().(*Encoder)
-	enc.Reset()
-	enc.buf = dst
-	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &fastEncPool)
-		return dst, err
-	}
-	out := enc.buf
-	enc.buf = nil
-	fastEncPool.Put(enc)
-	return out, nil
-}
-
-// Unmarshal decodes data into out, which must be a non-nil pointer. The
-// dialect (Fast or Dense) is detected from the wire header.
+// Unmarshal decodes data into out, which must be a non-nil pointer.
+// The wire dialect is detected from the header — the same Unmarshal
+// reads any output produced by Marshal regardless of the encode-side
+// option bits.
 func Unmarshal(data []byte, out any) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data

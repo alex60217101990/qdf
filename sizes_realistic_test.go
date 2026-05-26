@@ -12,14 +12,14 @@ func TestSizes_RealisticCorpus(t *testing.T) {
 	metric := makeMetricSeries(1024)
 
 	jb, _ := json.Marshal(telem)
-	fb, _ := Marshal(telem)
-	qb, _ := MarshalQPack(telem)
-	db, _ := MarshalDense(telem)
+	fb, _ := Marshal(telem, OptSpeed)
+	qb, _ := Marshal(telem, OptQPack)
+	db, _ := Marshal(telem, OptBalanced)
 	t.Logf("TelemetryBatch n=1000  json=%d  qdf_fast=%d  qdf_qpack=%d  qdf_dense=%d", len(jb), len(fb), len(qb), len(db))
 
 	jb, _ = json.Marshal(metric)
-	fb, _ = Marshal(metric)
-	qb, _ = MarshalQPack(metric)
-	db, _ = MarshalDense(metric)
+	fb, _ = Marshal(metric, OptSpeed)
+	qb, _ = Marshal(metric, OptQPack)
+	db, _ = Marshal(metric, OptBalanced)
 	t.Logf("MetricSeries n=1024    json=%d  qdf_fast=%d  qdf_qpack=%d  qdf_dense=%d", len(jb), len(fb), len(qb), len(db))
 }

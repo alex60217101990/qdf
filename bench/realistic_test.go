@@ -64,7 +64,7 @@ func BenchmarkEncode_UniqueLog(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			v := state.next()
-			if _, err := qdf.Marshal(&v); err != nil {
+			if _, err := qdf.Marshal(&v, qdf.OptSpeed); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -116,14 +116,14 @@ func BenchmarkEncode_MixedTypes(b *testing.B) {
 		for i := 0; b.Loop(); i++ {
 			switch i & 3 {
 			case 0:
-				_, _ = qdf.Marshal(tiny)
+				_, _ = qdf.Marshal(tiny, qdf.OptSpeed)
 			case 1:
-				_, _ = qdf.Marshal(flat)
+				_, _ = qdf.Marshal(flat, qdf.OptSpeed)
 			case 2:
-				_, _ = qdf.Marshal(nested)
+				_, _ = qdf.Marshal(nested, qdf.OptSpeed)
 			default:
 				v := state.next()
-				_, _ = qdf.Marshal(&v)
+				_, _ = qdf.Marshal(&v, qdf.OptSpeed)
 			}
 		}
 	})
@@ -159,7 +159,7 @@ func BenchmarkEncode_RandomSize(b *testing.B) {
 		for b.Loop() {
 			n := sizes[rng.IntN(len(sizes))]
 			v := MakeWide(n)
-			if _, err := qdf.Marshal(v); err != nil {
+			if _, err := qdf.Marshal(v, qdf.OptSpeed); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -194,7 +194,7 @@ func BenchmarkEncodeParallel_UniqueLog(b *testing.B) {
 			st := newUniqueState()
 			for pb.Next() {
 				v := st.next()
-				_, _ = qdf.Marshal(&v)
+				_, _ = qdf.Marshal(&v, qdf.OptSpeed)
 			}
 		})
 	})

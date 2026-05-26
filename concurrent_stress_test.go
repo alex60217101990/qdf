@@ -44,7 +44,7 @@ func TestConcurrent_1000Goroutines_RoundTrip(t *testing.T) {
 			defer wg.Done()
 			for i := range N {
 				in := mkConcPayload(seed*N + i)
-				buf, err := Marshal(in)
+				buf, err := Marshal(in, OptSpeed)
 				if err != nil {
 					failures.Add(1)
 					return
@@ -85,7 +85,7 @@ func TestConcurrent_PoolChurn(t *testing.T) {
 			defer wg.Done()
 			for i := range N {
 				v := mkConcPayload(seed*N + i)
-				_, err := Marshal(v)
+				_, err := Marshal(v, OptSpeed)
 				if err != nil {
 					failures.Add(1)
 					continue
@@ -93,8 +93,8 @@ func TestConcurrent_PoolChurn(t *testing.T) {
 				// Also exercise MarshalDense + MarshalQPack in the
 				// same goroutine — each draws from a different pool
 				// so the test catches cross-pool contamination too.
-				_, _ = MarshalDense(v)
-				_, _ = MarshalQPack(v)
+				_, _ = Marshal(v, OptBalanced)
+				_, _ = Marshal(v, OptQPack)
 			}
 		}(g)
 	}
@@ -117,7 +117,7 @@ func TestConcurrent_DenseStreamSerial(t *testing.T) {
 			defer wg.Done()
 			for i := range N {
 				v := mkConcPayload(seed*N + i)
-				buf, _ := MarshalDense(v)
+				buf, _ := Marshal(v, OptBalanced)
 				var out concPayload
 				if err := Unmarshal(buf, &out); err != nil {
 					t.Errorf("goroutine %d iter %d decode: %v", seed, i, err)
@@ -149,7 +149,7 @@ func TestConcurrent_AppendMarshalIndependentBuffers(t *testing.T) {
 			for i := range N {
 				v := mkConcPayload(seed*N + i)
 				var err error
-				buf, err = AppendMarshal(buf[:0], v)
+				buf, err = AppendMarshal(buf[:0], v, OptSpeed)
 				if err != nil {
 					t.Errorf("encode %d/%d: %v", seed, i, err)
 					return
@@ -191,7 +191,7 @@ func TestConcurrent_LargePayload_NoStateBleedAcrossPool(t *testing.T) {
 					v.Bytes[j] = byte((seed*N + i + j) & 0xFF)
 				}
 				v.Text = "concurrent"
-				buf, err := Marshal(v)
+				buf, err := Marshal(v, OptSpeed)
 				if err != nil {
 					t.Errorf("encode %d/%d: %v", seed, i, err)
 					return

@@ -47,12 +47,8 @@ func TestTagMatrix_NamedTypes(t *testing.T) {
 		B:   true,
 		BS:  namedBytes{0x01, 0x02, 0x03},
 	}
-	for label, enc := range map[string]func(any) ([]byte, error){
-		"Marshal":      Marshal,
-		"MarshalQPack": MarshalQPack,
-		"MarshalDense": MarshalDense,
-	} {
-		buf, err := enc(in)
+	for label, opts := range map[string]Options{"Speed": OptSpeed, "QPack": OptQPack, "Balanced": OptBalanced} {
+		buf, err := Marshal(in, opts)
 		if err != nil {
 			t.Fatalf("%s: %v", label, err)
 		}
@@ -75,7 +71,7 @@ type tagFallback struct {
 
 func TestTagMatrix_FallbackChain(t *testing.T) {
 	in := tagFallback{A: 1, B: 2, C: 3}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +108,7 @@ type tagSkip struct {
 
 func TestTagMatrix_SkipDirective(t *testing.T) {
 	in := tagSkip{Keep: 1, Skip: 999}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +151,7 @@ type embeddedOuter struct {
 
 func TestTagMatrix_EmbeddedStruct_NotFlattened(t *testing.T) {
 	in := embeddedOuter{embeddedInner: embeddedInner{A: 1, B: 2}, C: 3}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +178,7 @@ type ptrHolder struct {
 func TestTagMatrix_PointerFields(t *testing.T) {
 	v := 7
 	in := ptrHolder{P: &v, Nilp: nil}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,8 +209,8 @@ func TestTagMatrix_FixedArrayAndSlice(t *testing.T) {
 		S: []int{5, 6, 7},
 		F: [3]float64{0.5, 1.5, 2.5},
 	}
-	for _, enc := range []func(any) ([]byte, error){Marshal, MarshalQPack, MarshalDense} {
-		buf, err := enc(in)
+	for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+		buf, err := Marshal(in, opts)
 		if err != nil {
 			t.Fatal(err)
 		}

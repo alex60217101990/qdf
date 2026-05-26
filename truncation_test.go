@@ -42,16 +42,16 @@ func truncationPayloads(t *testing.T) map[string][]byte {
 		"slice_int":   []int{0, 1, 127, -1, 32767, -32768, 1 << 30},
 	}
 
-	encoders := map[string]func(any) ([]byte, error){
-		"fast":  Marshal,
-		"qpack": MarshalQPack,
-		"dense": MarshalDense,
+	encoders := map[string]Options{
+		"fast":  OptSpeed,
+		"qpack": OptQPack,
+		"dense": OptBalanced,
 	}
 
 	out := map[string][]byte{}
 	for name, v := range payloads {
-		for dialect, enc := range encoders {
-			buf, err := enc(v)
+		for dialect, opts := range encoders {
+			buf, err := Marshal(v, opts)
 			if err != nil {
 				t.Fatalf("encode %s/%s: %v", name, dialect, err)
 			}

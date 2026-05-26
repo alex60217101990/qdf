@@ -267,9 +267,9 @@ Synthetic stress: 256 unique strings, every intern ID > 200 so the
 raw varuint is 2 bytes, followed by 4 000 references rotating
 through a hot subset of 8 items.
 
-    MarshalDense + Markov-0 + MTF      10 824 bytes
-    MarshalDense + Markov-0 only      ~15 000 bytes (estimated, raw refs)
-    MarshalDense + neither            ~18 000 bytes
+    OptBalanced (Markov-0 + MTF on)        10 824 bytes
+    OptDense + OptPairPred (Markov-0 only) ~15 000 bytes (estimated, raw refs)
+    OptDense alone                         ~18 000 bytes
 
 The encoder picks `tagStateMTF` only when its rank varuint is strictly
 shorter than the raw id varuint, so the wire never grows over plain
@@ -403,7 +403,7 @@ Speedups vs msgpack: qdf_fast encode **2.1×**, qdf_dense decode
 **2.8×**.
 
 The most surprising line is qdf_dense's encode heap-delta of
-**9.7 MiB** for a 43.7 MiB output. `MarshalDense` reuses a pooled
+**9.7 MiB** for a 43.7 MiB output. `Marshal(v, OptBalanced)` reuses a pooled
 encoder buffer plus the intern table; the produced wire is `slices.
 Clone`-d for the caller, but the pool buffer survives and shrinks
 per-call working-set proportionally. json builds a fresh buffer per
@@ -545,7 +545,7 @@ What the test suite verifies (all under `-race`):
 # Default build
 go test -race -count=1 ./...
 
-# Cross-format bench (Marshal vs MarshalQPack vs MarshalDense vs json/msgpack)
+# Cross-format bench (Marshal at OptSpeed / OptQPack / OptBalanced vs json/msgpack)
 cd bench && go test -bench='BenchmarkQPack_' -benchmem -benchtime=2s
 
 # Whole-suite bench

@@ -178,7 +178,7 @@ type pairAddr struct {
 
 func TestMapShape_StructRoundTrip(t *testing.T) {
 	in := pairAddr{Street: "1 Vilnius St", City: "Klaipeda", Zip: "LT-91300"}
-	b, err := MarshalDense(in)
+	b, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestMapShape_ArrayShrinksWire(t *testing.T) {
 			Zip:    "Zip",
 		}
 	}
-	b, err := MarshalDense(arr)
+	b, err := Marshal(arr, OptBalanced)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestMapShape_DecodesAsAnyMap(t *testing.T) {
 	// the shape codec must round-trip into a map[string]any keyed by
 	// the declared field names.
 	in := pairAddr{Street: "S", City: "C", Zip: "Z"}
-	b, err := MarshalDense(in)
+	b, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestMapShape_HeterogeneousStructsKeepDistinctShapes(t *testing.T) {
 		Second: B{P: 3.14, Q: "pi", R: true},
 		Third:  A{X: 2, Y: "bye"},
 	}
-	b, err := MarshalDense(in)
+	b, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}

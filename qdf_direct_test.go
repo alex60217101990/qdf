@@ -78,10 +78,10 @@ func TestMarshalDirect_RoundTrip(t *testing.T) {
 }
 
 func TestMarshalDirect_WireMatchesInterfaceDispatch(t *testing.T) {
-	// The generic shortcut must produce the same wire as Marshal(v),
+	// The generic shortcut must produce the same wire as Marshal(v, OptSpeed),
 	// which goes through encodeMarshaler.
 	in := directSample{ID: 7, Name: "qdf"}
-	a, err := Marshal(&in)
+	a, err := Marshal(&in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestMarshalDirect_WireMatchesInterfaceDispatch(t *testing.T) {
 func TestUnmarshalDirect_AcceptsBothEncoders(t *testing.T) {
 	in := directSample{ID: 99, Name: "compat"}
 	// Encode via Marshal (interface dispatch).
-	a, _ := Marshal(&in)
+	a, _ := Marshal(&in, OptSpeed)
 	// Encode via MarshalDirect (generic shortcut).
 	b, _ := MarshalDirect(&in)
 
@@ -151,7 +151,7 @@ func BenchmarkMarshalDirect_VsReflect(b *testing.B) {
 	b.Run("reflect/Marshal", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = Marshal(&in)
+			_, _ = Marshal(&in, OptSpeed)
 		}
 	})
 	b.Run("direct/MarshalDirect", func(b *testing.B) {

@@ -44,7 +44,7 @@ func TestInterface_DynamicTypes(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			in := ifaceHolder{V: c.v}
-			buf, err := Marshal(in)
+			buf, err := Marshal(in, OptSpeed)
 			if err != nil {
 				t.Fatalf("encode: %v", err)
 			}
@@ -148,7 +148,7 @@ func normaliseInt(v any) (signed int64, isInt bool, isUint bool, unsigned uint64
 
 func TestInterface_SliceOfAny(t *testing.T) {
 	in := []any{1, "hello", 3.14, true, nil, []byte{1, 2, 3}}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestInterface_MapStringAny(t *testing.T) {
 		"on":    true,
 		"tags":  []any{"a", "b"},
 	}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}

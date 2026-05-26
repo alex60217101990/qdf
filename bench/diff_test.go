@@ -67,7 +67,7 @@ func TestDiff_QDFAgreesWithJSON(t *testing.T) {
 	if err := json.Unmarshal(jb, &jOut); err != nil {
 		t.Fatal(err)
 	}
-	qb, err := qdf.Marshal(in)
+	qb, err := qdf.Marshal(in, qdf.OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestDiff_QDFAgreesWithMsgpack(t *testing.T) {
 	if err := msgpack.Unmarshal(mb, &mOut); err != nil {
 		t.Fatal(err)
 	}
-	qb, err := qdf.Marshal(in)
+	qb, err := qdf.Marshal(in, qdf.OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +107,8 @@ func TestDiff_AllThreeAgree(t *testing.T) {
 	in := mkDiffPayload()
 	jb, _ := json.Marshal(in)
 	mb, _ := msgpack.Marshal(in)
-	for _, qfn := range []func(any) ([]byte, error){qdf.Marshal, qdf.MarshalQPack, qdf.MarshalDense} {
-		qb, err := qfn(in)
+	for _, opts := range []qdf.Options{qdf.OptSpeed, qdf.OptQPack, qdf.OptBalanced} {
+		qb, err := qdf.Marshal(in, opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -140,7 +140,7 @@ func TestDiff_QDFAgreesWithMsgpack_FloatEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	qb, err := qdf.Marshal(in)
+	qb, err := qdf.Marshal(in, qdf.OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestDiff_IntegerBoundaries(t *testing.T) {
 	}
 	jb, _ := json.Marshal(in)
 	mb, _ := msgpack.Marshal(in)
-	qb, _ := qdf.Marshal(in)
+	qb, _ := qdf.Marshal(in, qdf.OptSpeed)
 	var jO, mO, qO intHolder
 	if err := json.Unmarshal(jb, &jO); err != nil {
 		t.Fatal(err)
