@@ -145,7 +145,7 @@ func TestStateRepeat_DenseStruct(t *testing.T) {
 		"beta-event-id-002", "beta-event-id-002",
 		"alpha-event-id-001",
 	}}
-	buf, err := MarshalDense(in)
+	buf, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func makeRepeatedDenseBatch(n int, alphabet []string) []byte {
 	for i := range b.Vals {
 		b.Vals[i] = alphabet[i%len(alphabet)]
 	}
-	buf, _ := MarshalDense(b)
+	buf, _ := Marshal(b, OptBalanced)
 	return buf
 }
 

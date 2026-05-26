@@ -143,17 +143,17 @@ func TestSizes_LargePayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("  msgpack:    %d bytes (%.2f MiB)", len(mb), float64(len(mb))/(1<<20))
-	fb, err := qdf.Marshal(v)
+	fb, err := qdf.Marshal(v, qdf.OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("  qdf_fast:   %d bytes (%.2f MiB)", len(fb), float64(len(fb))/(1<<20))
-	qb, err := qdf.MarshalQPack(v)
+	qb, err := qdf.Marshal(v, qdf.OptQPack)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("  qdf_qpack:  %d bytes (%.2f MiB)", len(qb), float64(len(qb))/(1<<20))
-	db, err := qdf.MarshalDense(v)
+	db, err := qdf.Marshal(v, qdf.OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,9 +223,9 @@ func TestMem_LargePayload(t *testing.T) {
 
 	run("json", json.Marshal, func(b []byte) any { var out largeBatch; _ = json.Unmarshal(b, &out); return out })
 	run("msgpack", msgpack.Marshal, func(b []byte) any { var out largeBatch; _ = msgpack.Unmarshal(b, &out); return out })
-	run("qdf_fast", qdf.Marshal, func(b []byte) any { var out largeBatch; _ = qdf.Unmarshal(b, &out); return out })
-	run("qdf_qpack", qdf.MarshalQPack, func(b []byte) any { var out largeBatch; _ = qdf.Unmarshal(b, &out); return out })
-	run("qdf_dense", qdf.MarshalDense, func(b []byte) any { var out largeBatch; _ = qdf.Unmarshal(b, &out); return out })
+	run("qdf_fast", func(v any) ([]byte, error) { return qdf.Marshal(v, qdf.OptSpeed) }, func(b []byte) any { var out largeBatch; _ = qdf.Unmarshal(b, &out); return out })
+	run("qdf_qpack", func(v any) ([]byte, error) { return qdf.Marshal(v, qdf.OptQPack) }, func(b []byte) any { var out largeBatch; _ = qdf.Unmarshal(b, &out); return out })
+	run("qdf_dense", func(v any) ([]byte, error) { return qdf.Marshal(v, qdf.OptBalanced) }, func(b []byte) any { var out largeBatch; _ = qdf.Unmarshal(b, &out); return out })
 
 	t.Logf("Large payload, %d records:", records)
 	t.Logf("%-12s %10s  %10s  %10s  %10s  %10s",
@@ -266,19 +266,19 @@ func BenchmarkLargePayload_Encode(b *testing.B) {
 	b.Run("qdf_fast", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = qdf.Marshal(v)
+			_, _ = qdf.Marshal(v, qdf.OptSpeed)
 		}
 	})
 	b.Run("qdf_qpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = qdf.MarshalQPack(v)
+			_, _ = qdf.Marshal(v, qdf.OptQPack)
 		}
 	})
 	b.Run("qdf_dense", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = qdf.MarshalDense(v)
+			_, _ = qdf.Marshal(v, qdf.OptBalanced)
 		}
 	})
 }
@@ -292,9 +292,9 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 	v := makeLargeBatch(records, 4)
 	jb, _ := json.Marshal(v)
 	mb, _ := msgpack.Marshal(v)
-	fb, _ := qdf.Marshal(v)
-	qb, _ := qdf.MarshalQPack(v)
-	db, _ := qdf.MarshalDense(v)
+	fb, _ := qdf.Marshal(v, qdf.OptSpeed)
+	qb, _ := qdf.Marshal(v, qdf.OptQPack)
+	db, _ := qdf.Marshal(v, qdf.OptBalanced)
 
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()

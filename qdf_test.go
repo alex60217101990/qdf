@@ -33,9 +33,9 @@ func roundTrip[T any](t *testing.T, mode Mode, v T) T {
 	var err error
 	switch mode {
 	case Fast:
-		b, err = Marshal(v)
+		b, err = Marshal(v, OptSpeed)
 	case Dense:
-		b, err = MarshalDense(v)
+		b, err = Marshal(v, OptBalanced)
 	}
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -61,7 +61,7 @@ func TestPrimitives_RoundTrip(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(reflect.TypeOf(c).String(), func(t *testing.T) {
-			b, err := Marshal(c)
+			b, err := Marshal(c, OptSpeed)
 			if err != nil {
 				t.Fatalf("encode %T: %v", c, err)
 			}
@@ -123,11 +123,11 @@ func TestDense_ReducesSize(t *testing.T) {
 	for i := range rows {
 		rows[i] = Row{Country: "Lithuania", City: "Vilnius", Pop: 580000 + i}
 	}
-	fast, err := Marshal(rows)
+	fast, err := Marshal(rows, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dense, err := MarshalDense(rows)
+	dense, err := Marshal(rows, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestEmptyAndNil(t *testing.T) {
 		D string         `qdf:"d"`
 	}
 	in := S{}
-	b, err := Marshal(in)
+	b, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}

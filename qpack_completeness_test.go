@@ -246,16 +246,16 @@ func itoaPlain(n int) string {
 func TestCompleteness_AllModes(t *testing.T) {
 	in := makeBigPayload(t)
 	modes := []struct {
-		name    string
-		marshal func(any) ([]byte, error)
+		name string
+		opts Options
 	}{
-		{"Marshal", Marshal},
-		{"MarshalQPack", MarshalQPack},
-		{"MarshalDense", MarshalDense},
+		{"Speed", OptSpeed},
+		{"QPack", OptQPack},
+		{"Balanced", OptBalanced},
 	}
 	for _, m := range modes {
 		t.Run(m.name, func(t *testing.T) {
-			buf, err := m.marshal(in)
+			buf, err := Marshal(in, m.opts)
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
@@ -273,8 +273,8 @@ func TestCompleteness_CrossModeDecode(t *testing.T) {
 	// Encode in QPack/Dense, decode by the same Unmarshal (only one decoder
 	// exists). Then encode in legacy Marshal and verify decoder still
 	// accepts it (forward-compat in the other direction).
-	for _, enc := range []func(any) ([]byte, error){Marshal, MarshalQPack, MarshalDense} {
-		buf, err := enc(in)
+	for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+		buf, err := Marshal(in, opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -342,8 +342,8 @@ func TestCompleteness_FuzzRandomStructsQPack(t *testing.T) {
 			in.C[i] = rng.Float64() - 0.5
 			in.D[i] = rng.Intn(2) == 0
 		}
-		for _, enc := range []func(any) ([]byte, error){Marshal, MarshalQPack, MarshalDense} {
-			buf, err := enc(in)
+		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+			buf, err := Marshal(in, opts)
 			if err != nil {
 				t.Fatalf("trial %d marshal: %v", trial, err)
 			}

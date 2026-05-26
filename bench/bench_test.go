@@ -53,7 +53,7 @@ func benchEncode[T any](b *testing.B, name string, v T) {
 		b.ReportAllocs()
 		var last []byte
 		for b.Loop() {
-			out, err := qdf.Marshal(v)
+			out, err := qdf.Marshal(v, qdf.OptSpeed)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -65,7 +65,7 @@ func benchEncode[T any](b *testing.B, name string, v T) {
 		b.ReportAllocs()
 		var last []byte
 		for b.Loop() {
-			out, err := qdf.MarshalDense(v)
+			out, err := qdf.Marshal(v, qdf.OptBalanced)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -80,8 +80,8 @@ func benchEncode[T any](b *testing.B, name string, v T) {
 func benchDecode[T any](b *testing.B, name string, v T) {
 	jsonBytes, _ := json.Marshal(v)
 	msgpackBytes, _ := msgpack.Marshal(v)
-	qdfFastBytes, _ := qdf.Marshal(v)
-	qdfDenseBytes, _ := qdf.MarshalDense(v)
+	qdfFastBytes, _ := qdf.Marshal(v, qdf.OptSpeed)
+	qdfDenseBytes, _ := qdf.Marshal(v, qdf.OptBalanced)
 	b.Run(name+"/json", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
@@ -142,8 +142,8 @@ func TestSizes(t *testing.T) {
 	for _, c := range cases {
 		jb, _ := json.Marshal(c.v)
 		mb, _ := msgpack.Marshal(c.v)
-		qf, _ := qdf.Marshal(c.v)
-		qd, _ := qdf.MarshalDense(c.v)
+		qf, _ := qdf.Marshal(c.v, qdf.OptSpeed)
+		qd, _ := qdf.Marshal(c.v, qdf.OptBalanced)
 		t.Logf("%-20s %-10d %-10d %-10d %-10d", c.name, len(jb), len(mb), len(qf), len(qd))
 		// Round-trip correctness on each.
 		out := reflect.New(reflect.TypeOf(c.v)).Interface()

@@ -373,7 +373,7 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		out := d.buf[d.i : d.i+n]
 		d.i += n
 		if invalidateLast {
-			d.state.lastValid = false
+			d.state.lastID = lruInvalidID
 		}
 		return out, nil
 	}
@@ -390,7 +390,7 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		out := d.buf[d.i : d.i+n]
 		d.i += n
 		if invalidateLast {
-			d.state.lastValid = false
+			d.state.lastID = lruInvalidID
 		}
 		return out, nil
 	case tagStr16, tagBin16:
@@ -405,7 +405,7 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		out := d.buf[d.i : d.i+n]
 		d.i += n
 		if invalidateLast {
-			d.state.lastValid = false
+			d.state.lastID = lruInvalidID
 		}
 		return out, nil
 	case tagStr32, tagBin32:
@@ -420,7 +420,7 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		out := d.buf[d.i : d.i+n]
 		d.i += n
 		if invalidateLast {
-			d.state.lastValid = false
+			d.state.lastID = lruInvalidID
 		}
 		return out, nil
 	case tagInternStr, tagInternBin:
@@ -446,8 +446,10 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		// later turns this into a copy, the table still references the alias
 		// which is fine for the lifetime of the buffer.
 		id := d.state.append(out)
+		if d.state.lastID != lruInvalidID {
+			d.state.pairRecord(d.state.lastID, id)
+		}
 		d.state.lastID = id
-		d.state.lastValid = true
 		return out, nil
 	case tagStateRef:
 		id64, n := readUvarint(d.buf[d.i:])
@@ -465,8 +467,10 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		// Mirror encoder's LRU update so a subsequent tagStateMTF
 		// resolves to the same ID position.
 		d.state.lruMoveToFront(uint32(id64))
+		if d.state.lastID != lruInvalidID {
+			d.state.pairRecord(d.state.lastID, uint32(id64))
+		}
 		d.state.lastID = uint32(id64)
-		d.state.lastValid = true
 		return out, nil
 	case tagStateMTF:
 		rank64, n := readUvarint(d.buf[d.i:])
@@ -486,17 +490,48 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 			return nil, ErrUnknownStateID
 		}
 		d.state.lruMoveToFront(id)
+		if d.state.lastID != lruInvalidID {
+			d.state.pairRecord(d.state.lastID, id)
+		}
 		d.state.lastID = id
-		d.state.lastValid = true
+		return out, nil
+	case tagStatePair:
+		if d.state == nil || d.state.lastID == lruInvalidID {
+			return nil, ErrUnknownStateID
+		}
+		rank64, n := readUvarint(d.buf[d.i:])
+		if n <= 0 {
+			return nil, ErrInvalidLength
+		}
+		d.i += n
+		if rank64 >= pairPredK {
+			return nil, ErrUnknownStateID
+		}
+		prev := d.state.lastID
+		id, ok := d.state.pairAtRank(prev, uint8(rank64))
+		if !ok {
+			return nil, ErrUnknownStateID
+		}
+		out, ok := d.state.get(id)
+		if !ok {
+			return nil, ErrUnknownStateID
+		}
+		// Same post-emit bookkeeping as tagStateRef so the encoder
+		// and decoder mirror chains diverge nowhere.
+		d.state.lruMoveToFront(id)
+		d.state.pairRecord(prev, id)
+		d.state.lastID = id
 		return out, nil
 	case tagStateRepeat:
-		if d.state == nil || !d.state.lastValid {
+		if d.state == nil || d.state.lastID == lruInvalidID {
 			return nil, ErrUnknownStateID
 		}
 		out, ok := d.state.get(d.state.lastID)
 		if !ok {
 			return nil, ErrUnknownStateID
 		}
+		// Pair predictor: mirror encoder's self-record.
+		d.state.pairRecord(d.state.lastID, d.state.lastID)
 		return out, nil
 	}
 	return nil, ErrTypeMismatch
@@ -766,9 +801,63 @@ func (d *Decoder) Skip() error {
 		// in sync with the stream.
 		_, err := d.readStringBytes()
 		return err
-	case tagStateRef, tagStateRepeat, tagStateMTF:
+	case tagStateRef, tagStateRepeat, tagStateMTF, tagStatePair:
 		_, err := d.readStringBytes()
 		return err
+	case tagMapShape:
+		// Wire form mirrors the decode path: either a declaration
+		// (shapeID==0, varuint(N), N keys, N values) or a reuse
+		// (shapeID>0, looked-up N, N values). Skipping must still
+		// advance the shape table on declaration so subsequent
+		// references stay consistent.
+		d.i++
+		shapeID, n := readUvarint(d.buf[d.i:])
+		if n <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += n
+		if d.state == nil {
+			d.state = newDecState()
+		}
+		var cnt int
+		if shapeID == 0 {
+			cnt64, n := readUvarint(d.buf[d.i:])
+			if n <= 0 {
+				return ErrInvalidLength
+			}
+			d.i += n
+			if err := d.CheckLength(int(cnt64), 1); err != nil {
+				return err
+			}
+			cnt = int(cnt64)
+			sh := d.state.shapeDeclare()
+			sh.keyIDs = make([]uint32, 0, cnt)
+			sh.names = make([]string, 0, cnt)
+			for i := 0; i < cnt; i++ {
+				kb, err := d.readStringBytes()
+				if err != nil {
+					return err
+				}
+				sh.names = append(sh.names, string(kb))
+				if d.state.lastID != lruInvalidID {
+					sh.keyIDs = append(sh.keyIDs, d.state.lastID)
+				} else {
+					sh.keyIDs = append(sh.keyIDs, 0)
+				}
+			}
+		} else {
+			sh := d.state.shapeLookup(uint32(shapeID))
+			if sh == nil {
+				return ErrUnknownStateID
+			}
+			cnt = len(sh.names)
+		}
+		for range cnt {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+		}
+		return nil
 	case tagPackBool:
 		d.i++
 		n64, nr := readUvarint(d.buf[d.i:])

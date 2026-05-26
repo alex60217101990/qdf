@@ -47,12 +47,8 @@ func fullWide() wideEncoded {
 
 func TestUnknownField_SkipKeepsStreamAligned(t *testing.T) {
 	wide := fullWide()
-	for label, enc := range map[string]func(any) ([]byte, error){
-		"Marshal":      Marshal,
-		"MarshalQPack": MarshalQPack,
-		"MarshalDense": MarshalDense,
-	} {
-		buf, err := enc(wide)
+	for label, opts := range map[string]Options{"Speed": OptSpeed, "QPack": OptQPack, "Balanced": OptBalanced} {
+		buf, err := Marshal(wide, opts)
 		if err != nil {
 			t.Fatalf("%s: %v", label, err)
 		}
@@ -103,12 +99,8 @@ func TestUnknownField_SkipEveryFieldAlone(t *testing.T) {
 	}
 
 	wide := fullWide()
-	for label, enc := range map[string]func(any) ([]byte, error){
-		"Marshal":      Marshal,
-		"MarshalQPack": MarshalQPack,
-		"MarshalDense": MarshalDense,
-	} {
-		buf, _ := enc(wide)
+	for label, opts := range map[string]Options{"Speed": OptSpeed, "QPack": OptQPack, "Balanced": OptBalanced} {
+		buf, _ := Marshal(wide, opts)
 
 		var oID onlyID
 		if err := Unmarshal(buf, &oID); err != nil || oID.ID != wide.ID {
@@ -158,12 +150,8 @@ func TestUnknownField_EmptyTarget(t *testing.T) {
 	// without error, leaving every byte consumed.
 	type empty struct{}
 	wide := fullWide()
-	for label, enc := range map[string]func(any) ([]byte, error){
-		"Marshal":      Marshal,
-		"MarshalQPack": MarshalQPack,
-		"MarshalDense": MarshalDense,
-	} {
-		buf, _ := enc(wide)
+	for label, opts := range map[string]Options{"Speed": OptSpeed, "QPack": OptQPack, "Balanced": OptBalanced} {
+		buf, _ := Marshal(wide, opts)
 		var e empty
 		if err := Unmarshal(buf, &e); err != nil {
 			t.Errorf("%s/empty: %v", label, err)
@@ -187,7 +175,7 @@ func TestUnknownField_DenseStateStaysCorrect(t *testing.T) {
 	// First message has Extra to force the intern table to grow.
 	msg1 := withExtra{Region: "eu-west-1", Extra: "eu-west-1"}
 	// Decode message 1 with narrow type that skips Extra.
-	buf1, err := MarshalDense(msg1)
+	buf1, err := Marshal(msg1, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}

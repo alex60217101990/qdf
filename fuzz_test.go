@@ -18,12 +18,12 @@ func FuzzDecoder_NeverPanics(f *testing.F) {
 		Outer{Name: "alice", Age: 30, Active: true, Score: 3.14, Tags: []string{"x"}, Meta: map[string]string{"k": "v"}, Inner: Inner{X: 1, Y: 1.5}, Buf: []byte{1, 2, 3}, Counts: [3]int32{1, 2, 3}},
 	}
 	for _, v := range good {
-		b, err := Marshal(v)
+		b, err := Marshal(v, OptSpeed)
 		if err != nil {
 			f.Fatal(err)
 		}
 		f.Add(b)
-		bd, err := MarshalDense(v)
+		bd, err := Marshal(v, OptBalanced)
 		if err != nil {
 			f.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func FuzzRoundTrip_StringSlice(f *testing.F) {
 			in = append(in, a, b, c)
 		}
 		// Fast
-		buf, err := Marshal(in)
+		buf, err := Marshal(in, OptSpeed)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,7 +66,7 @@ func FuzzRoundTrip_StringSlice(f *testing.F) {
 			t.Fatalf("fast mismatch: %v vs %v", in, out)
 		}
 		// Dense
-		buf2, err := MarshalDense(in)
+		buf2, err := Marshal(in, OptBalanced)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func TestDecoder_TruncatedInput(t *testing.T) {
 	// Encode a Flat struct, then try decoding every prefix < full length.
 	// Every short read must return an error, never panic.
 	in := Outer{Name: "alice", Age: 30, Tags: []string{"x", "y", "z"}}
-	full, err := Marshal(in)
+	full, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestEdgeCases_BoundaryInts(t *testing.T) {
 		9223372036854775807, -9223372036854775808,
 	}
 	for _, v := range cases {
-		b, err := Marshal(v)
+		b, err := Marshal(v, OptSpeed)
 		if err != nil {
 			t.Fatalf("encode %d: %v", v, err)
 		}
@@ -149,7 +149,7 @@ func TestEdgeCases_HugeString(t *testing.T) {
 	cases := []int{0, 1, 31, 32, 255, 256, 65535, 65536, 1 << 20}
 	for _, n := range cases {
 		s := bytes.Repeat([]byte{'a'}, n)
-		b, err := Marshal(string(s))
+		b, err := Marshal(string(s), OptSpeed)
 		if err != nil {
 			t.Fatalf("encode len=%d: %v", n, err)
 		}
@@ -174,7 +174,7 @@ func TestEdgeCases_Unicode(t *testing.T) {
 		string([]byte{0xff, 0xfe, 0xfd}), // invalid UTF-8 — we still must round-trip
 	}
 	for _, s := range cases {
-		b, err := Marshal(s)
+		b, err := Marshal(s, OptSpeed)
 		if err != nil {
 			t.Fatalf("encode %q: %v", s, err)
 		}
@@ -194,7 +194,7 @@ func TestEdgeCases_Unicode(t *testing.T) {
 func TestInterop_ModesCrossDecode(t *testing.T) {
 	in := Outer{Name: "alice", Age: 30, Tags: []string{"x"}, Counts: [3]int32{1, 2, 3}}
 	// Fast → any decoder
-	fast, _ := Marshal(in)
+	fast, _ := Marshal(in, OptSpeed)
 	var outFast Outer
 	if err := Unmarshal(fast, &outFast); err != nil {
 		t.Fatalf("decode fast: %v", err)
@@ -203,7 +203,7 @@ func TestInterop_ModesCrossDecode(t *testing.T) {
 		t.Fatalf("fast cross-decode mismatch")
 	}
 	// Dense → any decoder
-	dense, _ := MarshalDense(in)
+	dense, _ := Marshal(in, OptBalanced)
 	var outDense Outer
 	if err := Unmarshal(dense, &outDense); err != nil {
 		t.Fatalf("decode dense: %v", err)

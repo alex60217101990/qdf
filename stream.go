@@ -15,14 +15,27 @@ type StreamEncoder struct {
 	buf *[]byte
 }
 
-// NewStreamEncoder returns a stream encoder backed by w.
+// NewStreamEncoder returns a stream encoder backed by w. Dense mode
+// activates the full balanced codec set (OptBalanced); Fast mode
+// emits raw tagged bytes (OptSpeed). For finer per-stream tuning,
+// build the StreamEncoder via NewStreamEncoderWith.
 func NewStreamEncoder(w io.Writer, mode Mode) *StreamEncoder {
-	buf := bufpool.Get(4096)
-	enc := &Encoder{mode: mode, buf: (*buf)[:0]}
+	opts := OptSpeed
 	if mode == Dense {
+		opts = OptBalanced
+	}
+	return NewStreamEncoderWith(w, opts)
+}
+
+// NewStreamEncoderWith returns a stream encoder with the given
+// Options bit-mask. The intern table (when OptDense is set) survives
+// across Encode calls so back-references span the whole stream.
+func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder {
+	buf := bufpool.Get(4096)
+	enc := &Encoder{buf: (*buf)[:0], minIntern: 4, maxStateEntries: 1 << 16, maxDepth: DefaultMaxDepth}
+	enc.applyOpts(opts)
+	if opts.Has(OptDense) {
 		enc.state = newEncState()
-		enc.minIntern = 4
-		enc.maxStateEntries = 1 << 16
 	}
 	return &StreamEncoder{w: w, enc: enc, buf: buf}
 }

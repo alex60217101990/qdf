@@ -1,0 +1,959 @@
+# qdf — developer guide
+
+This is a deep-dive companion to the README. README answers "what is
+this and how do I use it"; this file answers "why is it shaped this
+way and how does each feature pay for itself". If you are deciding
+whether to depend on qdf, reading code in `state.go` /
+`encoder.go` / `decoder.go`, or planning a contribution, start here.
+
+The shape of this guide:
+
+1. [TL;DR](#tldr) — when to reach for qdf, when not to.
+2. [The mental model](#the-mental-model) — three layers (Fast / QPack
+   / Dense) and the bit-mask that picks them.
+3. [Wire format primer](#wire-format-primer) — tags you will see in
+   hex dumps.
+4. [Encoder & decoder lifecycle](#encoder--decoder-lifecycle) — pool,
+   state, Reset, watermarks.
+5. [Feature deep dive](#feature-deep-dive) — every codec, what it
+   does, when it fires, what it costs.
+6. [Memory model](#memory-model) — pool eviction, arena, shrink-on-
+   Reset.
+7. [Performance characteristics](#performance-characteristics) —
+   numbers from `bench/profiles_test.go` grouped by scenario.
+8. [Build tags](#build-tags) — `qdf_simd`, `qdf_reflect2`.
+9. [Streaming, custom marshalers, codegen](#streaming-custom-marshalers-codegen).
+10. [Common pitfalls](#common-pitfalls).
+11. [Debugging](#debugging).
+12. [Internal architecture map](#internal-architecture-map) — where to
+    look for what.
+
+Throughout this guide, code snippets compile against the public API
+on `main`. Anything prefixed `internal/` is package-private; the
+guide names those packages only as references, not as part of the
+contract.
+
+---
+
+## TL;DR
+
+qdf is a Go binary serialisation library aimed at the workloads
+where `encoding/json` is too slow and `msgpack` leaves wire-size
+gains on the table. It ships three layered codecs on a shared base
+format:
+
+- **Fast** — msgpack-shaped tag stream with type-specialised slice /
+  map fast paths. Comparable to `vmihailenco/msgpack` on CPU, smaller
+  by ~30 % on typical payloads.
+- **QPack** — adds numeric / bool slice codecs (bit-pack, frame-of-
+  reference, delta-FOR, Gorilla XOR) selected per-slice by size
+  estimate. Beats msgpack by 2–5× on numeric arrays.
+- **Dense** — adds an inline intern table for repeated strings,
+  Markov-0 and Markov-1 predictors over intern IDs, Move-to-Front
+  rank coding, and struct-shape interning. Beats msgpack by 3–8× on
+  telemetry / log payloads.
+
+Pick the layer with `Options`. They are independent bits; a single
+`Marshal(v, opts)` entry point reads the mask. `OptSpeed` is the
+zero-bit mask (Fast). `OptBalanced` is everything except future
+heavy-CPU codecs.
+
+You should NOT use qdf if:
+
+- The wire is consumed by a non-Go reader. No bindings exist for
+  Python / Rust / JS today.
+- You need RPC / schema evolution semantics (use protobuf / Cap'n
+  Proto).
+- The payload is < 64 bytes and you marshal less than once per
+  second — even `encoding/json` is fine there.
+
+You SHOULD use qdf if:
+
+- Long-lived encoder / decoder pools (services, batch jobs).
+- Telemetry / logs / event streams with repeated string keys.
+- Numeric vectors (metrics, embeddings, time series).
+- Need to keep on-disk archive small without paying msgpack's CPU.
+
+---
+
+## The mental model
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Marshal(v, opts) / Unmarshal(b, &v)                         │
+│  AppendMarshal(dst, v, opts)                                 │
+│  NewStreamEncoder(w, opts)                                   │
+└──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Encoder / Decoder                                           │
+│   ├── opts Options    (bit-mask: OptDense, OptQPack, …)      │
+│   ├── buf []byte      (output)                               │
+│   ├── state *encState (lazy — only when OptDense is set)     │
+│   └── pool members are reset and returned by sync.Pool       │
+└──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─── Fast path ──────────┐ ┌─── QPack path ─────────────┐ ┌─── Dense path ───────────────┐
+│  msgpack-shaped tags   │ │  bitpack / FOR / Gorilla   │ │  intern table + LRU + Markov │
+│  type-specialised      │ │  on numeric / bool slices  │ │  + shape interning           │
+│  slice / map encoders  │ │  picks the smallest form   │ │  + arena-backed key storage  │
+└────────────────────────┘ └────────────────────────────┘ └──────────────────────────────┘
+```
+
+`Options` is `uint32`. The five bits in use today, in declaration
+order:
+
+| Bit | Const            | What it gates                          | Depends on |
+|----:|------------------|----------------------------------------|------------|
+|  0  | `OptDense`       | intern table, state-ref tags, arena    | —          |
+|  1  | `OptQPack`       | numeric / bool slice codecs            | —          |
+|  2  | `OptShapeIntern` | struct shape table, `tagMapShape`      | `OptDense` |
+|  3  | `OptPairPred`    | Markov-1 predictor over state-refs     | `OptDense` |
+|  4  | `OptMTF`         | Move-to-Front rank coding              | `OptDense` |
+
+`OptSpeed = 0`. `OptBalanced = OptDense | OptQPack | OptShapeIntern
+| OptPairPred | OptMTF`. `OptCompression` aliases `OptBalanced`
+today; the constant is reserved so future heavy-CPU codecs (rANS,
+dictionary preloading) can land under it without breaking the bundle
+name.
+
+Dependent bits (`OptShapeIntern`, `OptPairPred`, `OptMTF`) are no-ops
+without `OptDense` and the encoder records that fact silently — no
+error, no warning. `TestValidity_DependentBitsAreNoOpsWithoutDense`
+pins the contract.
+
+Reserved bits (5..31) are silent no-ops too. Setting them today does
+nothing; setting them tomorrow may opt you into a new codec. This is
+deliberate — the constant name is the API, the bit position is an
+internal allocation.
+
+### Why a bit-mask and not "modes"?
+
+An earlier prototype had `Marshal`, `MarshalDense`, `MarshalQPack`,
+`MarshalDenseQPack`, … one function per combination. With five bits
+that explodes to 32 entry points. The bit-mask collapses it to one,
+keeps the wire stable across opt-in/out, and lets a downstream
+caller toggle codecs by `opts ^ OptMTF` without re-importing
+anything.
+
+---
+
+## Wire format primer
+
+Every QDF buffer starts with a 5-byte little-endian header (see
+`writeHeader` / `readHeader`). After the header the stream is a
+sequence of tag-prefixed values.
+
+Tag ranges:
+
+```
+0x00..0x7F  fixint        (positive, value is the tag byte)
+0x80..0x9F  fixstr        (length 0..31 packed into the tag)
+0xA0..0xBF  fixarr        (length 0..31 packed into the tag)
+0xC0        nil
+0xC1, 0xC2  false, true
+0xC3..0xC6  uint8 .. uint64
+0xC7..0xCA  int8 .. int64
+0xCB, 0xCC  float32 / float64
+0xCD..0xCF  str8, str16, str32
+0xD0..0xD2  bin8, bin16, bin32
+0xD3, 0xD4  arr16, arr32
+0xD5..0xD7  map8, map16, map32
+0xD8..0xDF  negfixint     (-1..-8 packed into the tag)
+```
+
+So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
+
+```
+0xE0  tagInternStr      (Dense)   first occurrence of an interned string
+0xE1  tagStateRef       (Dense)   reference: varuint(id)
+0xE2  tagInternBin      (Dense)   first occurrence of an interned bytes payload
+0xE3  tagPackBool       (QPack)   bitpacked []bool
+0xE4  tagPackRaw        (QPack)   raw little-endian numeric slice
+0xE5  tagPackFor        (QPack)   Frame-of-Reference bitpacked integer slice
+0xE6  tagPackDeltaFor   (QPack)   Delta + zigzag + FOR integer slice
+0xE7  tagPackGorilla    (QPack)   Gorilla XOR-coded float slice
+0xE8  tagStateRepeat    (Dense)   Markov-0 hit: id == lastID
+0xE9  tagStateMTF       (Dense)   MTF rank reference: varuint(rank)
+0xEA  tagStatePair      (Dense)   Markov-1 hit: varuint(rank=0 in top-1)
+0xEC  tagMapShape       (Dense)   struct shape table reference
+0xF0..0xF2  tagExt8/16/32         user-extension envelope
+0xF3        tagTimestamp          int64 ns since unix epoch
+```
+
+Tags 0xEB, 0xED..0xEF, 0xF4..0xFF are reserved.
+
+A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
+`varuint(rank)` where rank 0 means "most recently emitted". A
+`tagStatePair` payload is also `varuint(rank)` but the predictor is
+top-1, so the rank byte is always 0 (kept on the wire for parser
+compatibility — see [`docs/PLAN.md`](PLAN.md) Task 5 if you are
+curious about the K=4 → K=1 trade).
+
+`tagMapShape` is a small protocol of its own:
+
+```
+0xEC varuint(shapeID)
+    if shapeID == 0:  declaration
+        varuint(nKeys)
+        nKeys × tagStateRef / tagInternStr      key intern IDs
+    else:  reference
+        nKeys × <value emissions>
+```
+
+A struct emission with `OptShapeIntern` enabled either declares the
+shape (on first sight) or references it. The decoder maps shape IDs
+to ordered key lists and dispatches values into the receiving
+struct's fields.
+
+---
+
+## Encoder & decoder lifecycle
+
+```go
+// Pool-backed entry points (Marshal, AppendMarshal, Unmarshal) take
+// an encoder / decoder out of a sync.Pool, use it for one call, and
+// put it back. Each pool entry carries:
+//
+//   * opts Options              — captured for the call
+//   * buf  []byte               — output / cursor
+//   * state *encState | *decState — lazy; only allocated when OptDense
+//                                   is in the mask
+```
+
+The encoder constructor does NOT allocate `state`. It is allocated
+on the first `WriteString` / `WriteBytes` that enters the Dense
+branch:
+
+```go
+// encoder.go simplified
+func (e *Encoder) WriteString(s string) {
+    ...
+    if e.opts.Has(OptDense) {
+        if e.state == nil { e.state = newEncState() }
+        ...
+    }
+}
+```
+
+This matters: an `OptSpeed` / `OptQPack` workload pays nothing for
+the Dense scaffolding, even from the same pool. Stay in Fast / QPack
+mode and your encoder is a `*[]byte` with a tag dispatch.
+
+### Reset and the pool
+
+When the entry point returns, `pool.Put(enc)` runs `enc.reset()`:
+
+```go
+func (e *Encoder) reset() {
+    e.buf = e.buf[:0]    // keep capacity
+    if e.state != nil {
+        e.state.reset()  // see state.go
+    }
+}
+```
+
+`state.reset()` is where the watermark-based shrink lives. Defaults:
+
+| Structure          | Soft cap | What hits it                                |
+|--------------------|---------:|---------------------------------------------|
+| `ids` (intern map) | 4 096    | unique intern keys per stream               |
+| `lruPrev/Next`     | 4 096    | LRU chain capacity (≈ unique intern keys)   |
+| `pairPred`         | 4 096    | Markov-1 predictor slice capacity           |
+| `shapes`           | 1 024    | declared struct shapes                      |
+| `arena`            | 256 KiB  | total chunk capacity (see internarena)      |
+
+Over the cap → rebuild / drop. Under → reuse in place. This keeps a
+long-running pool from pinning peak memory after a single outlier
+payload. See [Memory model](#memory-model) for the why.
+
+### Decoder symmetry
+
+The decoder mirrors every encoder structure: `values [][]byte` for
+the resolved intern strings, `lruPrev/Next` for the MTF chain,
+`pairPred` for Markov-1, `shapes` for shape-table lookups.
+`pairPred` and the LRU are kept in sync per emission so that a
+`tagStateMTF 0` always resolves to the most-recently-emitted ID on
+both sides.
+
+If the encoder and decoder diverge by a single bookkeeping step, the
+stream becomes ambiguous from that point on. Every code path that
+touches `state.lastID`, `state.pairRecord`, or `state.lruMoveToFront`
+runs the same call sequence on both sides. Tests in `cycle_test.go`,
+`pair_shape_test.go`, and `mtf_test.go` pin those sequences.
+
+---
+
+## Feature deep dive
+
+### Intern table (Dense)
+
+```
+First sight:  0xE0 varuint(len) <bytes>          tagInternStr
+Re-emission:  0xE1 varuint(id)                   tagStateRef
+              0xE8                               tagStateRepeat  (id == lastID)
+              0xE9 varuint(rank)                 tagStateMTF
+              0xEA varuint(rank)                 tagStatePair    (rank 0 today)
+```
+
+When `OptDense` is set, `WriteString(s)` and `WriteBytes(b)` look up
+the value in `encState.ids` (a `map[string]uint32`). On a miss the
+key is copied (more on that below) and assigned the next sequential
+ID. On a hit the encoder picks the smallest re-emission tag:
+
+```
+if id == lastID                          → tagStateRepeat   (1 byte)
+elif id < 0x80                           → tagStateRef (2)
+elif (prev, id) in predictor             → tagStatePair (2)
+elif OptMTF and rank-varuint < id-varuint → tagStateMTF (1 + rank-varuint)
+else                                     → tagStateRef (1 + id-varuint)
+```
+
+The intent: never grow the wire vs the raw `tagStateRef` encoding.
+Decode reverses every branch using `lastID`, the LRU, the predictor,
+and the intern table — all three structures are kept in sync per
+emit. The arithmetic that picks the form is in [`encoder.go`
+`emitStateRef`](../encoder.go).
+
+Tuning knobs on the encoder:
+
+- `minIntern` — minimum string length for intern eligibility
+  (default 4). Shorter strings go straight to `writeStringInline`
+  because the inline encoding would be at most 1 byte longer than
+  the state-ref version.
+- `maxStateEntries` — hard cap on `len(state.ids)` (default 16 384).
+  After the cap the encoder falls back to inline emission for new
+  values. Existing entries continue to hit; the cap only blocks
+  unbounded growth on adversarial input.
+
+Both knobs live on the encoder (set via `NewEncoderOpts`); the
+top-level `Marshal` uses defaults.
+
+### Arena allocator (`internal/internarena`)
+
+Replacement for `strings.Clone(key)` on intern misses. The arena is a
+chain of `[]byte` slabs; each `Put(s)` copies `s` into the active
+slab and returns a packed `uint32` id. `Get(id)` decodes that id back
+to a slice that aliases the slab.
+
+Why not `strings.Clone`: one heap allocation per first-occurrence
+intern. On a 10 000-string telemetry batch that is 10 000 small heap
+blocks, all GC-tracked, all eligible for the next sweep. The arena
+collapses them into one growing `[]byte` and keeps the GC scanner out
+of the per-key path entirely.
+
+Layout (see [`internal/internarena/arena.go`](../internal/internarena/arena.go)):
+
+- `off uintptr` — byte offset inside `chunks[cur]`. Stored as an
+  integer (not a pointer) so the per-Put store does not trip the GC
+  write barrier. Same effect as the `next uintptr` trick from
+  mcyoung's "Cheating the Reaper in Go", without the `go vet`
+  warning for `unsafe.Pointer(uintptr)` round-trips.
+- `chunks [][]byte` — every slab the arena ever owned. Doubling
+  growth from a 4 KiB seed; the chain keeps prior slabs GC-rooted.
+- `locs []uint64` — `(chunk_idx<<48) | (offset<<16) | length`.
+  A `Get(id)` is one indexed load + one slice header.
+
+Behaviour on `Reset()`:
+
+```
+total chunk cap ≤ DefaultRetainBytes (256 KiB) → keep chunks
+total chunk cap >  DefaultRetainBytes           → drop chunks[1..],
+                                                  keep chunks[0]
+```
+
+`ResetWithLimit(retainBytes)` overrides the cap; `0` disables the
+shrink entirely. The contract is documented at the top of
+`arena.go`; the key invariant for callers is that `Get` slices alias
+the chunk they live in and become invalid after Reset.
+
+`encState.lookupOrAssign` is the only caller. It wraps `arena.Put`
+and `arena.Get` and rebinds the map key to an `unsafestr.String`
+header that aliases the arena bytes — zero copy, zero alloc.
+
+### Move-to-Front (MTF) — `tagStateMTF`
+
+When the encoder emits a state-ref, the touched intern ID moves to
+the head of an LRU chain (`lruHead`, `lruPrev`, `lruNext`, indexed by
+ID). With `OptMTF` set, the rank in the chain is encoded as
+`varuint`. On streams with locality (most recently seen IDs are most
+likely to repeat), the rank's varuint is shorter than the raw id's
+varuint, so the MTF emission wins.
+
+The decoder maintains the same chain; `tagStateMTF + rank` walks
+`rank` steps down the chain to resolve the ID.
+
+Code: `encState.lruMoveToFront` (returns the rank for the move),
+`encState.lruMoveFront` (no rank, for paths that already picked a
+tag), `decState.lruIDAtRank` (decoder-side walk).
+
+### Markov-0 — `tagStateRepeat`
+
+When the next intern ID equals `lastID`, emit a single tag byte. No
+payload. This catches columnar repetition (every row's `service`
+field is the same string) without any predictor state at all — just
+the `lastID` register.
+
+Inlined out of `emitStateRef` into `WriteString` / `WriteBytes`
+because it is the most common Dense hit and the call site benefits
+from avoiding a non-inlinable function call.
+
+### Markov-1 predictor — `tagStatePair`
+
+For each `prev` intern ID we remember its most-recent successor
+(top-1, see [docs/PLAN.md](PLAN.md) Task 5 for the why-not-K=4
+discussion). When the next emission matches, write `0xEA 0x00` —
+two bytes regardless of how many digits the raw ID has.
+
+Top-1 storage:
+
+```go
+pairPred []uint32   // [prev] = succ+1, 0 = empty
+```
+
+The `+1` packing lets `clear()` (memclr) reset the slice without an
+explicit fill loop, while still letting `succ == 0` be distinguishable
+from "no successor recorded".
+
+Hit rate impact vs the prior K=4 ring: the K=4 ring caught cyclic
+A→{B,C,D,E,B,C,…} workloads; top-1 misses every step on those. On
+stable workloads (A→B repeated, with intermittent noise) the two
+agree. Real telemetry sits in the stable regime; the 256 KiB memory
+saving is worth the cyclic-workload regression.
+
+Code: `encState.pairLookup`, `encState.pairRecord`, both single
+instructions; `decState.pairAtRank` mirrors them.
+
+### Shape interning — `tagMapShape`
+
+A struct emission with `OptShapeIntern` enabled:
+
+1. Look up the struct's `*typeDesc` in the encoder's
+   `shapeBindings` slice. Found → emit `0xEC varuint(shapeID)` +
+   values. Done.
+2. Not found → register a new shape:
+   - Reserve the next sequential shape ID.
+   - Emit a declaration: `0xEC 0x00 varuint(nKeys) (keys × state-refs)`.
+   - Record the binding so subsequent emissions of the same type
+     hit the cache.
+
+`encState.shapeAssign` keys on the ordered list of intern IDs of the
+struct's fields. Two distinct Go types with the same ordered field
+names share a shape — that is desired, because the wire only cares
+about names.
+
+Decoder symmetry: `decState.shapes[id-1]` carries the resolved field
+names; `tagMapShape varuint(id)` dispatches values into the
+receiving struct's fields in declaration order.
+
+Win condition: arrays of identical struct types. The first emission
+declares the shape (a few bytes) and every subsequent struct trades
+its key emissions for a single shape-ID varuint. On a 100-row
+struct array, a per-row saving of ~12 bytes is realistic.
+
+### Map fast paths (`maps_fast_generated.go`)
+
+Generic reflect-driven map encode/decode pays a per-element
+`reflect.Value` materialisation. For 27 (K, V) pairs we generate
+typed encode / decode functions that bypass reflect entirely:
+
+```go
+// key types covered: string, int, int64, uint64
+// value types covered: string, bool, int8/16/32/int/int64,
+//                      uint8/16/32/uint/uint64, float32/float64,
+//                      []byte, []string, any
+```
+
+The generator lives at `internal/mapsgen/main.go` and the dispatch
+table (`installMapFastPath`) is part of the generated file. To add a
+pair: append to the `pairs` slice in the generator, run
+`go generate ./...`, commit the regenerated file alongside the
+generator change.
+
+Each generated path does roughly:
+
+```go
+func encodeMapStringInt64(e *Encoder, p unsafe.Pointer) error {
+    m := *(*map[string]int64)(p)
+    if m == nil { e.WriteNil(); return nil }
+    e.WriteMapHeader(len(m))
+    for k, v := range m { e.WriteString(k); e.WriteInt(v) }
+    return nil
+}
+```
+
+For decode the key path interns through `d.keyCache.Make(kb)` — a
+small dedupe so high-cardinality repeats stay zero-alloc.
+
+### QPack — numeric / bool slice codecs
+
+`OptQPack` activates a family of codecs that swap msgpack-style
+per-element tags for compact bit-packed representations on numeric
+and bool slices. The encoder picks the smallest predicted form per
+slice; the decoder reads the picked tag.
+
+```
+0xE3  tagPackBool      []bool       1 bit per element + tag + varuint(n)
+0xE4  tagPackRaw       []intN/uintN raw little-endian, no padding
+0xE5  tagPackFor       []uintN      Frame-of-Reference bitpacked
+0xE6  tagPackDeltaFor  []intN       Delta + zigzag + FOR
+0xE7  tagPackGorilla   []float64    Gorilla XOR coding
+```
+
+Selection logic:
+
+- **Bool slice**: always `tagPackBool` (8× smaller than per-element
+  tags).
+- **Integer slice**: compute `m = min(s)`, find the smallest power-
+  of-two `bitsPer` that fits `max(s) - m`. If `qpackForSizeUnsigned`
+  beats raw, emit FOR. For monotonic / clustered series, try
+  delta-FOR. Otherwise raw.
+- **Float slice**: by default, raw. Gorilla is opt-in via
+  `WritePackGorilla` — it wins on real-world time-series telemetry
+  but loses on white noise.
+
+The size estimators are pure functions on slice contents; the
+encoder calls them once per slice and picks the smallest.
+
+#### SIMD AVX2 (`qdf_simd` build tag)
+
+`qpack_simd_amd64.s` is hand-rolled AVX2 for the bit-unpack inner
+loop at `bitsPer ∈ {8, 16, 32}`. 22–53× faster than the scalar
+fallback at memory-bandwidth saturation (~50 GB/s on
+i7-9750H). CPUID-gated at runtime; non-amd64 builds compile a stub.
+
+Encode-side SIMD is a planned task (PLAN.md #10) — the encode
+inner loop is still scalar today.
+
+### reflect2 swap (`qdf_reflect2` build tag)
+
+Optional opt-in. Replaces `reflect.MakeSlice` / `MakeMapWithSize` /
+`reflect.New` calls in the decoder with `modern-go/reflect2`'s
+unsafe equivalents. Saves a handful of allocations per decode on
+slice / map heavy payloads. No change in correctness; the build tag
+exists so consumers who do not want a non-stdlib dep can opt out.
+
+### qdfgen (`cmd/qdfgen`)
+
+Code generator that emits `MarshalQDF` / `UnmarshalQDF` methods for
+user structs. Generated methods bypass the reflect-based encoder
+entirely, calling the typed `Encoder.WriteX` API directly.
+
+```bash
+go install github.com/alex60217101990/qdf/cmd/qdfgen@latest
+```
+
+```go
+//go:generate qdfgen -type Event,User .
+```
+
+For workloads with the same handful of struct types serialised
+millions of times (RPC payloads, event streams), this is the
+biggest single CPU win: -30 % to -60 % vs the reflect path,
+depending on struct shape.
+
+The generator is independent of `internal/mapsgen` — that one
+generates the map type-switch dispatch inside `package qdf`; this
+one generates per-user-type marshalers in the user's package.
+
+---
+
+## Memory model
+
+### Pool lifecycle
+
+`Marshal` / `Unmarshal` are pool-backed. The pool grows under load,
+contracts at GC time (the standard `sync.Pool` policy). Each pool
+entry carries the encoder / decoder plus its associated state. State
+allocation is lazy: an encoder that never enters Dense mode never
+allocates `encState`.
+
+### Watermark shrink-on-Reset
+
+The naive pool design has a problem: a single outlier payload (a
+1 MiB event with thousands of unique strings) grows the encoder's
+intern map, LRU chain, pair predictor, and arena to fit. The pool
+holds onto the encoder. Every subsequent call inherits the peak
+footprint, forever.
+
+Fix: each `reset()` checks the post-call capacity against a soft cap.
+Over the cap → drop the backing array; under the cap → reuse in
+place. Defaults are in `state.go`:
+
+```go
+const (
+    maxRetainedIDs      = 4096    // intern map size
+    maxRetainedLRUCap   = 4096    // LRU slice cap
+    maxRetainedPairCap  = 4096    // pair predictor slice cap
+    maxRetainedShapeCap = 1024    // shape table cap
+)
+```
+
+`internarena.DefaultRetainBytes = 256 KiB` is the arena's
+counterpart cap. Override with `ResetWithLimit` if you want
+different behaviour for a custom encoder pool.
+
+Tests in `shrink_test.go` pin the contract: after a burst that
+exceeds every cap, `reset()` shrinks at least one structure;
+post-reset capacity is bounded; new payloads still encode correctly.
+
+### Go map's quirk
+
+`map[K]V` in Go cannot shrink its bucket array once it has grown.
+`clear(m)` only zeros entries — capacity stays. To actually release
+the memory we replace the header:
+
+```go
+if len(e.ids) > maxRetainedIDs {
+    e.ids = make(map[string]uint32, 64)   // fresh map, drops old buckets
+} else {
+    clear(e.ids)                          // keep buckets, fast path
+}
+```
+
+This is the only place we allocate during Reset; the rest is in-
+place slice truncation or `clear()`.
+
+### Arena and GC pressure
+
+The arena's whole point is to keep GC-tracked allocations off the
+intern path. On a 1 000-string telemetry batch, the per-key
+`strings.Clone` would create 1 000 separately-tracked heap blocks;
+the arena creates one slab that hosts all 1 000 payloads. The next
+GC cycle scans one root instead of 1 000.
+
+If you are GC-pressure-sensitive (long-running services, low-latency
+SLOs) and you marshal many Dense payloads per second, the arena's
+contribution is measurable: every percentage point of
+`runtime.MemStats.PauseTotalNs` you spend in scanning intern objects
+moves into "scan one arena slab" instead.
+
+---
+
+## Performance characteristics
+
+Numbers from `bench/profiles_test.go`, Intel i7-9750H, Go 1.26.0,
+median of 3 × 1 s runs. See `docs/BENCH.md` for the full matrix
+and how to reproduce.
+
+| Scenario        | json encode | msgpack encode | qdf encode | qdf vs msgpack |
+|-----------------|-------------|----------------|------------|----------------|
+| HotPath         | 660 ns      | 451 ns         | 326 ns     | **-28 %**      |
+| TelemetryBatch  | 377 µs      | 474 µs         | 720 µs     | +52 %          |
+| MetricSeries    | 155 µs      | 112 µs         | 5.4 µs     | **-95 %**      |
+| EmbeddingVec    | 72 µs       | 26 µs          | 0.72 µs    | **-97 %**      |
+| Config          | 2.1 µs      | 1.7 µs         | 1.74 µs    | **-2 %**       |
+| Archive         | 2.1 ms      | 2.9 ms         | 5.1 ms     | +75 %          |
+
+| Scenario        | json decode | msgpack decode | qdf decode | qdf vs msgpack |
+|-----------------|-------------|----------------|------------|----------------|
+| HotPath         | 1.6 µs      | 626 ns         | 306 ns     | **-51 %**      |
+| TelemetryBatch  | 2.3 ms      | 1.0 ms         | 446 µs     | **-56 %**      |
+| MetricSeries    | 627 µs      | 186 µs         | 4.0 µs     | **-98 %**      |
+| EmbeddingVec    | 167 µs      | 44 µs          | 0.71 µs    | **-98 %**      |
+| Config          | 5.6 µs      | 2.9 µs         | 1.53 µs    | **-48 %**      |
+| Archive         | 13 ms       | 5.2 ms         | 3.2 ms     | **-38 %**      |
+
+Where qdf wins: anything with numeric arrays (QPack codecs), anything
+with repeated string keys (Dense intern), anything decoded (smaller
+wire = less to parse).
+
+Where qdf loses: encode side on telemetry / archive payloads
+(complex predictor bookkeeping costs CPU). See [docs/PLAN.md](PLAN.md)
+for the open optimisation work.
+
+Wire size, telemetry_1k payload:
+
+```
+json     112 KiB     1.00× baseline
+msgpack   90 KiB     0.80×
+qdf       18 KiB     0.16×
+```
+
+Roughly 5× smaller than msgpack on telemetry, 3–4× on archive
+payloads.
+
+---
+
+## Build tags
+
+| Tag             | Effect                                                                                                                                                                                                                                                                                | Platform                              |
+|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
+| `qdf_simd`      | AVX2 bit-unpack at `bits ∈ {8, 16, 32}`. 22–53× over scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently. Other arches compile a stub. | amd64; AVX2 detected at run time      |
+| `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` / `reflect.New` for `modern-go/reflect2` unsafe equivalents.                                                                                                                                                                             | none — pure Go                        |
+
+Combine freely:
+
+```bash
+go build -tags qdf_simd ./...
+go build -tags qdf_reflect2 ./...
+go build -tags "qdf_simd qdf_reflect2" ./...
+```
+
+The default build (no tags) is the baseline behaviour. Tests run
+under every combination in CI.
+
+---
+
+## Streaming, custom marshalers, codegen
+
+### Streaming API
+
+```go
+enc := qdf.NewStreamEncoder(w, qdf.OptBalanced)
+for _, ev := range events {
+    enc.Encode(&ev)
+}
+enc.Close()
+```
+
+State (intern table, shape table, predictors) persists across
+`Encode` calls — that is the whole point of streaming. A 10 000-row
+event log shares one intern table; the second event onwards trades
+its keys for state-refs.
+
+`StreamDecoder` is symmetric. Reset semantics are unchanged: when
+the stream encoder is returned to its pool (`Close`), the state
+shrinks via the same watermark logic.
+
+### Custom marshalers (`Marshaler` / `Unmarshaler`)
+
+```go
+type Marshaler interface {
+    MarshalQDF(*Encoder) error
+}
+
+type Unmarshaler interface {
+    UnmarshalQDF(*Decoder) error
+}
+```
+
+Types that implement either interface bypass the descriptor cache
+and the per-field dispatch entirely. The codegen tool emits methods
+that satisfy these interfaces; you can hand-write them when the
+generator's output is not what you want.
+
+### Codegen (`cmd/qdfgen`)
+
+```bash
+go install github.com/alex60217101990/qdf/cmd/qdfgen@latest
+```
+
+```go
+//go:generate qdfgen -type Event,User .
+```
+
+Emits `<package>_qdf.go` with concrete `MarshalQDF` /
+`UnmarshalQDF` for each named type. The generated code calls the
+qdf encoder / decoder API directly — no reflect, no runtime
+descriptor lookup.
+
+See `cmd/qdfgen/README.md` for the flag set and supported tags.
+
+---
+
+## Common pitfalls
+
+**1. Forgetting that Dense options need `OptDense`.**
+
+```go
+// This silently encodes with Fast mode — no intern table.
+b, _ := qdf.Marshal(v, qdf.OptShapeIntern|qdf.OptMTF)
+
+// Want Dense? Always include OptDense.
+b, _ := qdf.Marshal(v, qdf.OptDense|qdf.OptShapeIntern|qdf.OptMTF)
+```
+
+Dependent bits are silent no-ops without their parent. The Options
+docstring spells it out; the test suite pins it; if a payload looks
+suspiciously big, your first move is to print the mask and confirm
+`OptDense` is set.
+
+**2. Comparing wire across opt sets.**
+
+```go
+b1, _ := qdf.Marshal(v, qdf.OptSpeed)
+b2, _ := qdf.Marshal(v, qdf.OptBalanced)
+bytes.Equal(b1, b2)  // false — different encoding shape entirely
+```
+
+The opts mask is captured into the buffer header. The decoder reads
+it back and dispatches accordingly. Two Marshal calls with different
+opts produce different bytes by design.
+
+**3. Holding `Decoder.ReadStringBytes` slices across calls.**
+
+```go
+b, _ := d.ReadStringBytes()
+// b aliases the input buffer (or the intern table). After the next
+// Read call, the buffer cursor advances and the slice might still
+// look valid but its contents are not guaranteed stable.
+```
+
+`ReadString()` is the safe variant — it allocates a Go string copy.
+Use `ReadStringBytes()` only when you immediately copy / hash / parse
+the bytes.
+
+**4. Building two structs with the same field names in different
+orders.**
+
+```go
+type A struct { X int; Y int }
+type B struct { Y int; X int }
+```
+
+Each gets a distinct shape ID. The wire grows by one declaration
+per type. The intern table sees each field name once across both
+types. Round-trip is fine.
+
+But: don't try to decode an A-wire into a B. The shape table maps
+shapeID → ordered field-name list. The decoder looks up the
+receiving struct's field by name, so field order in the receiving
+struct does not matter — but if you Unmarshal an A-wire into a B
+the decoder will set `B.X` and `B.Y` to A's `X` and `Y` values
+respectively. Different physical layout, same logical mapping. This
+is a feature (rename-tolerant), but if you depend on order, you
+will be surprised.
+
+**5. `map[string]any` with positive integer values.**
+
+```go
+in := map[string]any{"n": int64(42)}
+b, _ := qdf.Marshal(in, qdf.OptBalanced)
+var out map[string]any
+qdf.Unmarshal(b, &out)
+// out["n"] is uint64(42), not int64(42)
+```
+
+`decodeAny` returns positive integers as `uint64`. This is shared
+with msgpack and is documented behaviour; the test suite uses
+`reflect.DeepEqual` so it shows up clearly. If you need a stable Go
+type, decode into a concrete struct field instead of `any`.
+
+---
+
+## Debugging
+
+### Hex dump
+
+For tiny test payloads, hex-dump the buffer and read the tags.
+
+```go
+b, _ := qdf.Marshal(v, qdf.OptBalanced)
+fmt.Printf("% x\n", b)
+```
+
+Use [wire format primer](#wire-format-primer) to identify tags.
+`0x80..0x9F` is a fixstr (length in the low 5 bits); `0xE0` opens
+an intern declaration; `0xE1` opens a state-ref; etc.
+
+### Bench introspection
+
+```bash
+go test -bench=Profile -benchmem -count=3 -benchtime=2s ./bench
+```
+
+The "B/op" column is allocations per op; "allocs/op" is the count.
+A regression on either is the canonical signal that a code change
+upset the inliner or introduced a `reflect.Value` allocation.
+
+For deeper inspection:
+
+```bash
+go test -bench=Profile_TelemetryBatch -cpuprofile=cpu.prof ./bench
+go tool pprof -text cpu.prof | head -20
+```
+
+The hot functions you should see on Dense encode:
+
+```
+emitStateRef
+appendUvarint
+lookupOrAssign
+runtime.mapaccess (intern lookup)
+runtime.mapassign (intern install)
+```
+
+If you see `runtime.heapBitsSetType` high up, the arena path is not
+being taken — usually because `OptDense` is off.
+
+### Tracing single emissions
+
+The tests in `golden_test.go` build small payloads byte-by-byte and
+assert the exact wire. Copy one of those patterns when adding a new
+codec or modifying an existing tag's emit logic. The golden
+fixtures double as worked examples.
+
+---
+
+## Internal architecture map
+
+Top-level files in the repo:
+
+```
+qdf.go                  — package API: Marshal, Unmarshal, AppendMarshal
+encoder.go              — Encoder type, WriteX methods, emitStateRef
+decoder.go              — Decoder type, ReadX methods, tag dispatch
+state.go                — encState / decState: intern table, LRU, pair predictor, shapes
+wire.go                 — tag constants, varuint helpers
+
+reflect_encode.go       — typeDesc cache, reflect-based encode / decode
+reflect_alloc.go        — stdlib reflect alloc helpers
+reflect_alloc_reflect2.go — qdf_reflect2 build tag swap
+
+maps_fast.go            — //go:generate directive, doc stub
+maps_fast_generated.go  — codegen output for 27 (K, V) map pairs
+slices_fast.go          — typed slice fast paths
+qpack*.go               — QPack codecs (raw, bool, FOR, delta, gorilla, simd)
+
+stream.go               — StreamEncoder / StreamDecoder
+marshaler.go            — Marshaler / Unmarshaler interfaces
+
+internal/internarena/   — bump-pointer byte arena
+internal/intern/        — short-string interner used by decoder
+internal/bufpool/       — reusable []byte pool
+internal/unsafestr/     — string ↔ []byte unsafe alias helpers
+internal/mapsgen/       — generator for maps_fast_generated.go
+internal/codegen_test/  — fixtures and tests for cmd/qdfgen output
+
+cmd/qdfgen/             — code generator emitting MarshalQDF / UnmarshalQDF
+
+bench/                  — separate go module with benchmarks vs json / msgpack
+docs/BENCH.md           — bench numbers and reproduction instructions
+docs/CHOOSING.md        — opts cheatsheet for end-users
+docs/PLAN.md            — internal optimisation roadmap (not user-facing)
+docs/GUIDE.md           — this file
+```
+
+Test files (`*_test.go`) sit next to the code they exercise. The
+ones worth knowing if you are debugging a wire-format question:
+
+- `golden_test.go` — exact hex fixtures for every tag.
+- `cycle_test.go` — round-trip across Marshal → Unmarshal cycles.
+- `pair_shape_test.go` — Markov-1 + shape interning behaviour.
+- `mtf_test.go` — Move-to-Front rank coding.
+- `tag_matrix_test.go` — every tag emitted at least once across opts.
+- `interface_matrix_test.go` — typed and reflect paths both round-
+  trip the same payloads byte-for-byte.
+
+When you change a wire-format-relevant function, the first thing to
+re-run is `go test -run 'TestGolden|TestCycle|TestTagMatrix' ./...`.
+If those pass, the wire is unchanged and you are unlikely to have
+broken downstream consumers.
+
+---
+
+## Further reading
+
+- README — high-level overview and quick start.
+- `docs/BENCH.md` — full benchmark matrix and methodology.
+- `docs/CHOOSING.md` — opts cheatsheet for end-users.
+- `docs/PLAN.md` — open optimisation work (encode-side perf vs
+  msgpack).
+- mcyoung, "Cheating the Reaper in Go" — background reading on the
+  arena allocator tricks (uintptr cursor, chunk-keep slice,
+  Reset-keeps-chunks).
+- protobuf-go, `encoding/protowire` — reference for the varint
+  encoding qdf inherits.

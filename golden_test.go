@@ -111,25 +111,25 @@ func goldenPath(name, dialect string) string {
 }
 
 func TestGolden_Fast(t *testing.T) {
-	runGolden(t, "fast", Marshal)
+	runGolden(t, "fast", OptSpeed)
 }
 
 func TestGolden_QPack(t *testing.T) {
-	runGolden(t, "qpack", MarshalQPack)
+	runGolden(t, "qpack", OptQPack)
 }
 
 func TestGolden_Dense(t *testing.T) {
-	runGolden(t, "dense", MarshalDense)
+	runGolden(t, "dense", OptBalanced)
 }
 
-func runGolden(t *testing.T, dialect string, encode func(any) ([]byte, error)) {
+func runGolden(t *testing.T, dialect string, opts Options) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join("testdata", "golden"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range goldenCases() {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := encode(c.value)
+			got, err := Marshal(c.value, opts)
 			if err != nil {
 				t.Fatalf("encode: %v", err)
 			}

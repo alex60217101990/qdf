@@ -48,7 +48,7 @@ func sampleQPackBatch() qpackBatch {
 
 func TestMarshalDense_QPackRoundTrip(t *testing.T) {
 	in := sampleQPackBatch()
-	raw, err := MarshalDense(in)
+	raw, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestMarshalDense_QPackRoundTrip(t *testing.T) {
 
 func TestMarshalQPack_RoundTrip(t *testing.T) {
 	in := sampleQPackBatch()
-	raw, err := MarshalQPack(in)
+	raw, err := Marshal(in, OptQPack)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,11 +78,11 @@ func TestMarshalQPack_RoundTrip(t *testing.T) {
 
 func TestQPack_SizeWinVsLegacy(t *testing.T) {
 	in := sampleQPackBatch()
-	leg, err := Marshal(in)
+	leg, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	qp, err := MarshalQPack(in)
+	qp, err := Marshal(in, OptQPack)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,8 +109,8 @@ func TestQPack_DenseSmallerThanFast(t *testing.T) {
 	for i := range in.IDs {
 		in.IDs[i] = uint64(i) + 1000
 	}
-	qp, _ := MarshalQPack(in)
-	dn, _ := MarshalDense(in)
+	qp, _ := Marshal(in, OptQPack)
+	dn, _ := Marshal(in, OptBalanced)
 	t.Logf("fast-qpack=%d  dense=%d", len(qp), len(dn))
 	if len(dn) >= len(qp) {
 		t.Fatalf("dense should be smaller on string-repetitive payload: %d vs %d", len(dn), len(qp))
@@ -121,7 +121,7 @@ func TestQPack_DecodeLegacyBuffer(t *testing.T) {
 	// A buffer produced by the legacy Marshal must still decode by the
 	// new Unmarshal path.
 	in := sampleQPackBatch()
-	leg, _ := Marshal(in)
+	leg, _ := Marshal(in, OptSpeed)
 	var out qpackBatch
 	if err := Unmarshal(leg, &out); err != nil {
 		t.Fatal(err)

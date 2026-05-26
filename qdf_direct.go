@@ -9,28 +9,29 @@ import "slices"
 // to the Marshaler / Unmarshaler interface so the compiler can inline
 // the method call directly.
 //
-// Output is byte-identical to Marshal / Unmarshal on the same value.
-// The path emits Fast-mode wire only because that is what the
-// generated code produces. Dense / QPack are not available through
-// these helpers — use MarshalDense / MarshalQPack (or their generic
-// counterparts MarshalDenseT / MarshalQPackT) for those dialects.
+// Output is byte-identical to Marshal / Unmarshal on the same value
+// with OptSpeed. The path emits Fast-mode wire only because that is
+// what the generated code produces. Dense / QPack are not available
+// through these helpers — use Marshal(v, OptBalanced) or
+// Marshal(v, OptQPack) (or the MarshalT generic counterpart) for
+// those dialects.
 
 // MarshalDirect serialises a value through its MarshalQDF method.
 // Skips the public Marshal entry point's any-boxing, reflect.New, and
 // descriptor lookup. Roughly 2-4× faster than Marshal for generated
 // types on small payloads, with one fewer allocation per call.
 func MarshalDirect[T Marshaler](v T) ([]byte, error) {
-	enc := fastEncPool.Get().(*Encoder)
+	enc := encPool.Get().(*Encoder)
 	enc.Reset()
 	enc.writeHeader()
 	out, err := v.MarshalQDF(enc.buf)
 	if err != nil {
-		putEnc(enc, &fastEncPool)
+		putEnc(enc, &encPool)
 		return nil, err
 	}
 	cloned := slices.Clone(out)
 	enc.buf = out[:0]
-	fastEncPool.Put(enc)
+	encPool.Put(enc)
 	return cloned, nil
 }
 
@@ -39,18 +40,18 @@ func AppendMarshalDirect[T Marshaler](dst []byte, v T) ([]byte, error) {
 	// Header must be present before the receiver's MarshalQDF runs, so
 	// emit it through a borrowed encoder (handles the headerOut flag and
 	// any future header-byte changes).
-	enc := fastEncPool.Get().(*Encoder)
+	enc := encPool.Get().(*Encoder)
 	enc.Reset()
 	enc.buf = dst
 	enc.writeHeader()
 	out, err := v.MarshalQDF(enc.buf)
 	if err != nil {
 		enc.buf = nil
-		fastEncPool.Put(enc)
+		encPool.Put(enc)
 		return dst, err
 	}
 	enc.buf = nil
-	fastEncPool.Put(enc)
+	encPool.Put(enc)
 	return out, nil
 }
 

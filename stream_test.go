@@ -65,7 +65,7 @@ func TestStream_DenseSharesInternTable(t *testing.T) {
 	// dictionary, so the savings come from the shared state table.
 	soloTotal := 0
 	for _, v := range in {
-		b, err := MarshalDense(v)
+		b, err := Marshal(v, OptBalanced)
 		if err != nil {
 			t.Fatal(err)
 		}

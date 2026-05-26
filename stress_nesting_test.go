@@ -43,12 +43,8 @@ func TestStress_DeepLinkedList(t *testing.T) {
 	for _, depth := range []int{16, 64, 128, 256} {
 		t.Run("", func(t *testing.T) {
 			in := makeDeepNodes(depth)
-			for label, enc := range map[string]func(any) ([]byte, error){
-				"Marshal":      Marshal,
-				"MarshalQPack": MarshalQPack,
-				"MarshalDense": MarshalDense,
-			} {
-				buf, err := enc(in)
+			for label, opts := range map[string]Options{"Speed": OptSpeed, "QPack": OptQPack, "Balanced": OptBalanced} {
+				buf, err := Marshal(in, opts)
 				if err != nil {
 					t.Fatalf("%s depth=%d encode: %v", label, depth, err)
 				}
@@ -79,11 +75,8 @@ func TestStress_WideMap(t *testing.T) {
 				k[4] = '0' + byte(i%10)
 				in[string(k)] = i
 			}
-			for label, enc := range map[string]func(any) ([]byte, error){
-				"Marshal":      Marshal,
-				"MarshalDense": MarshalDense,
-			} {
-				buf, err := enc(in)
+			for label, opts := range map[string]Options{"Speed": OptSpeed, "Balanced": OptBalanced} {
+				buf, err := Marshal(in, opts)
 				if err != nil {
 					t.Fatalf("%s width=%d encode: %v", label, width, err)
 				}
@@ -128,11 +121,8 @@ func TestStress_BinaryTree(t *testing.T) {
 	for _, depth := range []int{6, 10, 12} {
 		t.Run("", func(t *testing.T) {
 			in := makeTree(depth)
-			for label, enc := range map[string]func(any) ([]byte, error){
-				"Marshal":      Marshal,
-				"MarshalDense": MarshalDense,
-			} {
-				buf, err := enc(in)
+			for label, opts := range map[string]Options{"Speed": OptSpeed, "Balanced": OptBalanced} {
+				buf, err := Marshal(in, opts)
 				if err != nil {
 					t.Fatalf("%s depth=%d: %v", label, depth, err)
 				}
@@ -176,12 +166,8 @@ func TestStress_BigPrimitives(t *testing.T) {
 	}
 	in := bigStruct{S: longString, B: long, U: bigU64, F: bigF64}
 
-	for label, enc := range map[string]func(any) ([]byte, error){
-		"Marshal":      Marshal,
-		"MarshalQPack": MarshalQPack,
-		"MarshalDense": MarshalDense,
-	} {
-		buf, err := enc(in)
+	for label, opts := range map[string]Options{"Speed": OptSpeed, "QPack": OptQPack, "Balanced": OptBalanced} {
+		buf, err := Marshal(in, opts)
 		if err != nil {
 			t.Fatalf("%s encode: %v", label, err)
 		}
@@ -212,7 +198,7 @@ func TestStress_StackBound(t *testing.T) {
 	prev := debug.SetMaxStack(64 << 20) // 64 MiB
 	defer debug.SetMaxStack(prev)
 	in := makeDeepNodes(2000)
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}

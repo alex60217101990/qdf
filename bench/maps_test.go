@@ -56,7 +56,7 @@ func BenchmarkEncode_MapHeavy(b *testing.B) {
 	b.Run("qdf_fast", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := qdf.Marshal(v); err != nil {
+			if _, err := qdf.Marshal(v, qdf.OptSpeed); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -64,7 +64,7 @@ func BenchmarkEncode_MapHeavy(b *testing.B) {
 	b.Run("qdf_dense", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := qdf.MarshalDense(v); err != nil {
+			if _, err := qdf.Marshal(v, qdf.OptBalanced); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -75,7 +75,7 @@ func BenchmarkDecode_MapHeavy(b *testing.B) {
 	v := makeAttrs(20)
 	jb, _ := json.Marshal(v)
 	mb, _ := msgpack.Marshal(v)
-	qb, _ := qdf.Marshal(v)
+	qb, _ := qdf.Marshal(v, qdf.OptSpeed)
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {

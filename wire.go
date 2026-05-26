@@ -94,6 +94,25 @@ const (
 	//                    minDelta (zigzag varuint),
 	//                    varuint(n),
 	//                    ceil((n-1)*bits/8) bytes (LSB-first) of (Δᵢ - minDelta).
+	tagStatePair = 0xEA // Markov-1 predictor for Dense state-refs.
+	//                    Conditioned on the previously emitted state-ref ID
+	//                    (lastID), the encoder maintains a small ring of the
+	//                    most recent successors per prev. If the current ID
+	//                    is in the ring, emit tagStatePair + varuint(rank).
+	//                    Ring size pairPredK; rank ∈ [0, pairPredK). The
+	//                    encoder picks tagStatePair only when its byte cost
+	//                    is strictly smaller than every other state-ref
+	//                    variant (Repeat, MTF, raw), so the wire never grows.
+	tagMapShape = 0xEC // Struct/map shape interning for Dense mode.
+	//                    Wire form:
+	//                       0xEC + varuint(shapeID)
+	//                    shapeID == 0 declares a new shape inline:
+	//                       0xEC, 0, varuint(N), [N x key-emit], [N x value]
+	//                    The decoder assigns the new shape the next
+	//                    sequential ID (starting at 1) for reuse.
+	//                    shapeID > 0 reuses a previously declared shape:
+	//                       0xEC, varuint(id), [N x value]
+	//                    N is recovered from the shape table.
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1
@@ -105,7 +124,21 @@ const (
 // lengths. The encoder always appends; the decoder returns the consumed
 // length so the caller can advance its cursor.
 
+//go:nosplit
 func appendUvarint(b []byte, x uint64) []byte {
+	// 3-byte unrolled fast path. Covers values up to 2^21 = 2 097 151
+	// which is well past the default maxStateEntries (16 384) and
+	// covers every state-ref / shape ID / fixstr length in practical
+	// payloads. Multi-byte values fall through to the loop.
+	if x < 0x80 {
+		return append(b, byte(x))
+	}
+	if x < 0x4000 {
+		return append(b, byte(x)|0x80, byte(x>>7))
+	}
+	if x < 0x200000 {
+		return append(b, byte(x)|0x80, byte(x>>7)|0x80, byte(x>>14))
+	}
 	for x >= 0x80 {
 		b = append(b, byte(x)|0x80)
 		x >>= 7
@@ -115,7 +148,18 @@ func appendUvarint(b []byte, x uint64) []byte {
 
 // readUvarint decodes a ULEB128 and returns value, bytes-consumed. n==0 means
 // not enough input; n<0 means overflow (>10 bytes).
+//
+// The 1-byte branch stays inline (cost ≤ 80) — most varints in
+// practice are state-ref ranks / shape IDs / small lengths < 128.
+// Multi-byte values fall through to the loop below, which is
+// extracted into a non-inlinable slow path on purpose so the hot
+// path keeps its inline budget.
+//
+//go:nosplit
 func readUvarint(b []byte) (uint64, int) {
+	if len(b) > 0 && b[0] < 0x80 {
+		return uint64(b[0]), 1
+	}
 	var x uint64
 	var shift uint
 	for i, c := range b {

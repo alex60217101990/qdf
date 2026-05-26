@@ -42,12 +42,12 @@ func TestReset_EncoderInternTableCleared(t *testing.T) {
 func TestReset_EncoderMarkov0Cleared(t *testing.T) {
 	e := NewEncoder(Dense)
 	e.WriteString("token-aaa-bbb-ccc")
-	if !e.state.lastValid {
-		t.Fatal("lastValid not set after WriteString")
+	if e.state.lastID == lruInvalidID {
+		t.Fatal("lastID not set after WriteString")
 	}
 	e.Reset()
-	if e.state.lastValid {
-		t.Fatal("lastValid not cleared by Reset")
+	if e.state.lastID != lruInvalidID {
+		t.Fatal("lastID not cleared by Reset")
 	}
 }
 
@@ -83,11 +83,11 @@ func TestReset_EncoderHeaderFlagCleared(t *testing.T) {
 func TestReset_PooledEncoderNoLeak(t *testing.T) {
 	// Encode through Marshal twice with different payloads. Confirm
 	// the pooled encoder does not retain bytes from call 1 in call 2.
-	a, err := Marshal(map[string]int{"alpha": 1})
+	a, err := Marshal(map[string]int{"alpha": 1}, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Marshal(map[string]int{"beta": 2})
+	b, err := Marshal(map[string]int{"beta": 2}, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestPtrEdges_PtrToPtr(t *testing.T) {
 		P **int `qdf:"p"`
 	}
 	in := holder{P: ppv}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestPtrEdges_SliceOfPtr(t *testing.T) {
 		PS []*int `qdf:"ps"`
 	}
 	in := holder{PS: []*int{&a, nil, &b, nil}}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestPtrEdges_MapStringPtr(t *testing.T) {
 		M map[string]*int `qdf:"m"`
 	}
 	in := holder{M: map[string]*int{"k": &v, "nil": nil}}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestMisc_MapWithIntKey(t *testing.T) {
 	// Non-string map keys. msgpack supports them; verify qdf either
 	// supports or rejects cleanly.
 	in := map[int]string{1: "one", 2: "two", 3: "three"}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Skipf("non-string map keys not supported: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestMisc_TimeEdges(t *testing.T) {
 		time.Date(1700, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 	for _, in := range cases {
-		buf, err := Marshal(in)
+		buf, err := Marshal(in, OptSpeed)
 		if err != nil {
 			t.Errorf("encode %v: %v", in, err)
 			continue
@@ -230,7 +230,7 @@ func TestMisc_TimeEdges(t *testing.T) {
 func TestMisc_EmptyStructRoot(t *testing.T) {
 	type empty struct{}
 	in := empty{}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,11 +248,11 @@ func TestMisc_UnicodeKeys(t *testing.T) {
 		"السلام": 3,
 		"hello":  4,
 	}
-	for label, enc := range map[string]func(any) ([]byte, error){
-		"Marshal":      Marshal,
-		"MarshalDense": MarshalDense,
+	for label, opts := range map[string]Options{
+		"Speed":    OptSpeed,
+		"Balanced": OptBalanced,
 	} {
-		buf, err := enc(in)
+		buf, err := Marshal(in, opts)
 		if err != nil {
 			t.Fatalf("%s: %v", label, err)
 		}
@@ -271,7 +271,7 @@ func TestMisc_AnonymousStructType(t *testing.T) {
 		A int    `qdf:"a"`
 		B string `qdf:"b"`
 	}{A: 7, B: "anon"}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestMisc_VeryLongFieldName(t *testing.T) {
 	// Field name longer than fixstr (>31). Forces str8/str16 path.
 	longName := strings.Repeat("k", 200)
 	in := map[string]int{longName: 42}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}

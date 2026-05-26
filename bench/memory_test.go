@@ -38,7 +38,7 @@ func BenchmarkDecode_MapHeavy_RepeatedKeys(b *testing.B) {
 	for i, p := range payloads {
 		jsonBufs[i], _ = json.Marshal(p)
 		msgpackBufs[i], _ = msgpack.Marshal(p)
-		qdfBufs[i], _ = qdf.Marshal(p)
+		qdfBufs[i], _ = qdf.Marshal(p, qdf.OptSpeed)
 	}
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()
@@ -71,7 +71,7 @@ func BenchmarkMemory_DecodeLogBatch1k_Bytes(b *testing.B) {
 	batch := MakeLogBatch(1000)
 	jsonBytes, _ := json.Marshal(batch)
 	msgpackBytes, _ := msgpack.Marshal(batch)
-	qdfBytes, _ := qdf.Marshal(batch)
+	qdfBytes, _ := qdf.Marshal(batch, qdf.OptSpeed)
 
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()
@@ -134,7 +134,7 @@ func BenchmarkDecode_MapStringAny_RepeatedKeys(b *testing.B) {
 	qdfBufs := make([][]byte, N)
 	for i, p := range payloads {
 		jsonBufs[i], _ = json.Marshal(p)
-		qdfBufs[i], _ = qdf.Marshal(p)
+		qdfBufs[i], _ = qdf.Marshal(p, qdf.OptSpeed)
 	}
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()

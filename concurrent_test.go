@@ -29,7 +29,7 @@ func TestPool_ConcurrentEncoders(t *testing.T) {
 			defer wg.Done()
 			for i := range itersPerG {
 				in := payload{A: id*1000 + i, B: "goroutine-" + string(rune('A'+id%26)), C: []string{"one", "two", "three"}}
-				b, err := Marshal(in)
+				b, err := Marshal(in, OptSpeed)
 				if err != nil {
 					errCount.Add(1)
 					return
@@ -65,8 +65,8 @@ func TestDense_NoCrossCallStateBleed(t *testing.T) {
 	for i := range 1000 {
 		in1 := kv{K: "alpha", V: "beta"}
 		in2 := kv{K: "gamma", V: "delta"}
-		b1, _ := MarshalDense(in1)
-		b2, _ := MarshalDense(in2)
+		b1, _ := Marshal(in1, OptBalanced)
+		b2, _ := Marshal(in2, OptBalanced)
 		var out1, out2 kv
 		if err := Unmarshal(b1, &out1); err != nil {
 			t.Fatalf("iter %d: decode b1: %v", i, err)
@@ -93,7 +93,7 @@ func TestRace_AppendMarshal(t *testing.T) {
 			defer wg.Done()
 			scratch := make([]byte, 0, 64)
 			for i := range itersPerG {
-				out, err := AppendMarshal(scratch[:0], i)
+				out, err := AppendMarshal(scratch[:0], i, OptSpeed)
 				if err != nil {
 					t.Errorf("append: %v", err)
 					return

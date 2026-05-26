@@ -107,8 +107,8 @@ func FuzzRoundTrip_Int64Slice(f *testing.F) {
 		for i := range in {
 			in[i] = r.i64()
 		}
-		for _, enc := range []func(any) ([]byte, error){Marshal, MarshalQPack, MarshalDense} {
-			buf, err := enc(in)
+		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+			buf, err := Marshal(in, opts)
 			if err != nil {
 				t.Fatalf("marshal n=%d: %v", n, err)
 			}
@@ -141,8 +141,8 @@ func FuzzRoundTrip_Uint64Slice(f *testing.F) {
 		for i := range in {
 			in[i] = r.u64()
 		}
-		for _, enc := range []func(any) ([]byte, error){Marshal, MarshalQPack, MarshalDense} {
-			buf, err := enc(in)
+		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+			buf, err := Marshal(in, opts)
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
@@ -172,8 +172,8 @@ func FuzzRoundTrip_Float64Slice(f *testing.F) {
 		for i := range in {
 			in[i] = r.f64()
 		}
-		for _, enc := range []func(any) ([]byte, error){Marshal, MarshalQPack, MarshalDense} {
-			buf, err := enc(in)
+		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+			buf, err := Marshal(in, opts)
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
 			}
@@ -203,8 +203,8 @@ func FuzzRoundTrip_BoolSlice(f *testing.F) {
 		for i := range in {
 			in[i] = r.u8()&1 == 1
 		}
-		for _, enc := range []func(any) ([]byte, error){Marshal, MarshalQPack, MarshalDense} {
-			buf, err := enc(in)
+		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+			buf, err := Marshal(in, opts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -236,8 +236,8 @@ func FuzzRoundTrip_MapStringInt(f *testing.F) {
 			v := int(r.i32())
 			in[k] = v
 		}
-		for _, enc := range []func(any) ([]byte, error){Marshal, MarshalDense} {
-			buf, err := enc(in)
+		for _, opts := range []Options{OptSpeed, OptBalanced} {
+			buf, err := Marshal(in, opts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -295,12 +295,12 @@ func FuzzRoundTrip_StructTriad(f *testing.F) {
 		nPad := r.boundedLen(32)
 		in.Padding = r.pull(nPad)
 
-		for label, enc := range map[string]func(any) ([]byte, error){
-			"Marshal":      Marshal,
-			"MarshalQPack": MarshalQPack,
-			"MarshalDense": MarshalDense,
+		for label, opts := range map[string]Options{
+			"Speed":    OptSpeed,
+			"QPack":    OptQPack,
+			"Balanced": OptBalanced,
 		} {
-			buf, err := enc(in)
+			buf, err := Marshal(in, opts)
 			if err != nil {
 				t.Fatalf("%s: %v", label, err)
 			}
@@ -356,15 +356,15 @@ func FuzzRoundTrip_AllModesAgree(f *testing.F) {
 		}
 
 		var outFast, outQPack, outDense fuzzTriad
-		bufFast, err := Marshal(in)
+		bufFast, err := Marshal(in, OptSpeed)
 		if err != nil {
 			t.Fatal(err)
 		}
-		bufQPack, err := MarshalQPack(in)
+		bufQPack, err := Marshal(in, OptQPack)
 		if err != nil {
 			t.Fatal(err)
 		}
-		bufDense, err := MarshalDense(in)
+		bufDense, err := Marshal(in, OptBalanced)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -2,7 +2,6 @@ package qdf
 
 import (
 	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -228,8 +227,43 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 }
 
 func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) {
-	out := make([]fieldDesc, 0, t.NumField())
+	return appendStructFields(nil, t, 0, ctx)
+}
+
+// appendStructFields walks t's fields and appends them to out. base
+// is the byte offset of t within the enclosing struct (0 for the
+// top-level call). Anonymous embedded struct fields are flattened
+// recursively into the parent's wire layout — their inner fields
+// appear at the parent level just like encoding/json. A field with
+// an explicit qdf / json tag of "-" is skipped at any depth.
+func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buildCtx) ([]fieldDesc, error) {
+	if out == nil {
+		out = make([]fieldDesc, 0, t.NumField())
+	}
 	for sf := range t.Fields() {
+		// Anonymous embedded struct → flatten. This covers the
+		// common encoding/json idiom where an unexported lower-case
+		// type with exported fields is embedded; silently dropping
+		// such a field loses data on round-trip. Pointer-typed
+		// embedded fields fall through to the regular field path so
+		// they encode as a pointer-to-struct value.
+		if sf.Anonymous && sf.Type.Kind() == reflect.Struct {
+			// Tag "-" on the embedded field itself opts the whole
+			// nested layout out — matches encoding/json.
+			if tag, ok := sf.Tag.Lookup("qdf"); ok && tag == "-" {
+				continue
+			}
+			if tag, ok := sf.Tag.Lookup("json"); ok &&
+				strings.Split(tag, ",")[0] == "-" {
+				continue
+			}
+			nested, err := appendStructFields(out, sf.Type, base+sf.Offset, ctx)
+			if err != nil {
+				return nil, err
+			}
+			out = nested
+			continue
+		}
 		if !sf.IsExported() {
 			continue
 		}
@@ -257,7 +291,7 @@ func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) {
 		}
 		out = append(out, fieldDesc{
 			name:         name,
-			offset:       sf.Offset,
+			offset:       base + sf.Offset,
 			desc:         fd,
 			preFast:      precomputeFixstrHeader(name),
 			preInternStr: precomputeInternStrHeader(name),
@@ -265,7 +299,6 @@ func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) {
 	}
 	// stable order = source order (no sort) — matches encoding/json behavior
 	// for fixed-layout decode.
-	_ = sort.Strings
 	return out, nil
 }
 
@@ -664,34 +697,111 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 	fields := td.fields
 	return func(e *Encoder, p unsafe.Pointer) error {
-		// Emit as a map for compatibility with map-shaped consumers. The map
-		// keys are the struct field names.
 		e.writeHeader()
-		// Map header.
 		n := len(fields)
+		// Dense mode: route through the tagMapShape path when
+		// OptShapeIntern is set. On the first emit of a struct type the
+		// encoder declares the shape (writing field names through the
+		// normal intern path); on every subsequent emit it writes only
+		// 0xEC + shapeID + values. With OptShapeIntern off, Dense
+		// falls back to the tagMap8/16/32 encoding so the rest of the
+		// state stack (intern + Markov / MTF / Pair) still applies
+		// per-field.
+		if e.opts.Has(OptDense) && e.state != nil && e.opts.Has(OptShapeIntern) {
+			if id := e.state.shapeForType(td); id != 0 {
+				e.buf = append(e.buf, tagMapShape)
+				e.buf = appendUvarint(e.buf, uint64(id))
+				for i := range fields {
+					f := &fields[i]
+					if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			// First time: declare and emit keys via the standard intern path.
+			shapeID := e.state.shapeDeclareEnc()
+			e.state.shapeBindType(td, shapeID)
+			e.buf = append(e.buf, tagMapShape)
+			e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
+			e.buf = appendUvarint(e.buf, uint64(n))
+			st := e.state
+			pairOn := e.opts.Has(OptPairPred)
+			for i := range fields {
+				f := &fields[i]
+				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+					if id, ok := st.lookupOrAssign(f.name); ok {
+						if st.lastID == id {
+							e.buf = append(e.buf, tagStateRepeat)
+							if pairOn {
+								st.pairRecord(id, id)
+							}
+						} else {
+							e.emitStateRef(id)
+						}
+					} else {
+						e.buf = append(e.buf, f.preInternStr...)
+						if st.lastID != lruInvalidID && pairOn {
+							st.pairRecord(st.lastID, id)
+						}
+						st.lastID = id
+					}
+				} else {
+					e.buf = append(e.buf, f.preFast...)
+					st.lastID = lruInvalidID
+				}
+			}
+			for i := range fields {
+				f := &fields[i]
+				if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// Dense without OptShapeIntern: tagMap8/16/32 header + per-field
+		// intern via WriteString. Keys still go through the intern
+		// path so state-ref / MTF / Pair codecs cover them when their
+		// options are on.
+		if e.opts.Has(OptDense) && e.state != nil {
+			e.WriteMapHeader(n)
+			st := e.state
+			pairOn := e.opts.Has(OptPairPred)
+			for i := range fields {
+				f := &fields[i]
+				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+					if id, ok := st.lookupOrAssign(f.name); ok {
+						if st.lastID == id {
+							e.buf = append(e.buf, tagStateRepeat)
+							if pairOn {
+								st.pairRecord(id, id)
+							}
+						} else {
+							e.emitStateRef(id)
+						}
+					} else {
+						e.buf = append(e.buf, f.preInternStr...)
+						if st.lastID != lruInvalidID && pairOn {
+							st.pairRecord(st.lastID, id)
+						}
+						st.lastID = id
+					}
+				} else {
+					e.buf = append(e.buf, f.preFast...)
+					st.lastID = lruInvalidID
+				}
+				if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// Fast mode (no Dense): plain tagMap8/16/32 encoding — no
+		// intern, no shape, fixstr field-name headers from preFast.
 		e.WriteMapHeader(n)
 		for i := range fields {
 			f := &fields[i]
-			if e.state != nil && len(f.name) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
-				if id, ok := e.state.lookupOrAssign(f.name); ok {
-					// Routed through emitStateRef so the Markov-0
-					// predictor sees this state-ref emission. Without
-					// this, the next WriteString / WriteBytes that
-					// happens to hit the SAME intern ID as a non-
-					// updated lastID would erroneously collapse to
-					// tagStateRepeat and decode to the wrong value.
-					e.emitStateRef(id)
-				} else {
-					e.buf = append(e.buf, f.preInternStr...)
-					e.state.lastID = id
-					e.state.lastValid = true
-				}
-			} else {
-				e.buf = append(e.buf, f.preFast...)
-				if e.state != nil {
-					e.state.lastValid = false
-				}
-			}
+			e.buf = append(e.buf, f.preFast...)
 			if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
 				return err
 			}
@@ -722,6 +832,18 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 		}
 	}
 
+	resolveField := func(name string) *fieldDesc {
+		if useMap {
+			return byName[name]
+		}
+		for j := range indexed {
+			if indexed[j].name == name {
+				return indexed[j].f
+			}
+		}
+		return nil
+	}
+
 	return func(d *Decoder, p unsafe.Pointer) error {
 		tag, err := d.peekTag()
 		if err != nil {
@@ -731,6 +853,78 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 			d.i++
 			return nil
 		}
+		// tagMapShape path: structs encoded via the Dense shape codec.
+		if tag == tagMapShape {
+			d.i++
+			shapeID, n := readUvarint(d.buf[d.i:])
+			if n <= 0 {
+				return ErrInvalidLength
+			}
+			d.i += n
+			if d.state == nil {
+				d.state = newDecState()
+			}
+			var fieldNames []string
+			if shapeID == 0 {
+				// Declaration: read count, then N keys, then N values.
+				cnt64, n := readUvarint(d.buf[d.i:])
+				if n <= 0 {
+					return ErrInvalidLength
+				}
+				d.i += n
+				cnt := int(cnt64)
+				if err := d.CheckLength(cnt, 1); err != nil {
+					return err
+				}
+				sh := d.state.shapeDeclare()
+				sh.keyIDs = make([]uint32, 0, cnt)
+				keys := make([]string, 0, cnt)
+				for range cnt {
+					kb, err := d.readStringBytes()
+					if err != nil {
+						return err
+					}
+					// Cache the resolved name. The decoder state's
+					// lastID is updated by readStringBytes for state-ref
+					// variants, so we capture it as the key's intern ID
+					// when available (purely informational; we look up
+					// by name string anyway).
+					keys = append(keys, d.keyCache.Make(kb))
+					if d.state.lastID != lruInvalidID {
+						sh.keyIDs = append(sh.keyIDs, d.state.lastID)
+					} else {
+						sh.keyIDs = append(sh.keyIDs, 0)
+					}
+				}
+				// Attach the field name slice to the shape entry by
+				// stashing it after keyIDs: we reuse a small parallel
+				// slice (the names) keyed by index.
+				sh.names = keys
+				fieldNames = keys
+			} else {
+				sh := d.state.shapeLookup(uint32(shapeID))
+				if sh == nil {
+					return ErrUnknownStateID
+				}
+				fieldNames = sh.names
+			}
+			for _, name := range fieldNames {
+				fd := resolveField(name)
+				if fd == nil {
+					if err := d.Skip(); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := fd.desc.decode(d, unsafe.Add(p, fd.offset)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// tagMap8/16/32 path — used by Fast mode, by Dense without
+		// OptShapeIntern, and by any external encoder that does not
+		// emit shape headers.
 		n, err := d.ReadMapHeader()
 		if err != nil {
 			return err
@@ -741,17 +935,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 				return err
 			}
 			name := unsafestr.String(kb)
-			var fd *fieldDesc
-			if useMap {
-				fd = byName[name]
-			} else {
-				for j := range indexed {
-					if indexed[j].name == name {
-						fd = indexed[j].f
-						break
-					}
-				}
-			}
+			fd := resolveField(name)
 			if fd == nil {
 				if err := d.Skip(); err != nil {
 					return err
@@ -870,6 +1054,59 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, err
 			}
 			out[d.keyCache.Make(kb)] = v
+		}
+		return out, nil
+	case tagMapShape:
+		d.i++
+		shapeID, n := readUvarint(d.buf[d.i:])
+		if n <= 0 {
+			return nil, ErrInvalidLength
+		}
+		d.i += n
+		if d.state == nil {
+			d.state = newDecState()
+		}
+		var names []string
+		if shapeID == 0 {
+			cnt64, n := readUvarint(d.buf[d.i:])
+			if n <= 0 {
+				return nil, ErrInvalidLength
+			}
+			d.i += n
+			cnt := int(cnt64)
+			if err := d.CheckLength(cnt, 1); err != nil {
+				return nil, err
+			}
+			sh := d.state.shapeDeclare()
+			sh.keyIDs = make([]uint32, 0, cnt)
+			sh.names = make([]string, 0, cnt)
+			for range cnt {
+				kb, err := d.readStringBytes()
+				if err != nil {
+					return nil, err
+				}
+				sh.names = append(sh.names, d.keyCache.Make(kb))
+				if d.state.lastID != lruInvalidID {
+					sh.keyIDs = append(sh.keyIDs, d.state.lastID)
+				} else {
+					sh.keyIDs = append(sh.keyIDs, 0)
+				}
+			}
+			names = sh.names
+		} else {
+			sh := d.state.shapeLookup(uint32(shapeID))
+			if sh == nil {
+				return nil, ErrUnknownStateID
+			}
+			names = sh.names
+		}
+		out := make(map[string]any, len(names))
+		for _, name := range names {
+			v, err := decodeAny(d)
+			if err != nil {
+				return nil, err
+			}
+			out[name] = v
 		}
 		return out, nil
 	case tagTimestamp:

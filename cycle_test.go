@@ -32,7 +32,7 @@ func TestCycle_PointerCycleDetected(t *testing.T) {
 	a.Next = b
 	b.Next = a // genuine cycle
 
-	_, err := Marshal(a)
+	_, err := Marshal(a, OptSpeed)
 	if err == nil {
 		t.Fatal("expected ErrCycleDetected on pointer cycle")
 	}
@@ -53,7 +53,7 @@ func TestCycle_DeepFinitePointerChain(t *testing.T) {
 		cur.Next = &cyclicPtr{V: i}
 		cur = cur.Next
 	}
-	buf, err := Marshal(head)
+	buf, err := Marshal(head, OptSpeed)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestCycle_RecursiveStructLegal(t *testing.T) {
 			{V: 4, Children: []recurStruct{}},
 		},
 	}
-	buf, err := Marshal(in)
+	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}

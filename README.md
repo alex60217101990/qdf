@@ -57,7 +57,8 @@ the practical subset of that idea:
 | **Wavefunction collapse** — a single observation picks one state. | Every subsequent occurrence emits a `state_ref` tag plus a varint ID. Decoding "collapses" the reference back to its stored value. |
 | **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Numeric and bool slices use QPack codecs (FOR, Delta+FOR, Gorilla XOR, raw-LE bulk) that auto-select the smallest predicted form per slice. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
 | **Probabilistic / residual coding** — predict, then store only the deviation. | QPack's Delta+FOR codec is exactly this for monotonic integer sequences: encode the first value plus the bit-packed residual against a `aᵢ = aᵢ₋₁ + minΔ` predictor. Gorilla does the same for floats by XOR-ing each sample against the previous one and storing the differing bits only. |
-| **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Partial. The Dense encoder runs a Markov-0 predictor on intern IDs (`tagStateRepeat`, `0xE8`) and a Move-To-Front rank coder (`tagStateMTF`, `0xE9`). The first collapses immediate repeats to one byte; the second catches "hot subset interned late" patterns by encoding LRU rank instead of raw id whenever that is shorter. On telemetry payloads with repeating service / region / level fields the pair delivers a ~3.5× wire reduction vs JSON on its own. A full conditional-probability table across non-adjacent fields is still future work and would occupy more of the reserved `0xEA..0xEF` block. |
+| **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Three stacked predictors on the Dense state stream. **Markov-0** (`tagStateRepeat`, `0xE8`) collapses an immediate repeat of the previously emitted state-ref to a single byte. **MTF rank** (`tagStateMTF`, `0xE9`) encodes the LRU rank of the touched ID when that varuint is shorter than the raw id. **Markov-1 pair** (`tagStatePair`, `0xEA`) keeps the last 4 successors observed after each prev ID and encodes a hit as `0xEA + 1-byte rank` — wins when the prev → curr transition is predictable and the raw id needs a multi-byte varuint. The encoder picks the shortest of the four variants per emission, so the wire is never larger than the plain `tagStateRef` encoding. A full conditional-probability table beyond order-1 stays in the reserved `0xEB / 0xED..0xEF` block. |
+| **Shape interning** — repeated structure means the *layout* itself is information. | Dense mode emits structs (and `map[string]any` of stable shape via the reflect-struct path) through `tagMapShape` (`0xEC`). First occurrence declares the shape inline: `0xEC, 0, varuint(N), N × key`. Subsequent occurrences of the same shape emit `0xEC + varuint(shapeID) + N × value` — keys are *not* re-emitted. Per-record saving on an array of identical-shape structs is `N × 2` bytes for the elided state-refs plus the map header. The shape table is per-stream, addressed by `*typeDesc` on the encoder and by sequential ID on the wire. Shapes never collide across types because the encoder keys the binding on the descriptor pointer. |
 | **Arithmetic / range coding (rANS)** — push the encoded stream to its Shannon limit. | Not yet. The state-table + back-reference pair plus QPack already captures most of the practical win on telemetry workloads; rANS would buy further compression at a CPU cost. |
 
 The conceptual roadmap (state table → entanglement graph → predictive
@@ -141,14 +142,21 @@ Tag space is msgpack-inspired with a few additions:
 | `0xE7`               | QPack: Gorilla XOR-coded float slice          |
 | `0xE8`               | Dense: state-ref repeat (Markov-0 predictor)  |
 | `0xE9`               | Dense: state-ref MTF rank (Move-To-Front)     |
-| `0xEA..0xEF`         | reserved (full entanglement / rANS / future)  |
+| `0xEA`               | Dense: state-ref pair rank (Markov-1)         |
+| `0xEC`               | Dense: struct/map shape declare / reuse       |
+| `0xEB`, `0xED..0xEF` | reserved (rANS, n-gram graph, future)         |
 | `0xF0..0xF3`         | ext / timestamp                               |
 
 The 5th header byte holds two flag bits: `FlagDense` (`0x01`) for the
 intern dialect, and `FlagQPack` (`0x02`) as an early hint that the body
-may carry codec tags from the `0xE3..0xE7` block. A legacy decoder that
-does not know the QPack tags fails with `ErrBadTag` on first contact;
+may carry codec tags from the `0xE3..0xE7` block. A reader that does
+not implement the QPack tags fails with `ErrBadTag` on first contact;
 it never decodes a packed payload as scalar by accident.
+
+> **Alpha note:** qdf is pre-1.0. The wire format is still being
+> shaped — tags may shift, version may bump, and "older" decoders
+> here mean "earlier in alpha", not stable releases. No
+> backwards-compat promise yet.
 
 All multi-byte integers and floats are little-endian. amd64 and arm64
 are the supported targets.
@@ -186,7 +194,7 @@ func main() {
         Attrs:  map[string]string{"region": "eu-west-1", "version": "v3"},
     }
 
-    b, err := qdf.Marshal(in)
+    b, err := qdf.Marshal(in, qdf.OptSpeed)
     if err != nil {
         panic(err)
     }
@@ -200,44 +208,124 @@ func main() {
 }
 ```
 
-### Three wire dialects
+### Encode profile is per-call
 
-| Mode           | API                | When to use                                                  |
-| -------------- | ------------------ | ------------------------------------------------------------ |
-| `qdf.Fast`     | `Marshal`          | Default. Tightest CPU cost; size comparable to msgpack.      |
-| `qdf.Dense`    | `MarshalDense`     | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices also use QPack codecs. |
-| QPack (Fast+codecs) | `MarshalQPack` | Fast mode + QPack codecs for numeric/bool slices. Best when the payload has few unique strings but lots of numeric data (vectors, embeddings, timestamps). |
+There is one encode entry point — `Marshal(v, opts)` — and the
+`opts` bit-mask picks which codecs run for that specific call. The
+convenience bundles cover the common tradeoffs:
+
+| Bundle             | When to use                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| `qdf.OptSpeed`     | Fast path. Tightest CPU cost; size comparable to msgpack. Drop-in for `encoding/json` behaviour. |
+| `qdf.OptBalanced`  | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices use QPack codecs; struct shapes intern; Markov-1 + MTF run on state-refs. |
+| `qdf.OptCompression` | Alias for `OptBalanced` today. Reserved so future heavy-CPU codecs (rANS, dictionary preloading) can opt in without breaking the bundle name. |
+| custom mix         | Or-combine individual bits (`OptDense \| OptQPack \| OptShapeIntern …`) when one of the bundles is one click off the desired tradeoff. |
 
 ```go
-b, _ := qdf.MarshalDense(rows)  // string interning + QPack
-b, _ := qdf.MarshalQPack(rows)  // QPack only, no string interning
+b, _ := qdf.Marshal(event,    qdf.OptSpeed)        // hot path
+b, _ := qdf.Marshal(batch,    qdf.OptBalanced)     // telemetry / logs
+b, _ := qdf.Marshal(snapshot, qdf.OptCompression)  // backup / archive
+b, _ := qdf.Marshal(payload,                       // tuned mix
+    qdf.OptDense|qdf.OptQPack|qdf.OptShapeIntern)
 ```
 
-A single decoder handles all three. `qdf.Unmarshal` reads the header
-flag and picks the right path automatically.
+A single `qdf.Unmarshal` reads everything. The wire header is self-
+describing; the receiver never has to know which option mix the
+sender picked.
+
+Picking the right combo for a concrete workload — hot path, telemetry,
+metric series, embeddings, backup — is covered in
+[`docs/CHOOSING.md`](docs/CHOOSING.md), with head-to-head numbers vs
+json and msgpack per scenario.
+
+### Dense mode internals — what each bit buys you
+
+`OptDense` activates the inline intern table. The four codec bits
+that compose `OptBalanced` layer on top of it. They share one rule:
+**the encoder picks the shortest variant per emission, so Dense wire
+is never larger than the same payload at `OptSpeed`.** If the
+predictors do not pay, the byte cost is identical to a plain
+state-ref.
+
+| Tag | Predictor | Wins when | Doesn't help when |
+| --- | --------- | --------- | ----------------- |
+| `0xE8` | Markov-0: same ID as the previous emission | Runs of the same value (`region`, `region`, `region`). | Distinct values in a row. |
+| `0xE9` | MTF: encode LRU rank instead of raw id | Heavy reuse of a small hot subset of strings that were interned early. | Random access pattern with no recency. |
+| `0xEA` | Markov-1: per-prev ring of 4 most-recent successors | Correlated pairs — `country` → `city`, `service` → `region`. Only emits when the raw id needs ≥ 2 varuint bytes, so the wire never grows on small state tables. | Unique transitions, low-cardinality state. |
+| `0xEC` | Shape interning: declare struct shape once, reuse by id | Arrays / streams of the same struct type. Per-record saving is ≈ `N × 2` bytes (elided key state-refs + map header). | One-shot encodes of a unique struct type. |
+
+The state table is shared **per stream** in `StreamEncoder` /
+`StreamDecoder`, so a batch of 1 000 log events with eight distinct
+region codes ships each region once. `Marshal*` calls do not share —
+each call starts with an empty table.
+
+**Where Dense is worth it:** logs, traces, telemetry, columnar rows,
+event batches, audit streams, snapshot dumps — anything where a small
+vocabulary of strings and a stable struct shape repeat thousands of
+times. Expected envelope: 25 – 55 % smaller than JSON at 2–6× the
+encode speed.
+
+**Where Dense is *not* worth it:** single-shot encodes of small
+unique payloads (Markov / shape predictors never reach their
+amortisation point, you pay ≤ 2 bytes of prelude for nothing), or
+strict-throughput paths where decode CPU is the bottleneck — Dense
+decode is ~15 % slower than Fast because of the state-table lookups.
+Reach for `OptSpeed` or `OptQPack` there.
+
+**Where it is wrong:** *cryptographic / forensic* contexts that need
+byte-stable wire across implementations and versions. Dense embeds
+predictor state, intern-ID ordering, and shape IDs that depend on
+emission order. Use `OptSpeed` if you hash or sign the wire.
+
+### Bit reference
+
+| Bit | What it gates |
+| --- | -------------- |
+| `OptDense`        | Inline intern table; required by everything below. |
+| `OptQPack`        | Numeric / bool slice codecs (FOR, Delta+FOR, Gorilla, bit-pack). |
+| `OptShapeIntern`  | `tagMapShape` for struct emissions (declare once, reuse by id). |
+| `OptPairPred`     | Markov-1 successor predictor (`tagStatePair`, `0xEA`). |
+| `OptMTF`          | Move-to-Front rank coding on state-refs (`tagStateMTF`, `0xE9`). |
+
+| Bundle | Composition |
+| ------ | ----------- |
+| `OptSpeed`       | `0` — Fast mode, no codecs. |
+| `OptBalanced`    | `OptDense \| OptQPack \| OptShapeIntern \| OptPairPred \| OptMTF`. |
+| `OptCompression` | Alias for `OptBalanced` today; reserved for future heavy-CPU codecs (rANS, dictionary preloading). |
+
+`Options` is a `uint32` carried by value, so `Marshal` and
+`AppendMarshal` add **zero per-call allocations** over the pool /
+output-clone overhead. Encoders are pooled in a single shared pool
+(`encPool`) keyed only by buffer; the configuration is applied on
+each acquire via `applyOpts`. Markov-0 (`tagStateRepeat`, `0xE8`)
+is always on inside `OptDense` because it costs nothing on the wire
+when the predictor misses.
+
+A note on tuning knobs that do *not* live on the bit-mask: the
+intern threshold (`SetIntern`) and the cycle-depth ceiling
+(`SetMaxDepth`) stay on the `*Encoder` itself. Use the low-level
+encoder API for those.
 
 ### Generic API (Go 1.18+ generics)
 
-`Marshal(v any)` boxes the argument through `interface{}` and then
-makes one reflect copy for value-typed inputs. The generic helpers
-skip both: `T` is fixed at the call site, `reflect.TypeFor[T]()`
-resolves at compile time, and `unsafe.Pointer(&v)` points directly at
-the caller's stack.
+`Marshal(v any, opts)` boxes the argument through `interface{}` and
+then makes one reflect copy for value-typed inputs. The generic
+helpers skip both: `T` is fixed at the call site,
+`reflect.TypeFor[T]()` resolves at compile time, and
+`unsafe.Pointer(&v)` points directly at the caller's stack.
 
-| Generic                    | Equivalent to       |
-| -------------------------- | ------------------- |
-| `MarshalT[T any]`          | `Marshal`           |
-| `MarshalQPackT[T any]`     | `MarshalQPack`      |
-| `MarshalDenseT[T any]`     | `MarshalDense`      |
-| `AppendMarshalT[T any]`    | `AppendMarshal`     |
-| `UnmarshalT[T any]`        | `Unmarshal`         |
+| Generic                    | Equivalent to                 |
+| -------------------------- | ----------------------------- |
+| `MarshalT[T any]`          | `Marshal` (typed)             |
+| `AppendMarshalT[T any]`    | `AppendMarshal` (typed)       |
+| `UnmarshalT[T any]`        | `Unmarshal` (typed)           |
 
 Wire output is byte-identical. The win is on the encode side: one
 fewer allocation per call (-80 B) and 25–40 % faster on small/medium
 payloads.
 
 ```go
-buf, _ := qdf.MarshalT(event)
+buf, _ := qdf.MarshalT(event, qdf.OptSpeed)
 var out Event
 _ = qdf.UnmarshalT(buf, &out)
 ```
@@ -443,14 +531,15 @@ memory tables and reproduction commands are in
 
 | Payload                  | json    | msgpack | qdf\_fast | qdf\_dense | dense vs json |
 | ------------------------ | ------: | ------: | --------: | ---------: | ------------: |
-| Flat                     |     210 |     134 |   **132** |        137 | 0.65×         |
-| Deep16                   |     239 |     139 |       166 |    **122** | **0.51×**     |
-| Wide × 1000              | 212 901 | 135 626 |   128 632 |**106 660** | **0.50×**     |
-| Log batch × 1000         | 251 902 | 185 639 |   185 649 |**107 416** | **0.43×**     |
+| Flat                     |     210 |     134 |   **132** |        138 | 0.66×         |
+| Deep16                   |     239 |     139 |       166 |     **63** | **0.26×**     |
+| Wide × 1000              | 212 901 | 135 626 |   128 632 | **66 702** | **0.31×**     |
+| Log batch × 1000         | 251 902 | 185 639 |   185 649 | **85 440** | **0.34×**     |
 
 On a 1000-entry Dense **stream** the same log batch encodes to
-**107 bytes per entry**, against 251 for json and 186 for msgpack —
-shared intern table across messages.
+**85 bytes per entry**, against 251 for json and 186 for msgpack —
+shared intern table across messages plus per-record struct headers
+collapsed via shape interning (`tagMapShape`).
 
 ### Realistic corpus
 
@@ -465,12 +554,13 @@ telemetry workloads. Full breakdown plus encode latency in
 | json         | 252 497 |      1.00× |            — |
 | qdf_fast     | 186 674 |      0.74× |       272 k  |
 | qdf_qpack    | 186 674 |      0.74× |       261 k  |
-| **qdf_dense** | **73 104** | **0.29×** |    1.0 M     |
+| **qdf_dense** | **50 129** | **0.20×** |    1.0 M     |
 
-Dense pays ~4× CPU for **3.5× smaller wire** vs JSON — string-intern
-+ Markov-0 + MTF crush the repeating service / region / level / host
-fields. QPack does not help much here (per-event numeric fields are
-scalar, not slice-shaped).
+Dense pays ~4× CPU for **5.0× smaller wire** vs JSON — string-intern
++ Markov-0 + MTF + Markov-1 pair + shape interning crush the
+repeating service / region / level / host fields AND elide per-record
+struct headers. QPack does not help much here (per-event numeric
+fields are scalar, not slice-shaped).
 
 #### MetricSeries (1 024 numeric timestamps + values)
 
@@ -502,7 +592,7 @@ Sizes (200 000 records):
 | msgpack      |        92.99  |    0.65× |
 | qdf_fast     |        91.99  |    0.65× |
 | qdf_qpack    |        89.65  |    0.63× |
-| **qdf_dense** |     **88.52** | **0.62×** |
+| **qdf_dense** |     **71.19** | **0.50×** |
 
 Latency + memory (100 000 records):
 
@@ -531,8 +621,8 @@ during the run, the mem test ~400 MiB.
 cd bench
 go test -bench=. -benchmem -benchtime=2s -timeout=10m
 
-# QPack head-to-head (Marshal / MarshalQPack / MarshalDense
-# / json / msgpack on the same numeric+bool payload)
+# QPack head-to-head: Marshal(_, OptSpeed) vs Marshal(_, OptQPack)
+# vs Marshal(_, OptBalanced) vs json / msgpack on the same payload
 go test -bench='BenchmarkQPack_' -benchmem
 
 # QPack micro-benchmarks (codec internals, in the root module)
@@ -554,6 +644,24 @@ cd ../internal/codegen_test
 go test -run TestGenerate .
 go test -bench=. -benchmem -benchtime=2s
 ```
+
+### Profile-guided optimisation (downstream)
+
+Go's PGO applies to the main package being built, so a library like
+qdf cannot ship its own profile. If you build a service that imports
+qdf, collect a representative profile of *your* workload and drop it
+next to your `main`:
+
+```bash
+# Run your service / load test under cpuprofile.
+go test -bench=. -cpuprofile=cpu.pprof -benchtime=10s ./...
+mv cpu.pprof default.pgo            # same dir as your main package
+go build .                          # auto-picks up default.pgo
+```
+
+The Go toolchain will then recompile the qdf functions on the hot
+path with PGO-driven inlining and devirtualisation. Typical gain is
+5–15 % across the encode/decode pipeline on top of the numbers above.
 
 ---
 
@@ -603,7 +711,7 @@ The test suite runs under `-race` and covers:
   ±0 / denormals, monotonic / constant / mixed-direction sequences.
 - `TestCompleteness_AllModes` runs one big payload (every QPack-
   eligible type, every edge case, nested structs, maps, string
-  interning) through `Marshal`, `MarshalQPack`, and `MarshalDense`,
+  interning) through `OptSpeed`, `OptQPack`, and `OptBalanced`,
   then asserts bit-for-bit IEEE-754 equality for floats and
   `reflect.DeepEqual` elsewhere.
 - `TestCompleteness_StreamingDense` exercises three messages through
@@ -619,7 +727,7 @@ The test suite runs under `-race` and covers:
   predictor fires on runs of identical interned values, does not fire
   on alternation, invalidates correctly across an inline-string
   emission, stays in sync with `Decoder.Skip`, and round-trips through
-  the public `MarshalDense` / `Unmarshal` boundary.
+  the public `Marshal(v, OptBalanced)` / `Unmarshal` boundary.
 - **Property-based round-trip fuzzers** (`fuzz_property_test.go`)
   drive a deterministic value generator from the fuzz bytes, encode
   through every Marshal entry point, and assert
@@ -630,7 +738,7 @@ The test suite runs under `-race` and covers:
   predictor bug in `encodeStruct` (commit `dfc30ae`).
 - **Golden-file wire pinning** (`testdata/golden/*.bin`,
   `golden_test.go`): every representative payload has its
-  Marshal / MarshalQPack / MarshalDense bytes committed to disk. A
+  OptSpeed / OptQPack / OptBalanced bytes committed to disk. A
   later wire-format change either matches the bytes byte-for-byte
   or fails the test. Map-shaped cases skip the byte-pin half
   (Go map iteration is randomised) but keep the decode-and-compare
@@ -739,8 +847,8 @@ go test -tags "qdf_simd qdf_reflect2" -race ./...
 
 ```
 qdf/
-├── qdf.go                  public API: Marshal, MarshalDense, MarshalQPack, Unmarshal, AppendMarshal
-├── qdf_generic.go          generic helpers: MarshalT, MarshalDenseT, MarshalQPackT, UnmarshalT, AppendMarshalT
+├── qdf.go                  public API: Options bit-mask, Marshal, AppendMarshal, Unmarshal
+├── qdf_generic.go          generic helpers: MarshalT, AppendMarshalT, UnmarshalT
 ├── qdf_direct.go           reflection-free shortcut: MarshalDirect / UnmarshalDirect / AppendMarshalDirect
 ├── encoder.go              *Encoder + tag emitters
 ├── decoder.go              *Decoder + length validation + key intern

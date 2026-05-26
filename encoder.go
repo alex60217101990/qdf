@@ -17,6 +17,12 @@ type Encoder struct {
 	state     *encState
 	headerOut bool
 
+	// opts is the bit-mask of feature toggles. mode and qpack are
+	// derived from it at configure time so the hot path can stay on
+	// fast bool / Mode compares; the rest of the codecs (MTF, Pair,
+	// ShapeIntern) check the corresponding bit directly via opts.
+	opts Options
+
 	// minIntern is the minimum string length eligible for interning;
 	// shorter values go in line.
 	minIntern int
@@ -27,7 +33,8 @@ type Encoder struct {
 
 	// qpack switches the slice fast paths to QPack codecs (bitpack, FOR,
 	// Gorilla, raw-LE bulk). When set, the header's FlagQPack bit is
-	// emitted as an early hint to legacy readers.
+	// emitted as an early hint so a reader that does not implement the
+	// codec tags fails fast on the header rather than mid-stream.
 	qpack bool
 
 	// depth tracks nested pointer/struct traversal. Pointer cycles do
@@ -36,6 +43,23 @@ type Encoder struct {
 	// alternative to a per-pointer set (no allocation per call).
 	depth    int
 	maxDepth int
+}
+
+// applyOpts mirrors the options bitmask onto the cached mode / qpack
+// fields so hot-path checks compile to a single bool / Mode compare
+// instead of a bit-test. It is safe to call on a pooled encoder;
+// pair with state setup as needed (callers that need OptDense must
+// also point state at a non-nil encState).
+//
+//go:nosplit
+func (e *Encoder) applyOpts(opts Options) {
+	e.opts = opts
+	if opts.Has(OptDense) {
+		e.mode = Dense
+	} else {
+		e.mode = Fast
+	}
+	e.qpack = opts.Has(OptQPack)
 }
 
 // DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
@@ -67,6 +91,26 @@ func NewEncoder(mode Mode) *Encoder {
 	}
 	if mode == Dense {
 		e.state = newEncState()
+		e.opts = OptBalanced
+		e.qpack = true
+	} else {
+		e.opts = OptSpeed
+	}
+	return e
+}
+
+// NewEncoderWith returns an Encoder configured by the option bit-mask
+// directly. Dense state machinery is allocated only when OptDense is
+// set. Defaults for intern threshold / depth match NewEncoder.
+func NewEncoderWith(opts Options) *Encoder {
+	e := &Encoder{
+		minIntern:       4,
+		maxStateEntries: 1 << 14,
+		maxDepth:        DefaultMaxDepth,
+	}
+	e.applyOpts(opts)
+	if opts.Has(OptDense) {
+		e.state = newEncState()
 	}
 	return e
 }
@@ -80,8 +124,11 @@ func NewEncoderOnBuf(buf []byte, mode Mode) *Encoder {
 	return e
 }
 
-// Reset truncates the buffer and resets the intern table. Capacities are
-// preserved. Mode and tuning knobs are not touched.
+// Reset truncates the buffer and resets the intern table. Capacities
+// are preserved. opts / mode / qpack are also reset to OptSpeed so a
+// pooled encoder does not leak its previous configuration into the
+// next caller — apply the desired options explicitly via applyOpts /
+// SetQPack after Reset.
 func (e *Encoder) Reset() {
 	e.buf = e.buf[:0]
 	e.headerOut = false
@@ -92,12 +139,16 @@ func (e *Encoder) Reset() {
 	if e.maxDepth == 0 {
 		e.maxDepth = DefaultMaxDepth
 	}
+	e.opts = OptSpeed
+	e.mode = Fast
+	e.qpack = false
 }
 
 // SetMaxDepth caps reflect-path pointer/struct recursion. The default
 // (DefaultMaxDepth = 10000) is sufficient for any normal payload and
 // rejects pointer cycles before they stack-overflow the goroutine.
-// Set to 0 to disable the check (legacy behaviour).
+// Set to 0 to disable the check entirely — only safe when the caller
+// can prove the input graph is acyclic.
 func (e *Encoder) SetMaxDepth(d int) { e.maxDepth = d }
 
 // Bytes returns the encoded payload. It aliases the encoder's buffer and
@@ -246,61 +297,124 @@ func (e *Encoder) WriteFloat64(v float64) {
 	e.buf = appendU64(append(e.buf, tagFloat64), math.Float64bits(v))
 }
 
-// WriteString writes s. In Dense mode, eligible strings are intern-encoded.
+// WriteString writes s. In Dense mode (OptDense set), eligible strings
+// are intern-encoded.
 func (e *Encoder) WriteString(s string) {
 	e.writeHeader()
-	if e.state != nil && len(s) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
-		id, ok := e.state.lookupOrAssign(s)
+	st := e.state
+	dense := e.opts.Has(OptDense)
+	if dense && st != nil && len(s) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+		id, ok := st.lookupOrAssign(s)
 		if ok {
+			// Repeat hot path: hand-inlined out of emitStateRef so the
+			// most common Dense hit avoids the non-inlinable call.
+			if st.lastID == id {
+				e.buf = append(e.buf, tagStateRepeat)
+				if e.opts.Has(OptPairPred) {
+					st.pairRecord(id, id)
+				}
+				return
+			}
 			e.emitStateRef(id)
 			return
 		}
-		_ = id
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
-		e.state.lastID = id
-		e.state.lastValid = true
+		if st.lastID != lruInvalidID && e.opts.Has(OptPairPred) {
+			st.pairRecord(st.lastID, id)
+		}
+		st.lastID = id
 		return
 	}
-	if e.state != nil {
-		// Inline emission of an uninterned scalar breaks the
-		// previous-state-ref invariant the Markov-0 predictor relies on.
-		e.state.lastValid = false
+	if dense && st != nil {
+		st.lastID = lruInvalidID
 	}
 	e.writeStringInline(s)
 }
 
-// emitStateRef writes a state-ref to id. Three forms are possible,
-// the encoder picks the smallest:
+// emitStateRef writes a state-ref to id. Four forms are possible, the
+// encoder picks the smallest:
 //
 //	tagStateRepeat                   1 byte total, when id == lastID
-//	tagStateMTF + varuint(rank)      1 + uvarintLen(rank) bytes
-//	tagStateRef + varuint(id)        1 + uvarintLen(id) bytes
+//	tagStatePair  + varuint(pairR)   1 + uvarintLen(pairR) bytes,
+//	                                 when id is in lastID's predictor ring
+//	tagStateMTF   + varuint(mtfR)    1 + uvarintLen(mtfR) bytes
+//	tagStateRef   + varuint(id)      1 + uvarintLen(id) bytes
 //
-// MTF rank comes from the encState LRU. The wire never grows over the
-// plain tagStateRef encoding because we only pick MTF when its rank
-// varuint is strictly shorter than the raw id varuint.
+// MTF rank comes from the encState LRU. The pair rank comes from the
+// per-prev successor ring (Markov-1 predictor). The wire never grows
+// over the plain tagStateRef encoding because we only pick the
+// alternative when its varuint is strictly shorter than the raw id
+// varuint.
 //
-// Every successful emit moves id to the LRU head so the decoder's
-// mirror chain stays in sync.
+// Every successful emit moves id to the LRU head AND records the
+// (prev, id) transition in the pair predictor so the decoder's mirror
+// chain stays in sync.
 func (e *Encoder) emitStateRef(id uint32) {
-	if e.state.lastValid && e.state.lastID == id {
+	st := e.state
+	pairOn := e.opts.Has(OptPairPred)
+	if st.lastID == id {
 		e.buf = append(e.buf, tagStateRepeat)
-		// id is already at LRU head from the previous emission;
-		// no reorder needed. lastID stays the same.
+		if pairOn {
+			st.pairRecord(id, id)
+		}
 		return
 	}
-	rank := e.state.lruMoveToFront(id)
-	if uvarintLen(uint64(rank)) < uvarintLen(uint64(id)) {
-		e.buf = append(e.buf, tagStateMTF)
-		e.buf = appendUvarint(e.buf, uint64(rank))
+	prev := st.lastID
+	prevValid := prev != lruInvalidID
+	// Small-id fast path: id<128 means the raw state-ref is already a
+	// 2-byte literal (tag + 1-byte varuint). Neither MTF (rank varuint
+	// ≥1 byte) nor Pair (rank varuint =1 byte) can be strictly shorter,
+	// so we write the raw form directly and skip the LRU walk entirely.
+	if id < 0x80 {
+		st.lruMoveFront(id)
+		e.buf = append(e.buf, tagStateRef, byte(id))
+		if prevValid && pairOn {
+			st.pairRecord(prev, id)
+		}
+		st.lastID = id
+		return
+	}
+	// Pair predictor: when (prev, id) is in the predictor ring the
+	// payload is always a single byte (ranks 0..3), so the pair form
+	// is strictly shorter than the raw state-ref whenever id needs a
+	// multi-byte varuint — which the small-id branch above just
+	// excluded.
+	if prevValid && pairOn {
+		if st.pairLookup(prev, id) {
+			st.lruMoveFront(id)
+			// Top-1 predictor: rank is always 0 (see encState.pairLookup
+			// comment), so the rank byte is a hard-coded literal here.
+			e.buf = append(e.buf, tagStatePair, 0)
+			st.pairRecord(prev, id)
+			st.lastID = id
+			return
+		}
+	}
+	// MTF — fall back on raw if the rank varuint is not shorter than
+	// the id varuint. When OptMTF is off the LRU is still maintained
+	// (the chain must stay in sync for the rest of the codec) but the
+	// rank is never emitted; the raw state-ref form is used instead.
+	idLen := uvarintLen(uint64(id))
+	if e.opts.Has(OptMTF) {
+		rank := st.lruMoveToFront(id)
+		if rankLen := uvarintLen(uint64(rank)); rankLen < idLen {
+			e.buf = append(e.buf, tagStateMTF)
+			e.buf = appendUvarint(e.buf, uint64(rank))
+		} else {
+			e.buf = append(e.buf, tagStateRef)
+			e.buf = appendUvarint(e.buf, uint64(id))
+		}
 	} else {
+		st.lruMoveFront(id)
 		e.buf = append(e.buf, tagStateRef)
 		e.buf = appendUvarint(e.buf, uint64(id))
 	}
-	e.state.lastID = id
-	e.state.lastValid = true
+	if prevValid && pairOn {
+		st.pairRecord(prev, id)
+	}
+	st.lastID = id
 }
 
 // WriteStringInline forces an in-line encoding even when Dense intern would
@@ -334,23 +448,33 @@ func (e *Encoder) writeStringInline(s string) {
 // string and a []byte with identical content share an ID.
 func (e *Encoder) WriteBytes(b []byte) {
 	e.writeHeader()
-	if e.state != nil && len(b) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
+	st := e.state
+	dense := e.opts.Has(OptDense)
+	if dense && st != nil && len(b) >= e.minIntern && len(st.ids) < e.maxStateEntries {
 		key := unsafestr.String(b)
-		id, ok := e.state.lookupOrAssign(key)
+		id, ok := st.lookupOrAssign(key)
 		if ok {
+			if st.lastID == id {
+				e.buf = append(e.buf, tagStateRepeat)
+				if e.opts.Has(OptPairPred) {
+					st.pairRecord(id, id)
+				}
+				return
+			}
 			e.emitStateRef(id)
 			return
 		}
-		_ = id
 		e.buf = append(e.buf, tagInternBin)
 		e.buf = appendUvarint(e.buf, uint64(len(b)))
 		e.buf = append(e.buf, b...)
-		e.state.lastID = id
-		e.state.lastValid = true
+		if st.lastID != lruInvalidID && e.opts.Has(OptPairPred) {
+			st.pairRecord(st.lastID, id)
+		}
+		st.lastID = id
 		return
 	}
-	if e.state != nil {
-		e.state.lastValid = false
+	if dense && st != nil {
+		st.lastID = lruInvalidID
 	}
 	e.writeBytesInline(b)
 }
@@ -406,17 +530,9 @@ func (e *Encoder) WriteTimestampNano(ns int64) {
 
 // ----- helpers -----
 
-func appendU16(b []byte, v uint16) []byte {
-	return append(b, byte(v), byte(v>>8))
-}
-func appendU32(b []byte, v uint32) []byte {
-	return append(b, byte(v), byte(v>>8), byte(v>>16), byte(v>>24))
-}
-func appendU64(b []byte, v uint64) []byte {
-	return append(b,
-		byte(v), byte(v>>8), byte(v>>16), byte(v>>24),
-		byte(v>>32), byte(v>>40), byte(v>>48), byte(v>>56))
-}
+func appendU16(b []byte, v uint16) []byte { return binary.LittleEndian.AppendUint16(b, v) }
+func appendU32(b []byte, v uint32) []byte { return binary.LittleEndian.AppendUint32(b, v) }
+func appendU64(b []byte, v uint64) []byte { return binary.LittleEndian.AppendUint64(b, v) }
 
 // appendString uses the runtime's append-string fast path to avoid the
 // implicit []byte(s) copy.

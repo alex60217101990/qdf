@@ -6,52 +6,46 @@ import (
 	"unsafe"
 )
 
-// Generic entry points. Marshal / Unmarshal take any, which forces a
-// runtime interface conversion of the caller's value (boxing) and, on
-// the encode side, a reflect.New+Set copy for value-typed inputs. The
-// generic forms below skip both: T is known at instantiation, so
-// reflect.TypeFor[T]() resolves at compile time, and unsafe.Pointer(&v)
-// points straight at the function parameter on the caller's stack.
+// Generic entry points. The non-generic Marshal / Unmarshal take any,
+// which forces a runtime interface conversion of the caller's value
+// (boxing) and, on the encode side, a reflect.New+Set copy for value-
+// typed inputs. The generic forms below skip both: T is known at
+// instantiation, so reflect.TypeFor[T]() resolves at compile time,
+// and unsafe.Pointer(&v) points straight at the function parameter on
+// the caller's stack.
 //
 // Wire output is byte-identical to the non-generic counterparts; the
 // generic versions only change the calling convention.
 
-// MarshalT is the generic equivalent of Marshal.
-func MarshalT[T any](v T) ([]byte, error) {
-	enc := fastEncPool.Get().(*Encoder)
+// MarshalT is the generic equivalent of Marshal. T is fixed at the
+// call site; opts copies by value, so the call adds zero heap
+// allocations over MarshalT itself.
+func MarshalT[T any](v T, opts Options) ([]byte, error) {
+	enc := encPool.Get().(*Encoder)
 	enc.Reset()
+	enc.applyOpts(opts)
 	if err := encodeT(enc, &v); err != nil {
-		putEnc(enc, &fastEncPool)
+		putEnc(enc, &encPool)
 		return nil, err
 	}
 	out := slices.Clone(enc.buf)
-	fastEncPool.Put(enc)
+	encPool.Put(enc)
 	return out, nil
 }
 
-// MarshalQPackT is the generic equivalent of MarshalQPack.
-func MarshalQPackT[T any](v T) ([]byte, error) {
-	enc := fastQPackEncPool.Get().(*Encoder)
+// AppendMarshalT is the generic equivalent of AppendMarshal.
+func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error) {
+	enc := encPool.Get().(*Encoder)
 	enc.Reset()
+	enc.applyOpts(opts)
+	enc.buf = dst
 	if err := encodeT(enc, &v); err != nil {
-		putEnc(enc, &fastQPackEncPool)
-		return nil, err
+		putEnc(enc, &encPool)
+		return dst, err
 	}
-	out := slices.Clone(enc.buf)
-	fastQPackEncPool.Put(enc)
-	return out, nil
-}
-
-// MarshalDenseT is the generic equivalent of MarshalDense.
-func MarshalDenseT[T any](v T) ([]byte, error) {
-	enc := denseEncPool.Get().(*Encoder)
-	enc.Reset()
-	if err := encodeT(enc, &v); err != nil {
-		putEnc(enc, &denseEncPool)
-		return nil, err
-	}
-	out := slices.Clone(enc.buf)
-	denseEncPool.Put(enc)
+	out := enc.buf
+	enc.buf = nil
+	encPool.Put(enc)
 	return out, nil
 }
 
@@ -80,21 +74,6 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	dec.buf = nil
 	decPool.Put(dec)
 	return err
-}
-
-// AppendMarshalT is the generic equivalent of AppendMarshal.
-func AppendMarshalT[T any](dst []byte, v T) ([]byte, error) {
-	enc := fastEncPool.Get().(*Encoder)
-	enc.Reset()
-	enc.buf = dst
-	if err := encodeT(enc, &v); err != nil {
-		putEnc(enc, &fastEncPool)
-		return dst, err
-	}
-	out := enc.buf
-	enc.buf = nil
-	fastEncPool.Put(enc)
-	return out, nil
 }
 
 // encodeT is the shared body of every generic encode entry point. It

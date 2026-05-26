@@ -25,7 +25,7 @@ func TestMTF_BasicRoundTrip(t *testing.T) {
 	for i := N - 1; i >= N-32; i-- {
 		in = append(in, "service-name-token-"+strconv.Itoa(i))
 	}
-	buf, err := MarshalDense(in)
+	buf, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestMTF_NeverGrowsWire(t *testing.T) {
 		"alpha-token-aaaa", "alpha-token-aaaa", "alpha-token-aaaa", "alpha-token-aaaa",
 		"beta-token-bbbb", "beta-token-bbbb",
 	}
-	buf, err := MarshalDense(in)
+	buf, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestMTF_SizeWinOnLargeHotSet(t *testing.T) {
 		in = append(in, tokens[200+i%8])
 	}
 
-	withMTF, err := MarshalDense(in)
+	withMTF, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestMTF_LRUInvalidationOnInlineString(t *testing.T) {
 		B: "x", // 1-char — inlined, len < minIntern
 		C: "long-token-aaaaaaaaaaaaaaaaa",
 	}
-	buf, err := MarshalDense(in)
+	buf, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,10 +144,10 @@ func BenchmarkMTF_SizeOnSyntheticHotSet(b *testing.B) {
 	for i := range Nrefs {
 		in = append(in, tokens[200+i%8])
 	}
-	buf, _ := MarshalDense(in)
-	b.Logf("MarshalDense(256 unique + 4000 hot-subset refs) = %d bytes", len(buf))
+	buf, _ := Marshal(in, OptBalanced)
+	b.Logf("Marshal(256 unique + 4000 hot-subset refs, OptBalanced) = %d bytes", len(buf))
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = MarshalDense(in)
+		_, _ = Marshal(in, OptBalanced)
 	}
 }

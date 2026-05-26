@@ -51,19 +51,85 @@ coverage by `TestPool_ConcurrentEncoders` + the full `-race` test sweep.
 - **`tagStateRepeat` (Dense, Markov-0 predictor)**: ~50 % size cut on
   payloads with repeating service / region / level fields, on top of
   the existing Dense intern table.
+- **`tagStatePair` (Dense, Markov-1 predictor, `0xEA`)** + **`tagMapShape`
+  (struct shape interning, `0xEC`)**: another -31 % on the
+  TelemetryBatch fixture (73 104 → 50 129 bytes, **5.0× vs JSON**) by
+  eliding per-record struct headers and exploiting conditional
+  transitions between intern IDs.
 - **`qdf_simd` (AVX2)**: 22-53× faster bit-unpack at byte-aligned
   widths (~50 GB/s, memory-bound). CPUID-gated; runtime falls back
   cleanly on older amd64.
 - **Realistic / unique-data**: pool wins survive. UniqueLog is
   1.4-1.6× faster than json/msgpack encode and 3-4× faster on decode.
 - **Concurrent**: parallel decode is 1.4-1.7× faster than json/msgpack.
-- **Size**: Dense mode = **43% of json**, **58% of msgpack** on log
-  batches (without an external compression layer).
+- **Size**: Dense mode = **34% of json** on log batches (was 43%
+  before shape interning), **20% of json** on the TelemetryBatch
+  realistic-corpus fixture. No external compression layer.
 - **Codegen** halves the per-call overhead vs reflect path on small
   fixed-schema structs (`Sample` decode: 695 ns → vs json 5899 ns =
   **8.5× faster**).
 - All build-tag combinations (default, `qdf_reflect2`, `qdf_simd`,
   both) build, test under -race, and fuzz-pass cleanly.
+
+## Scenario profiles (per-call `Options` recipes)
+
+Six representative workloads, each encoded with the `Options`
+combination the [`docs/CHOOSING.md`](CHOOSING.md) recipe recommends,
+vs `encoding/json` and `vmihailenco/msgpack/v5` on the same fixture.
+Numbers from `bench/profiles_test.go`, median of two
+`-benchtime=300ms` runs on Intel i7-9750H, Go 1.26.0.
+
+### Wire size (bytes)
+
+| Scenario        | Recipe            | json    | msgpack | **qdf**     | vs json  | vs msgpack |
+| --------------- | ----------------- | ------: | ------: | ----------: | -------: | ---------: |
+| hot_path        | `OptSpeed`        |      97 |  **63** |          72 |   0.74×  |    1.14×   |
+| telemetry_1k    | `OptBalanced`     | 142 881 | 111 637 |  **40 563** | **0.28×**|  **0.36×** |
+| metric_1024     | `OptQPack`        |  37 258 |  19 512 |   **8 391** | **0.22×**|  **0.43×** |
+| embed_768       | `OptQPack`        |   8 385 |   3 864 |   **3 103** |   0.37×  |    0.80×   |
+| config          | `OptBalanced`     |     250 | **197** |         225 |   0.90×  |    1.14×   |
+| archive_5k      | `OptCompression`  | 714 795 | 558 510 | **192 238** | **0.27×**|  **0.34×** |
+
+### Encode latency (ns/op, median of 2 runs)
+
+| Scenario      | json      | msgpack   | qdf        | qdf vs json |
+| ------------- | --------: | --------: | ---------: | ----------: |
+| hot_path      |     678   |     444   |    **349** |   **1.94×** |
+| telemetry_1k  |  368 422  |  485 416  |    777 273 |       0.47× |
+| metric_1024   |  149 639  |  121 974  |  **4 013** |  **37.3×**  |
+| embed_768     |   58 545  |   28 729  |    **716** |  **81.7×**  |
+| config        |    2 042  |    1 657  |      2 103 |       0.97× |
+| archive_5k    | 1 767 838 | 2 507 389 |  4 257 244 |       0.42× |
+
+### Decode latency (ns/op, median of 2 runs)
+
+| Scenario      | json       | msgpack   | qdf        | qdf vs json  |
+| ------------- | ---------: | --------: | ---------: | -----------: |
+| hot_path      |     1 557  |     618   |    **282** |   **5.5×**   |
+| telemetry_1k  | 2 280 074  |  897 409  |    485 601 |   **4.7×**   |
+| metric_1024   |   524 417  |  140 243  |  **3 845** | **136×**     |
+| embed_768     |   160 376  |   38 833  |    **618** | **260×**     |
+| config        |     5 739  |   2 678   |    1 551   |     3.7×     |
+| archive_5k    | 13 414 681 | 5 105 266 |  2 394 553 |   **5.6×**   |
+
+**Reading the numbers:**
+
+- **Decode is faster than json + msgpack across every scenario.** The
+  per-decoder key-intern cache, pooled `*Decoder`, and self-describing
+  wire avoid the schemaless-tag walk JSON pays per call.
+- **Encode is faster on small and numeric scenarios, slower on big
+  Dense ones.** `OptBalanced` / `OptCompression` pay a CPU tax to
+  reduce wire size by 3–5×. That's the trade.
+- **`OptQPack` on numeric payloads is the dramatic case** — 37–80×
+  faster encode, 130–260× faster decode, 4× smaller wire than json.
+  If your hot path moves floats around, the bit is essentially free
+  and the wins are large.
+- **hot_path msgpack edges qdf on size** (63 B vs 72 B) because the
+  5-byte qdf header (`'QDF' + version + flags`) plus per-field tags
+  are slightly looser than msgpack's fixmap on a 5-field struct.
+  Speed and decode latency still favour qdf.
+
+Reproduce: `go test -C bench -bench=BenchmarkProfile_ -benchmem -benchtime=300ms`
 
 ## Encode — synthetic (single payload reused)
 
@@ -246,9 +312,8 @@ Real workloads where the predictor pays off:
 - Repeated nested keys produced by the reflect / codegen field-name
   emit path.
 
-Forward-compat note: a legacy decoder that does not know `0xE8` will
-fail with `ErrBadTag` on first contact rather than silently
-mis-decode. The encoder only emits the tag in Dense mode, so Fast
+Forward-compat note: a reader that does not implement `0xE8` fails
+with `ErrBadTag` on first contact rather than silently mis-decode. The encoder only emits the tag in Dense mode, so Fast
 buffers stay byte-identical to previous versions.
 
 ## Move-To-Front state-ref coding (`tagStateMTF`)
@@ -262,14 +327,57 @@ Synthetic stress: 256 unique strings, every intern ID > 200 so the
 raw varuint is 2 bytes, followed by 4 000 references rotating
 through a hot subset of 8 items.
 
-    MarshalDense + Markov-0 + MTF      10 824 bytes
-    MarshalDense + Markov-0 only      ~15 000 bytes (estimated, raw refs)
-    MarshalDense + neither            ~18 000 bytes
+    OptBalanced (Markov-0 + MTF on)        10 824 bytes
+    OptDense + OptPairPred (Markov-0 only) ~15 000 bytes (estimated, raw refs)
+    OptDense alone                         ~18 000 bytes
 
 The encoder picks `tagStateMTF` only when its rank varuint is strictly
 shorter than the raw id varuint, so the wire never grows over plain
 `tagStateRef`. The decoder mirrors the LRU chain so all three forms
 (repeat / ref / mtf) co-exist on the same wire.
+
+## Markov-1 pair predictor (`tagStatePair`, `0xEA`)
+
+Dense keeps a per-prev ring of the last four successor IDs and emits
+`0xEA + 1-byte rank` when the next ID is in that ring AND the raw
+state-ref would need a multi-byte varuint. Catches conditional
+patterns Markov-0 misses — `country` → `city`, `service` → `region`,
+`level` → `host` — where the transition is predictable but the values
+themselves do not repeat back-to-back.
+
+Selection rule (encoder, `emitStateRef`):
+
+    bestTag = tagStateRef ; bestLen = uvarintLen(id)
+    if pair-hit && 1 < bestLen     → tagStatePair, payload = rank
+    if mtf-hit && rankLen < bestLen → tagStateMTF,  payload = rank
+
+The "strictly shorter" rule means the predictor never wins on small
+state tables (ids ≤ 127) — the raw state-ref already uses a single
+byte. It engages on streams with intern tables ≥ ~130 entries, which
+is exactly where the byte cost of raw IDs would otherwise inflate.
+
+## Shape interning (`tagMapShape`, `0xEC`)
+
+Dense routes every struct emission through `tagMapShape` instead of
+the generic `tagMap8/16/32` path:
+
+    first emit:   0xEC, 0, varuint(N), [N x key],     [N x value]
+    later emits:  0xEC, varuint(shapeID),             [N x value]
+
+`shapeID` is assigned per encoder lifetime and addressed by `*typeDesc`
+on the encoder side, so different struct types never collide on the
+same id and types are looked up in O(N) over a tiny binding slice
+(typical: 1 – 4 entries per stream).
+
+Per-record saving on an array of identical-shape structs: roughly
+`N × 2` bytes for the elided state-refs covering the key names, plus
+the `tagMap8` header. For the 1 000-event TelemetryBatch fixture the
+TelemetryBatch wire dropped **73 104 → 50 129 bytes** (-31 %) purely
+from the shape codec layered on top of Markov-0 / MTF / Markov-1.
+
+Forward-compat: a reader that does not implement `0xEC` fails with
+`ErrBadTag` on first contact. Fast mode is unaffected — it
+never emits the tag.
 
 ## Realistic corpus
 
@@ -285,11 +393,12 @@ sizes (`TestSizes_RealisticCorpus`) plus encode latency
 | json         | 252 497 |     1.00× |            — |
 | qdf_fast     | 186 674 |     0.74× |       272 k  |
 | qdf_qpack    | 186 674 |     0.74× |       261 k  |
-| **qdf_dense**| **73 104** | **0.29×** |    1.0 M    |
+| **qdf_dense**| **50 129** | **0.20×** |    1.0 M    |
 
-Dense pays ~4× on CPU for a **3.5× size reduction** vs JSON and
-**2.5× vs qdf_fast** — string-intern + Markov-0 + MTF collapse the
-repeating service / region / level / host fields. QPack does not help
+Dense pays ~4× on CPU for a **5.0× size reduction** vs JSON and
+**3.7× vs qdf_fast** — string-intern + Markov-0 + MTF + Markov-1 pair
++ shape interning collapse the repeating service / region / level /
+host fields and the per-record struct headers. QPack does not help
 much here because the per-event numeric fields are scalar (TS, Span,
 Trace, Duration) rather than slice-shaped.
 
@@ -354,7 +463,7 @@ Speedups vs msgpack: qdf_fast encode **2.1×**, qdf_dense decode
 **2.8×**.
 
 The most surprising line is qdf_dense's encode heap-delta of
-**9.7 MiB** for a 43.7 MiB output. `MarshalDense` reuses a pooled
+**9.7 MiB** for a 43.7 MiB output. `Marshal(v, OptBalanced)` reuses a pooled
 encoder buffer plus the intern table; the produced wire is `slices.
 Clone`-d for the caller, but the pool buffer survives and shrinks
 per-call working-set proportionally. json builds a fresh buffer per
@@ -386,12 +495,18 @@ map/slice values through `reflect.MakeMap`.
 
 | Payload          | json    | msgpack | qdf_fast    | qdf_dense   | dense vs json |
 | ---------------- | ------- | ------- | ----------- | ----------- | ------------- |
-| Tiny             | 24      | **16**  | 22          | 24          | 1.00×         |
-| Flat             | 210     | 134     | **132**     | 137         | 0.63×         |
-| Nested           | 103     | **76**  | 86          | 91          | 0.83×         |
-| Deep16           | 239     | 139     | 166         | **122**     | **0.51×**     |
-| Wide ×1000       | 212 901 | 135 626 | 128 632     | **106 660** | **0.50×**     |
-| LogBatch ×1000   | 251 902 | 185 639 | 185 649     | **107 416** | **0.43×**     |
+| Tiny             | 24      | **16**  | 22          | 25          | 1.04×         |
+| Flat             | 210     | 134     | **132**     | 138         | 0.66×         |
+| Nested           | 103     | **76**  | 86          | 96          | 0.93×         |
+| Deep16           | 239     | 139     | 166         | **63**      | **0.26×**     |
+| Wide ×1000       | 212 901 | 135 626 | 128 632     | **66 702**  | **0.31×**     |
+| LogBatch ×1000   | 251 902 | 185 639 | 185 649     | **85 440**  | **0.34×**     |
+
+A few rows are slightly **larger** under Dense than under Fast on
+tiny / non-repeating payloads (`Tiny`, `Flat`, `Nested`). That is the
+expected 1-3 byte cost of the shape declaration prelude on a one-shot
+struct emit — Markov / shape predictors need at least one repeat to
+amortise. Wins start at `Deep16` and grow with payload size.
 
 ## Memory (the second axis — every bit as important as speed)
 
@@ -490,7 +605,7 @@ What the test suite verifies (all under `-race`):
 # Default build
 go test -race -count=1 ./...
 
-# Cross-format bench (Marshal vs MarshalQPack vs MarshalDense vs json/msgpack)
+# Cross-format bench (Marshal at OptSpeed / OptQPack / OptBalanced vs json/msgpack)
 cd bench && go test -bench='BenchmarkQPack_' -benchmem -benchtime=2s
 
 # Whole-suite bench

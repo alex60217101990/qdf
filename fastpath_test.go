@@ -12,7 +12,7 @@ import (
 
 func TestFastPath_MapStringString(t *testing.T) {
 	in := map[string]string{"a": "1", "b": "2", "c": "3"}
-	b, err := Marshal(in)
+	b, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestFastPath_MapStringString(t *testing.T) {
 
 func TestFastPath_MapStringInt(t *testing.T) {
 	in := map[string]int{"a": 1, "b": -2, "c": 1 << 30}
-	b, err := Marshal(in)
+	b, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestFastPath_MapStringInt(t *testing.T) {
 
 func TestFastPath_MapStringInt64(t *testing.T) {
 	in := map[string]int64{"big": math.MaxInt64, "small": math.MinInt64}
-	b, _ := Marshal(in)
+	b, _ := Marshal(in, OptSpeed)
 	var out map[string]int64
 	if err := Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestFastPath_MapStringAny(t *testing.T) {
 		"f":  3.14,
 		"sl": []any{uint64(1), uint64(2)},
 	}
-	b, _ := Marshal(in)
+	b, _ := Marshal(in, OptSpeed)
 	var out map[string]any
 	if err := Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestFastPath_SliceTypes(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			b, err := Marshal(c.in)
+			b, err := Marshal(c.in, OptSpeed)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -109,7 +109,7 @@ func TestFastPath_SliceTypes(t *testing.T) {
 // specialized cases this proves both code paths produce equivalent results.
 func TestFastPath_GenericMapStillWorks(t *testing.T) {
 	in := map[int]string{1: "a", 2: "b", 3: "c"}
-	b, _ := Marshal(in)
+	b, _ := Marshal(in, OptSpeed)
 	var out map[int]string
 	if err := Unmarshal(b, &out); err != nil {
 		t.Fatal(err)

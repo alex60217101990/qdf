@@ -25,4 +25,4 @@ profile.out
 
 # Local concept notes — kept on disk, excluded from the PR.
 qdf.md
-qdf-2.md
+qdf-*.md

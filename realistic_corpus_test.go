@@ -137,12 +137,12 @@ func makeWideRow(rng *rand.Rand, depth int) wideRow {
 
 func roundTripAll(t *testing.T, in any, makeOut func() any) {
 	t.Helper()
-	for label, enc := range map[string]func(any) ([]byte, error){
-		"Marshal":      Marshal,
-		"MarshalQPack": MarshalQPack,
-		"MarshalDense": MarshalDense,
+	for label, opts := range map[string]Options{
+		"Speed":    OptSpeed,
+		"QPack":    OptQPack,
+		"Balanced": OptBalanced,
 	} {
-		buf, err := enc(in)
+		buf, err := Marshal(in, opts)
 		if err != nil {
 			t.Fatalf("%s encode: %v", label, err)
 		}
@@ -192,9 +192,9 @@ func TestCorpus_WideRow(t *testing.T) {
 // rather than just a round-trip symptom.
 func TestCorpus_AllEncodersAgree(t *testing.T) {
 	in := makeTelemetryBatch(64)
-	bufFast, _ := Marshal(in)
-	bufQPack, _ := MarshalQPack(in)
-	bufDense, _ := MarshalDense(in)
+	bufFast, _ := Marshal(in, OptSpeed)
+	bufQPack, _ := Marshal(in, OptQPack)
+	bufDense, _ := Marshal(in, OptBalanced)
 	var aFast, aQPack, aDense telemetryBatch
 	if err := Unmarshal(bufFast, &aFast); err != nil {
 		t.Fatal(err)
@@ -220,19 +220,19 @@ func BenchmarkCorpus_TelemetryBatch1000(b *testing.B) {
 	b.Run("Marshal", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = Marshal(in)
+			_, _ = Marshal(in, OptSpeed)
 		}
 	})
 	b.Run("MarshalQPack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = MarshalQPack(in)
+			_, _ = Marshal(in, OptQPack)
 		}
 	})
 	b.Run("MarshalDense", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_, _ = MarshalDense(in)
+			_, _ = Marshal(in, OptBalanced)
 		}
 	})
 }
