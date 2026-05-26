@@ -97,6 +97,39 @@ func AppendMarshalT[T any](dst []byte, v T) ([]byte, error) {
 	return out, nil
 }
 
+// MarshalTWith is the generic option-bitmask entry point. It carries
+// the same zero-allocation guarantees as MarshalT — T is fixed at
+// the call site, opts copies by value — while gaining per-call codec
+// selection via the Options bit-mask.
+func MarshalTWith[T any](v T, opts Options) ([]byte, error) {
+	enc := customEncPool.Get().(*Encoder)
+	enc.Reset()
+	enc.applyOpts(opts)
+	if err := encodeT(enc, &v); err != nil {
+		putEnc(enc, &customEncPool)
+		return nil, err
+	}
+	out := slices.Clone(enc.buf)
+	customEncPool.Put(enc)
+	return out, nil
+}
+
+// AppendMarshalTWith is the generic, option-aware AppendMarshal.
+func AppendMarshalTWith[T any](dst []byte, v T, opts Options) ([]byte, error) {
+	enc := customEncPool.Get().(*Encoder)
+	enc.Reset()
+	enc.applyOpts(opts)
+	enc.buf = dst
+	if err := encodeT(enc, &v); err != nil {
+		putEnc(enc, &customEncPool)
+		return dst, err
+	}
+	out := enc.buf
+	enc.buf = nil
+	customEncPool.Put(enc)
+	return out, nil
+}
+
 // encodeT is the shared body of every generic encode entry point. It
 // resolves the type-T descriptor at compile time (via reflect.TypeFor)
 // and points the encoder straight at vp, which the caller obtained as

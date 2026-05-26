@@ -37,21 +37,86 @@ const (
 	maxPooledBuf  = 1 * 1024 * 1024
 )
 
+// Options is a bit-mask of per-call encoder feature toggles. A zero
+// value (OptSpeed) gives the fastest path: Fast mode, no codecs, no
+// predictors. Or-combine bits with | to opt in to individual codecs.
+// Pre-built bundles cover the common "max speed", "balanced", and
+// "max compression" use cases without having to remember the layout.
+//
+// Options carry by value (uint32) so MarshalWith / AppendMarshalWith
+// add zero allocations over a plain Marshal call. The encoder checks
+// each bit with a single AND on the hot path.
+type Options uint32
+
+const (
+	// OptDense activates the inline intern table. First occurrences of
+	// strings and []byte payloads are stored once and back-referenced
+	// by ID (1-3 bytes per reuse). Required for any of the state-ref
+	// codecs (Repeat / MTF / Pair) and for tagMapShape.
+	OptDense Options = 1 << iota
+
+	// OptQPack enables the numeric / boolean slice codecs. Bools
+	// bit-pack; integer slices try Frame-of-Reference and Delta+FOR;
+	// float slices use Gorilla XOR. Auto-selected per slice; the
+	// encoder falls back to raw-LE when nothing wins.
+	OptQPack
+
+	// OptShapeIntern routes struct emissions through tagMapShape: each
+	// distinct struct type declares its field ordering on first emit;
+	// subsequent emits write only the shape ID + values. Requires
+	// OptDense (the shape table lives on the intern table side).
+	OptShapeIntern
+
+	// OptPairPred enables the Markov-1 successor predictor
+	// (tagStatePair, 0xEA). Per previous state-ref ID the encoder keeps
+	// a ring of the last 4 successors; a hit emits the ring rank in a
+	// single byte. Requires OptDense.
+	OptPairPred
+
+	// OptMTF enables Move-to-Front rank coding (tagStateMTF, 0xE9).
+	// When the LRU rank of a state-ref ID needs fewer varuint bytes
+	// than the raw id, the rank is emitted instead. Requires OptDense.
+	OptMTF
+	// Bits 5..31 reserved for future codecs (rANS, LZ77, n-gram
+	// dictionary, etc.).
+
+	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
+	// predictors. Maximum throughput, smallest CPU footprint.
+	OptSpeed Options = 0
+
+	// OptBalanced bundles every codec that does not trade CPU for
+	// compression beyond its sweet spot. Wire-format match for the
+	// default MarshalDense entry point.
+	OptBalanced Options = OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
+
+	// OptCompression is an alias for OptBalanced today. The constant
+	// is reserved so future heavy-CPU codecs (rANS, dictionary
+	// preloading) can opt in without breaking the bundle name.
+	OptCompression Options = OptBalanced
+)
+
+// Has reports whether the named bit is set. Compiles to a single AND
+// + compare. Use on the encoder hot path to gate codec emission.
+//
+//go:nosplit
+func (o Options) Has(bit Options) bool { return o&bit != 0 }
+
 var (
 	fastEncPool = sync.Pool{
 		New: func() any {
-			return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf), maxDepth: DefaultMaxDepth}
+			return &Encoder{mode: Fast, opts: OptSpeed, buf: make([]byte, 0, initialEncBuf), maxDepth: DefaultMaxDepth}
 		},
 	}
 	fastQPackEncPool = sync.Pool{
 		New: func() any {
-			return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf), qpack: true, maxDepth: DefaultMaxDepth}
+			return &Encoder{mode: Fast, opts: OptQPack, buf: make([]byte, 0, initialEncBuf), qpack: true, maxDepth: DefaultMaxDepth}
 		},
 	}
 	denseEncPool = sync.Pool{
 		New: func() any {
 			return &Encoder{
 				mode:            Dense,
+				opts:            OptBalanced,
 				buf:             make([]byte, 0, initialEncBuf),
 				state:           newEncState(),
 				minIntern:       4,
@@ -63,6 +128,21 @@ var (
 	}
 	decPool = sync.Pool{
 		New: func() any { return &Decoder{} },
+	}
+	// customEncPool serves MarshalWith / AppendMarshalWith. Encoders
+	// are reconfigured via applyOpts on each acquire so a single pool
+	// covers any Options combination; the buffer + intern table are
+	// reused across calls when the cap fits maxPooledBuf.
+	customEncPool = sync.Pool{
+		New: func() any {
+			return &Encoder{
+				buf:             make([]byte, 0, initialEncBuf),
+				state:           newEncState(),
+				minIntern:       4,
+				maxStateEntries: 1 << 14,
+				maxDepth:        DefaultMaxDepth,
+			}
+		},
 	}
 )
 
@@ -120,6 +200,46 @@ func MarshalQPack(v any) ([]byte, error) {
 	}
 	out := slices.Clone(enc.buf)
 	fastQPackEncPool.Put(enc)
+	return out, nil
+}
+
+// MarshalWith encodes v with the given option bit-mask. Combine bits
+// with | to opt into individual codecs, or use one of the OptSpeed /
+// OptBalanced / OptCompression bundles. Zero allocations beyond the
+// existing pool / output-clone overhead.
+//
+//	b, _ := qdf.MarshalWith(snapshot, qdf.OptCompression)   // backup
+//	b, _ := qdf.MarshalWith(event,    qdf.OptSpeed)         // hot path
+//	b, _ := qdf.MarshalWith(payload,                        // tuned
+//	    qdf.OptDense|qdf.OptQPack|qdf.OptShapeIntern)
+func MarshalWith(v any, opts Options) ([]byte, error) {
+	enc := customEncPool.Get().(*Encoder)
+	enc.Reset()
+	enc.applyOpts(opts)
+	if err := encodeReflect(enc, v); err != nil {
+		putEnc(enc, &customEncPool)
+		return nil, err
+	}
+	out := slices.Clone(enc.buf)
+	customEncPool.Put(enc)
+	return out, nil
+}
+
+// AppendMarshalWith is the AppendMarshal equivalent of MarshalWith.
+// dst is reused as the output buffer; the slice header may be
+// reseated if dst's capacity is insufficient.
+func AppendMarshalWith(dst []byte, v any, opts Options) ([]byte, error) {
+	enc := customEncPool.Get().(*Encoder)
+	enc.Reset()
+	enc.applyOpts(opts)
+	enc.buf = dst
+	if err := encodeReflect(enc, v); err != nil {
+		putEnc(enc, &customEncPool)
+		return dst, err
+	}
+	out := enc.buf
+	enc.buf = nil
+	customEncPool.Put(enc)
 	return out, nil
 }
 

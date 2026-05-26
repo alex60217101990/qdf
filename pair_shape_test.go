@@ -166,8 +166,9 @@ func TestStatePair_RingEvictsBeyondK(t *testing.T) {
 // type declares its field ordering inline; subsequent encodes of the
 // same type emit 0xEC + shapeID + values. These tests verify the
 // codec round-trips, that wire-size shrinks across an array of
-// identical structs, and that the legacy tagMap8/16/32 path still
-// decodes (back-compat for streams emitted before the codec landed).
+// identical structs, and that the tagMap8/16/32 path still decodes
+// (so OptShapeIntern-off encoders round-trip through the same
+// Unmarshal).
 
 type pairAddr struct {
 	Street string `qdf:"street"`

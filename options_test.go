@@ -1,0 +1,628 @@
+package qdf
+
+import (
+	"bytes"
+	"fmt"
+	"math"
+	"reflect"
+	"testing"
+	"time"
+)
+
+// Options matrix tests: every interesting combination of the codec
+// bits must round-trip identically — Marshal then Unmarshal yields a
+// deep-equal value to the input — across a representative set of
+// payload shapes. The decoder is wire-self-describing, so the same
+// Unmarshal entry point must handle every emitted variant.
+
+type optsAddr struct {
+	Street string `qdf:"street"`
+	City   string `qdf:"city"`
+	Zip    string `qdf:"zip"`
+}
+
+type optsEvent struct {
+	Service string   `qdf:"service"`
+	Region  string   `qdf:"region"`
+	Level   string   `qdf:"level"`
+	Host    string   `qdf:"host"`
+	Status  int      `qdf:"status"`
+	Tags    []string `qdf:"tags"`
+}
+
+type optsCombo struct {
+	Header  optsEvent  `qdf:"header"`
+	Address optsAddr   `qdf:"address"`
+	Repeats []string   `qdf:"repeats"`
+	Counts  []int64    `qdf:"counts"`
+	Floats  []float64  `qdf:"floats"`
+	Flags   []bool     `qdf:"flags"`
+	Bytes   []byte     `qdf:"bytes"`
+	Map     map[string]string `qdf:"map"`
+}
+
+// optionsMatrix is a hand-picked set of Options bit combinations
+// covering both the simple presets and every individual bit toggled
+// on top of OptDense. Combinations that disable OptDense automatically
+// disable the codecs that depend on it; the gating logic must handle
+// that without misencoding the stream.
+func optionsMatrix() []Options {
+	dense := OptDense
+	return []Options{
+		OptSpeed,
+		OptQPack,
+		dense,
+		dense | OptQPack,
+		dense | OptShapeIntern,
+		dense | OptPairPred,
+		dense | OptMTF,
+		dense | OptQPack | OptShapeIntern,
+		dense | OptQPack | OptPairPred,
+		dense | OptQPack | OptMTF,
+		dense | OptShapeIntern | OptPairPred,
+		dense | OptShapeIntern | OptMTF,
+		dense | OptPairPred | OptMTF,
+		dense | OptQPack | OptShapeIntern | OptPairPred,
+		dense | OptQPack | OptShapeIntern | OptMTF,
+		dense | OptQPack | OptPairPred | OptMTF,
+		dense | OptShapeIntern | OptPairPred | OptMTF,
+		OptBalanced,
+		OptCompression,
+	}
+}
+
+type optsDeep struct {
+	V int        `qdf:"v"`
+	N *optsDeep  `qdf:"n,omitempty"`
+}
+
+type optsTimed struct {
+	When time.Time `qdf:"when"`
+	Note string    `qdf:"note"`
+}
+
+type optsNumbers struct {
+	Monotonic []int64   `qdf:"monotonic"`
+	Wild      []int64   `qdf:"wild"`
+	Floats    []float64 `qdf:"floats"`
+	F32       []float32 `qdf:"f32"`
+	Bools     []bool    `qdf:"bools"`
+	Uints     []uint64  `qdf:"uints"`
+	Bytes     []byte    `qdf:"bytes"`
+}
+
+func optsFixtures() []struct {
+	name string
+	gen  func() any
+} {
+	return []struct {
+		name string
+		gen  func() any
+	}{
+		{
+			name: "addr_single",
+			gen:  func() any { return optsAddr{Street: "Vilnius St 1", City: "Klaipeda", Zip: "LT-91300"} },
+		},
+		{
+			name: "addr_array_5",
+			gen: func() any {
+				out := make([]optsAddr, 5)
+				for i := range out {
+					out[i] = optsAddr{Street: "S", City: "C", Zip: "Z"}
+				}
+				return out
+			},
+		},
+		{
+			name: "event_repeating_strings",
+			gen: func() any {
+				out := make([]optsEvent, 8)
+				for i := range out {
+					out[i] = optsEvent{
+						Service: "billing",
+						Region:  "eu-west-1",
+						Level:   "info",
+						Host:    fmt.Sprintf("ip-10-0-%d", i),
+						Status:  200 + i%3,
+						Tags:    []string{"prod", "v3"},
+					}
+				}
+				return out
+			},
+		},
+		{
+			name: "combo_mixed",
+			gen: func() any {
+				return optsCombo{
+					Header: optsEvent{
+						Service: "ingest", Region: "eu-west-1", Level: "warn",
+						Host: "ip-10-0-42", Status: 503, Tags: []string{"prod"},
+					},
+					Address: optsAddr{Street: "S", City: "C", Zip: "Z"},
+					Repeats: []string{"alpha-token", "alpha-token", "alpha-token", "beta-token"},
+					Counts:  []int64{1, 2, 3, 4, 5, 6, 7, 8},
+					Floats:  []float64{1.5, 2.5, 3.5, 4.5, 5.5},
+					Flags:   []bool{true, false, true, false, true, true, false},
+					Bytes:   []byte("hello, world"),
+					Map:     map[string]string{"a": "1", "b": "2", "c": "3"},
+				}
+			},
+		},
+		{
+			name: "scalars",
+			gen: func() any {
+				return struct {
+					I int     `qdf:"i"`
+					U uint64  `qdf:"u"`
+					F float64 `qdf:"f"`
+					B bool    `qdf:"b"`
+					S string  `qdf:"s"`
+				}{42, 0xdeadbeef, 3.14, true, "hello"}
+			},
+		},
+		{
+			name: "deep_nested_8",
+			gen: func() any {
+				root := &optsDeep{V: 0}
+				cur := root
+				for i := 1; i < 8; i++ {
+					cur.N = &optsDeep{V: i}
+					cur = cur.N
+				}
+				return *root
+			},
+		},
+		{
+			name: "empty_struct",
+			gen:  func() any { return optsAddr{} },
+		},
+		{
+			name: "empty_slices",
+			gen: func() any {
+				// Non-nil empty slices: encoder emits arr0/bin0 which
+				// the decoder restores as empty (non-nil) slices. A nil
+				// slice would round-trip as empty, which is DeepEqual-
+				// false, but documents the intentional Go-stdlib-like
+				// behaviour and is not exercised here.
+				return optsNumbers{
+					Monotonic: []int64{},
+					Wild:      []int64{},
+					Floats:    []float64{},
+					F32:       []float32{},
+					Bools:     []bool{},
+					Uints:     []uint64{},
+					Bytes:     []byte{},
+				}
+			},
+		},
+		{
+			name: "numeric_edge",
+			gen: func() any {
+				return optsNumbers{
+					Monotonic: []int64{1_700_000_000, 1_700_000_001, 1_700_000_002, 1_700_000_003, 1_700_000_004},
+					Wild:      []int64{math.MinInt64, -1, 0, 1, math.MaxInt64},
+					Floats:    []float64{0, -0, math.Pi, math.MaxFloat64, math.SmallestNonzeroFloat64},
+					F32:       []float32{0, float32(math.Pi), float32(math.MaxFloat32)},
+					Bools:     []bool{true, false, true, true, false, false, true, false, true},
+					Uints:     []uint64{0, 1, 127, 128, 16383, 16384, math.MaxUint32, math.MaxUint64},
+					Bytes:     []byte("the quick brown fox"),
+				}
+			},
+		},
+		{
+			name: "long_string_repeats",
+			gen: func() any {
+				// 200x identical 64-byte string — triggers state-ref
+				// repeat + MTF + Pair on every entry.
+				const s = "the-quick-brown-fox-jumps-over-the-lazy-dog-1234567890-ABCDEFGH"
+				out := make([]string, 200)
+				for i := range out {
+					out[i] = s
+				}
+				return out
+			},
+		},
+	}
+}
+
+// roundTripWith encodes v with MarshalWith(opts), decodes into a fresh
+// value of the same type, and returns the decoded value plus the wire
+// bytes for diagnostics. The fresh value is obtained via reflect.New
+// so the test stays type-agnostic.
+func roundTripWith(t *testing.T, v any, opts Options) (any, []byte) {
+	t.Helper()
+	b, err := MarshalWith(v, opts)
+	if err != nil {
+		t.Fatalf("MarshalWith(opts=%b): %v", opts, err)
+	}
+	outPtr := reflect.New(reflect.TypeOf(v))
+	if err := Unmarshal(b, outPtr.Interface()); err != nil {
+		t.Fatalf("Unmarshal(opts=%b): %v wire=%x", opts, err, b)
+	}
+	return outPtr.Elem().Interface(), b
+}
+
+func TestOptions_MatrixRoundTrip(t *testing.T) {
+	for _, fx := range optsFixtures() {
+		for _, opts := range optionsMatrix() {
+			name := fmt.Sprintf("%s/opts=%05b", fx.name, opts)
+			t.Run(name, func(t *testing.T) {
+				in := fx.gen()
+				out, wire := roundTripWith(t, in, opts)
+				if !reflect.DeepEqual(in, out) {
+					t.Fatalf("round-trip mismatch\n want=%+v\n  got=%+v\n wire=%x", in, out, wire)
+				}
+			})
+		}
+	}
+}
+
+// TestOptions_WireSizeRanking — soft sanity that turning on more
+// codecs does not grow the wire for a payload that is friendly to all
+// of them. Picks the repeated-event corpus where every Dense codec
+// has at least one hit.
+func TestOptions_WireSizeRanking(t *testing.T) {
+	fixture := optsFixtures()[2].gen() // event_repeating_strings
+
+	encode := func(opts Options) int {
+		b, err := MarshalWith(fixture, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(b)
+	}
+
+	speed := encode(OptSpeed)
+	dense := encode(OptDense)
+	balanced := encode(OptBalanced)
+	compression := encode(OptCompression)
+
+	t.Logf("OptSpeed=%d  OptDense=%d  OptBalanced=%d  OptCompression=%d",
+		speed, dense, balanced, compression)
+
+	// OptDense intern table alone must shrink wire vs OptSpeed.
+	if dense >= speed {
+		t.Fatalf("OptDense (%d) must be < OptSpeed (%d) on repetitive corpus", dense, speed)
+	}
+	// OptBalanced (all codecs) must be ≤ OptDense (intern only).
+	if balanced > dense {
+		t.Fatalf("OptBalanced (%d) must be ≤ OptDense (%d)", balanced, dense)
+	}
+	// OptCompression is currently an alias for OptBalanced; assert
+	// the contract so future changes notice if the alias diverges.
+	if compression != balanced {
+		t.Fatalf("OptCompression (%d) != OptBalanced (%d) — alias drift",
+			compression, balanced)
+	}
+}
+
+// TestOptions_PresetsWireEquivalence pins that the preset entry
+// points (Marshal / MarshalQPack / MarshalDense) produce the exact
+// same wire as the equivalent MarshalWith(...) call. If a future
+// change rewires a bit, this catches the drift on the first run.
+// Skips combo_mixed because its map[string]string field has
+// randomised iteration order across consecutive encodes.
+func TestOptions_PresetsWireEquivalence(t *testing.T) {
+	for _, fx := range optsFixtures() {
+		if fx.name == "combo_mixed" {
+			continue
+		}
+		in := fx.gen()
+		cases := []struct {
+			name   string
+			preset func(any) ([]byte, error)
+			opts   Options
+		}{
+			{"Marshal=OptSpeed", Marshal, OptSpeed},
+			{"MarshalQPack=OptQPack", MarshalQPack, OptQPack},
+			{"MarshalDense=OptBalanced", MarshalDense, OptBalanced},
+		}
+		for _, c := range cases {
+			t.Run(fx.name+"/"+c.name, func(t *testing.T) {
+				presetOut, err := c.preset(in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				optsOut, err := MarshalWith(in, c.opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(presetOut) != string(optsOut) {
+					t.Fatalf("wire mismatch for %s\n preset=%x\n   opts=%x",
+						c.name, presetOut, optsOut)
+				}
+			})
+		}
+	}
+}
+
+// TestOptions_GenericPresetsWireEquivalence is the MarshalT family
+// counterpart of TestOptions_PresetsWireEquivalence. The wire for the
+// generic helpers must be byte-identical to the non-generic ones.
+func TestOptions_GenericPresetsWireEquivalence(t *testing.T) {
+	in := optsFixtures()[2].gen().([]optsEvent)
+
+	tries := []struct {
+		name   string
+		nonGen func(any) ([]byte, error)
+		gen    func() ([]byte, error)
+	}{
+		{"Marshal", Marshal, func() ([]byte, error) { return MarshalT(in) }},
+		{"MarshalQPack", MarshalQPack, func() ([]byte, error) { return MarshalQPackT(in) }},
+		{"MarshalDense", MarshalDense, func() ([]byte, error) { return MarshalDenseT(in) }},
+	}
+	for _, c := range tries {
+		t.Run(c.name, func(t *testing.T) {
+			a, err := c.nonGen(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := c.gen()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(a) != string(b) {
+				t.Fatalf("generic wire diverged from non-generic\n nonGen=%x\n    gen=%x", a, b)
+			}
+		})
+	}
+}
+
+// TestOptions_TWithMatchesWith pins that MarshalTWith and MarshalWith
+// produce the same wire bytes for the same options on the same value.
+// Use a fixture with no Go map (whose iteration order is randomised
+// and would mask the real equivalence we want to test).
+func TestOptions_TWithMatchesWith(t *testing.T) {
+	in := optsFixtures()[2].gen().([]optsEvent) // event_repeating_strings
+
+	for _, opts := range optionsMatrix() {
+		t.Run(fmt.Sprintf("opts=%05b", opts), func(t *testing.T) {
+			a, err := MarshalWith(in, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := MarshalTWith(in, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(a) != string(b) {
+				t.Fatalf("generic vs non-generic wire diverged\n   with=%x\n  twith=%x", a, b)
+			}
+		})
+	}
+}
+
+// TestOptions_Has unit-tests the bit-mask accessor. Cheap, but
+// catches an accidental sign-flip or rename of the constants.
+func TestOptions_Has(t *testing.T) {
+	all := OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
+	cases := []struct {
+		opts Options
+		bit  Options
+		want bool
+	}{
+		{OptSpeed, OptDense, false},
+		{OptSpeed, OptQPack, false},
+		{OptDense, OptDense, true},
+		{OptDense, OptQPack, false},
+		{OptBalanced, OptShapeIntern, true},
+		{OptBalanced, OptPairPred, true},
+		{OptCompression, OptMTF, true},
+		{all, OptDense | OptMTF, true}, // combined bit check
+		{OptDense, OptDense | OptQPack, true}, // partial overlap still hits
+	}
+	for _, c := range cases {
+		if got := c.opts.Has(c.bit); got != c.want {
+			t.Fatalf("Options(%b).Has(%b)=%v want %v", c.opts, c.bit, got, c.want)
+		}
+	}
+}
+
+// TestOptions_AppendParity pins that AppendMarshalWith with an empty
+// destination yields the same bytes as MarshalWith for every option
+// combination. Skips fixtures containing Go maps because randomised
+// iteration order would produce false negatives that mask real bugs.
+func TestOptions_AppendParity(t *testing.T) {
+	for _, fx := range optsFixtures() {
+		if fx.name == "combo_mixed" {
+			continue // contains map[string]string — see TestOptions_CrossEncodeUnmarshal for that fixture
+		}
+		in := fx.gen()
+		for _, opts := range optionsMatrix() {
+			name := fmt.Sprintf("%s/opts=%05b", fx.name, opts)
+			t.Run(name, func(t *testing.T) {
+				a, err := MarshalWith(in, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, err := AppendMarshalWith(nil, in, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(a, b) {
+					t.Fatalf("Append wire diverged\n   marshal=%x\n    append=%x", a, b)
+				}
+			})
+		}
+	}
+}
+
+// TestOptions_AppendReusesBuffer verifies AppendMarshalWith appends
+// to the caller's slice without dropping prior content. Defensive:
+// the entry point is easy to mis-implement by truncating dst.
+func TestOptions_AppendReusesBuffer(t *testing.T) {
+	in := optsFixtures()[3].gen() // combo_mixed
+	dst := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	pre := len(dst)
+	out, err := AppendMarshalWith(dst, in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) <= pre {
+		t.Fatalf("AppendMarshalWith did not append: pre=%d post=%d", pre, len(out))
+	}
+	if !bytes.Equal(out[:pre], dst[:pre]) {
+		t.Fatalf("prefix changed: want=%x got=%x", dst[:pre], out[:pre])
+	}
+}
+
+// TestOptions_AppendTWithParity is the generic counterpart of
+// TestOptions_AppendParity for a typed fixture. Uses a map-free
+// fixture so random iteration order does not flake the byte compare.
+func TestOptions_AppendTWithParity(t *testing.T) {
+	in := optsFixtures()[2].gen().([]optsEvent) // event_repeating_strings
+	for _, opts := range optionsMatrix() {
+		t.Run(fmt.Sprintf("opts=%05b", opts), func(t *testing.T) {
+			a, err := MarshalTWith(in, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := AppendMarshalTWith(nil, in, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(a, b) {
+				t.Fatalf("TWith Append wire diverged\n   marshal=%x\n    append=%x", a, b)
+			}
+		})
+	}
+}
+
+// TestOptions_CrossEncodeUnmarshal verifies the contract claimed in
+// the README: every Options combination on the encode side decodes
+// through the single Unmarshal entry point on the decode side. The
+// decoder is wire-self-describing; the user picks an encode profile,
+// the receiver does not need to know which one.
+func TestOptions_CrossEncodeUnmarshal(t *testing.T) {
+	in := optsFixtures()[3].gen().(optsCombo)
+	for _, opts := range optionsMatrix() {
+		t.Run(fmt.Sprintf("opts=%05b", opts), func(t *testing.T) {
+			b, err := MarshalWith(in, opts)
+			if err != nil {
+				t.Fatalf("MarshalWith: %v", err)
+			}
+			var out optsCombo
+			if err := Unmarshal(b, &out); err != nil {
+				t.Fatalf("Unmarshal: %v  wire=%x", err, b)
+			}
+			if !reflect.DeepEqual(in, out) {
+				t.Fatalf("decode mismatch\n want=%+v\n  got=%+v", in, out)
+			}
+		})
+	}
+}
+
+// TestOptions_StreamEncoderWithRoundTrip exercises every options
+// combination through the NewStreamEncoderWith path so a Dense
+// stream that drops MTF or Shape (or any other bit) still survives
+// a full encode-then-decode through StreamDecoder.
+func TestOptions_StreamEncoderWithRoundTrip(t *testing.T) {
+	type item struct {
+		Service string `qdf:"service"`
+		Region  string `qdf:"region"`
+		Status  int    `qdf:"status"`
+		Tags    []string `qdf:"tags"`
+	}
+	items := make([]item, 12)
+	for i := range items {
+		items[i] = item{
+			Service: "billing",
+			Region:  "eu-west-1",
+			Status:  200 + i%3,
+			Tags:    []string{"prod", "v3"},
+		}
+	}
+	for _, opts := range optionsMatrix() {
+		t.Run(fmt.Sprintf("opts=%05b", opts), func(t *testing.T) {
+			var w bytes.Buffer
+			enc := NewStreamEncoderWith(&w, opts)
+			for _, it := range items {
+				if err := enc.Encode(it); err != nil {
+					t.Fatalf("encode: %v", err)
+				}
+			}
+			if err := enc.Close(); err != nil {
+				t.Fatalf("close: %v", err)
+			}
+			dec := NewStreamDecoder(&w)
+			for i, want := range items {
+				var got item
+				if err := dec.Decode(&got); err != nil {
+					t.Fatalf("[%d] decode: %v", i, err)
+				}
+				if !reflect.DeepEqual(want, got) {
+					t.Fatalf("[%d] mismatch\n want=%+v\n  got=%+v", i, want, got)
+				}
+			}
+		})
+	}
+}
+
+// TestOptions_ZeroOpts pins the OptSpeed=0 contract: no codecs, Fast
+// mode, no intern emission even on heavily repeating input.
+func TestOptions_ZeroOpts(t *testing.T) {
+	in := optsFixtures()[9].gen() // long_string_repeats
+	out, err := MarshalWith(in, OptSpeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No state-table tags must appear in Fast wire.
+	for _, tag := range []byte{
+		tagInternStr, tagInternBin, tagStateRef, tagStateRepeat,
+		tagStateMTF, tagStatePair, tagMapShape,
+	} {
+		if bytes.IndexByte(out, tag) >= 0 {
+			t.Fatalf("OptSpeed wire contains Dense tag 0x%02X: %x", tag, out[:64])
+		}
+	}
+	var decoded []string
+	if err := Unmarshal(out, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, decoded) {
+		t.Fatal("OptSpeed roundtrip mismatch")
+	}
+}
+
+// TestOptions_TimeRoundTrip covers time.Time across every options
+// combination. DeepEqual is unreliable on time.Time (the loc pointer
+// can differ between UTC and Local while the instant is identical),
+// so we compare via Time.Equal and the Note string instead.
+func TestOptions_TimeRoundTrip(t *testing.T) {
+	in := optsTimed{When: time.Unix(1_700_000_000, 12345).UTC(), Note: "boot"}
+	for _, opts := range optionsMatrix() {
+		t.Run(fmt.Sprintf("opts=%05b", opts), func(t *testing.T) {
+			b, err := MarshalWith(in, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out optsTimed
+			if err := Unmarshal(b, &out); err != nil {
+				t.Fatalf("Unmarshal: %v wire=%x", err, b)
+			}
+			if !in.When.Equal(out.When) || in.Note != out.Note {
+				t.Fatalf("time mismatch:\n want=%+v\n  got=%+v", in, out)
+			}
+		})
+	}
+}
+
+// TestOptions_DenseAloneSavesBytesOnRepeats — without QPack or any
+// of the predictor bits, OptDense by itself must still shrink wire
+// over OptSpeed on a string-heavy payload, courtesy of the intern
+// table and the always-on Markov-0 repeat collapse.
+func TestOptions_DenseAloneSavesBytesOnRepeats(t *testing.T) {
+	in := optsFixtures()[9].gen() // long_string_repeats
+	fast, err := MarshalWith(in, OptSpeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dense, err := MarshalWith(in, OptDense)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dense) >= len(fast) {
+		t.Fatalf("OptDense alone failed to shrink wire on repeats: fast=%d dense=%d",
+			len(fast), len(dense))
+	}
+}

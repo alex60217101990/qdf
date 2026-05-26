@@ -252,9 +252,8 @@ Real workloads where the predictor pays off:
 - Repeated nested keys produced by the reflect / codegen field-name
   emit path.
 
-Forward-compat note: a legacy decoder that does not know `0xE8` will
-fail with `ErrBadTag` on first contact rather than silently
-mis-decode. The encoder only emits the tag in Dense mode, so Fast
+Forward-compat note: a reader that does not implement `0xE8` fails
+with `ErrBadTag` on first contact rather than silently mis-decode. The encoder only emits the tag in Dense mode, so Fast
 buffers stay byte-identical to previous versions.
 
 ## Move-To-Front state-ref coding (`tagStateMTF`)
@@ -316,8 +315,8 @@ the `tagMap8` header. For the 1 000-event TelemetryBatch fixture the
 TelemetryBatch wire dropped **73 104 → 50 129 bytes** (-31 %) purely
 from the shape codec layered on top of Markov-0 / MTF / Markov-1.
 
-Forward-compat: a legacy decoder that does not know `0xEC` fails
-with `ErrBadTag` on first contact. Fast mode is unaffected — it
+Forward-compat: a reader that does not implement `0xEC` fails with
+`ErrBadTag` on first contact. Fast mode is unaffected — it
 never emits the tag.
 
 ## Realistic corpus

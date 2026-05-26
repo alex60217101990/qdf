@@ -664,11 +664,15 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
 		e.writeHeader()
 		n := len(fields)
-		// Dense mode: route through the tagMapShape path. On the first
-		// emit of this struct type the encoder declares the shape (and
-		// writes the field names through the normal intern path); on
-		// every subsequent emit it writes only 0xEC + shapeID + values.
-		if e.state != nil {
+		// Dense mode: route through the tagMapShape path when
+		// OptShapeIntern is set. On the first emit of a struct type the
+		// encoder declares the shape (writing field names through the
+		// normal intern path); on every subsequent emit it writes only
+		// 0xEC + shapeID + values. With OptShapeIntern off, Dense
+		// falls back to the tagMap8/16/32 encoding so the rest of the
+		// state stack (intern + Markov / MTF / Pair) still applies
+		// per-field.
+		if e.opts.Has(OptDense) && e.state != nil && e.opts.Has(OptShapeIntern) {
 			if id := e.state.shapeForType(td); id != 0 {
 				e.buf = append(e.buf, tagMapShape)
 				e.buf = appendUvarint(e.buf, uint64(id))
@@ -687,19 +691,22 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
 			e.buf = appendUvarint(e.buf, uint64(n))
 			st := e.state
+			pairOn := e.opts.Has(OptPairPred)
 			for i := range fields {
 				f := &fields[i]
 				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
 					if id, ok := st.lookupOrAssign(f.name); ok {
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)
-							st.pairRecord(id, id)
+							if pairOn {
+								st.pairRecord(id, id)
+							}
 						} else {
 							e.emitStateRef(id)
 						}
 					} else {
 						e.buf = append(e.buf, f.preInternStr...)
-						if st.lastID != lruInvalidID {
+						if st.lastID != lruInvalidID && pairOn {
 							st.pairRecord(st.lastID, id)
 						}
 						st.lastID = id
@@ -717,7 +724,45 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			}
 			return nil
 		}
-		// Fast mode: legacy map encoding (no intern, no shape).
+		// Dense without OptShapeIntern: tagMap8/16/32 header + per-field
+		// intern via WriteString. Keys still go through the intern
+		// path so state-ref / MTF / Pair codecs cover them when their
+		// options are on.
+		if e.opts.Has(OptDense) && e.state != nil {
+			e.WriteMapHeader(n)
+			st := e.state
+			pairOn := e.opts.Has(OptPairPred)
+			for i := range fields {
+				f := &fields[i]
+				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+					if id, ok := st.lookupOrAssign(f.name); ok {
+						if st.lastID == id {
+							e.buf = append(e.buf, tagStateRepeat)
+							if pairOn {
+								st.pairRecord(id, id)
+							}
+						} else {
+							e.emitStateRef(id)
+						}
+					} else {
+						e.buf = append(e.buf, f.preInternStr...)
+						if st.lastID != lruInvalidID && pairOn {
+							st.pairRecord(st.lastID, id)
+						}
+						st.lastID = id
+					}
+				} else {
+					e.buf = append(e.buf, f.preFast...)
+					st.lastID = lruInvalidID
+				}
+				if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// Fast mode (no Dense): plain tagMap8/16/32 encoding — no
+		// intern, no shape, fixstr field-name headers from preFast.
 		e.WriteMapHeader(n)
 		for i := range fields {
 			f := &fields[i]
@@ -842,8 +887,9 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 			}
 			return nil
 		}
-		// Legacy map path: tagMap8/16/32 — used by Fast mode and any
-		// external encoder that does not emit shape headers.
+		// tagMap8/16/32 path — used by Fast mode, by Dense without
+		// OptShapeIntern, and by any external encoder that does not
+		// emit shape headers.
 		n, err := d.ReadMapHeader()
 		if err != nil {
 			return err

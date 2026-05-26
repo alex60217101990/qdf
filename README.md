@@ -149,9 +149,14 @@ Tag space is msgpack-inspired with a few additions:
 
 The 5th header byte holds two flag bits: `FlagDense` (`0x01`) for the
 intern dialect, and `FlagQPack` (`0x02`) as an early hint that the body
-may carry codec tags from the `0xE3..0xE7` block. A legacy decoder that
-does not know the QPack tags fails with `ErrBadTag` on first contact;
+may carry codec tags from the `0xE3..0xE7` block. A reader that does
+not implement the QPack tags fails with `ErrBadTag` on first contact;
 it never decodes a packed payload as scalar by accident.
+
+> **Alpha note:** qdf is pre-1.0. The wire format is still being
+> shaped — tags may shift, version may bump, and "older" decoders
+> here mean "earlier in alpha", not stable releases. No
+> backwards-compat promise yet.
 
 All multi-byte integers and floats are little-endian. amd64 and arm64
 are the supported targets.
@@ -257,6 +262,58 @@ or `QPack` there.
 byte-stable wire across implementations and versions. Dense embeds
 predictor state, intern-ID ordering, and shape IDs that depend on
 emission order. Use Fast if you hash or sign the wire.
+
+### Per-call options (`MarshalWith`)
+
+The three top-level entry points (`Marshal`, `MarshalDense`,
+`MarshalQPack`) are presets. When a single program needs different
+encode profiles per call — say "max compression for this backup
+blob" and "max throughput on this hot path" — use `MarshalWith` and
+combine bits from the `qdf.Options` bit-mask. The same `Unmarshal`
+reads everything because the wire is self-describing.
+
+```go
+// Backup → squeeze every byte.
+b, _ := qdf.MarshalWith(snapshot, qdf.OptCompression)
+
+// Hot path → minimum CPU, no codecs.
+b, _ := qdf.MarshalWith(event, qdf.OptSpeed)
+
+// Tuned: Dense intern + shape interning, but skip MTF rank coding to
+// trade a few bytes for less encode CPU.
+b, _ := qdf.MarshalWith(payload,
+    qdf.OptDense | qdf.OptQPack | qdf.OptShapeIntern)
+
+// Generic equivalent — same zero-alloc guarantees as MarshalT.
+b, _ := qdf.MarshalTWith(event, qdf.OptBalanced)
+```
+
+| Bit | What it gates |
+| --- | -------------- |
+| `OptDense`        | Inline intern table; required by everything below. |
+| `OptQPack`        | Numeric / bool slice codecs (FOR, Delta+FOR, Gorilla, bit-pack). |
+| `OptShapeIntern`  | `tagMapShape` for struct emissions (declare once, reuse by id). |
+| `OptPairPred`     | Markov-1 successor predictor (`tagStatePair`, `0xEA`). |
+| `OptMTF`          | Move-to-Front rank coding on state-refs (`tagStateMTF`, `0xE9`). |
+
+| Bundle | Composition |
+| ------ | ----------- |
+| `OptSpeed`       | `0` — Fast mode, no codecs. Equivalent to `Marshal`. |
+| `OptBalanced`    | `OptDense \| OptQPack \| OptShapeIntern \| OptPairPred \| OptMTF` — equivalent to `MarshalDense`. |
+| `OptCompression` | Alias for `OptBalanced` today; reserved so future heavy-CPU codecs (rANS, dictionary preloading) can opt in without breaking the bundle name. |
+
+`Options` is a `uint32` carried by value, so `MarshalWith` /
+`AppendMarshalWith` add **zero per-call allocations** over the
+preset entry points. Encoders are pooled in a single shared pool
+(`customEncPool`) keyed only by buffer; the configuration is applied
+on each acquire via `applyOpts`. Markov-0 (`tagStateRepeat`, `0xE8`)
+is always on inside `OptDense` because it costs nothing on the wire
+when the predictor misses.
+
+A note on tuning knobs that do *not* live on the bit-mask: the
+intern threshold (`SetIntern`) and the cycle-depth ceiling
+(`SetMaxDepth`) stay on the `*Encoder` itself. Use the low-level
+encoder API for those.
 
 ### Generic API (Go 1.18+ generics)
 
