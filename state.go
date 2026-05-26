@@ -7,6 +7,32 @@ import "strings"
 // slices. IDs are assigned in encode order starting at 0. There is no
 // eviction — callers bound lifetime by resetting or recycling.
 
+// pairPredK is the ring size of the per-prev-ID successor predictor
+// backing tagStatePair. K=4 keeps the linear scan cheap and the rank
+// always fits in a single varuint byte (ranks 0..3).
+const pairPredK = 4
+
+// pairRing remembers up to pairPredK most-recent successor IDs that
+// followed a particular prev ID. items[0] is most-recent; entries past
+// n are unused. Updates are O(K) (small linear shift); lookup is O(K).
+// The ring is stored contiguously in a slice indexed by prev ID so
+// the predictor adds zero per-call heap allocations once the encoder
+// has warmed up (Reset only zeros the `n` field, retaining capacity).
+type pairRing struct {
+	items [pairPredK]uint32
+	n     uint8
+}
+
+// encShape stores a struct/map shape known by both encoder and decoder.
+// keys are the wire-bytes of the field names (alias into encoder buffer
+// is fine for the encoder side; decoder copies into shapeKeyBuf).
+type encShape struct {
+	// keys is the ordered list of intern-IDs of the field names. We
+	// compare by the concatenated intern-IDs so two structs with the
+	// SAME ordered key set share a shape regardless of identity.
+	keys []uint32
+}
+
 type encState struct {
 	ids map[string]uint32
 
@@ -24,6 +50,31 @@ type encState struct {
 	lruHead uint32
 	lruPrev []uint32
 	lruNext []uint32
+
+	// Pair predictor: for each "prev" state-ref ID, remember the last
+	// pairPredK successors. A hit emits tagStatePair + varuint(rank).
+	// Slice indexed by prev ID. A ring with n==0 is uninitialised;
+	// once we add the first successor n becomes ≥1 and never returns
+	// to 0 until Reset, so n is a sufficient "has-entry" predicate
+	// without a parallel bool slice.
+	pairPred []pairRing
+
+	// Shape table for tagMapShape. shapes is indexed by id-1 (id 0 is
+	// reserved on the wire to mean "declare"). shapeBindings is a
+	// small linear-scan registry of (typeDesc → wire ID). Typical
+	// streams emit a handful of struct types, so a slice beats a map
+	// on lookup cost AND keeps the race-detector instrumentation off
+	// the hot path.
+	shapes        []encShape
+	shapeBindings []shapeBinding
+}
+
+// shapeBinding is a (typeDesc → wire shape ID) pair. Stored in a
+// linear-scan slice on the encoder state so the hot path adds no map
+// access (and no allocation under -race).
+type shapeBinding struct {
+	td *typeDesc
+	id uint32
 }
 
 const lruInvalidID = ^uint32(0)
@@ -42,6 +93,136 @@ func (e *encState) reset() {
 	e.lruHead = lruInvalidID
 	e.lruPrev = e.lruPrev[:0]
 	e.lruNext = e.lruNext[:0]
+	// Zero only the per-prev "n" field so the ring slots and the
+	// underlying slice capacity stay reusable across Reset. The hot
+	// path adds zero heap allocations once the encoder has warmed.
+	for i := range e.pairPred {
+		e.pairPred[i].n = 0
+	}
+	e.shapes = e.shapes[:0]
+	e.shapeBindings = e.shapeBindings[:0]
+}
+
+// shapeForType returns the wire shape ID bound to t in this encoder's
+// state, or 0 if none. Pair with shapeBindType after a declaration.
+//
+//go:nosplit
+func (e *encState) shapeForType(t *typeDesc) uint32 {
+	for i := range e.shapeBindings {
+		if e.shapeBindings[i].td == t {
+			return e.shapeBindings[i].id
+		}
+	}
+	return 0
+}
+
+func (e *encState) shapeBindType(t *typeDesc, id uint32) {
+	e.shapeBindings = append(e.shapeBindings, shapeBinding{td: t, id: id})
+}
+
+// shapeDeclare reserves the next sequential wire ID and returns it.
+// Caller emits the keys on the wire; this side only tracks the count
+// to keep IDs aligned with the decoder.
+func (e *encState) shapeDeclareEnc() uint32 {
+	e.shapes = append(e.shapes, encShape{})
+	return uint32(len(e.shapes))
+}
+
+// pairLookup returns the rank (0..pairPredK-1) of curr in the ring of
+// successors for prev, or (0, false) if not present. The ring is NOT
+// updated by this call; the caller must invoke pairRecord after the
+// emission decision is final.
+//
+//go:nosplit
+func (e *encState) pairLookup(prev, curr uint32) (uint8, bool) {
+	if int(prev) >= len(e.pairPred) {
+		return 0, false
+	}
+	r := &e.pairPred[prev]
+	if r.n == 0 {
+		return 0, false
+	}
+	for i := uint8(0); i < r.n; i++ {
+		if r.items[i] == curr {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// pairEnsure grows the predictor slice so prev is a valid index.
+//
+//go:nosplit
+func (e *encState) pairEnsure(prev uint32) {
+	for uint32(len(e.pairPred)) <= prev {
+		e.pairPred = append(e.pairPred, pairRing{})
+	}
+}
+
+// pairRecord installs curr at the head of prev's successor ring.
+// Existing curr (if any) is moved up to head; new entries push older
+// ones down and the oldest is evicted past pairPredK.
+func (e *encState) pairRecord(prev, curr uint32) {
+	e.pairEnsure(prev)
+	r := &e.pairPred[prev]
+	if r.n == 0 {
+		r.items[0] = curr
+		r.n = 1
+		return
+	}
+	idx := uint8(255)
+	for i := uint8(0); i < r.n; i++ {
+		if r.items[i] == curr {
+			idx = i
+			break
+		}
+	}
+	if idx == 0 {
+		return
+	}
+	if idx == 255 {
+		if r.n < pairPredK {
+			r.n++
+		}
+		for i := r.n - 1; i > 0; i-- {
+			r.items[i] = r.items[i-1]
+		}
+		r.items[0] = curr
+		return
+	}
+	for i := idx; i > 0; i-- {
+		r.items[i] = r.items[i-1]
+	}
+	r.items[0] = curr
+}
+
+// shapeAssign returns (id, hit). On a miss the encState installs a new
+// shape with the next sequential ID (≥ 1) and returns (id, false). The
+// keys slice is copied to detach it from the caller's storage.
+func (e *encState) shapeAssign(keys []uint32) (uint32, bool) {
+	// Linear scan keyed on length-then-equality. shape tables stay
+	// small in practice (one entry per distinct struct type emitted),
+	// so the O(N*K) cost is dwarfed by the encode budget. A hash map
+	// is overkill until benches say otherwise.
+	for i := range e.shapes {
+		if len(e.shapes[i].keys) != len(keys) {
+			continue
+		}
+		match := true
+		for j := range keys {
+			if e.shapes[i].keys[j] != keys[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return uint32(i + 1), true
+		}
+	}
+	cp := make([]uint32, len(keys))
+	copy(cp, keys)
+	e.shapes = append(e.shapes, encShape{keys: cp})
+	return uint32(len(e.shapes)), false
 }
 
 // lruAddFresh inserts a brand-new ID (just assigned) at the head of
@@ -107,6 +288,16 @@ func (e *encState) lookupOrAssign(key string) (uint32, bool) {
 	return id, false
 }
 
+// decShape is the decoder-side mirror of an encShape. keyIDs holds
+// the intern IDs of the field names (informational; same ordering as
+// names). names is the resolved Go-string for each field in
+// declaration order — used to dispatch values to struct fields when
+// the shape is re-used.
+type decShape struct {
+	keyIDs []uint32
+	names  []string
+}
+
 type decState struct {
 	values [][]byte
 
@@ -120,6 +311,14 @@ type decState struct {
 	lruHead uint32
 	lruPrev []uint32
 	lruNext []uint32
+
+	// Pair predictor mirror. Same shape and update rules as encState's
+	// version so a tagStatePair + rank resolves to the same ID. Slice
+	// storage matches the encoder side; n==0 marks an unused slot.
+	pairPred []pairRing
+
+	// Shape table mirror. shapes[i] is the shape with wire-ID i+1.
+	shapes []decShape
 }
 
 func newDecState() *decState {
@@ -136,6 +335,84 @@ func (d *decState) reset() {
 	d.lruHead = lruInvalidID
 	d.lruPrev = d.lruPrev[:0]
 	d.lruNext = d.lruNext[:0]
+	for i := range d.pairPred {
+		d.pairPred[i].n = 0
+	}
+	d.shapes = d.shapes[:0]
+}
+
+// pairAtRank returns the ID at the given rank in prev's successor
+// ring. ok=false signals a malformed stream.
+//
+//go:nosplit
+func (d *decState) pairAtRank(prev uint32, rank uint8) (uint32, bool) {
+	if int(prev) >= len(d.pairPred) {
+		return 0, false
+	}
+	r := &d.pairPred[prev]
+	if r.n == 0 || rank >= r.n {
+		return 0, false
+	}
+	return r.items[rank], true
+}
+
+//go:nosplit
+func (d *decState) pairEnsure(prev uint32) {
+	for uint32(len(d.pairPred)) <= prev {
+		d.pairPred = append(d.pairPred, pairRing{})
+	}
+}
+
+// pairRecord mirrors encState.pairRecord exactly.
+func (d *decState) pairRecord(prev, curr uint32) {
+	d.pairEnsure(prev)
+	r := &d.pairPred[prev]
+	if r.n == 0 {
+		r.items[0] = curr
+		r.n = 1
+		return
+	}
+	idx := uint8(255)
+	for i := uint8(0); i < r.n; i++ {
+		if r.items[i] == curr {
+			idx = i
+			break
+		}
+	}
+	if idx == 0 {
+		return
+	}
+	if idx == 255 {
+		if r.n < pairPredK {
+			r.n++
+		}
+		for i := r.n - 1; i > 0; i-- {
+			r.items[i] = r.items[i-1]
+		}
+		r.items[0] = curr
+		return
+	}
+	for i := idx; i > 0; i-- {
+		r.items[i] = r.items[i-1]
+	}
+	r.items[0] = curr
+}
+
+// shapeDeclare appends a new shape with the next sequential wire ID
+// and returns that ID (≥ 1). Caller must populate KeyIDs in the
+// returned slot.
+func (d *decState) shapeDeclare() (*decShape, uint32) {
+	d.shapes = append(d.shapes, decShape{})
+	return &d.shapes[len(d.shapes)-1], uint32(len(d.shapes))
+}
+
+// shapeLookup returns the shape with the given wire ID (≥ 1). nil
+// means an unknown ID — the stream is malformed.
+func (d *decState) shapeLookup(id uint32) *decShape {
+	if id == 0 || id > uint32(len(d.shapes)) {
+		return nil
+	}
+	return &d.shapes[id-1]
 }
 
 func (d *decState) lruAddFresh(id uint32) {
@@ -155,7 +432,7 @@ func (d *decState) lruAddFresh(id uint32) {
 // = 0). Caller must guarantee rank < current LRU size.
 func (d *decState) lruIDAtRank(rank uint32) (uint32, bool) {
 	cur := d.lruHead
-	for i := uint32(0); i < rank; i++ {
+	for range rank {
 		if cur == lruInvalidID {
 			return 0, false
 		}

@@ -1,3 +1,5 @@
+//go:build !race
+
 package qdf
 
 import (
@@ -12,6 +14,12 @@ import (
 // The budgets are an upper bound, not a target. They are intentionally
 // a little loose so a one-off compiler tweak does not flake the suite.
 // Tighten them if a real improvement lands.
+//
+// Build tag !race: the race detector adds 1-2 bookkeeping allocations
+// per slice-element access and map operation, which inflates the
+// counts measured by AllocsPerRun without representing real
+// production cost. AllocsPerRun assumes a quiescent runtime; running
+// under -race violates that assumption.
 
 type allocSmall struct {
 	ID   int    `qdf:"id"`

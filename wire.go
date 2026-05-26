@@ -94,6 +94,25 @@ const (
 	//                    minDelta (zigzag varuint),
 	//                    varuint(n),
 	//                    ceil((n-1)*bits/8) bytes (LSB-first) of (Δᵢ - minDelta).
+	tagStatePair = 0xEA // Markov-1 predictor for Dense state-refs.
+	//                    Conditioned on the previously emitted state-ref ID
+	//                    (lastID), the encoder maintains a small ring of the
+	//                    most recent successors per prev. If the current ID
+	//                    is in the ring, emit tagStatePair + varuint(rank).
+	//                    Ring size pairPredK; rank ∈ [0, pairPredK). The
+	//                    encoder picks tagStatePair only when its byte cost
+	//                    is strictly smaller than every other state-ref
+	//                    variant (Repeat, MTF, raw), so the wire never grows.
+	tagMapShape = 0xEC // Struct/map shape interning for Dense mode.
+	//                    Wire form:
+	//                       0xEC + varuint(shapeID)
+	//                    shapeID == 0 declares a new shape inline:
+	//                       0xEC, 0, varuint(N), [N x key-emit], [N x value]
+	//                    The decoder assigns the new shape the next
+	//                    sequential ID (starting at 1) for reuse.
+	//                    shapeID > 0 reuses a previously declared shape:
+	//                       0xEC, varuint(id), [N x value]
+	//                    N is recovered from the shape table.
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1

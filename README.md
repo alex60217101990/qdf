@@ -57,7 +57,8 @@ the practical subset of that idea:
 | **Wavefunction collapse** — a single observation picks one state. | Every subsequent occurrence emits a `state_ref` tag plus a varint ID. Decoding "collapses" the reference back to its stored value. |
 | **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Numeric and bool slices use QPack codecs (FOR, Delta+FOR, Gorilla XOR, raw-LE bulk) that auto-select the smallest predicted form per slice. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
 | **Probabilistic / residual coding** — predict, then store only the deviation. | QPack's Delta+FOR codec is exactly this for monotonic integer sequences: encode the first value plus the bit-packed residual against a `aᵢ = aᵢ₋₁ + minΔ` predictor. Gorilla does the same for floats by XOR-ing each sample against the previous one and storing the differing bits only. |
-| **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Partial. The Dense encoder runs a Markov-0 predictor on intern IDs (`tagStateRepeat`, `0xE8`) and a Move-To-Front rank coder (`tagStateMTF`, `0xE9`). The first collapses immediate repeats to one byte; the second catches "hot subset interned late" patterns by encoding LRU rank instead of raw id whenever that is shorter. On telemetry payloads with repeating service / region / level fields the pair delivers a ~3.5× wire reduction vs JSON on its own. A full conditional-probability table across non-adjacent fields is still future work and would occupy more of the reserved `0xEA..0xEF` block. |
+| **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Three stacked predictors on the Dense state stream. **Markov-0** (`tagStateRepeat`, `0xE8`) collapses an immediate repeat of the previously emitted state-ref to a single byte. **MTF rank** (`tagStateMTF`, `0xE9`) encodes the LRU rank of the touched ID when that varuint is shorter than the raw id. **Markov-1 pair** (`tagStatePair`, `0xEA`) keeps the last 4 successors observed after each prev ID and encodes a hit as `0xEA + 1-byte rank` — wins when the prev → curr transition is predictable and the raw id needs a multi-byte varuint. The encoder picks the shortest of the four variants per emission, so the wire is never larger than the plain `tagStateRef` encoding. A full conditional-probability table beyond order-1 stays in the reserved `0xEB / 0xED..0xEF` block. |
+| **Shape interning** — repeated structure means the *layout* itself is information. | Dense mode emits structs (and `map[string]any` of stable shape via the reflect-struct path) through `tagMapShape` (`0xEC`). First occurrence declares the shape inline: `0xEC, 0, varuint(N), N × key`. Subsequent occurrences of the same shape emit `0xEC + varuint(shapeID) + N × value` — keys are *not* re-emitted. Per-record saving on an array of identical-shape structs is `N × 2` bytes for the elided state-refs plus the map header. The shape table is per-stream, addressed by `*typeDesc` on the encoder and by sequential ID on the wire. Shapes never collide across types because the encoder keys the binding on the descriptor pointer. |
 | **Arithmetic / range coding (rANS)** — push the encoded stream to its Shannon limit. | Not yet. The state-table + back-reference pair plus QPack already captures most of the practical win on telemetry workloads; rANS would buy further compression at a CPU cost. |
 
 The conceptual roadmap (state table → entanglement graph → predictive
@@ -141,7 +142,9 @@ Tag space is msgpack-inspired with a few additions:
 | `0xE7`               | QPack: Gorilla XOR-coded float slice          |
 | `0xE8`               | Dense: state-ref repeat (Markov-0 predictor)  |
 | `0xE9`               | Dense: state-ref MTF rank (Move-To-Front)     |
-| `0xEA..0xEF`         | reserved (full entanglement / rANS / future)  |
+| `0xEA`               | Dense: state-ref pair rank (Markov-1)         |
+| `0xEC`               | Dense: struct/map shape declare / reuse       |
+| `0xEB`, `0xED..0xEF` | reserved (rANS, n-gram graph, future)         |
 | `0xF0..0xF3`         | ext / timestamp                               |
 
 The 5th header byte holds two flag bits: `FlagDense` (`0x01`) for the
@@ -215,6 +218,45 @@ b, _ := qdf.MarshalQPack(rows)  // QPack only, no string interning
 
 A single decoder handles all three. `qdf.Unmarshal` reads the header
 flag and picks the right path automatically.
+
+### Dense mode internals — what to expect
+
+Dense mode (`MarshalDense`, or any stream constructed with `qdf.Dense`)
+runs four wire-level optimisations on top of Fast. They are all
+automatic — there are no flags to flip — and they share one rule:
+**the encoder picks the shortest variant per emission, so Dense wire
+is never larger than the same payload in Fast.** If the predictors do
+not pay, the byte cost is identical to a plain state-ref.
+
+| Tag | Predictor | Wins when | Doesn't help when |
+| --- | --------- | --------- | ----------------- |
+| `0xE8` | Markov-0: same ID as the previous emission | Runs of the same value (`region`, `region`, `region`). | Distinct values in a row. |
+| `0xE9` | MTF: encode LRU rank instead of raw id | Heavy reuse of a small hot subset of strings that were interned early. | Random access pattern with no recency. |
+| `0xEA` | Markov-1: per-prev ring of 4 most-recent successors | Correlated pairs — `country` → `city`, `service` → `region`. Only emits when the raw id needs ≥ 2 varuint bytes, so the wire never grows on small state tables. | Unique transitions, low-cardinality state. |
+| `0xEC` | Shape interning: declare struct shape once, reuse by id | Arrays / streams of the same struct type. Per-record saving is ≈ `N × 2` bytes (elided key state-refs + map header). | One-shot encodes of a unique struct type. |
+
+The state table is shared **per stream** in `StreamEncoder` /
+`StreamDecoder`, so a batch of 1 000 log events with eight distinct
+region codes ships each region once. `Marshal*` calls do not share —
+each call starts with an empty table.
+
+**Where Dense is worth it:** logs, traces, telemetry, columnar rows,
+event batches, audit streams, snapshot dumps — anything where a small
+vocabulary of strings and a stable struct shape repeat thousands of
+times. Expected envelope: 25 – 55 % smaller than JSON at 2–6× the
+encode speed.
+
+**Where it is *not* worth it:** single-shot encodes of small unique
+payloads (Markov / shape predictors never reach their amortisation
+point, you pay ≤ 2 bytes of prelude for nothing), or strict-throughput
+paths where decode CPU is the bottleneck — Dense decode is ~15 %
+slower than Fast because of the state-table lookups. Reach for `Fast`
+or `QPack` there.
+
+**Where it is wrong:** *cryptographic / forensic* contexts that need
+byte-stable wire across implementations and versions. Dense embeds
+predictor state, intern-ID ordering, and shape IDs that depend on
+emission order. Use Fast if you hash or sign the wire.
 
 ### Generic API (Go 1.18+ generics)
 
@@ -443,14 +485,15 @@ memory tables and reproduction commands are in
 
 | Payload                  | json    | msgpack | qdf\_fast | qdf\_dense | dense vs json |
 | ------------------------ | ------: | ------: | --------: | ---------: | ------------: |
-| Flat                     |     210 |     134 |   **132** |        137 | 0.65×         |
-| Deep16                   |     239 |     139 |       166 |    **122** | **0.51×**     |
-| Wide × 1000              | 212 901 | 135 626 |   128 632 |**106 660** | **0.50×**     |
-| Log batch × 1000         | 251 902 | 185 639 |   185 649 |**107 416** | **0.43×**     |
+| Flat                     |     210 |     134 |   **132** |        138 | 0.66×         |
+| Deep16                   |     239 |     139 |       166 |     **63** | **0.26×**     |
+| Wide × 1000              | 212 901 | 135 626 |   128 632 | **66 702** | **0.31×**     |
+| Log batch × 1000         | 251 902 | 185 639 |   185 649 | **85 440** | **0.34×**     |
 
 On a 1000-entry Dense **stream** the same log batch encodes to
-**107 bytes per entry**, against 251 for json and 186 for msgpack —
-shared intern table across messages.
+**85 bytes per entry**, against 251 for json and 186 for msgpack —
+shared intern table across messages plus per-record struct headers
+collapsed via shape interning (`tagMapShape`).
 
 ### Realistic corpus
 
@@ -465,12 +508,13 @@ telemetry workloads. Full breakdown plus encode latency in
 | json         | 252 497 |      1.00× |            — |
 | qdf_fast     | 186 674 |      0.74× |       272 k  |
 | qdf_qpack    | 186 674 |      0.74× |       261 k  |
-| **qdf_dense** | **73 104** | **0.29×** |    1.0 M     |
+| **qdf_dense** | **50 129** | **0.20×** |    1.0 M     |
 
-Dense pays ~4× CPU for **3.5× smaller wire** vs JSON — string-intern
-+ Markov-0 + MTF crush the repeating service / region / level / host
-fields. QPack does not help much here (per-event numeric fields are
-scalar, not slice-shaped).
+Dense pays ~4× CPU for **5.0× smaller wire** vs JSON — string-intern
++ Markov-0 + MTF + Markov-1 pair + shape interning crush the
+repeating service / region / level / host fields AND elide per-record
+struct headers. QPack does not help much here (per-event numeric
+fields are scalar, not slice-shaped).
 
 #### MetricSeries (1 024 numeric timestamps + values)
 
@@ -502,7 +546,7 @@ Sizes (200 000 records):
 | msgpack      |        92.99  |    0.65× |
 | qdf_fast     |        91.99  |    0.65× |
 | qdf_qpack    |        89.65  |    0.63× |
-| **qdf_dense** |     **88.52** | **0.62×** |
+| **qdf_dense** |     **71.19** | **0.50×** |
 
 Latency + memory (100 000 records):
 

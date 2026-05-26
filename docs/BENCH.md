@@ -51,14 +51,20 @@ coverage by `TestPool_ConcurrentEncoders` + the full `-race` test sweep.
 - **`tagStateRepeat` (Dense, Markov-0 predictor)**: ~50 % size cut on
   payloads with repeating service / region / level fields, on top of
   the existing Dense intern table.
+- **`tagStatePair` (Dense, Markov-1 predictor, `0xEA`)** + **`tagMapShape`
+  (struct shape interning, `0xEC`)**: another -31 % on the
+  TelemetryBatch fixture (73 104 → 50 129 bytes, **5.0× vs JSON**) by
+  eliding per-record struct headers and exploiting conditional
+  transitions between intern IDs.
 - **`qdf_simd` (AVX2)**: 22-53× faster bit-unpack at byte-aligned
   widths (~50 GB/s, memory-bound). CPUID-gated; runtime falls back
   cleanly on older amd64.
 - **Realistic / unique-data**: pool wins survive. UniqueLog is
   1.4-1.6× faster than json/msgpack encode and 3-4× faster on decode.
 - **Concurrent**: parallel decode is 1.4-1.7× faster than json/msgpack.
-- **Size**: Dense mode = **43% of json**, **58% of msgpack** on log
-  batches (without an external compression layer).
+- **Size**: Dense mode = **34% of json** on log batches (was 43%
+  before shape interning), **20% of json** on the TelemetryBatch
+  realistic-corpus fixture. No external compression layer.
 - **Codegen** halves the per-call overhead vs reflect path on small
   fixed-schema structs (`Sample` decode: 695 ns → vs json 5899 ns =
   **8.5× faster**).
@@ -271,6 +277,49 @@ shorter than the raw id varuint, so the wire never grows over plain
 `tagStateRef`. The decoder mirrors the LRU chain so all three forms
 (repeat / ref / mtf) co-exist on the same wire.
 
+## Markov-1 pair predictor (`tagStatePair`, `0xEA`)
+
+Dense keeps a per-prev ring of the last four successor IDs and emits
+`0xEA + 1-byte rank` when the next ID is in that ring AND the raw
+state-ref would need a multi-byte varuint. Catches conditional
+patterns Markov-0 misses — `country` → `city`, `service` → `region`,
+`level` → `host` — where the transition is predictable but the values
+themselves do not repeat back-to-back.
+
+Selection rule (encoder, `emitStateRef`):
+
+    bestTag = tagStateRef ; bestLen = uvarintLen(id)
+    if pair-hit && 1 < bestLen     → tagStatePair, payload = rank
+    if mtf-hit && rankLen < bestLen → tagStateMTF,  payload = rank
+
+The "strictly shorter" rule means the predictor never wins on small
+state tables (ids ≤ 127) — the raw state-ref already uses a single
+byte. It engages on streams with intern tables ≥ ~130 entries, which
+is exactly where the byte cost of raw IDs would otherwise inflate.
+
+## Shape interning (`tagMapShape`, `0xEC`)
+
+Dense routes every struct emission through `tagMapShape` instead of
+the generic `tagMap8/16/32` path:
+
+    first emit:   0xEC, 0, varuint(N), [N x key],     [N x value]
+    later emits:  0xEC, varuint(shapeID),             [N x value]
+
+`shapeID` is assigned per encoder lifetime and addressed by `*typeDesc`
+on the encoder side, so different struct types never collide on the
+same id and types are looked up in O(N) over a tiny binding slice
+(typical: 1 – 4 entries per stream).
+
+Per-record saving on an array of identical-shape structs: roughly
+`N × 2` bytes for the elided state-refs covering the key names, plus
+the `tagMap8` header. For the 1 000-event TelemetryBatch fixture the
+TelemetryBatch wire dropped **73 104 → 50 129 bytes** (-31 %) purely
+from the shape codec layered on top of Markov-0 / MTF / Markov-1.
+
+Forward-compat: a legacy decoder that does not know `0xEC` fails
+with `ErrBadTag` on first contact. Fast mode is unaffected — it
+never emits the tag.
+
 ## Realistic corpus
 
 Built-in `realistic_corpus_test.go` builders produce three shapes
@@ -285,11 +334,12 @@ sizes (`TestSizes_RealisticCorpus`) plus encode latency
 | json         | 252 497 |     1.00× |            — |
 | qdf_fast     | 186 674 |     0.74× |       272 k  |
 | qdf_qpack    | 186 674 |     0.74× |       261 k  |
-| **qdf_dense**| **73 104** | **0.29×** |    1.0 M    |
+| **qdf_dense**| **50 129** | **0.20×** |    1.0 M    |
 
-Dense pays ~4× on CPU for a **3.5× size reduction** vs JSON and
-**2.5× vs qdf_fast** — string-intern + Markov-0 + MTF collapse the
-repeating service / region / level / host fields. QPack does not help
+Dense pays ~4× on CPU for a **5.0× size reduction** vs JSON and
+**3.7× vs qdf_fast** — string-intern + Markov-0 + MTF + Markov-1 pair
++ shape interning collapse the repeating service / region / level /
+host fields and the per-record struct headers. QPack does not help
 much here because the per-event numeric fields are scalar (TS, Span,
 Trace, Duration) rather than slice-shaped.
 
@@ -386,12 +436,18 @@ map/slice values through `reflect.MakeMap`.
 
 | Payload          | json    | msgpack | qdf_fast    | qdf_dense   | dense vs json |
 | ---------------- | ------- | ------- | ----------- | ----------- | ------------- |
-| Tiny             | 24      | **16**  | 22          | 24          | 1.00×         |
-| Flat             | 210     | 134     | **132**     | 137         | 0.63×         |
-| Nested           | 103     | **76**  | 86          | 91          | 0.83×         |
-| Deep16           | 239     | 139     | 166         | **122**     | **0.51×**     |
-| Wide ×1000       | 212 901 | 135 626 | 128 632     | **106 660** | **0.50×**     |
-| LogBatch ×1000   | 251 902 | 185 639 | 185 649     | **107 416** | **0.43×**     |
+| Tiny             | 24      | **16**  | 22          | 25          | 1.04×         |
+| Flat             | 210     | 134     | **132**     | 138         | 0.66×         |
+| Nested           | 103     | **76**  | 86          | 96          | 0.93×         |
+| Deep16           | 239     | 139     | 166         | **63**      | **0.26×**     |
+| Wide ×1000       | 212 901 | 135 626 | 128 632     | **66 702**  | **0.31×**     |
+| LogBatch ×1000   | 251 902 | 185 639 | 185 649     | **85 440**  | **0.34×**     |
+
+A few rows are slightly **larger** under Dense than under Fast on
+tiny / non-repeating payloads (`Tiny`, `Flat`, `Nested`). That is the
+expected 1-3 byte cost of the shape declaration prelude on a one-shot
+struct emit — Markov / shape predictors need at least one repeat to
+amortise. Wins start at `Deep16` and grow with payload size.
 
 ## Memory (the second axis — every bit as important as speed)
 

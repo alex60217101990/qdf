@@ -259,6 +259,12 @@ func (e *Encoder) WriteString(s string) {
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
+		// Pair predictor: a fresh intern is still a transition out
+		// of the previous state-ref; record it so future emissions
+		// of (prev → id) can elide via tagStatePair.
+		if e.state.lastValid {
+			e.state.pairRecord(e.state.lastID, id)
+		}
 		e.state.lastID = id
 		e.state.lastValid = true
 		return
@@ -271,33 +277,69 @@ func (e *Encoder) WriteString(s string) {
 	e.writeStringInline(s)
 }
 
-// emitStateRef writes a state-ref to id. Three forms are possible,
-// the encoder picks the smallest:
+// emitStateRef writes a state-ref to id. Four forms are possible, the
+// encoder picks the smallest:
 //
 //	tagStateRepeat                   1 byte total, when id == lastID
-//	tagStateMTF + varuint(rank)      1 + uvarintLen(rank) bytes
-//	tagStateRef + varuint(id)        1 + uvarintLen(id) bytes
+//	tagStatePair  + varuint(pairR)   1 + uvarintLen(pairR) bytes,
+//	                                 when id is in lastID's predictor ring
+//	tagStateMTF   + varuint(mtfR)    1 + uvarintLen(mtfR) bytes
+//	tagStateRef   + varuint(id)      1 + uvarintLen(id) bytes
 //
-// MTF rank comes from the encState LRU. The wire never grows over the
-// plain tagStateRef encoding because we only pick MTF when its rank
-// varuint is strictly shorter than the raw id varuint.
+// MTF rank comes from the encState LRU. The pair rank comes from the
+// per-prev successor ring (Markov-1 predictor). The wire never grows
+// over the plain tagStateRef encoding because we only pick the
+// alternative when its varuint is strictly shorter than the raw id
+// varuint.
 //
-// Every successful emit moves id to the LRU head so the decoder's
-// mirror chain stays in sync.
+// Every successful emit moves id to the LRU head AND records the
+// (prev, id) transition in the pair predictor so the decoder's mirror
+// chain stays in sync.
 func (e *Encoder) emitStateRef(id uint32) {
 	if e.state.lastValid && e.state.lastID == id {
 		e.buf = append(e.buf, tagStateRepeat)
 		// id is already at LRU head from the previous emission;
 		// no reorder needed. lastID stays the same.
+		// Pair predictor: record self-transition so subsequent
+		// resolves (e.g. id, id, id) keep the ring coherent. This
+		// is harmless when the next ref is a Repeat too because
+		// the head slot is just refreshed.
+		e.state.pairRecord(id, id)
 		return
 	}
+	// Pair predictor — only consult when we have a valid previous ID.
+	// uvarintLen(rank) is always 1 (ranks 0..3) so the cost is fixed
+	// at 2 bytes. We choose pair when 2 < uvarintLen(id) + 1.
+	prev := e.state.lastID
+	prevValid := e.state.lastValid
+	idLen := uvarintLen(uint64(id))
+	bestTag := byte(tagStateRef)
+	bestPayload := idLen
+	bestPayloadVal := uint64(id)
+	if prevValid {
+		if pr, ok := e.state.pairLookup(prev, id); ok {
+			// rank ∈ [0..3] always 1-byte varuint.
+			if 1 < bestPayload {
+				bestTag = tagStatePair
+				bestPayload = 1
+				bestPayloadVal = uint64(pr)
+			}
+		}
+	}
+	// MTF — compute rank lazily because lruMoveToFront mutates state.
+	// We MUST move-to-front regardless of which tag we emit so the
+	// decoder mirror stays in sync, but the rank value is only useful
+	// when we actually pick MTF.
 	rank := e.state.lruMoveToFront(id)
-	if uvarintLen(uint64(rank)) < uvarintLen(uint64(id)) {
-		e.buf = append(e.buf, tagStateMTF)
-		e.buf = appendUvarint(e.buf, uint64(rank))
-	} else {
-		e.buf = append(e.buf, tagStateRef)
-		e.buf = appendUvarint(e.buf, uint64(id))
+	if rankLen := uvarintLen(uint64(rank)); rankLen < bestPayload {
+		bestTag = tagStateMTF
+		bestPayload = rankLen
+		bestPayloadVal = uint64(rank)
+	}
+	e.buf = append(e.buf, bestTag)
+	e.buf = appendUvarint(e.buf, bestPayloadVal)
+	if prevValid {
+		e.state.pairRecord(prev, id)
 	}
 	e.state.lastID = id
 	e.state.lastValid = true
@@ -345,6 +387,9 @@ func (e *Encoder) WriteBytes(b []byte) {
 		e.buf = append(e.buf, tagInternBin)
 		e.buf = appendUvarint(e.buf, uint64(len(b)))
 		e.buf = append(e.buf, b...)
+		if e.state.lastValid {
+			e.state.pairRecord(e.state.lastID, id)
+		}
 		e.state.lastID = id
 		e.state.lastValid = true
 		return
