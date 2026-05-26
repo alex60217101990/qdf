@@ -233,6 +233,11 @@ A single `qdf.Unmarshal` reads everything. The wire header is self-
 describing; the receiver never has to know which option mix the
 sender picked.
 
+Picking the right combo for a concrete workload — hot path, telemetry,
+metric series, embeddings, backup — is covered in
+[`docs/CHOOSING.md`](docs/CHOOSING.md), with head-to-head numbers vs
+json and msgpack per scenario.
+
 ### Dense mode internals — what each bit buys you
 
 `OptDense` activates the inline intern table. The four codec bits
