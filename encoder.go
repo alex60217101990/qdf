@@ -249,29 +249,31 @@ func (e *Encoder) WriteFloat64(v float64) {
 // WriteString writes s. In Dense mode, eligible strings are intern-encoded.
 func (e *Encoder) WriteString(s string) {
 	e.writeHeader()
-	if e.state != nil && len(s) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
-		id, ok := e.state.lookupOrAssign(s)
+	st := e.state
+	if st != nil && len(s) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+		id, ok := st.lookupOrAssign(s)
 		if ok {
+			// Repeat hot path: hand-inlined out of emitStateRef so the
+			// most common Dense hit avoids the non-inlinable call.
+			if st.lastID == id {
+				e.buf = append(e.buf, tagStateRepeat)
+				st.pairRecord(id, id)
+				return
+			}
 			e.emitStateRef(id)
 			return
 		}
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
-		// Pair predictor: a fresh intern is still a transition out
-		// of the previous state-ref; record it so future emissions
-		// of (prev → id) can elide via tagStatePair.
-		if e.state.lastValid {
-			e.state.pairRecord(e.state.lastID, id)
+		if st.lastID != lruInvalidID {
+			st.pairRecord(st.lastID, id)
 		}
-		e.state.lastID = id
-		e.state.lastValid = true
+		st.lastID = id
 		return
 	}
-	if e.state != nil {
-		// Inline emission of an uninterned scalar breaks the
-		// previous-state-ref invariant the Markov-0 predictor relies on.
-		e.state.lastValid = false
+	if st != nil {
+		st.lastID = lruInvalidID
 	}
 	e.writeStringInline(s)
 }
@@ -295,57 +297,56 @@ func (e *Encoder) WriteString(s string) {
 // (prev, id) transition in the pair predictor so the decoder's mirror
 // chain stays in sync.
 func (e *Encoder) emitStateRef(id uint32) {
-	if e.state.lastValid && e.state.lastID == id {
+	st := e.state
+	if st.lastID == id {
 		e.buf = append(e.buf, tagStateRepeat)
-		// id is already at LRU head from the previous emission;
-		// no reorder needed. lastID stays the same.
-		// Pair predictor: record self-transition so subsequent
-		// resolves (e.g. id, id, id) keep the ring coherent. This
-		// is harmless when the next ref is a Repeat too because
-		// the head slot is just refreshed.
-		e.state.pairRecord(id, id)
+		st.pairRecord(id, id)
 		return
 	}
-	// Pair predictor — only consult when we have a valid previous ID.
-	// uvarintLen(rank) is always 1 (ranks 0..3) so the cost is fixed
-	// at 2 bytes. We choose pair when 2 < uvarintLen(id) + 1.
-	prev := e.state.lastID
-	prevValid := e.state.lastValid
+	prev := st.lastID
+	prevValid := prev != lruInvalidID
+	// Small-id fast path: id<128 means the raw state-ref is already a
+	// 2-byte literal (tag + 1-byte varuint). Neither MTF (rank varuint
+	// ≥1 byte) nor Pair (rank varuint =1 byte) can be strictly shorter,
+	// so we write the raw form directly and skip the LRU walk entirely.
+	if id < 0x80 {
+		st.lruMoveFront(id)
+		e.buf = append(e.buf, tagStateRef, byte(id))
+		if prevValid {
+			st.pairRecord(prev, id)
+		}
+		st.lastID = id
+		return
+	}
+	// Pair predictor: when (prev, id) is in the predictor ring the
+	// payload is always a single byte (ranks 0..3), so the pair form
+	// is strictly shorter than the raw state-ref whenever id needs a
+	// multi-byte varuint — which the small-id branch above just
+	// excluded.
+	if prevValid {
+		if r, ok := st.pairLookup(prev, id); ok {
+			st.lruMoveFront(id)
+			e.buf = append(e.buf, tagStatePair, byte(r))
+			st.pairRecord(prev, id)
+			st.lastID = id
+			return
+		}
+	}
+	// MTF — fall back on raw if the rank varuint is not shorter than
+	// the id varuint.
 	idLen := uvarintLen(uint64(id))
-	bestTag := byte(tagStateRef)
-	bestPayload := idLen
-	bestPayloadVal := uint64(id)
-	if prevValid {
-		if pr, ok := e.state.pairLookup(prev, id); ok {
-			// rank ∈ [0..3] always 1-byte varuint.
-			if 1 < bestPayload {
-				bestTag = tagStatePair
-				bestPayload = 1
-				bestPayloadVal = uint64(pr)
-			}
-		}
-	}
-	// MTF rank is bounded by len(intern table). The rank varuint can
-	// only beat the raw id varuint when idLen > 1 (id ≥ 128). For
-	// small intern tables we skip the LRU walk entirely and just
-	// reorder the chain — saving an O(rank) scan on every ref.
-	if idLen > 1 {
-		rank := e.state.lruMoveToFront(id)
-		if rankLen := uvarintLen(uint64(rank)); rankLen < bestPayload {
-			bestTag = tagStateMTF
-			bestPayload = rankLen
-			bestPayloadVal = uint64(rank)
-		}
+	rank := st.lruMoveToFront(id)
+	if rankLen := uvarintLen(uint64(rank)); rankLen < idLen {
+		e.buf = append(e.buf, tagStateMTF)
+		e.buf = appendUvarint(e.buf, uint64(rank))
 	} else {
-		e.state.lruMoveFront(id)
+		e.buf = append(e.buf, tagStateRef)
+		e.buf = appendUvarint(e.buf, uint64(id))
 	}
-	e.buf = append(e.buf, bestTag)
-	e.buf = appendUvarint(e.buf, bestPayloadVal)
 	if prevValid {
-		e.state.pairRecord(prev, id)
+		st.pairRecord(prev, id)
 	}
-	e.state.lastID = id
-	e.state.lastValid = true
+	st.lastID = id
 }
 
 // WriteStringInline forces an in-line encoding even when Dense intern would
@@ -379,25 +380,30 @@ func (e *Encoder) writeStringInline(s string) {
 // string and a []byte with identical content share an ID.
 func (e *Encoder) WriteBytes(b []byte) {
 	e.writeHeader()
-	if e.state != nil && len(b) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
+	st := e.state
+	if st != nil && len(b) >= e.minIntern && len(st.ids) < e.maxStateEntries {
 		key := unsafestr.String(b)
-		id, ok := e.state.lookupOrAssign(key)
+		id, ok := st.lookupOrAssign(key)
 		if ok {
+			if st.lastID == id {
+				e.buf = append(e.buf, tagStateRepeat)
+				st.pairRecord(id, id)
+				return
+			}
 			e.emitStateRef(id)
 			return
 		}
 		e.buf = append(e.buf, tagInternBin)
 		e.buf = appendUvarint(e.buf, uint64(len(b)))
 		e.buf = append(e.buf, b...)
-		if e.state.lastValid {
-			e.state.pairRecord(e.state.lastID, id)
+		if st.lastID != lruInvalidID {
+			st.pairRecord(st.lastID, id)
 		}
-		e.state.lastID = id
-		e.state.lastValid = true
+		st.lastID = id
 		return
 	}
-	if e.state != nil {
-		e.state.lastValid = false
+	if st != nil {
+		st.lastID = lruInvalidID
 	}
 	e.writeBytesInline(b)
 }
@@ -453,17 +459,9 @@ func (e *Encoder) WriteTimestampNano(ns int64) {
 
 // ----- helpers -----
 
-func appendU16(b []byte, v uint16) []byte {
-	return append(b, byte(v), byte(v>>8))
-}
-func appendU32(b []byte, v uint32) []byte {
-	return append(b, byte(v), byte(v>>8), byte(v>>16), byte(v>>24))
-}
-func appendU64(b []byte, v uint64) []byte {
-	return append(b,
-		byte(v), byte(v>>8), byte(v>>16), byte(v>>24),
-		byte(v>>32), byte(v>>40), byte(v>>48), byte(v>>56))
-}
+func appendU16(b []byte, v uint16) []byte { return binary.LittleEndian.AppendUint16(b, v) }
+func appendU32(b []byte, v uint32) []byte { return binary.LittleEndian.AppendUint32(b, v) }
+func appendU64(b []byte, v uint64) []byte { return binary.LittleEndian.AppendUint64(b, v) }
 
 // appendString uses the runtime's append-string fast path to avoid the
 // implicit []byte(s) copy.

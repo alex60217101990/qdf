@@ -686,22 +686,27 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			e.buf = append(e.buf, tagMapShape)
 			e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
 			e.buf = appendUvarint(e.buf, uint64(n))
+			st := e.state
 			for i := range fields {
 				f := &fields[i]
-				if len(f.name) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
-					if id, ok := e.state.lookupOrAssign(f.name); ok {
-						e.emitStateRef(id)
+				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+					if id, ok := st.lookupOrAssign(f.name); ok {
+						if st.lastID == id {
+							e.buf = append(e.buf, tagStateRepeat)
+							st.pairRecord(id, id)
+						} else {
+							e.emitStateRef(id)
+						}
 					} else {
 						e.buf = append(e.buf, f.preInternStr...)
-						if e.state.lastValid {
-							e.state.pairRecord(e.state.lastID, id)
+						if st.lastID != lruInvalidID {
+							st.pairRecord(st.lastID, id)
 						}
-						e.state.lastID = id
-						e.state.lastValid = true
+						st.lastID = id
 					}
 				} else {
 					e.buf = append(e.buf, f.preFast...)
-					e.state.lastValid = false
+					st.lastID = lruInvalidID
 				}
 			}
 			for i := range fields {
@@ -805,7 +810,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					// when available (purely informational; we look up
 					// by name string anyway).
 					keys = append(keys, d.keyCache.Make(kb))
-					if d.state.lastValid {
+					if d.state.lastID != lruInvalidID {
 						sh.keyIDs = append(sh.keyIDs, d.state.lastID)
 					} else {
 						sh.keyIDs = append(sh.keyIDs, 0)
@@ -1000,7 +1005,7 @@ func decodeAny(d *Decoder) (any, error) {
 					return nil, err
 				}
 				sh.names = append(sh.names, d.keyCache.Make(kb))
-				if d.state.lastValid {
+				if d.state.lastID != lruInvalidID {
 					sh.keyIDs = append(sh.keyIDs, d.state.lastID)
 				} else {
 					sh.keyIDs = append(sh.keyIDs, 0)

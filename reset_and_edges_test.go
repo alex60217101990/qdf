@@ -42,12 +42,12 @@ func TestReset_EncoderInternTableCleared(t *testing.T) {
 func TestReset_EncoderMarkov0Cleared(t *testing.T) {
 	e := NewEncoder(Dense)
 	e.WriteString("token-aaa-bbb-ccc")
-	if !e.state.lastValid {
-		t.Fatal("lastValid not set after WriteString")
+	if e.state.lastID == lruInvalidID {
+		t.Fatal("lastID not set after WriteString")
 	}
 	e.Reset()
-	if e.state.lastValid {
-		t.Fatal("lastValid not cleared by Reset")
+	if e.state.lastID != lruInvalidID {
+		t.Fatal("lastID not cleared by Reset")
 	}
 }
 

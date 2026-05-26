@@ -36,11 +36,13 @@ type encShape struct {
 type encState struct {
 	ids map[string]uint32
 
-	// lastID and lastValid track the most-recently-emitted state-ref ID
-	// for the tagStateRepeat Markov-0 predictor: a state-ref equal to
-	// the immediately preceding emission is encoded as a single byte.
-	lastID    uint32
-	lastValid bool
+	// lastID tracks the most-recently-emitted state-ref ID for the
+	// tagStateRepeat Markov-0 predictor. lruInvalidID signals "no
+	// previous emission" (e.g. fresh stream or after an inline
+	// scalar emission that broke the chain). Valid IDs are bounded
+	// by maxStateEntries, well below the sentinel, so an integer
+	// compare with lastID is sufficient.
+	lastID uint32
 
 	// Move-to-front LRU over intern IDs. lruHead is the ID at rank 0
 	// (most recently emitted state-ref or freshly interned). prev/next
@@ -90,13 +92,13 @@ func newEncState() *encState {
 	return &encState{
 		ids:     make(map[string]uint32, 64),
 		lruHead: lruInvalidID,
+		lastID:  lruInvalidID,
 	}
 }
 
 func (e *encState) reset() {
 	clear(e.ids)
-	e.lastID = 0
-	e.lastValid = false
+	e.lastID = lruInvalidID
 	e.lruHead = lruInvalidID
 	e.lruPrev = e.lruPrev[:0]
 	e.lruNext = e.lruNext[:0]
@@ -342,10 +344,12 @@ type decShape struct {
 type decState struct {
 	values [][]byte
 
-	// Mirror of encState's lastID/lastValid. tagStateRepeat resolves to
-	// values[lastID] without consuming a varuint.
-	lastID    uint32
-	lastValid bool
+	// Mirror of encState's lastID. lruInvalidID marks "no previous
+	// state-ref emitted" (fresh stream or after an inline scalar
+	// broke the chain). Valid IDs are bounded by maxStateEntries on
+	// the encoder side, so the sentinel cannot collide with a real
+	// table position.
+	lastID uint32
 
 	// LRU mirror of encState's. Decoder maintains the same MTF chain
 	// the encoder did so tagStateMTF + rank resolves to the same ID.
@@ -366,13 +370,13 @@ func newDecState() *decState {
 	return &decState{
 		values:  make([][]byte, 0, 64),
 		lruHead: lruInvalidID,
+		lastID:  lruInvalidID,
 	}
 }
 
 func (d *decState) reset() {
 	d.values = d.values[:0]
-	d.lastID = 0
-	d.lastValid = false
+	d.lastID = lruInvalidID
 	d.lruHead = lruInvalidID
 	d.lruPrev = d.lruPrev[:0]
 	d.lruNext = d.lruNext[:0]
