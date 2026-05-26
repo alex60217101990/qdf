@@ -1,6 +1,11 @@
 package qdf
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/alex60217101990/qdf/internal/internarena"
+	"github.com/alex60217101990/qdf/internal/unsafestr"
+)
 
 // Intern table backing Dense mode. The encoder maintains a string→ID
 // map; the decoder maintains the matching ID-ordered list of byte
@@ -35,6 +40,20 @@ type encShape struct {
 
 type encState struct {
 	ids map[string]uint32
+
+	// arena owns the byte storage that backs every intern key the
+	// encoder allocates. Replaces per-key strings.Clone with a
+	// bump-pointer slab — see internal/internarena. The map keys
+	// stored above are aliases into arena chunks; on Reset we clear
+	// the map first, then the arena, so an aliased key is never
+	// read past its arena's life.
+	//
+	// Inlined by value (not *Arena) so encState creation does not
+	// pay a separate heap allocation for the Arena struct itself.
+	// The slab (chunks[0]) is still lazily allocated on first Put,
+	// so an OptSpeed / OptQPack encoder that never enters Dense
+	// stays slab-free.
+	arena internarena.Arena
 
 	// lastID tracks the most-recently-emitted state-ref ID for the
 	// tagStateRepeat Markov-0 predictor. lruInvalidID signals "no
@@ -89,6 +108,8 @@ type shapeBinding struct {
 const lruInvalidID = ^uint32(0)
 
 func newEncState() *encState {
+	// arena is zero-value initialised here — its slab is lazily
+	// allocated on first Put (see internarena.Arena.Put).
 	return &encState{
 		ids:     make(map[string]uint32, 64),
 		lruHead: lruInvalidID,
@@ -97,7 +118,12 @@ func newEncState() *encState {
 }
 
 func (e *encState) reset() {
+	// Order matters: clear the map before resetting the arena. Map
+	// keys alias arena bytes; the arena Reset rolls cursors back
+	// and the next Put overwrites the prior payload area, so any
+	// surviving aliased key would read garbage.
 	clear(e.ids)
+	e.arena.Reset()
 	e.lastID = lruInvalidID
 	e.lruHead = lruInvalidID
 	e.lruPrev = e.lruPrev[:0]
@@ -313,20 +339,34 @@ func (e *encState) lruMoveFront(id uint32) {
 	e.lruHead = id
 }
 
-// lookupOrAssign returns (id, hit). On a miss a fresh entry is installed
-// and (id, false) is returned; the caller is expected to emit an intern
-// record. The key is copied so the table is independent of the caller's
-// buffer.
+// lookupOrAssign returns (id, hit). On a miss a fresh entry is
+// installed and (id, false) is returned; the caller is expected to
+// emit an intern record. The key bytes are copied into the encState
+// arena so the table is independent of the caller's buffer.
+//
+// The map key is a string header that aliases the arena copy
+// (zero-copy via unsafestr.String). Map lookups still hash the key
+// bytes — there is no observable behavioural difference from
+// strings.Clone, only 1 fewer allocation per miss.
+//
+// For payloads longer than the arena's per-string limit
+// (internarena.MaxStringLen, 65 535 bytes), fall back to
+// strings.Clone. Such oversized intern attempts are not expected on
+// real workloads; the path exists so a hostile input cannot crash
+// the encoder.
 func (e *encState) lookupOrAssign(key string) (uint32, bool) {
 	if id, ok := e.ids[key]; ok {
 		return id, true
 	}
 	id := uint32(len(e.ids))
-	// strings.Clone allocates exactly one immutable backing array and
-	// returns a string header that aliases it. The previous
-	// `string(copyToBytes(key))` did the same work but paid for two
-	// allocations: a []byte buffer then a string copy of it.
-	e.ids[strings.Clone(key)] = id
+	var stored string
+	if len(key) <= internarena.MaxStringLen {
+		arenaID := e.arena.Put(key)
+		stored = unsafestr.String(e.arena.Get(arenaID))
+	} else {
+		stored = strings.Clone(key)
+	}
+	e.ids[stored] = id
 	e.lruAddFresh(id)
 	return id, false
 }
