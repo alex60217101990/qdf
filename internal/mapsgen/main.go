@@ -257,8 +257,8 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "\tif m == nil {\n\t\te.WriteNil()\n\t\treturn nil\n\t}\n")
 	fmt.Fprintf(buf, "\te.WriteMapHeader(len(m))\n")
 	fmt.Fprintf(buf, "\tfor k, v := range m {\n")
-	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.writeBlock("k"), "\t\t"))
-	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.writeBlock("v"), "\t\t"))
+	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.writeBlock("k")))
+	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.writeBlock("v")))
 	fmt.Fprintf(buf, "\t}\n\treturn nil\n}\n\n")
 
 	// decode
@@ -269,8 +269,8 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "\tif err := d.CheckLength(n, 2); err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tm := make(%s, n)\n", mapTy)
 	fmt.Fprintf(buf, "\tfor range n {\n")
-	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.readKey("k"), "\t\t"))
-	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.readBlock("v"), "\t\t"))
+	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.readKey("k")))
+	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.readBlock("v")))
 	fmt.Fprintf(buf, "\t\tm[k] = v\n")
 	fmt.Fprintf(buf, "\t}\n\t*(*%s)(p) = m\n\treturn nil\n}\n\n", mapTy)
 }
@@ -295,9 +295,10 @@ func emitDispatch(buf *bytes.Buffer) {
 }
 
 // indent reindents a multi-line snippet so the second and later
-// lines line up with the first. The first-line prefix is supplied by
-// the caller via fmt.Fprintf alignment.
-func indent(s, prefix string) string {
+// lines line up with the two-tab loop-body column. The first-line
+// prefix is supplied by the caller via fmt.Fprintf alignment.
+func indent(s string) string {
+	const prefix = "\t\t"
 	lines := strings.Split(s, "\n")
 	for i := 1; i < len(lines); i++ {
 		lines[i] = prefix + lines[i]
@@ -330,7 +331,7 @@ func main() {
 	}
 	root := filepath.Clean(filepath.Join(wd, "..", ".."))
 	out := filepath.Join(root, "maps_fast_generated.go")
-	if err := os.WriteFile(out, src, 0o644); err != nil {
+	if err := os.WriteFile(out, src, 0o600); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s (%d bytes, %d pairs)\n", out, len(src), len(pairs))

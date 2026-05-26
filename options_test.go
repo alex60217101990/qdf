@@ -31,13 +31,13 @@ type optsEvent struct {
 }
 
 type optsCombo struct {
-	Header  optsEvent  `qdf:"header"`
-	Address optsAddr   `qdf:"address"`
-	Repeats []string   `qdf:"repeats"`
-	Counts  []int64    `qdf:"counts"`
-	Floats  []float64  `qdf:"floats"`
-	Flags   []bool     `qdf:"flags"`
-	Bytes   []byte     `qdf:"bytes"`
+	Header  optsEvent         `qdf:"header"`
+	Address optsAddr          `qdf:"address"`
+	Repeats []string          `qdf:"repeats"`
+	Counts  []int64           `qdf:"counts"`
+	Floats  []float64         `qdf:"floats"`
+	Flags   []bool            `qdf:"flags"`
+	Bytes   []byte            `qdf:"bytes"`
 	Map     map[string]string `qdf:"map"`
 }
 
@@ -72,8 +72,8 @@ func optionsMatrix() []Options {
 }
 
 type optsDeep struct {
-	V int        `qdf:"v"`
-	N *optsDeep  `qdf:"n,omitempty"`
+	V int       `qdf:"v"`
+	N *optsDeep `qdf:"n,omitempty"`
 }
 
 type optsTimed struct {
@@ -388,7 +388,7 @@ func TestOptions_Has(t *testing.T) {
 		{OptBalanced, OptShapeIntern, true},
 		{OptBalanced, OptPairPred, true},
 		{OptCompression, OptMTF, true},
-		{all, OptDense | OptMTF, true}, // combined bit check
+		{all, OptDense | OptMTF, true},        // combined bit check
 		{OptDense, OptDense | OptQPack, true}, // partial overlap still hits
 	}
 	for _, c := range cases {
@@ -498,9 +498,9 @@ func TestOptions_CrossEncodeUnmarshal(t *testing.T) {
 // a full encode-then-decode through StreamDecoder.
 func TestOptions_StreamEncoderWithRoundTrip(t *testing.T) {
 	type item struct {
-		Service string `qdf:"service"`
-		Region  string `qdf:"region"`
-		Status  int    `qdf:"status"`
+		Service string   `qdf:"service"`
+		Region  string   `qdf:"region"`
+		Status  int      `qdf:"status"`
 		Tags    []string `qdf:"tags"`
 	}
 	items := make([]item, 12)

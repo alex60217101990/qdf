@@ -263,12 +263,12 @@ func TestValidity_UTF8(t *testing.T) {
 	// 4-byte UTF-8 sequences in the same blob.
 	corpus := []string{
 		"hello",
-		"привет",                 // Cyrillic, 2-byte each
-		"こんにちは",                  // Japanese, 3-byte each
-		"السلام عليكم",           // Arabic, 2-byte
-		"🌍🚀🎉",                    // emoji, 4-byte each
-		"​  hidden‮spaces",       // zero-width + LRO
-		strings.Repeat("Ω", 200), // 2-byte repeated
+		"привет",                     // Cyrillic, 2-byte each
+		"こんにちは",                      // Japanese, 3-byte each
+		"السلام عليكم",               // Arabic, 2-byte
+		"🌍🚀🎉",                        // emoji, 4-byte each
+		"\u200b  hidden\u202espaces", // zero-width + LRO (escaped, ST1018)
+		strings.Repeat("Ω", 200),     // 2-byte repeated
 	}
 	for _, s := range corpus {
 		if !utf8.ValidString(s) {
@@ -676,7 +676,6 @@ func TestValidity_FullOptsMatrix(t *testing.T) {
 
 	const allBits = OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
 	for mask := Options(0); mask <= allBits; mask++ {
-		mask := mask
 		t.Run(fmt.Sprintf("opts=%05b", mask), func(t *testing.T) {
 			b, err := Marshal(in, mask)
 			if err != nil {
@@ -759,7 +758,6 @@ func TestValidity_ReservedBitsAreNoOps(t *testing.T) {
 		// bits. Each must not change the wire when OR-ed onto an
 		// existing base.
 		for bit := uint(5); bit < 32; bit++ {
-			bit := bit
 			variant := base | (Options(1) << bit)
 			t.Run(fmt.Sprintf("base=%05b/bit=%d", base, bit), func(t *testing.T) {
 				got, err := Marshal(in, variant)

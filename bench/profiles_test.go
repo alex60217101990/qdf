@@ -124,7 +124,7 @@ func mkConfig() configRecord {
 	return configRecord{
 		Name: "service.config.v3",
 		Limits: map[string]int{
-			"rps":  1000, "concurrency": 64, "queue": 256,
+			"rps": 1000, "concurrency": 64, "queue": 256,
 			"retries": 3, "timeout_ms": 5000,
 		},
 		Routes: map[string]string{

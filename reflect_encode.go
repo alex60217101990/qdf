@@ -876,7 +876,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 				if err := d.CheckLength(cnt, 1); err != nil {
 					return err
 				}
-				sh, _ := d.state.shapeDeclare()
+				sh := d.state.shapeDeclare()
 				sh.keyIDs = make([]uint32, 0, cnt)
 				keys := make([]string, 0, cnt)
 				for range cnt {
@@ -1077,7 +1077,7 @@ func decodeAny(d *Decoder) (any, error) {
 			if err := d.CheckLength(cnt, 1); err != nil {
 				return nil, err
 			}
-			sh, _ := d.state.shapeDeclare()
+			sh := d.state.shapeDeclare()
 			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
 			for range cnt {

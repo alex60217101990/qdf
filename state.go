@@ -35,16 +35,6 @@ const pairPredK = 1
 // stable case.
 const pairPredEmpty uint32 = 0
 
-// encShape stores a struct/map shape known by both encoder and decoder.
-// keys are the wire-bytes of the field names (alias into encoder buffer
-// is fine for the encoder side; decoder copies into shapeKeyBuf).
-type encShape struct {
-	// keys is the ordered list of intern-IDs of the field names. We
-	// compare by the concatenated intern-IDs so two structs with the
-	// SAME ordered key set share a shape regardless of identity.
-	keys []uint32
-}
-
 type encState struct {
 	ids map[string]uint32
 
@@ -97,7 +87,14 @@ type encState struct {
 	// shape lookup so a run of identical-type struct emits (the
 	// common "array of T" case) is a one-pointer compare per record
 	// instead of a slice scan.
-	shapes        []encShape
+	//
+	// shapeCount is the running total of declared shape IDs. The
+	// encoder hands out IDs in sequence and only needs the count to
+	// stay aligned with the decoder; we used to keep a []encShape
+	// slice here too, but its only consumer was a now-removed
+	// shapeAssign() and the type carried no live data once the
+	// typeDesc-keyed shapeBindings replaced ordered-key matching.
+	shapeCount    uint32
 	shapeBindings []shapeBinding
 	lastShapeTd   *typeDesc
 	lastShapeID   uint32
@@ -177,11 +174,7 @@ func (e *encState) reset() {
 		clear(e.pairPred)
 	}
 
-	if cap(e.shapes) > maxRetainedShapeCap {
-		e.shapes = nil
-	} else {
-		e.shapes = e.shapes[:0]
-	}
+	e.shapeCount = 0
 	if cap(e.shapeBindings) > maxRetainedShapeCap {
 		e.shapeBindings = nil
 	} else {
@@ -216,28 +209,25 @@ func (e *encState) shapeBindType(t *typeDesc, id uint32) {
 	e.lastShapeID = id
 }
 
-// shapeDeclare reserves the next sequential wire ID and returns it.
-// Caller emits the keys on the wire; this side only tracks the count
-// to keep IDs aligned with the decoder.
+// shapeDeclareEnc reserves the next sequential wire ID and returns
+// it. Caller emits the keys on the wire; this side only tracks the
+// count to keep IDs aligned with the decoder.
 func (e *encState) shapeDeclareEnc() uint32 {
-	e.shapes = append(e.shapes, encShape{})
-	return uint32(len(e.shapes))
+	e.shapeCount++
+	return e.shapeCount
 }
 
 // pairLookup reports whether the top-1 predicted successor of prev
-// is curr. The first return value is always 0 (rank stays in the
-// wire format for compatibility with the K>1 history) and the second
-// is the hit flag.
+// is curr. The wire emits a rank byte after tagStatePair that is
+// always 0 in the top-1 design — callers hand-write the literal
+// instead of consuming a rank return value.
 //
 //go:nosplit
-func (e *encState) pairLookup(prev, curr uint32) (uint8, bool) {
+func (e *encState) pairLookup(prev, curr uint32) bool {
 	if int(prev) >= len(e.pairPred) {
-		return 0, false
+		return false
 	}
-	if e.pairPred[prev] == curr+1 {
-		return 0, true
-	}
-	return 0, false
+	return e.pairPred[prev] == curr+1
 }
 
 // pairEnsure grows the predictor slice so prev is a valid index. New
@@ -259,35 +249,6 @@ func (e *encState) pairEnsure(prev uint32) {
 func (e *encState) pairRecord(prev, curr uint32) {
 	e.pairEnsure(prev)
 	e.pairPred[prev] = curr + 1
-}
-
-// shapeAssign returns (id, hit). On a miss the encState installs a new
-// shape with the next sequential ID (≥ 1) and returns (id, false). The
-// keys slice is copied to detach it from the caller's storage.
-func (e *encState) shapeAssign(keys []uint32) (uint32, bool) {
-	// Linear scan keyed on length-then-equality. shape tables stay
-	// small in practice (one entry per distinct struct type emitted),
-	// so the O(N*K) cost is dwarfed by the encode budget. A hash map
-	// is overkill until benches say otherwise.
-	for i := range e.shapes {
-		if len(e.shapes[i].keys) != len(keys) {
-			continue
-		}
-		match := true
-		for j := range keys {
-			if e.shapes[i].keys[j] != keys[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return uint32(i + 1), true
-		}
-	}
-	cp := make([]uint32, len(keys))
-	copy(cp, keys)
-	e.shapes = append(e.shapes, encShape{keys: cp})
-	return uint32(len(e.shapes)), false
 }
 
 // lruAddFresh inserts a brand-new ID (just assigned) at the head of
@@ -495,11 +456,12 @@ func (d *decState) pairRecord(prev, curr uint32) {
 }
 
 // shapeDeclare appends a new shape with the next sequential wire ID
-// and returns that ID (≥ 1). Caller must populate KeyIDs in the
-// returned slot.
-func (d *decState) shapeDeclare() (*decShape, uint32) {
+// and returns a pointer to its slot. The wire ID equals
+// len(d.shapes) after the append; callers do not need it returned
+// because the encoder hands shape IDs out in the same order.
+func (d *decState) shapeDeclare() *decShape {
 	d.shapes = append(d.shapes, decShape{})
-	return &d.shapes[len(d.shapes)-1], uint32(len(d.shapes))
+	return &d.shapes[len(d.shapes)-1]
 }
 
 // shapeLookup returns the shape with the given wire ID (≥ 1). nil

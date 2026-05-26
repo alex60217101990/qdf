@@ -830,7 +830,7 @@ func (d *Decoder) Skip() error {
 				return err
 			}
 			cnt = int(cnt64)
-			sh, _ := d.state.shapeDeclare()
+			sh := d.state.shapeDeclare()
 			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
 			for i := 0; i < cnt; i++ {

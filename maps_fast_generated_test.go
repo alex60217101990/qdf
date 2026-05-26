@@ -45,59 +45,59 @@ func mapRoundTrip(t *testing.T, in any) {
 }
 
 func TestMapFast_StringString(t *testing.T) {
-	mapRoundTrip(t,map[string]string{"a": "1", "b": "two", "c": ""})
+	mapRoundTrip(t, map[string]string{"a": "1", "b": "two", "c": ""})
 }
 
 func TestMapFast_StringBool(t *testing.T) {
-	mapRoundTrip(t,map[string]bool{"on": true, "off": false})
+	mapRoundTrip(t, map[string]bool{"on": true, "off": false})
 }
 
 func TestMapFast_StringInt8(t *testing.T) {
-	mapRoundTrip(t,map[string]int8{"a": -1, "b": 0, "c": 127, "d": -128})
+	mapRoundTrip(t, map[string]int8{"a": -1, "b": 0, "c": 127, "d": -128})
 }
 
 func TestMapFast_StringInt16(t *testing.T) {
-	mapRoundTrip(t,map[string]int16{"a": -32768, "b": 0, "c": 32767})
+	mapRoundTrip(t, map[string]int16{"a": -32768, "b": 0, "c": 32767})
 }
 
 func TestMapFast_StringInt32(t *testing.T) {
-	mapRoundTrip(t,map[string]int32{"a": -2147483648, "b": 0, "c": 2147483647})
+	mapRoundTrip(t, map[string]int32{"a": -2147483648, "b": 0, "c": 2147483647})
 }
 
 func TestMapFast_StringInt(t *testing.T) {
-	mapRoundTrip(t,map[string]int{"a": -1, "b": 0, "c": 1 << 20})
+	mapRoundTrip(t, map[string]int{"a": -1, "b": 0, "c": 1 << 20})
 }
 
 func TestMapFast_StringInt64(t *testing.T) {
-	mapRoundTrip(t,map[string]int64{"a": -1 << 40, "b": 0, "c": 1 << 40})
+	mapRoundTrip(t, map[string]int64{"a": -1 << 40, "b": 0, "c": 1 << 40})
 }
 
 func TestMapFast_StringUint8(t *testing.T) {
-	mapRoundTrip(t,map[string]uint8{"a": 0, "b": 255})
+	mapRoundTrip(t, map[string]uint8{"a": 0, "b": 255})
 }
 
 func TestMapFast_StringUint16(t *testing.T) {
-	mapRoundTrip(t,map[string]uint16{"a": 0, "b": 65535})
+	mapRoundTrip(t, map[string]uint16{"a": 0, "b": 65535})
 }
 
 func TestMapFast_StringUint32(t *testing.T) {
-	mapRoundTrip(t,map[string]uint32{"a": 0, "b": 1 << 31})
+	mapRoundTrip(t, map[string]uint32{"a": 0, "b": 1 << 31})
 }
 
 func TestMapFast_StringUint(t *testing.T) {
-	mapRoundTrip(t,map[string]uint{"a": 0, "b": 1 << 20})
+	mapRoundTrip(t, map[string]uint{"a": 0, "b": 1 << 20})
 }
 
 func TestMapFast_StringUint64(t *testing.T) {
-	mapRoundTrip(t,map[string]uint64{"a": 0, "b": 1 << 60})
+	mapRoundTrip(t, map[string]uint64{"a": 0, "b": 1 << 60})
 }
 
 func TestMapFast_StringFloat32(t *testing.T) {
-	mapRoundTrip(t,map[string]float32{"a": 0, "b": 3.14, "c": -1.5})
+	mapRoundTrip(t, map[string]float32{"a": 0, "b": 3.14, "c": -1.5})
 }
 
 func TestMapFast_StringFloat64(t *testing.T) {
-	mapRoundTrip(t,map[string]float64{"a": 0, "b": 3.141592653589793, "c": -1.5})
+	mapRoundTrip(t, map[string]float64{"a": 0, "b": 3.141592653589793, "c": -1.5})
 }
 
 func TestMapFast_StringBytes(t *testing.T) {
@@ -125,7 +125,7 @@ func TestMapFast_StringBytes(t *testing.T) {
 }
 
 func TestMapFast_StringStringSlice(t *testing.T) {
-	mapRoundTrip(t,map[string][]string{
+	mapRoundTrip(t, map[string][]string{
 		"tags":   {"red", "blue", "green"},
 		"empty":  {},
 		"single": {"only"},
@@ -156,15 +156,15 @@ func TestMapFast_StringAny(t *testing.T) {
 }
 
 func TestMapFast_IntString(t *testing.T) {
-	mapRoundTrip(t,map[int]string{1: "one", 2: "two", -5: "neg"})
+	mapRoundTrip(t, map[int]string{1: "one", 2: "two", -5: "neg"})
 }
 
 func TestMapFast_IntInt(t *testing.T) {
-	mapRoundTrip(t,map[int]int{1: 100, 2: 200, -3: -300})
+	mapRoundTrip(t, map[int]int{1: 100, 2: 200, -3: -300})
 }
 
 func TestMapFast_IntInt64(t *testing.T) {
-	mapRoundTrip(t,map[int]int64{1: 1 << 40, 2: -1 << 40})
+	mapRoundTrip(t, map[int]int64{1: 1 << 40, 2: -1 << 40})
 }
 
 func TestMapFast_IntAny(t *testing.T) {
@@ -183,11 +183,11 @@ func TestMapFast_IntAny(t *testing.T) {
 }
 
 func TestMapFast_Int64String(t *testing.T) {
-	mapRoundTrip(t,map[int64]string{1 << 40: "big", -1 << 40: "neg"})
+	mapRoundTrip(t, map[int64]string{1 << 40: "big", -1 << 40: "neg"})
 }
 
 func TestMapFast_Int64Int64(t *testing.T) {
-	mapRoundTrip(t,map[int64]int64{1: 1 << 40, 2: -1 << 40})
+	mapRoundTrip(t, map[int64]int64{1: 1 << 40, 2: -1 << 40})
 }
 
 func TestMapFast_Int64Any(t *testing.T) {
@@ -206,11 +206,11 @@ func TestMapFast_Int64Any(t *testing.T) {
 }
 
 func TestMapFast_Uint64String(t *testing.T) {
-	mapRoundTrip(t,map[uint64]string{1 << 60: "huge", 0: "zero"})
+	mapRoundTrip(t, map[uint64]string{1 << 60: "huge", 0: "zero"})
 }
 
 func TestMapFast_Uint64Uint64(t *testing.T) {
-	mapRoundTrip(t,map[uint64]uint64{1: 1 << 60, 2: 0})
+	mapRoundTrip(t, map[uint64]uint64{1: 1 << 60, 2: 0})
 }
 
 func TestMapFast_Uint64Any(t *testing.T) {
@@ -359,5 +359,5 @@ func TestMapFast_DispatchFallthrough(t *testing.T) {
 	}
 	// Reflect path still handles it correctly.
 	in := map[float64]string{1.5: "a", 2.5: "b"}
-	mapRoundTrip(t,in)
+	mapRoundTrip(t, in)
 }

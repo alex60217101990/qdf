@@ -77,34 +77,34 @@ func TestStatePair_AlternatingRunFires(t *testing.T) {
 func TestStatePair_Top1Semantics(t *testing.T) {
 	st := newEncState()
 	const (
-		prev = uint32(7)
+		prev  = uint32(7)
 		succA = uint32(11)
 		succB = uint32(22)
 	)
 	// Empty slot: miss.
-	if _, ok := st.pairLookup(prev, succA); ok {
+	if st.pairLookup(prev, succA) {
 		t.Fatal("empty slot must miss")
 	}
 	st.pairRecord(prev, succA)
-	if r, ok := st.pairLookup(prev, succA); !ok || r != 0 {
-		t.Fatalf("hit on recorded successor: rank=%d ok=%v", r, ok)
+	if !st.pairLookup(prev, succA) {
+		t.Fatal("hit on recorded successor")
 	}
-	if _, ok := st.pairLookup(prev, succB); ok {
+	if st.pairLookup(prev, succB) {
 		t.Fatal("non-matching successor must miss")
 	}
 	// Overwrite: the prior successor is no longer remembered.
 	st.pairRecord(prev, succB)
-	if _, ok := st.pairLookup(prev, succA); ok {
+	if st.pairLookup(prev, succA) {
 		t.Fatal("overwrite must drop the previous successor")
 	}
-	if r, ok := st.pairLookup(prev, succB); !ok || r != 0 {
-		t.Fatalf("hit on overwritten successor: rank=%d ok=%v", r, ok)
+	if !st.pairLookup(prev, succB) {
+		t.Fatal("hit on overwritten successor")
 	}
 	// Predicting succ==0 must work — the +1 storage shift keeps 0 a
 	// valid successor distinguishable from the empty sentinel.
 	const prev2 = uint32(99)
 	st.pairRecord(prev2, 0)
-	if _, ok := st.pairLookup(prev2, 0); !ok {
+	if !st.pairLookup(prev2, 0) {
 		t.Fatal("succ==0 must be a valid stored value (not aliased with empty)")
 	}
 }
@@ -252,7 +252,7 @@ func TestStatePair_RingEvictsBeyondK(t *testing.T) {
 	// eviction.
 	dec := NewDecoderOnBuf(enc.buf)
 	exp := append([]string{}, keys[1:]...) // copy
-	full := []string{}
+	full := make([]string, 0, 2*(len(keys)-1)+2)
 	for range keys[1:] {
 		full = append(full, keys[0], "?")
 	}

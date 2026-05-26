@@ -382,9 +382,11 @@ func (e *Encoder) emitStateRef(id uint32) {
 	// multi-byte varuint — which the small-id branch above just
 	// excluded.
 	if prevValid && pairOn {
-		if r, ok := st.pairLookup(prev, id); ok {
+		if st.pairLookup(prev, id) {
 			st.lruMoveFront(id)
-			e.buf = append(e.buf, tagStatePair, byte(r))
+			// Top-1 predictor: rank is always 0 (see encState.pairLookup
+			// comment), so the rank byte is a hard-coded literal here.
+			e.buf = append(e.buf, tagStatePair, 0)
 			st.pairRecord(prev, id)
 			st.lastID = id
 			return
