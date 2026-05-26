@@ -116,7 +116,7 @@ func TestShrink_DecStateDropsValuesOverCap(t *testing.T) {
 	// slice exceeds maxRetainedIDs in capacity, mirroring what the
 	// decoder does when reading a stream with many interned items.
 	for i := range maxRetainedIDs + 64 {
-		d.append([]byte(fmt.Sprintf("dec-val-%05d", i)))
+		d.append(fmt.Appendf(nil, "dec-val-%05d", i))
 	}
 	if cap(d.values) <= maxRetainedIDs {
 		t.Fatalf("test premise: values cap should exceed %d, got %d",
