@@ -6,13 +6,15 @@ import (
 	"testing"
 )
 
-// Markov-1 pair predictor (tagStatePair, 0xEA): given the most recent
-// emitted state-ref ID, the encoder remembers up to pairPredK most
-// recent successors. When the next ID is in that ring, it is encoded
-// as 0xEA + varuint(rank) instead of the raw state-ref. These tests
-// verify the predictor fires on the A→B→A→B alternation that Markov-0
-// alone cannot catch, that it round-trips, and that it never grows
-// the wire on adversarial / random data.
+// Markov-1 pair predictor (tagStatePair, 0xEA): the encoder
+// remembers the most recent successor of every prev intern ID. When
+// the next emission matches that prediction, it is encoded as 0xEA
+// + varuint(0) instead of the raw state-ref (a wire saving on
+// multi-byte ids). The storage is top-1 only — the previous K=4
+// ring was traded for a 4 ×-smaller in-memory footprint. These tests
+// verify the predictor fires on stable transitions, that it
+// round-trips, and that it never grows the wire on adversarial /
+// random data.
 
 func TestStatePair_AlternatingRunFires(t *testing.T) {
 	// The "strictly shorter" rule means tagStatePair only wins when
@@ -64,6 +66,111 @@ func TestStatePair_AlternatingRunFires(t *testing.T) {
 		}
 		if got != want {
 			t.Fatalf("[%d] got %q want %q", i, got, want)
+		}
+	}
+}
+
+// Top-1 contract: pairLookup hits when the recorded successor equals
+// the queried one, misses otherwise. pairRecord always overwrites.
+// Exercise encState / decState directly so the test does not depend
+// on the encoder's emit decisions.
+func TestStatePair_Top1Semantics(t *testing.T) {
+	st := newEncState()
+	const (
+		prev = uint32(7)
+		succA = uint32(11)
+		succB = uint32(22)
+	)
+	// Empty slot: miss.
+	if _, ok := st.pairLookup(prev, succA); ok {
+		t.Fatal("empty slot must miss")
+	}
+	st.pairRecord(prev, succA)
+	if r, ok := st.pairLookup(prev, succA); !ok || r != 0 {
+		t.Fatalf("hit on recorded successor: rank=%d ok=%v", r, ok)
+	}
+	if _, ok := st.pairLookup(prev, succB); ok {
+		t.Fatal("non-matching successor must miss")
+	}
+	// Overwrite: the prior successor is no longer remembered.
+	st.pairRecord(prev, succB)
+	if _, ok := st.pairLookup(prev, succA); ok {
+		t.Fatal("overwrite must drop the previous successor")
+	}
+	if r, ok := st.pairLookup(prev, succB); !ok || r != 0 {
+		t.Fatalf("hit on overwritten successor: rank=%d ok=%v", r, ok)
+	}
+	// Predicting succ==0 must work — the +1 storage shift keeps 0 a
+	// valid successor distinguishable from the empty sentinel.
+	const prev2 = uint32(99)
+	st.pairRecord(prev2, 0)
+	if _, ok := st.pairLookup(prev2, 0); !ok {
+		t.Fatal("succ==0 must be a valid stored value (not aliased with empty)")
+	}
+}
+
+// Decoder mirror must produce the same prediction.
+func TestStatePair_Top1DecoderMirror(t *testing.T) {
+	d := newDecState()
+	const (
+		prev = uint32(3)
+		succ = uint32(42)
+	)
+	if _, ok := d.pairAtRank(prev, 0); ok {
+		t.Fatal("empty slot must miss")
+	}
+	d.pairRecord(prev, succ)
+	got, ok := d.pairAtRank(prev, 0)
+	if !ok || got != succ {
+		t.Fatalf("decoder mirror miss: got=%d ok=%v want %d", got, ok, succ)
+	}
+	// rank > 0 is rejected as malformed regardless of slot state.
+	if _, ok := d.pairAtRank(prev, 1); ok {
+		t.Fatal("rank>0 must be rejected")
+	}
+}
+
+// Stable transition (A→B repeatedly) keeps hitting the predictor.
+func TestStatePair_StableTransitionHits(t *testing.T) {
+	enc := NewEncoder(Dense)
+	for i := range 130 {
+		enc.WriteString("filler-#" + itoa(i))
+	}
+	a, b := "alpha-large-id", "beta-large-id"
+	enc.WriteString(a)
+	enc.WriteString(b)
+	// A→B→A→B→A→B (6 emits). The first A and B prime the chain; from
+	// the second pair on each emission has the predictor seeded with
+	// the matching prev→curr transition, so every emission after the
+	// first AB pair fires tagStatePair.
+	in := []string{a, b, a, b, a, b}
+	for _, s := range in {
+		enc.WriteString(s)
+	}
+	hits := 0
+	for _, x := range enc.buf {
+		if x == tagStatePair {
+			hits++
+		}
+	}
+	if hits < 4 {
+		t.Fatalf("top-1 must catch ≥4 stable-transition hits, got %d", hits)
+	}
+	// Round-trip.
+	dec := NewDecoderOnBuf(enc.buf)
+	for range 130 {
+		if _, err := dec.ReadString(); err != nil {
+			t.Fatalf("filler decode: %v", err)
+		}
+	}
+	want := append([]string{a, b}, in...)
+	for i, w := range want {
+		got, err := dec.ReadString()
+		if err != nil {
+			t.Fatalf("[%d] decode: %v", i, err)
+		}
+		if got != w {
+			t.Fatalf("[%d] got %q want %q", i, got, w)
 		}
 	}
 }
@@ -120,9 +227,12 @@ func TestStatePair_NoRegressionOnRandomData(t *testing.T) {
 }
 
 func TestStatePair_RingEvictsBeyondK(t *testing.T) {
-	// Cycle of 8 distinct successors of A. With pairPredK=4 the ring
-	// can only remember 4 at a time, so the predictor eventually
-	// misses on the evicted entries.
+	// Cycle of 8 distinct successors of A. With top-1 storage the
+	// predictor remembers only the most recent successor, so a revisit
+	// of an earlier successor MUST miss the predictor and fall through
+	// to the raw state-ref / MTF encoding. The test asserts round-trip
+	// correctness through that path — the encoder must still produce a
+	// stream the decoder can replay even when no pair-prediction hits.
 	keys := []string{
 		"anchor-key-AAA", // prev anchor
 		"succ-key-001", "succ-key-002", "succ-key-003", "succ-key-004",
@@ -134,8 +244,7 @@ func TestStatePair_RingEvictsBeyondK(t *testing.T) {
 		enc.WriteString(keys[0])
 		enc.WriteString(s)
 	}
-	// Now revisit the OLDEST successor — it should have been evicted
-	// from the ring (pairPredK=4 keeps only the 4 most recent).
+	// Now revisit the OLDEST successor — top-1 has long forgotten it.
 	enc.WriteString(keys[0])
 	enc.WriteString(keys[1])
 

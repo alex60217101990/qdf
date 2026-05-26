@@ -12,21 +12,28 @@ import (
 // slices. IDs are assigned in encode order starting at 0. There is no
 // eviction — callers bound lifetime by resetting or recycling.
 
-// pairPredK is the ring size of the per-prev-ID successor predictor
-// backing tagStatePair. K=4 keeps the linear scan cheap and the rank
-// always fits in a single varuint byte (ranks 0..3).
-const pairPredK = 4
+// pairPredK is the wire bound on the rank varuint emitted after
+// tagStatePair. The current predictor stores top-1 only (K=1) so a
+// hit always emits rank=0 and the decoder rejects any rank ≥ 1 as
+// malformed. The constant stays around so the wire-side validation
+// reads the same on both sides.
+const pairPredK = 1
 
-// pairRing remembers up to pairPredK most-recent successor IDs that
-// followed a particular prev ID. items[0] is most-recent; entries past
-// n are unused. Updates are O(K) (small linear shift); lookup is O(K).
-// The ring is stored contiguously in a slice indexed by prev ID so
-// the predictor adds zero per-call heap allocations once the encoder
-// has warmed up (Reset only zeros the `n` field, retaining capacity).
-type pairRing struct {
-	items [pairPredK]uint32
-	n     uint8
-}
+// Pair predictor storage: []uint32 indexed by prev intern ID. The
+// stored value is `succ+1` so an empty slot is zero, which lets
+// reset() use the runtime `clear()` builtin (a memclr) instead of a
+// per-element loop. Sentinel choice trades 1 bit of representable
+// range we never use (max intern id ≤ maxStateEntries < ^uint32(0)-1)
+// for a cleaner reset path.
+//
+// Top-1 vs the previous K=4 ring: 4 bytes per slot down from 17, so
+// at default maxStateEntries=16384 the predictor's residual capacity
+// drops from ~280 KiB to 64 KiB per encoder (-77 %). Hit rate on
+// strictly cyclic workloads (A→{B,C,D,E,B,C,…}) falls to zero, but
+// on the common stable-transition case (A→B→A→B) top-1 catches every
+// hit the ring did. Real telemetry workloads sit close to the
+// stable case.
+const pairPredEmpty uint32 = 0
 
 // encShape stores a struct/map shape known by both encoder and decoder.
 // keys are the wire-bytes of the field names (alias into encoder buffer
@@ -72,13 +79,12 @@ type encState struct {
 	lruPrev []uint32
 	lruNext []uint32
 
-	// Pair predictor: for each "prev" state-ref ID, remember the last
-	// pairPredK successors. A hit emits tagStatePair + varuint(rank).
-	// Slice indexed by prev ID. A ring with n==0 is uninitialised;
-	// once we add the first successor n becomes ≥1 and never returns
-	// to 0 until Reset, so n is a sufficient "has-entry" predicate
-	// without a parallel bool slice.
-	pairPred []pairRing
+	// Pair predictor: top-1 successor per prev intern ID. Slot stores
+	// `succ+1` so zero = empty; this keeps Reset() on a memclr fast
+	// path while preserving the ability to predict succ==0 cleanly.
+	// See the pairPredEmpty / pairPredK constants and the
+	// pairLookup / pairRecord methods for the lookup contract.
+	pairPred []uint32
 
 	// Shape table for tagMapShape. shapes is indexed by id-1 (id 0 is
 	// reserved on the wire to mean "declare"). shapeBindings is a
@@ -162,15 +168,13 @@ func (e *encState) reset() {
 		e.lruNext = e.lruNext[:0]
 	}
 
-	// pairPred slice: clear in place if under the cap, drop the
-	// backing array if it has grown above it. Zero the "n" field
-	// on the warm path so the ring slots stay reusable.
+	// pairPred slice: clear in place if under the cap (memclr-fast
+	// because the empty sentinel is zero), drop the backing array
+	// otherwise.
 	if cap(e.pairPred) > maxRetainedPairCap {
 		e.pairPred = nil
 	} else {
-		for i := range e.pairPred {
-			e.pairPred[i].n = 0
-		}
+		clear(e.pairPred)
 	}
 
 	if cap(e.shapes) > maxRetainedShapeCap {
@@ -220,75 +224,41 @@ func (e *encState) shapeDeclareEnc() uint32 {
 	return uint32(len(e.shapes))
 }
 
-// pairLookup returns the rank (0..pairPredK-1) of curr in the ring of
-// successors for prev, or (0, false) if not present. The ring is NOT
-// updated by this call; the caller must invoke pairRecord after the
-// emission decision is final.
+// pairLookup reports whether the top-1 predicted successor of prev
+// is curr. The first return value is always 0 (rank stays in the
+// wire format for compatibility with the K>1 history) and the second
+// is the hit flag.
 //
 //go:nosplit
 func (e *encState) pairLookup(prev, curr uint32) (uint8, bool) {
 	if int(prev) >= len(e.pairPred) {
 		return 0, false
 	}
-	r := &e.pairPred[prev]
-	if r.n == 0 {
-		return 0, false
-	}
-	if r.items[0] == curr {
+	if e.pairPred[prev] == curr+1 {
 		return 0, true
-	}
-	for i := uint8(1); i < r.n; i++ {
-		if r.items[i] == curr {
-			return i, true
-		}
 	}
 	return 0, false
 }
 
-// pairEnsure grows the predictor slice so prev is a valid index.
+// pairEnsure grows the predictor slice so prev is a valid index. New
+// slots default to pairPredEmpty (zero) via the runtime's append
+// zero-fill — no extra initialisation needed.
 //
 //go:nosplit
 func (e *encState) pairEnsure(prev uint32) {
 	for uint32(len(e.pairPred)) <= prev {
-		e.pairPred = append(e.pairPred, pairRing{})
+		e.pairPred = append(e.pairPred, pairPredEmpty)
 	}
 }
 
-// pairRecord installs curr at the head of prev's successor ring.
-// Existing curr (if any) is moved up to head; new entries push older
-// ones down and the oldest is evicted past pairPredK.
+// pairRecord installs curr as the top-1 successor of prev. Always
+// overwrites — the predictor remembers the most recent transition
+// only.
+//
+//go:nosplit
 func (e *encState) pairRecord(prev, curr uint32) {
 	e.pairEnsure(prev)
-	r := &e.pairPred[prev]
-	if r.n == 0 {
-		r.items[0] = curr
-		r.n = 1
-		return
-	}
-	idx := uint8(255)
-	for i := uint8(0); i < r.n; i++ {
-		if r.items[i] == curr {
-			idx = i
-			break
-		}
-	}
-	if idx == 0 {
-		return
-	}
-	if idx == 255 {
-		if r.n < pairPredK {
-			r.n++
-		}
-		for i := r.n - 1; i > 0; i-- {
-			r.items[i] = r.items[i-1]
-		}
-		r.items[0] = curr
-		return
-	}
-	for i := idx; i > 0; i-- {
-		r.items[i] = r.items[i-1]
-	}
-	r.items[0] = curr
+	e.pairPred[prev] = curr + 1
 }
 
 // shapeAssign returns (id, hit). On a miss the encState installs a new
@@ -444,10 +414,11 @@ type decState struct {
 	lruPrev []uint32
 	lruNext []uint32
 
-	// Pair predictor mirror. Same shape and update rules as encState's
-	// version so a tagStatePair + rank resolves to the same ID. Slice
-	// storage matches the encoder side; n==0 marks an unused slot.
-	pairPred []pairRing
+	// Pair predictor mirror. See encState.pairPred for the storage
+	// layout (succ+1 packed into a uint32, 0 = empty). The decoder
+	// only ever reads rank 0; any rank ≥ pairPredK on the wire is
+	// rejected upstream as malformed.
+	pairPred []uint32
 
 	// Shape table mirror. shapes[i] is the shape with wire-ID i+1.
 	shapes []decShape
@@ -482,9 +453,7 @@ func (d *decState) reset() {
 	if cap(d.pairPred) > maxRetainedPairCap {
 		d.pairPred = nil
 	} else {
-		for i := range d.pairPred {
-			d.pairPred[i].n = 0
-		}
+		clear(d.pairPred)
 	}
 	if cap(d.shapes) > maxRetainedShapeCap {
 		d.shapes = nil
@@ -493,61 +462,36 @@ func (d *decState) reset() {
 	}
 }
 
-// pairAtRank returns the ID at the given rank in prev's successor
-// ring. ok=false signals a malformed stream.
+// pairAtRank returns the predicted successor of prev. With top-1
+// storage the only valid wire rank is 0; any rank ≥ pairPredK was
+// already rejected upstream. ok=false marks an empty slot.
 //
 //go:nosplit
 func (d *decState) pairAtRank(prev uint32, rank uint8) (uint32, bool) {
-	if int(prev) >= len(d.pairPred) {
+	if int(prev) >= len(d.pairPred) || rank != 0 {
 		return 0, false
 	}
-	r := &d.pairPred[prev]
-	if r.n == 0 || rank >= r.n {
+	v := d.pairPred[prev]
+	if v == pairPredEmpty {
 		return 0, false
 	}
-	return r.items[rank], true
+	return v - 1, true
 }
 
 //go:nosplit
 func (d *decState) pairEnsure(prev uint32) {
 	for uint32(len(d.pairPred)) <= prev {
-		d.pairPred = append(d.pairPred, pairRing{})
+		d.pairPred = append(d.pairPred, pairPredEmpty)
 	}
 }
 
-// pairRecord mirrors encState.pairRecord exactly.
+// pairRecord mirrors encState.pairRecord exactly. Overwrites the
+// stored successor — top-1 keeps only the most recent transition.
+//
+//go:nosplit
 func (d *decState) pairRecord(prev, curr uint32) {
 	d.pairEnsure(prev)
-	r := &d.pairPred[prev]
-	if r.n == 0 {
-		r.items[0] = curr
-		r.n = 1
-		return
-	}
-	idx := uint8(255)
-	for i := uint8(0); i < r.n; i++ {
-		if r.items[i] == curr {
-			idx = i
-			break
-		}
-	}
-	if idx == 0 {
-		return
-	}
-	if idx == 255 {
-		if r.n < pairPredK {
-			r.n++
-		}
-		for i := r.n - 1; i > 0; i-- {
-			r.items[i] = r.items[i-1]
-		}
-		r.items[0] = curr
-		return
-	}
-	for i := idx; i > 0; i-- {
-		r.items[i] = r.items[i-1]
-	}
-	r.items[0] = curr
+	d.pairPred[prev] = curr + 1
 }
 
 // shapeDeclare appends a new shape with the next sequential wire ID
