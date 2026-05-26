@@ -646,6 +646,193 @@ func TestValidity_AppendAccumulates(t *testing.T) {
 	}
 }
 
+// TestValidity_FullOptsMatrix iterates every one of the 2^5 = 32
+// bit combinations of the five user-facing Options bits and runs a
+// representative fixture through the round-trip. Pathological
+// configurations (predictor bits without OptDense, OptShapeIntern
+// without OptDense) must still encode and decode cleanly — the
+// gating logic in the encoder must treat the dependent bits as
+// no-ops when their requirement is missing.
+func TestValidity_FullOptsMatrix(t *testing.T) {
+	type fixture struct {
+		Service string   `qdf:"service"`
+		Region  string   `qdf:"region"`
+		Level   string   `qdf:"level"`
+		Status  int      `qdf:"status"`
+		Tags    []string `qdf:"tags"`
+		Counts  []int64  `qdf:"counts"`
+		Vec     []float64 `qdf:"vec"`
+		Flags   []bool   `qdf:"flags"`
+		Raw     []byte   `qdf:"raw"`
+	}
+	in := fixture{
+		Service: "billing", Region: "eu-west-1", Level: "info",
+		Status: 200,
+		Tags:   []string{"prod", "v3", "prod", "v3"},
+		Counts: []int64{1_700_000_000, 1_700_000_001, 1_700_000_002, 1_700_000_003},
+		Vec:    []float64{0.5, 1.0, 1.5, 2.0},
+		Flags:  []bool{true, false, true, true, false},
+		Raw:    []byte("hello, world"),
+	}
+
+	const allBits = OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
+	for mask := Options(0); mask <= allBits; mask++ {
+		mask := mask
+		t.Run(fmt.Sprintf("opts=%05b", mask), func(t *testing.T) {
+			b, err := Marshal(in, mask)
+			if err != nil {
+				t.Fatalf("encode opts=%05b: %v", mask, err)
+			}
+			var out fixture
+			if err := Unmarshal(b, &out); err != nil {
+				t.Fatalf("decode opts=%05b: %v wire=%x", mask, err, b)
+			}
+			if !reflect.DeepEqual(in, out) {
+				t.Fatalf("opts=%05b mismatch", mask)
+			}
+		})
+	}
+}
+
+// TestValidity_DependentBitsAreNoOpsWithoutDense asserts that
+// OptQPack / OptShapeIntern / OptPairPred / OptMTF do not change
+// the wire when OptDense is OFF — the encoder must treat them as
+// no-ops and produce bytes identical to OptSpeed. (OptQPack is the
+// one exception: it activates the slice codecs in Fast mode, so
+// it has its own wire flag.)
+func TestValidity_DependentBitsAreNoOpsWithoutDense(t *testing.T) {
+	type fixture struct {
+		A int      `qdf:"a"`
+		B string   `qdf:"b"`
+		C []string `qdf:"c"`
+	}
+	in := fixture{A: 7, B: "hello", C: []string{"x", "y", "z"}}
+
+	// Baseline: OptSpeed produces the canonical Fast-mode wire.
+	speed, err := Marshal(in, OptSpeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Each predictor / shape bit on its own (no OptDense, no QPack)
+	// must produce the same bytes as OptSpeed.
+	cases := []struct {
+		name string
+		opts Options
+	}{
+		{"ShapeIntern_no_Dense", OptShapeIntern},
+		{"PairPred_no_Dense", OptPairPred},
+		{"MTF_no_Dense", OptMTF},
+		{"Shape+Pair_no_Dense", OptShapeIntern | OptPairPred},
+		{"Shape+Pair+MTF_no_Dense", OptShapeIntern | OptPairPred | OptMTF},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Marshal(in, c.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, speed) {
+				t.Fatalf("dependent bit (%05b) changed wire vs OptSpeed:\n speed=%x\n   got=%x",
+					c.opts, speed, got)
+			}
+		})
+	}
+}
+
+// TestValidity_ReservedBitsAreNoOps verifies that setting reserved
+// (currently unused) bits 5..31 has no observable effect on the
+// wire. Forward-compatibility check: future codec bits must opt
+// into their own emission via explicit gating, not by accident.
+func TestValidity_ReservedBitsAreNoOps(t *testing.T) {
+	type fixture struct {
+		A int    `qdf:"a"`
+		B string `qdf:"b"`
+	}
+	in := fixture{A: 42, B: "hello"}
+
+	for _, base := range []Options{OptSpeed, OptBalanced} {
+		base := base
+		baseBytes, err := Marshal(in, base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Probe every reserved bit position above the 5 user-facing
+		// bits. Each must not change the wire when OR-ed onto an
+		// existing base.
+		for bit := uint(5); bit < 32; bit++ {
+			bit := bit
+			variant := base | (Options(1) << bit)
+			t.Run(fmt.Sprintf("base=%05b/bit=%d", base, bit), func(t *testing.T) {
+				got, err := Marshal(in, variant)
+				if err != nil {
+					t.Fatalf("Marshal with reserved bit %d failed: %v", bit, err)
+				}
+				if !bytes.Equal(got, baseBytes) {
+					t.Fatalf("reserved bit %d changed wire:\n base=%x\n  got=%x",
+						bit, baseBytes, got)
+				}
+			})
+		}
+	}
+}
+
+// TestValidity_FullMatrixWireSizeMonotonic asserts the wire never
+// grows when more codec bits are enabled — pin the "the encoder
+// picks the shortest variant per emission" invariant claimed in the
+// README at the wire level. For every option mask M, every superset
+// mask S ⊇ M must produce a wire of length ≤ size(M) on the
+// telemetry-shaped fixture where every codec has at least one hit.
+func TestValidity_FullMatrixWireSizeMonotonic(t *testing.T) {
+	type rec struct {
+		Service string `qdf:"service"`
+		Region  string `qdf:"region"`
+		Level   string `qdf:"level"`
+		Status  int    `qdf:"status"`
+	}
+	in := make([]rec, 16)
+	for i := range in {
+		in[i] = rec{
+			Service: "billing",
+			Region:  "eu-west-1",
+			Level:   "info",
+			Status:  200 + i%3,
+		}
+	}
+
+	const allBits = OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
+	sizes := make(map[Options]int, 32)
+	for mask := Options(0); mask <= allBits; mask++ {
+		b, err := Marshal(in, mask)
+		if err != nil {
+			t.Fatalf("Marshal opts=%05b: %v", mask, err)
+		}
+		sizes[mask] = len(b)
+	}
+
+	// For every superset relation, the superset wire must be ≤.
+	for m := Options(0); m <= allBits; m++ {
+		for s := Options(0); s <= allBits; s++ {
+			if (s & m) != m {
+				continue // s is not a superset of m
+			}
+			// The Dense codecs (Shape/Pair/MTF/QPack) only activate
+			// when OptDense is set, so a superset that toggles a
+			// dependent bit ON without OptDense must produce
+			// identical bytes — equality, not just ≤.
+			if !m.Has(OptDense) && !s.Has(OptDense) && sizes[s] != sizes[m] {
+				t.Fatalf("dependent-bit added without OptDense changed wire size: m=%05b(%dB) s=%05b(%dB)",
+					m, sizes[m], s, sizes[s])
+			}
+			if sizes[s] > sizes[m] {
+				t.Fatalf("superset wire grew: m=%05b(%dB) s=%05b(%dB)",
+					m, sizes[m], s, sizes[s])
+			}
+		}
+	}
+}
+
 // TestValidity_DeepArrayOfArraysOrder builds a depth-3 nested
 // integer array with distinct numbers at every position and confirms
 // every (i, j, k) tuple round-trips to its original value. Catches
