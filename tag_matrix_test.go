@@ -135,11 +135,13 @@ func TestTagMatrix_SkipDirective(t *testing.T) {
 	}
 }
 
-// Documented behaviour: qdf does NOT flatten anonymous embedded
-// struct fields the way encoding/json does. The embedded type
-// becomes a single nested object under its type name. Callers who
-// need flattening should declare fields explicitly. Test pins the
-// behaviour so it cannot drift silently.
+// Documented behaviour: qdf flattens anonymous embedded struct
+// fields into the parent's wire layout, matching encoding/json
+// semantics. The inner type's tagged fields surface at the outer
+// level. This applies regardless of whether the embedded type is
+// exported or unexported — the inner exported fields are always
+// promoted so a `base; Name string` parent never silently drops the
+// `base` data on round-trip.
 type embeddedInner struct {
 	A int `qdf:"a"`
 	B int `qdf:"b"`
@@ -149,22 +151,35 @@ type embeddedOuter struct {
 	C int `qdf:"c"`
 }
 
-func TestTagMatrix_EmbeddedStruct_NotFlattened(t *testing.T) {
+func TestTagMatrix_EmbeddedStruct_Flattened(t *testing.T) {
 	in := embeddedOuter{embeddedInner: embeddedInner{A: 1, B: 2}, C: 3}
 	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Decode through map[string]any to inspect the actual wire keys.
 	var m map[string]any
 	if err := Unmarshal(buf, &m); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := m["a"]; ok {
-		t.Fatalf("unexpectedly flattened: inner field 'a' surfaced in outer map: %v", m)
+	if _, ok := m["a"]; !ok {
+		t.Fatalf("inner field 'a' missing from flattened wire: %v", m)
+	}
+	if _, ok := m["b"]; !ok {
+		t.Fatalf("inner field 'b' missing from flattened wire: %v", m)
 	}
 	if _, ok := m["c"]; !ok {
 		t.Fatalf("outer field 'c' missing: %v", m)
+	}
+	// Round-trip back into the original type must restore every
+	// promoted field — this is the contract that motivated the
+	// flattening (lower-case embedded types silently lost data
+	// before the fix).
+	var out embeddedOuter
+	if err := Unmarshal(buf, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out != in {
+		t.Fatalf("round-trip mismatch:\n in=%+v\nout=%+v", in, out)
 	}
 }
 

@@ -1,5 +1,3 @@
-//go:build !race
-
 package qdf
 
 import (
@@ -14,12 +12,6 @@ import (
 // The budgets are an upper bound, not a target. They are intentionally
 // a little loose so a one-off compiler tweak does not flake the suite.
 // Tighten them if a real improvement lands.
-//
-// Build tag !race: the race detector adds 1-2 bookkeeping allocations
-// per slice-element access and map operation, which inflates the
-// counts measured by AllocsPerRun without representing real
-// production cost. AllocsPerRun assumes a quiescent runtime; running
-// under -race violates that assumption.
 
 type allocSmall struct {
 	ID   int    `qdf:"id"`
@@ -29,6 +21,14 @@ type allocSmall struct {
 
 func assertAllocs(t *testing.T, name string, budget float64, fn func()) {
 	t.Helper()
+	if raceEnabled {
+		// sync.Pool per-P caches drain more aggressively under
+		// -race, so tight pool-reuse budgets get a 1–2 alloc bump
+		// that is not present in production. Skip with a clear
+		// message; CI runs the suite under both modes and the
+		// non-race pass enforces the real budget.
+		t.Skipf("alloc budgets are not measured under -race (sync.Pool churn instrumentation)")
+	}
 	got := testing.AllocsPerRun(200, fn)
 	if got > budget {
 		t.Fatalf("%s: %.1f allocs/op, budget %.1f", name, got, budget)

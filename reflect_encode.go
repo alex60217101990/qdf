@@ -227,8 +227,43 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 }
 
 func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) {
-	out := make([]fieldDesc, 0, t.NumField())
+	return appendStructFields(nil, t, 0, ctx)
+}
+
+// appendStructFields walks t's fields and appends them to out. base
+// is the byte offset of t within the enclosing struct (0 for the
+// top-level call). Anonymous embedded struct fields are flattened
+// recursively into the parent's wire layout — their inner fields
+// appear at the parent level just like encoding/json. A field with
+// an explicit qdf / json tag of "-" is skipped at any depth.
+func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buildCtx) ([]fieldDesc, error) {
+	if out == nil {
+		out = make([]fieldDesc, 0, t.NumField())
+	}
 	for sf := range t.Fields() {
+		// Anonymous embedded struct → flatten. This covers the
+		// common encoding/json idiom where an unexported lower-case
+		// type with exported fields is embedded; silently dropping
+		// such a field loses data on round-trip. Pointer-typed
+		// embedded fields fall through to the regular field path so
+		// they encode as a pointer-to-struct value.
+		if sf.Anonymous && sf.Type.Kind() == reflect.Struct {
+			// Tag "-" on the embedded field itself opts the whole
+			// nested layout out — matches encoding/json.
+			if tag, ok := sf.Tag.Lookup("qdf"); ok && tag == "-" {
+				continue
+			}
+			if tag, ok := sf.Tag.Lookup("json"); ok &&
+				strings.Split(tag, ",")[0] == "-" {
+				continue
+			}
+			nested, err := appendStructFields(out, sf.Type, base+sf.Offset, ctx)
+			if err != nil {
+				return nil, err
+			}
+			out = nested
+			continue
+		}
 		if !sf.IsExported() {
 			continue
 		}
@@ -256,7 +291,7 @@ func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) {
 		}
 		out = append(out, fieldDesc{
 			name:         name,
-			offset:       sf.Offset,
+			offset:       base + sf.Offset,
 			desc:         fd,
 			preFast:      precomputeFixstrHeader(name),
 			preInternStr: precomputeInternStrHeader(name),
