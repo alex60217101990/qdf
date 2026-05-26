@@ -13,6 +13,11 @@ const (
 // Flag bits in the 5th header byte.
 const (
 	FlagDense byte = 1 << 0
+	// FlagQPack signals that the encoder may emit QPack codec tags
+	// (0xE3..0xEF). A decoder that does not recognize the tags will fail
+	// with ErrBadTag on the first packed slice; the flag is an early hint
+	// so callers can refuse the buffer up front.
+	FlagQPack byte = 1 << 1
 )
 
 // Tag bytes.
@@ -61,6 +66,34 @@ const (
 	tagInternStr = 0xE0
 	tagStateRef  = 0xE1
 	tagInternBin = 0xE2
+
+	// QPack codec tags (0xE3..0xEF). Each opens a self-described payload
+	// that replaces the per-element tag stream for a single slice.
+	tagPackBool = 0xE3 // bitpacked []bool: tag, varuint(n), ceil(n/8) bytes (LSB-first)
+	tagPackRaw  = 0xE4 // raw-LE numeric: tag, kind byte, varuint(n), n*width bytes (LE)
+	tagPackFor  = 0xE5 // Frame-of-Reference bitpacked integer slice:
+	//                    tag, kind, bits (0..56), min varuint (zigzag for signed),
+	//                    varuint(n), ceil(n*bits/8) bytes (LSB-first).
+	tagStateRepeat = 0xE8 // Markov-0 predictor for Dense state-refs:
+	//                    a state-ref whose ID equals the immediately
+	//                    previous state-ref emission is encoded as a
+	//                    single byte (no varuint payload).
+	tagStateMTF = 0xE9 // Move-To-Front coding for Dense state-refs:
+	//                    encodes the MTF rank (position in the LRU
+	//                    list of recently-emitted IDs) instead of the
+	//                    raw intern ID. Used when uvarintLen(rank) <
+	//                    uvarintLen(id) so the wire never grows over
+	//                    the plain tagStateRef encoding.
+	tagPackGorilla = 0xE7 // Gorilla XOR-coded float slice:
+	//                    tag, kind (qpackKindFloat32/64), varuint(n),
+	//                    first value (4 or 8 LE bytes), varuint(numBits),
+	//                    ceil(numBits/8) bytes of MSB-first XOR-delta bit-stream.
+	tagPackDeltaFor = 0xE6 // Delta + zigzag + Frame-of-Reference integer slice:
+	//                    tag, kind, bits (0..56),
+	//                    first value (varuint or zigzag varuint),
+	//                    minDelta (zigzag varuint),
+	//                    varuint(n),
+	//                    ceil((n-1)*bits/8) bytes (LSB-first) of (Δᵢ - minDelta).
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1

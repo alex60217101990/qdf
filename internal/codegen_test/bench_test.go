@@ -51,6 +51,15 @@ func BenchmarkEncode_GenVsReflect(b *testing.B) {
 			}
 		}
 	})
+	b.Run("qdf_direct", func(b *testing.B) {
+		b.ReportAllocs()
+		vp := &v
+		for b.Loop() {
+			if _, err := qdf.MarshalDirect(vp); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func BenchmarkDecode_GenVsReflect(b *testing.B) {
@@ -58,6 +67,7 @@ func BenchmarkDecode_GenVsReflect(b *testing.B) {
 	jsonBytes, _ := json.Marshal(v)
 	qdfBytes, _ := qdf.Marshal(v)
 	qdfGenBytes, _ := (&v).MarshalQDF(nil)
+	qdfDirectBytes, _ := qdf.MarshalDirect(&v)
 
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()
@@ -82,6 +92,15 @@ func BenchmarkDecode_GenVsReflect(b *testing.B) {
 		for b.Loop() {
 			var out Sample
 			if _, err := out.UnmarshalQDF(qdfGenBytes); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("qdf_direct", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var out Sample
+			if err := qdf.UnmarshalDirect(qdfDirectBytes, &out); err != nil {
 				b.Fatal(err)
 			}
 		}

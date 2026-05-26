@@ -39,7 +39,14 @@ const (
 
 var (
 	fastEncPool = sync.Pool{
-		New: func() any { return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf)} },
+		New: func() any {
+			return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf), maxDepth: DefaultMaxDepth}
+		},
+	}
+	fastQPackEncPool = sync.Pool{
+		New: func() any {
+			return &Encoder{mode: Fast, buf: make([]byte, 0, initialEncBuf), qpack: true, maxDepth: DefaultMaxDepth}
+		},
 	}
 	denseEncPool = sync.Pool{
 		New: func() any {
@@ -49,6 +56,8 @@ var (
 				state:           newEncState(),
 				minIntern:       4,
 				maxStateEntries: 1 << 14,
+				qpack:           true,
+				maxDepth:        DefaultMaxDepth,
 			}
 		},
 	}
@@ -80,8 +89,10 @@ func Marshal(v any) ([]byte, error) {
 }
 
 // MarshalDense encodes v in Dense mode. Repeated strings and bytes are
-// emitted once and back-referenced by ID. Output is smaller on
-// repetitive payloads at a small CPU cost.
+// emitted once and back-referenced by ID; numeric and bool slices are
+// auto-packed via QPack codecs (bitpacked bools, raw-LE/FOR/Delta-FOR
+// for integers, raw-LE for floats). Output is smaller on repetitive and
+// numeric payloads at a small CPU cost.
 func MarshalDense(v any) ([]byte, error) {
 	enc := denseEncPool.Get().(*Encoder)
 	enc.Reset()
@@ -91,6 +102,24 @@ func MarshalDense(v any) ([]byte, error) {
 	}
 	out := slices.Clone(enc.buf)
 	denseEncPool.Put(enc)
+	return out, nil
+}
+
+// MarshalQPack encodes v in Fast mode with QPack codecs enabled. Wire
+// is identical to Marshal for scalars and strings, but []bool is
+// bit-packed and numeric slices use raw-LE / FOR / Delta-FOR auto-
+// selected by minimum size. The output is a strict superset of the
+// wire surface accepted by Unmarshal; a Marshal-only consumer that has
+// not been updated to handle the QPack tags will fail with ErrBadTag.
+func MarshalQPack(v any) ([]byte, error) {
+	enc := fastQPackEncPool.Get().(*Encoder)
+	enc.Reset()
+	if err := encodeReflect(enc, v); err != nil {
+		putEnc(enc, &fastQPackEncPool)
+		return nil, err
+	}
+	out := slices.Clone(enc.buf)
+	fastQPackEncPool.Put(enc)
 	return out, nil
 }
 

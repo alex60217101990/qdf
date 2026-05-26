@@ -24,7 +24,24 @@ type Encoder struct {
 	// maxStateEntries caps the intern table. Past the cap, new strings go
 	// in line; existing IDs still resolve.
 	maxStateEntries int
+
+	// qpack switches the slice fast paths to QPack codecs (bitpack, FOR,
+	// Gorilla, raw-LE bulk). When set, the header's FlagQPack bit is
+	// emitted as an early hint to legacy readers.
+	qpack bool
+
+	// depth tracks nested pointer/struct traversal. Pointer cycles do
+	// not crash the process; encodePtr increments depth on entry and
+	// returns ErrCycleDetected when it exceeds maxDepth. Lightweight
+	// alternative to a per-pointer set (no allocation per call).
+	depth    int
+	maxDepth int
 }
+
+// DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
+// large enough for any legitimate payload (10 000) while still
+// rejecting genuine cycles before the goroutine stack overflows.
+const DefaultMaxDepth = 10_000
 
 // Mode selects the wire dialect.
 type Mode uint8
@@ -46,6 +63,7 @@ func NewEncoder(mode Mode) *Encoder {
 		mode:            mode,
 		minIntern:       4,
 		maxStateEntries: 1 << 14,
+		maxDepth:        DefaultMaxDepth,
 	}
 	if mode == Dense {
 		e.state = newEncState()
@@ -70,7 +88,17 @@ func (e *Encoder) Reset() {
 	if e.state != nil {
 		e.state.reset()
 	}
+	e.depth = 0
+	if e.maxDepth == 0 {
+		e.maxDepth = DefaultMaxDepth
+	}
 }
+
+// SetMaxDepth caps reflect-path pointer/struct recursion. The default
+// (DefaultMaxDepth = 10000) is sufficient for any normal payload and
+// rejects pointer cycles before they stack-overflow the goroutine.
+// Set to 0 to disable the check (legacy behaviour).
+func (e *Encoder) SetMaxDepth(d int) { e.maxDepth = d }
 
 // Bytes returns the encoded payload. It aliases the encoder's buffer and
 // is only valid until the next write or Reset.
@@ -121,9 +149,22 @@ func (e *Encoder) writeHeader() {
 	if e.mode == Dense {
 		flag |= FlagDense
 	}
+	if e.qpack {
+		flag |= FlagQPack
+	}
 	e.buf = append(e.buf, Magic0, Magic1, Magic2, Version1, flag)
 	e.headerOut = true
 }
+
+// SetQPack toggles QPack codec emission. When true, slice fast paths
+// produce packed/encoded forms (bitpacked bools, FOR-packed integers,
+// Gorilla-encoded floats, raw-LE bulk) instead of per-element tag streams.
+// Setting must happen before the first write of the value (the header is
+// emitted lazily and carries the FlagQPack hint when this is on).
+func (e *Encoder) SetQPack(v bool) { e.qpack = v }
+
+// QPack reports whether QPack codec emission is enabled.
+func (e *Encoder) QPack() bool { return e.qpack }
 
 // EnsureHeader forces a header write if one has not been emitted yet.
 func (e *Encoder) EnsureHeader() { e.writeHeader() }
@@ -211,17 +252,55 @@ func (e *Encoder) WriteString(s string) {
 	if e.state != nil && len(s) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
 		id, ok := e.state.lookupOrAssign(s)
 		if ok {
-			e.buf = append(e.buf, tagStateRef)
-			e.buf = appendUvarint(e.buf, uint64(id))
+			e.emitStateRef(id)
 			return
 		}
 		_ = id
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
+		e.state.lastID = id
+		e.state.lastValid = true
 		return
 	}
+	if e.state != nil {
+		// Inline emission of an uninterned scalar breaks the
+		// previous-state-ref invariant the Markov-0 predictor relies on.
+		e.state.lastValid = false
+	}
 	e.writeStringInline(s)
+}
+
+// emitStateRef writes a state-ref to id. Three forms are possible,
+// the encoder picks the smallest:
+//
+//	tagStateRepeat                   1 byte total, when id == lastID
+//	tagStateMTF + varuint(rank)      1 + uvarintLen(rank) bytes
+//	tagStateRef + varuint(id)        1 + uvarintLen(id) bytes
+//
+// MTF rank comes from the encState LRU. The wire never grows over the
+// plain tagStateRef encoding because we only pick MTF when its rank
+// varuint is strictly shorter than the raw id varuint.
+//
+// Every successful emit moves id to the LRU head so the decoder's
+// mirror chain stays in sync.
+func (e *Encoder) emitStateRef(id uint32) {
+	if e.state.lastValid && e.state.lastID == id {
+		e.buf = append(e.buf, tagStateRepeat)
+		// id is already at LRU head from the previous emission;
+		// no reorder needed. lastID stays the same.
+		return
+	}
+	rank := e.state.lruMoveToFront(id)
+	if uvarintLen(uint64(rank)) < uvarintLen(uint64(id)) {
+		e.buf = append(e.buf, tagStateMTF)
+		e.buf = appendUvarint(e.buf, uint64(rank))
+	} else {
+		e.buf = append(e.buf, tagStateRef)
+		e.buf = appendUvarint(e.buf, uint64(id))
+	}
+	e.state.lastID = id
+	e.state.lastValid = true
 }
 
 // WriteStringInline forces an in-line encoding even when Dense intern would
@@ -259,15 +338,19 @@ func (e *Encoder) WriteBytes(b []byte) {
 		key := unsafestr.String(b)
 		id, ok := e.state.lookupOrAssign(key)
 		if ok {
-			e.buf = append(e.buf, tagStateRef)
-			e.buf = appendUvarint(e.buf, uint64(id))
+			e.emitStateRef(id)
 			return
 		}
 		_ = id
 		e.buf = append(e.buf, tagInternBin)
 		e.buf = appendUvarint(e.buf, uint64(len(b)))
 		e.buf = append(e.buf, b...)
+		e.state.lastID = id
+		e.state.lastValid = true
 		return
+	}
+	if e.state != nil {
+		e.state.lastValid = false
 	}
 	e.writeBytesInline(b)
 }

@@ -538,6 +538,8 @@ func decodeArray(elem *typeDesc, stride uintptr, n int) func(*Decoder, unsafe.Po
 }
 
 func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) error {
+	keyType := t.Key()
+	valType := t.Elem()
 	return func(e *Encoder, p unsafe.Pointer) error {
 		rv := reflect.NewAt(t, p).Elem()
 		if rv.IsNil() {
@@ -546,10 +548,27 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		}
 		n := rv.Len()
 		e.WriteMapHeader(n)
+		// MapRange beats reflect.Value.Seq2 (Go 1.26) here by ~2x on
+		// throughput and ~2x on allocations: Seq2 boxes the (k, v)
+		// pair into closure arguments per yield, while MapRange
+		// reuses a single *MapIter and exposes Key/Value via
+		// reflect.Value (struct, no per-element heap). See
+		// BenchmarkMapIter_MapRangeOriginal vs BenchmarkMapIter_Seq2.
+		//
+		// SetIterKey/SetIterValue (Go 1.18+) write the current map
+		// iter entry into a pre-allocated addressable reflect.Value.
+		// Without them, reflectValueAddr would have to materialise a
+		// fresh reflect.New(T).Elem() per element — 2 allocs per map
+		// entry on the previous path, O(N) total. Now the two
+		// scratch Values are allocated once before the loop and reused.
+		keyHolder := reflect.New(keyType).Elem()
+		valHolder := reflect.New(valType).Elem()
+		kp := unsafe.Pointer(keyHolder.UnsafeAddr())
+		vp := unsafe.Pointer(valHolder.UnsafeAddr())
 		iter := rv.MapRange()
 		for iter.Next() {
-			kp := reflectValueAddr(iter.Key())
-			vp := reflectValueAddr(iter.Value())
+			keyHolder.SetIterKey(iter)
+			valHolder.SetIterValue(iter)
 			if err := k.encode(e, kp); err != nil {
 				return err
 			}
@@ -559,15 +578,6 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		}
 		return nil
 	}
-}
-
-// reflectValueAddr returns an addressable copy of v's data so we can use
-// unsafe.Pointer on it. reflect.Value.Pointer is only valid for chan, map,
-// pointer, slice, etc.; for value types we need to copy via reflect.New.
-func reflectValueAddr(v reflect.Value) unsafe.Pointer {
-	tmp := reflect.New(v.Type()).Elem()
-	tmp.Set(v)
-	return unsafe.Pointer(tmp.UnsafeAddr())
 }
 
 func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) error {
@@ -615,6 +625,18 @@ func encodePtr(elem *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			e.WriteNil()
 			return nil
 		}
+		// Depth-based cycle guard. Cheaper than a per-pointer set and
+		// catches both genuine *T->*T cycles and pathologically deep
+		// payloads. maxDepth==0 disables the check for callers that
+		// know their input is acyclic.
+		if e.maxDepth != 0 {
+			e.depth++
+			if e.depth > e.maxDepth {
+				e.depth--
+				return ErrCycleDetected
+			}
+			defer func() { e.depth-- }()
+		}
 		return elem.encode(e, raw)
 	}
 }
@@ -652,14 +674,23 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			f := &fields[i]
 			if e.state != nil && len(f.name) >= e.minIntern && len(e.state.ids) < e.maxStateEntries {
 				if id, ok := e.state.lookupOrAssign(f.name); ok {
-					e.buf = append(e.buf, tagStateRef)
-					e.buf = appendUvarint(e.buf, uint64(id))
+					// Routed through emitStateRef so the Markov-0
+					// predictor sees this state-ref emission. Without
+					// this, the next WriteString / WriteBytes that
+					// happens to hit the SAME intern ID as a non-
+					// updated lastID would erroneously collapse to
+					// tagStateRepeat and decode to the wrong value.
+					e.emitStateRef(id)
 				} else {
-					_ = id
 					e.buf = append(e.buf, f.preInternStr...)
+					e.state.lastID = id
+					e.state.lastValid = true
 				}
 			} else {
 				e.buf = append(e.buf, f.preFast...)
+				if e.state != nil {
+					e.state.lastValid = false
+				}
 			}
 			if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
 				return err
