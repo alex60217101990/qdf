@@ -117,25 +117,72 @@ func newEncState() *encState {
 	}
 }
 
+// Soft caps on per-encoder state retention across Reset(). A single
+// payload that pushes any of these past their threshold is dropped
+// rather than pinned to the pooled encoder forever — long-running
+// services with bursty traffic keep a bounded resident set instead
+// of growing to peak and staying there.
+//
+// Numbers picked so that a "typical" telemetry batch (≤ a few
+// thousand interned strings, ≤ a few thousand state-ref ids) stays
+// under every cap; only outlier payloads trigger the shrink.
+const (
+	maxRetainedIDs      = 4096
+	maxRetainedLRUCap   = 4096
+	maxRetainedPairCap  = 4096
+	maxRetainedShapeCap = 1024
+)
+
 func (e *encState) reset() {
-	// Order matters: clear the map before resetting the arena. Map
-	// keys alias arena bytes; the arena Reset rolls cursors back
-	// and the next Put overwrites the prior payload area, so any
-	// surviving aliased key would read garbage.
-	clear(e.ids)
-	e.arena.Reset()
+	// Map shrink. Go's runtime map cannot reduce its bucket array
+	// once it has grown, so the only way to release that memory is
+	// to replace the map header with a freshly-allocated one. Do it
+	// only when len exceeded the threshold during the prior cycle;
+	// the steady-state path stays on clear() which keeps the
+	// existing buckets warm.
+	//
+	// Order: rebuild / clear BEFORE arena.Reset. The map keys alias
+	// arena bytes; the arena Reset rolls cursors back and the next
+	// Put overwrites the prior payload area, so any surviving
+	// aliased key would read garbage.
+	if len(e.ids) > maxRetainedIDs {
+		e.ids = make(map[string]uint32, 64)
+	} else {
+		clear(e.ids)
+	}
+	e.arena.Reset() // Arena has its own watermark, see internarena.
+
 	e.lastID = lruInvalidID
 	e.lruHead = lruInvalidID
-	e.lruPrev = e.lruPrev[:0]
-	e.lruNext = e.lruNext[:0]
-	// Zero only the per-prev "n" field so the ring slots and the
-	// underlying slice capacity stay reusable across Reset. The hot
-	// path adds zero heap allocations once the encoder has warmed.
-	for i := range e.pairPred {
-		e.pairPred[i].n = 0
+	if cap(e.lruPrev) > maxRetainedLRUCap {
+		e.lruPrev = nil
+		e.lruNext = nil
+	} else {
+		e.lruPrev = e.lruPrev[:0]
+		e.lruNext = e.lruNext[:0]
 	}
-	e.shapes = e.shapes[:0]
-	e.shapeBindings = e.shapeBindings[:0]
+
+	// pairPred slice: clear in place if under the cap, drop the
+	// backing array if it has grown above it. Zero the "n" field
+	// on the warm path so the ring slots stay reusable.
+	if cap(e.pairPred) > maxRetainedPairCap {
+		e.pairPred = nil
+	} else {
+		for i := range e.pairPred {
+			e.pairPred[i].n = 0
+		}
+	}
+
+	if cap(e.shapes) > maxRetainedShapeCap {
+		e.shapes = nil
+	} else {
+		e.shapes = e.shapes[:0]
+	}
+	if cap(e.shapeBindings) > maxRetainedShapeCap {
+		e.shapeBindings = nil
+	} else {
+		e.shapeBindings = e.shapeBindings[:0]
+	}
 	e.lastShapeTd = nil
 	e.lastShapeID = 0
 }
@@ -415,15 +462,35 @@ func newDecState() *decState {
 }
 
 func (d *decState) reset() {
-	d.values = d.values[:0]
+	// Symmetric to encState.reset's water-mark policy: shrink
+	// excess capacity back when a prior cycle grew past the soft
+	// cap, otherwise reuse the existing slices in place.
+	if cap(d.values) > maxRetainedIDs {
+		d.values = nil
+	} else {
+		d.values = d.values[:0]
+	}
 	d.lastID = lruInvalidID
 	d.lruHead = lruInvalidID
-	d.lruPrev = d.lruPrev[:0]
-	d.lruNext = d.lruNext[:0]
-	for i := range d.pairPred {
-		d.pairPred[i].n = 0
+	if cap(d.lruPrev) > maxRetainedLRUCap {
+		d.lruPrev = nil
+		d.lruNext = nil
+	} else {
+		d.lruPrev = d.lruPrev[:0]
+		d.lruNext = d.lruNext[:0]
 	}
-	d.shapes = d.shapes[:0]
+	if cap(d.pairPred) > maxRetainedPairCap {
+		d.pairPred = nil
+	} else {
+		for i := range d.pairPred {
+			d.pairPred[i].n = 0
+		}
+	}
+	if cap(d.shapes) > maxRetainedShapeCap {
+		d.shapes = nil
+	} else {
+		d.shapes = d.shapes[:0]
+	}
 }
 
 // pairAtRank returns the ID at the given rank in prev's successor

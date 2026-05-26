@@ -420,7 +420,6 @@ func TestValidity_ConcurrentEncodeDecode(t *testing.T) {
 			var wg sync.WaitGroup
 			wg.Add(goroutines)
 			for g := range goroutines {
-				g := g
 				go func() {
 					defer wg.Done()
 					for i := range iters {
@@ -655,15 +654,15 @@ func TestValidity_AppendAccumulates(t *testing.T) {
 // no-ops when their requirement is missing.
 func TestValidity_FullOptsMatrix(t *testing.T) {
 	type fixture struct {
-		Service string   `qdf:"service"`
-		Region  string   `qdf:"region"`
-		Level   string   `qdf:"level"`
-		Status  int      `qdf:"status"`
-		Tags    []string `qdf:"tags"`
-		Counts  []int64  `qdf:"counts"`
+		Service string    `qdf:"service"`
+		Region  string    `qdf:"region"`
+		Level   string    `qdf:"level"`
+		Status  int       `qdf:"status"`
+		Tags    []string  `qdf:"tags"`
+		Counts  []int64   `qdf:"counts"`
 		Vec     []float64 `qdf:"vec"`
-		Flags   []bool   `qdf:"flags"`
-		Raw     []byte   `qdf:"raw"`
+		Flags   []bool    `qdf:"flags"`
+		Raw     []byte    `qdf:"raw"`
 	}
 	in := fixture{
 		Service: "billing", Region: "eu-west-1", Level: "info",
@@ -727,7 +726,6 @@ func TestValidity_DependentBitsAreNoOpsWithoutDense(t *testing.T) {
 		{"Shape+Pair+MTF_no_Dense", OptShapeIntern | OptPairPred | OptMTF},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			got, err := Marshal(in, c.opts)
 			if err != nil {
@@ -753,7 +751,6 @@ func TestValidity_ReservedBitsAreNoOps(t *testing.T) {
 	in := fixture{A: 42, B: "hello"}
 
 	for _, base := range []Options{OptSpeed, OptBalanced} {
-		base := base
 		baseBytes, err := Marshal(in, base)
 		if err != nil {
 			t.Fatal(err)

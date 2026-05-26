@@ -63,11 +63,15 @@ const initialChunkBytes = 4 * 1024
 // Arena holds a chain of byte slabs and hands out ids that resolve
 // to slices into the active slab.
 type Arena struct {
-	// next / end are the bump-pointer cursor inside chunks[cur].
-	// Both are uintptr so writing them does not trigger the runtime
-	// write barrier on every Put.
-	next uintptr
-	end  uintptr
+	// off / end are the bump-pointer cursor — but expressed as a
+	// byte offset into chunks[cur] (not a raw machine address)
+	// so we never round-trip through unsafe.Pointer(uintptr). The
+	// chunks slice keeps the slab's backing array GC-rooted; we
+	// resolve actual addresses lazily via chunks[cur] on each Put.
+	// Same write-barrier savings as the article's uintptr-cursor
+	// (no pointer-typed store on the hot path), no go vet warning.
+	off uintptr
+	end uintptr
 
 	// cur is the index of the chunk the cursor lives in. Reset()
 	// rolls this back to 0.
@@ -107,9 +111,8 @@ func (a *Arena) BytesUsed() int {
 			continue
 		}
 		if i == a.cur {
-			// Bytes used in the current chunk = next - start.
-			start := uintptr(unsafe.Pointer(unsafe.SliceData(c)))
-			total += int(a.next - start)
+			// Bytes used in the current chunk = off.
+			total += int(a.off)
 		}
 	}
 	return total
@@ -123,19 +126,21 @@ func (a *Arena) BytesUsed() int {
 func (a *Arena) Put(s string) uint32 {
 	n := uintptr(len(s))
 	// Lazy first-chunk allocation. Cold arena has chunks==nil and
-	// next==end==0; even an empty Put needs chunks[0] so the
-	// chunkStart lookup below does not panic.
-	if len(a.chunks) == 0 || a.next+n > a.end {
+	// off==end==0; even an empty Put needs chunks[0] so the
+	// slab access below does not panic.
+	if len(a.chunks) == 0 || a.off+n > a.end {
 		a.grow(n)
 	}
-	// Copy bytes through the cursor.
-	dst := unsafe.Slice((*byte)(unsafe.Pointer(a.next)), n)
-	copy(dst, s)
-	// Compute offset within the current chunk for the loc record.
 	cur := a.chunks[a.cur]
-	chunkStart := uintptr(unsafe.Pointer(unsafe.SliceData(cur)))
-	offset := uint32(a.next - chunkStart)
-	a.next += n
+	offset := uint32(a.off)
+	// Extend the slice header to the slab's true capacity so we can
+	// write into the uninitialised tail bytes. The underlying array
+	// is owned by chunks[a.cur]; we never escape this aliased slice.
+	if n > 0 {
+		full := unsafe.Slice(unsafe.SliceData(cur), cap(cur))
+		copy(full[a.off:a.off+n], s)
+	}
+	a.off += n
 
 	id := uint32(len(a.locs))
 	a.locs = append(a.locs, pack(uint16(a.cur), offset, uint16(n)))
@@ -153,23 +158,57 @@ func (a *Arena) Get(id uint32) []byte {
 	return chunk[offset : offset+uint32(length)]
 }
 
-// Reset rolls every cursor back to the start of chunks[0] without
-// freeing any chunk. Subsequent Put calls overwrite the prior
-// contents. All ids handed out before Reset become invalid; the
-// caller must clear its own id-keyed structures before / atomically
-// with the call.
-func (a *Arena) Reset() {
+// DefaultRetainBytes is the soft cap on total chunk capacity the
+// arena keeps across Reset() calls. A burst of unusually long
+// payloads grows chunks past this; the next Reset drops the extras
+// so a long-running encoder pool does not pin spike memory forever.
+// Callers may override via ResetWithLimit.
+const DefaultRetainBytes = 256 * 1024 // 256 KiB
+
+// Reset is shorthand for ResetWithLimit(DefaultRetainBytes).
+func (a *Arena) Reset() { a.ResetWithLimit(DefaultRetainBytes) }
+
+// ResetWithLimit rolls every cursor back to chunks[0] and clears
+// the loc table. If the cumulative capacity of all chunks exceeds
+// retainBytes the spike chunks (chunks[1..]) are dropped so the
+// arena's resident memory stays bounded. chunks[0] — the small
+// lazily-allocated initial slab — is always kept warm for the next
+// cycle. retainBytes == 0 disables the cap entirely (keep
+// everything).
+//
+// All ids handed out before Reset become invalid; the caller must
+// clear its own id-keyed structures before / atomically with the
+// call.
+func (a *Arena) ResetWithLimit(retainBytes int) {
 	a.locs = a.locs[:0]
 	if len(a.chunks) == 0 {
-		a.next = 0
+		a.off = 0
 		a.end = 0
 		a.cur = 0
 		return
 	}
+	// Drop excess chunks past chunks[0] when total capacity has
+	// outgrown the soft cap. Keep chunks[0] — it is the lazy
+	// initial slab whose size matches the steady-state workload
+	// before any spike happened.
+	if retainBytes > 0 && len(a.chunks) > 1 {
+		total := 0
+		for _, c := range a.chunks {
+			total += cap(c)
+		}
+		if total > retainBytes {
+			// Clear the dropped slots before truncating so the GC
+			// can reclaim them; the slice header otherwise keeps
+			// their backing arrays alive.
+			for i := 1; i < len(a.chunks); i++ {
+				a.chunks[i] = nil
+			}
+			a.chunks = a.chunks[:1]
+		}
+	}
 	a.cur = 0
-	first := a.chunks[0]
-	a.next = uintptr(unsafe.Pointer(unsafe.SliceData(first)))
-	a.end = a.next + uintptr(cap(first))
+	a.off = 0
+	a.end = uintptr(cap(a.chunks[0]))
 }
 
 // grow advances the cursor to a chunk that can fit need bytes,
@@ -183,8 +222,8 @@ func (a *Arena) grow(need uintptr) {
 		a.cur++
 		c := a.chunks[a.cur]
 		if uintptr(cap(c)) >= need {
-			a.next = uintptr(unsafe.Pointer(unsafe.SliceData(c)))
-			a.end = a.next + uintptr(cap(c))
+			a.off = 0
+			a.end = uintptr(cap(c))
 			return
 		}
 	}
@@ -201,8 +240,8 @@ func (a *Arena) grow(need uintptr) {
 	c := make([]byte, 0, size)
 	a.chunks = append(a.chunks, c)
 	a.cur = len(a.chunks) - 1
-	a.next = uintptr(unsafe.Pointer(unsafe.SliceData(c)))
-	a.end = a.next + size
+	a.off = 0
+	a.end = size
 }
 
 // pack folds (chunk, offset, length) into a single uint64.

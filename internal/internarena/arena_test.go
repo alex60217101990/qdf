@@ -186,6 +186,99 @@ func TestArena_RandomRoundTrip(t *testing.T) {
 	}
 }
 
+// Burst growth + Reset under the default soft cap must drop the
+// spike chunks so the arena's resident memory stays bounded.
+func TestArena_ResetShrinksAfterBurst(t *testing.T) {
+	a := &Arena{}
+	// Burst: enough payload to grow past DefaultRetainBytes.
+	huge := strings.Repeat("x", 128*1024) // 128 KiB single payload
+	for range 4 {
+		a.Put(huge)
+	}
+	if len(a.chunks) < 2 {
+		t.Fatalf("test premise: burst should produce ≥2 chunks, got %d", len(a.chunks))
+	}
+	burstChunks := len(a.chunks)
+	burstCap := 0
+	for _, c := range a.chunks {
+		burstCap += cap(c)
+	}
+	if burstCap <= DefaultRetainBytes {
+		t.Fatalf("test premise: burst should exceed DefaultRetainBytes (%d), got %d",
+			DefaultRetainBytes, burstCap)
+	}
+
+	a.Reset()
+	if len(a.chunks) != 1 {
+		t.Fatalf("Reset did not drop spike chunks: pre=%d post=%d", burstChunks, len(a.chunks))
+	}
+	// After shrink, total chunk cap must be small (≤ chunks[0]).
+	if cap(a.chunks[0]) > DefaultRetainBytes {
+		t.Fatalf("chunks[0] itself exceeds retain cap: %d", cap(a.chunks[0]))
+	}
+}
+
+// Steady-state encoder workload stays below the soft cap; Reset
+// must NOT drop any chunks in that regime.
+func TestArena_ResetKeepsChunksUnderThreshold(t *testing.T) {
+	a := &Arena{}
+	for i := range 1000 {
+		a.Put(fmt.Sprintf("steady-state-%05d", i))
+	}
+	preChunks := len(a.chunks)
+	preCap := 0
+	for _, c := range a.chunks {
+		preCap += cap(c)
+	}
+	if preCap > DefaultRetainBytes {
+		t.Skipf("steady-state workload exceeded retain cap (%d > %d) — skipping shrink-keep test",
+			preCap, DefaultRetainBytes)
+	}
+	a.Reset()
+	if len(a.chunks) != preChunks {
+		t.Fatalf("Reset dropped chunks under threshold: pre=%d post=%d", preChunks, len(a.chunks))
+	}
+}
+
+// ResetWithLimit(0) disables the cap entirely.
+func TestArena_ResetWithLimitZeroNoShrink(t *testing.T) {
+	a := &Arena{}
+	huge := strings.Repeat("x", 128*1024)
+	for range 4 {
+		a.Put(huge)
+	}
+	pre := len(a.chunks)
+	a.ResetWithLimit(0)
+	if len(a.chunks) != pre {
+		t.Fatalf("ResetWithLimit(0) dropped chunks: pre=%d post=%d", pre, len(a.chunks))
+	}
+}
+
+// After a shrink the arena must still be operational — subsequent
+// Puts return valid ids that resolve back to original bytes.
+func TestArena_OperationalAfterShrink(t *testing.T) {
+	a := &Arena{}
+	huge := strings.Repeat("x", 128*1024)
+	for range 4 {
+		a.Put(huge)
+	}
+	a.Reset()
+
+	// Reuse the shrunk arena.
+	const N = 100
+	want := make([]string, N)
+	ids := make([]uint32, N)
+	for i := range N {
+		want[i] = fmt.Sprintf("post-shrink-%d", i)
+		ids[i] = a.Put(want[i])
+	}
+	for i := range N {
+		if got := string(a.Get(ids[i])); got != want[i] {
+			t.Fatalf("[%d] post-shrink Get mismatch: got=%q want=%q", i, got, want[i])
+		}
+	}
+}
+
 // BenchmarkArena_Put vs strings.Clone — the headline replacement.
 // strings.Clone heap-allocates one block per call; the arena bulks
 // the payload into a slab and only allocates on chunk growth.
