@@ -103,7 +103,21 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 		if probeRuns*2 <= probeN {
 			c := qpackRLESizeU64(s, n)
 			if c < bestCost {
+				bestCost = c
 				codec = qpackRLE
+			}
+		}
+	}
+	// Dict: probe the distinct cardinality and, if it fits the cap,
+	// compare against the running best. The probe early-exits at
+	// qpackDictMaxDistinct+1 unique values so high-cardinality
+	// slices pay an O(n*16) bounded cost in the worst case.
+	if n >= 8 {
+		var table [qpackDictMaxDistinct + 1]uint64
+		if count, ok := probeDistinctU64(s, &table); ok && count > 0 {
+			c := qpackDictSizeU64(table[:count], n)
+			if c < bestCost {
+				codec = qpackDict
 			}
 		}
 	}
@@ -202,7 +216,17 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 		if probeRuns*2 <= probeN {
 			c := qpackRLESizeI64(s, n)
 			if c < bestCost {
+				bestCost = c
 				codec = qpackRLE
+			}
+		}
+	}
+	if n >= 8 {
+		var table [qpackDictMaxDistinct + 1]int64
+		if count, ok := probeDistinctI64(s, &table); ok && count > 0 {
+			c := qpackDictSizeI64(table[:count], n)
+			if c < bestCost {
+				codec = qpackDict
 			}
 		}
 	}
@@ -218,7 +242,102 @@ const (
 	qpackDeltaFor
 	qpackGorilla
 	qpackRLE
+	qpackDict
 )
+
+// qpackDictMaxDistinct caps the dictionary codec: a slice with more
+// than this many unique values is rarely a dictionary-shape column
+// and the probe cost grows linearly with the cap.
+const qpackDictMaxDistinct = 16
+
+// bitsForDistinct returns the per-index bit width of a dictionary
+// codec with the given distinct count. distinct == 1 gives 0 (the
+// decoder broadcasts the single dictionary entry).
+//
+//go:nosplit
+func bitsForDistinct(distinct int) int {
+	if distinct <= 1 {
+		return 0
+	}
+	return bits.Len(uint(distinct - 1))
+}
+
+// probeDistinctU64 walks s up to len(s) elements and returns the
+// distinct value table along with the count. The second return is
+// false when the cardinality exceeds qpackDictMaxDistinct — in that
+// case the table is unspecified and the caller skips the dictionary
+// codec entirely. The table buffer is caller-supplied so the picker
+// can keep the probe stack-allocated.
+//
+//go:nosplit
+func probeDistinctU64(s []uint64, table *[qpackDictMaxDistinct + 1]uint64) (int, bool) {
+	count := 0
+outer:
+	for _, v := range s {
+		for j := 0; j < count; j++ {
+			if table[j] == v {
+				continue outer
+			}
+		}
+		if count >= qpackDictMaxDistinct {
+			return 0, false
+		}
+		table[count] = v
+		count++
+	}
+	return count, true
+}
+
+// probeDistinctI64 mirrors probeDistinctU64 for signed slices.
+//
+//go:nosplit
+func probeDistinctI64(s []int64, table *[qpackDictMaxDistinct + 1]int64) (int, bool) {
+	count := 0
+outer:
+	for _, v := range s {
+		for j := 0; j < count; j++ {
+			if table[j] == v {
+				continue outer
+			}
+		}
+		if count >= qpackDictMaxDistinct {
+			return 0, false
+		}
+		table[count] = v
+		count++
+	}
+	return count, true
+}
+
+// qpackDictSizeU64 returns the wire byte cost of dictionary-coding s
+// with the supplied distinct table.
+//
+//go:nosplit
+func qpackDictSizeU64(distinct []uint64, n int) int {
+	hdr := 2 + uvarintLen(uint64(len(distinct)))
+	for _, v := range distinct {
+		hdr += uvarintLen(v)
+	}
+	hdr += uvarintLen(uint64(n))
+	bp := bitsForDistinct(len(distinct))
+	body := (n*bp + 7) >> 3
+	return hdr + body
+}
+
+// qpackDictSizeI64 mirrors qpackDictSizeU64 with zigzag-encoded
+// dictionary values.
+//
+//go:nosplit
+func qpackDictSizeI64(distinct []int64, n int) int {
+	hdr := 2 + uvarintLen(uint64(len(distinct)))
+	for _, v := range distinct {
+		hdr += uvarintLen(zigzagEncode64(v))
+	}
+	hdr += uvarintLen(uint64(n))
+	bp := bitsForDistinct(len(distinct))
+	body := (n*bp + 7) >> 3
+	return hdr + body
+}
 
 // pickF64Codec selects between the raw-LE bulk codec and the
 // Gorilla XOR codec for a []float64 by probing the XOR

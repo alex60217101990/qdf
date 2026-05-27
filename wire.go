@@ -103,6 +103,20 @@ const (
 	//                    Signed kinds zigzag-encode the value. Total of
 	//                    runLens equals n; the decoder unrolls until n
 	//                    elements are produced.
+	tagPackDict = 0xED // Dictionary-coded integer slice. Wins on
+	//                    enum-like columns where distinct cardinality
+	//                    is small (≤ 16) but values are spread out
+	//                    enough that Frame-of-Reference can't bit-pack
+	//                    them cheaply. Wire form:
+	//                       tag, kind, varuint(distinct),
+	//                       distinct values (each varuint, zigzag for
+	//                         signed kinds),
+	//                       varuint(n),
+	//                       ceil(n * ceil(log2(distinct)) / 8) bytes
+	//                         (LSB-first bit stream of indices).
+	//                    bitsPer is implicit (derivable from distinct);
+	//                    distinct == 1 emits a zero-width body and the
+	//                    decoder broadcasts the single value.
 	tagStatePair = 0xEA // Markov-1 predictor for Dense state-refs.
 	//                    Conditioned on the previously emitted state-ref ID
 	//                    (lastID), the encoder maintains a small ring of the
