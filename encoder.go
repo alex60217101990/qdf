@@ -54,6 +54,12 @@ type Encoder struct {
 	// codec tags fails fast on the header rather than mid-stream.
 	qpack bool
 
+	// gorillaFloat lets encodeSliceFloat64 / encodeSliceFloat32 probe
+	// the input and pick Gorilla XOR for smooth time-series. Costs
+	// ~10× more CPU per slice than raw-LE bulk, so it stays off in
+	// OptBalanced; flipped on by OptCompression. Implies qpack.
+	gorillaFloat bool
+
 	// depth tracks nested pointer/struct traversal. Pointer cycles do
 	// not crash the process; encodePtr increments depth on entry and
 	// returns ErrCycleDetected when it exceeds maxDepth. Lightweight
@@ -86,6 +92,7 @@ func (e *Encoder) applyOpts(opts Options) {
 		e.mode = Fast
 	}
 	e.qpack = opts.Has(OptQPack)
+	e.gorillaFloat = e.qpack && opts.Has(OptGorillaFloat)
 }
 
 // DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
@@ -168,6 +175,7 @@ func (e *Encoder) Reset() {
 	e.opts = OptSpeed
 	e.mode = Fast
 	e.qpack = false
+	e.gorillaFloat = false
 	// Drop any PreIntern entries — they reference caller-supplied
 	// backing pointers that are not safe to assume valid across a
 	// pool recycle.

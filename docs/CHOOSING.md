@@ -19,9 +19,15 @@ qdf.Marshal(v, qdf.OptQPack)
 qdf.Marshal(v, qdf.OptCompression)
 ```
 
-`OptCompression` is an alias for `OptBalanced` today. The constant is
-reserved so future heavy-CPU codecs (rANS, dictionary preloading) opt
-in there without breaking the bundle name.
+`OptCompression` diverges from `OptBalanced` by one bit:
+`OptGorillaFloat`. That bit opts in to the Gorilla XOR codec for
+`[]float64` / `[]float32` slices — wire collapses ~70 % on smooth
+time-series, encode/decode pay ~10× more CPU on those slices because
+the body is bit-level. Anything dominated by float slices that has to
+live small (archives, cold storage, paginated history) wants
+`OptCompression`; anything hot path stays on `OptBalanced` /
+`OptQPack`. Both bundles share every other codec; only the Gorilla
+bit differs.
 
 ---
 
@@ -58,9 +64,10 @@ If you said *yes* to all three you've assembled `OptBalanced`.
 | `OptShapeIntern` | `0xEC`   | Arrays / streams of identical struct types.             | One-off struct values.       | `OptDense`    |
 | `OptPairPred`    | `0xEA`   | Conditional pairs (`country` → `city`, `svc` → `host`). | Random / uncorrelated state. | `OptDense`    |
 | `OptMTF`         | `0xE9`   | Hot subset reuse on a >128-entry intern table.          | Small intern tables.         | `OptDense`    |
+| `OptGorillaFloat`| `0xE7`   | Smooth float time-series. ~70 % wire reduction.         | Random / unrelated floats; latency-sensitive paths (10× CPU/slice). | `OptQPack`    |
 
-Dependent bits set without `OptDense` are no-ops — the gating code
-ignores them. Reserved bits (5..31) are reserved; never use them.
+Dependent bits set without their parent are no-ops — the gating code
+ignores them. Reserved bits (6..31) are reserved; never use them.
 
 ---
 
@@ -171,6 +178,12 @@ Result on a 5 000-row archive: wire 192 KB vs json 715 KB (3.7×) vs
 msgpack 558 KB (2.9×). Decode 2.4 ms vs json 13.4 ms (5.6×) vs
 msgpack 5.1 ms (2.1×). Encode pays 4.5 ms vs json 1.8 ms — fair for
 backup workloads.
+
+On a 1024-sample smooth metric series `OptCompression` shrinks the
+float body from 8398 B (raw-LE under `OptQPack`) to 2307 B (Gorilla
+XOR), a 72.5 % drop. Encode/decode go from ~4.2 µs to ~41 µs — fine
+when the series is being archived once and queried over its lifetime,
+not for the hot ingest path.
 
 ### What about streaming?
 
