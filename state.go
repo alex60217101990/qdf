@@ -449,38 +449,68 @@ func (e *encState) lruMoveFront(id uint32) {
 //
 //go:nosplit
 func (e *encState) lookupOrAssign(key string) (uint32, bool) {
+	// Hot-path fast lookup: hash + one slot probe. Inlinable (no
+	// loop, no allocs); the slow tail (collision probing, miss-
+	// install, grow) is split out so the linear-probing loop does
+	// not pollute the inline budget. Hit rate at slot 0 is high
+	// because the table is kept under 0.5 load.
 	h := maphash.String(internHashSeed, key)
 	if h == 0 {
 		h = 1 // reserve 0 as the empty-slot sentinel
 	}
+	i := h & uint64(len(e.internTable)-1)
+	slot := &e.internTable[i]
+	if slot.hash == h && slot.key == key {
+		return slot.id, true
+	}
+	if slot.hash == 0 {
+		// Empty first slot: direct install.
+		return e.installInternSlot(slot, h, key), false
+	}
+	// Collision at first slot — fall to the probing loop.
+	return e.lookupOrAssignSlow(h, key, i)
+}
+
+// lookupOrAssignSlow handles the collision case: probe past startIdx
+// looking for either an empty slot (install) or a matching entry
+// (hit). Separated from lookupOrAssign so the inliner keeps the
+// fast path tight.
+func (e *encState) lookupOrAssignSlow(h uint64, key string, startIdx uint64) (uint32, bool) {
 	mask := uint64(len(e.internTable) - 1)
-	for i := h & mask; ; i = (i + 1) & mask {
+	for i := (startIdx + 1) & mask; ; i = (i + 1) & mask {
 		slot := &e.internTable[i]
 		if slot.hash == 0 {
-			// Miss: install at this open slot.
-			id := e.internLoad
-			var stored string
-			if len(key) <= internarena.MaxStringLen {
-				arenaID := e.arena.Put(key)
-				stored = unsafestr.String(e.arena.Get(arenaID))
-			} else {
-				stored = strings.Clone(key)
-			}
-			slot.hash = h
-			slot.key = stored
-			slot.id = id
-			e.internLoad++
-			e.lruAddFresh(id)
-			if e.internLoad*2 >= uint32(len(e.internTable)) {
-				e.internTableGrow()
-			}
-			return id, false
+			return e.installInternSlot(slot, h, key), false
 		}
 		if slot.hash == h && slot.key == key {
 			return slot.id, true
 		}
-		// Collision (rare under load < 0.5): probe next slot.
 	}
+}
+
+// installInternSlot writes a fresh entry into slot, copies the key
+// into the encoder arena (so it survives the caller's buffer
+// lifetime), bumps the LRU + intern counters, and grows the table
+// when the load crosses 0.5. The slot pointer can be invalidated
+// by the grow; callers must not touch it after this returns.
+func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uint32 {
+	id := e.internLoad
+	var stored string
+	if len(key) <= internarena.MaxStringLen {
+		arenaID := e.arena.Put(key)
+		stored = unsafestr.String(e.arena.Get(arenaID))
+	} else {
+		stored = strings.Clone(key)
+	}
+	slot.hash = h
+	slot.key = stored
+	slot.id = id
+	e.internLoad++
+	e.lruAddFresh(id)
+	if e.internLoad*2 >= uint32(len(e.internTable)) {
+		e.internTableGrow()
+	}
+	return id
 }
 
 // internTableGrow doubles the flat hash table and rehashes every

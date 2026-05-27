@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -508,9 +509,45 @@ func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 func encodeSlice(elem *typeDesc, stride uintptr) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
 		hdr := (*sliceHeader)(p)
-		e.WriteArrayHeader(hdr.Len)
+		n := hdr.Len
+		e.WriteArrayHeader(n)
 		base := hdr.Data
-		for i := 0; i < hdr.Len; i++ {
+		// Probe-and-grow for large slices: encode the first
+		// sliceProbeSize records, measure the per-record buffer
+		// growth, then pre-grow the output buffer for the rest in
+		// one shot. Eliminates the log(n) doubling chain
+		// (runtime.memmove + madvise) that dominated 50 k-record
+		// encodes — at scale the buffer can balloon from 4 KiB to
+		// 60 MiB through ~14 doublings, copying ~4× the final size.
+		// The probe cost is negligible because the same elements
+		// are emitted exactly once.
+		const sliceProbeSize = 32
+		if n <= sliceProbeSize {
+			for i := 0; i < n; i++ {
+				if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		probeStart := len(e.buf)
+		for i := 0; i < sliceProbeSize; i++ {
+			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
+				return err
+			}
+		}
+		probeBytes := len(e.buf) - probeStart
+		if probeBytes > 0 {
+			// Project total size from probe + 25 % slack so the
+			// growslice short-circuit fires inside slices.Grow
+			// without forcing another doubling on a slight
+			// underestimate.
+			remaining := n - sliceProbeSize
+			projected := probeBytes * remaining / sliceProbeSize
+			projected += projected >> 2
+			e.buf = slices.Grow(e.buf, projected)
+		}
+		for i := sliceProbeSize; i < n; i++ {
 			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
 				return err
 			}
