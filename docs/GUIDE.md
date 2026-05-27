@@ -692,30 +692,34 @@ and how to reproduce.
 
 | Scenario        | json encode | msgpack encode | qdf encode | qdf vs msgpack |
 |-----------------|-------------|----------------|------------|----------------|
-| HotPath         | 750 ns      | 517 ns         | 511 ns     | **-1 %**       |
-| TelemetryBatch  | 363 µs      | 496 µs         | 305 µs     | **-38 %**      |
-| MetricSeries    | 156 µs      | 106 µs         | 4.1 µs     | **-96 %**      |
-| EmbeddingVec    | 63 µs       | 27 µs          | 843 ns     | **-97 %**      |
-| Config          | 2.1 µs      | 1.71 µs        | 1.41 µs    | **-18 %**      |
-| Archive         | 1.91 ms     | 2.76 ms        | 2.17 ms    | **-21 %**      |
+| HotPath         | 650 ns      | 423 ns         | 400 ns     | **-5 %**       |
+| TelemetryBatch  | 387 µs      | 477 µs         | 288 µs     | **-40 %**      |
+| MetricSeries    | 161 µs      | 112 µs         | 4.09 µs    | **-96 %**      |
+| EmbeddingVec    | 63 µs       | 25.6 µs        | 837 ns     | **-97 %**      |
+| Config          | 2.23 µs     | 1.83 µs        | 1.39 µs    | **-24 %**      |
+| Archive         | 1.81 ms     | 2.57 ms        | 1.93 ms    | **-25 %**      |
 
 | Scenario        | json decode | msgpack decode | qdf decode | qdf vs msgpack |
 |-----------------|-------------|----------------|------------|----------------|
-| HotPath         | 2.07 µs     | 815 ns         | 292 ns     | **-64 %**      |
-| TelemetryBatch  | 2.42 ms     | 962 µs         | 426 µs     | **-56 %**      |
-| MetricSeries    | 540 µs      | 149 µs         | 4.07 µs   | **-97 %**      |
-| EmbeddingVec    | 167 µs      | 46 µs          | 664 ns     | **-99 %**      |
-| Config          | 5.87 µs     | 2.81 µs        | 1.72 µs    | **-39 %**      |
-| Archive         | 12.4 ms     | 4.93 ms        | 2.54 ms    | **-49 %**      |
+| HotPath         | 1.55 µs     | 631 ns         | 287 ns     | **-55 %**      |
+| TelemetryBatch  | 2.46 ms     | 994 µs         | 381 µs     | **-62 %**      |
+| MetricSeries    | 565 µs      | 152 µs         | 4.16 µs    | **-97 %**      |
+| EmbeddingVec    | 162 µs      | 40.5 µs        | 715 ns     | **-98 %**      |
+| Config          | 6.03 µs     | 2.87 µs        | 1.68 µs    | **-42 %**      |
+| Archive         | 11.8 ms     | 4.70 ms        | 2.20 ms    | **-53 %**      |
 
 qdf wins across every workload in the matrix after the May 2026
-MRU-ring + flat-intern-table + packed-lruLink series (commits
-`ada9fd7`, `2ea3b48`, `02d6aac`). Largest absolute wins remain
-the QPack-friendly numeric workloads (MetricSeries / EmbeddingVec)
-where Delta+FOR / Gorilla collapse `float64`/`int64` columns to
-near-zero bytes per element, and dense-friendly columnar
-workloads (TelemetryBatch / Archive) where intern + Markov + MTF
-+ shape interning bury repeated keys and values.
+series (MRU-ring + flat-intern-table + packed-lruLink + large-
+payload buffer work; commits `ada9fd7`, `2ea3b48`, `02d6aac`) and
+the follow-up branch `perf/decode-intern-cache` (cached decode
+interning + mruRank unroll + PreIntern + codegen bench;
+commits `7090e25`, `c0517e8`, `95d3c21`, `001864b`). Largest
+absolute wins remain the QPack-friendly numeric workloads
+(MetricSeries / EmbeddingVec) where Delta+FOR / Gorilla collapse
+`float64`/`int64` columns to near-zero bytes per element, and
+dense-friendly columnar workloads (TelemetryBatch / Archive)
+where intern + Markov + MTF + shape interning bury repeated
+keys and values.
 
 Wire size, telemetry_1k payload:
 

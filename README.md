@@ -477,12 +477,17 @@ Darwin amd64 / Intel i7-9750H @ 2.6 GHz, Go 1.26.0, `-benchtime=2s`,
 memory tables and reproduction commands are in
 [`docs/BENCH.md`](docs/BENCH.md).
 
-> **May 2026 perf series**: commits `ada9fd7`, `2ea3b48`, `02d6aac`
-> rebuilt the encode-side state machinery (MRU ring side-cache,
-> flat open-addressed intern table, packed `lruLink`, large-batch
-> probe-and-grow). `qdf_dense` is now strictly faster than
-> `msgpack` on every workload in the matrix below; the
-> historical telemetry-encode regression is gone. See
+> **May 2026 perf series** (commits `ada9fd7`, `2ea3b48`, `02d6aac`,
+> `7090e25`, `c0517e8`, `95d3c21`, `001864b`) rebuilt the encode +
+> decode hot paths: MRU ring side-cache for MTF rank, flat
+> open-addressed intern table replacing `map[string]uint32`,
+> packed `lruLink`, large-payload buffer probe-and-grow, cached
+> decode interning (`decState.stringValues`), 4-way `mruRank`
+> unroll, opt-in `Encoder.PreIntern` API, and the `qdfgen`
+> codegen path wired into the bench matrix. qdf is now strictly
+> faster than `msgpack` on encode AND decode for every workload
+> in the matrix (-5 % HotPath, -40 % TelemetryBatch, -96 %
+> MetricSeries on encode; -55…-98 % on decode). See
 > [`docs/GUIDE.md`](docs/GUIDE.md#performance-characteristics)
 > for the up-to-date Profile_* matrix.
 
