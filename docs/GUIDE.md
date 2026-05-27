@@ -1013,6 +1013,12 @@ broken downstream consumers.
 - `docs/CHOOSING.md` — opts cheatsheet for end-users.
 - `docs/PLAN.md` — open optimisation work (encode-side perf vs
   msgpack).
+- `example_*_test.go` files at the repo root — pkg.go.dev surfaces
+  these per-symbol. Cover Marshal / AppendMarshal / MarshalT
+  basics, OptSpeed-vs-OptBalanced wire size, low-level Encoder
+  with PreIntern, StreamEncoder + StreamDecoder, custom
+  Marshaler / Unmarshaler, and Decoder fast-paths (SetNoCopy,
+  PeekTag, IsNil).
 - mcyoung, "Cheating the Reaper in Go" — background reading on the
   arena allocator tricks (uintptr cursor, chunk-keep slice,
   Reset-keeps-chunks).
