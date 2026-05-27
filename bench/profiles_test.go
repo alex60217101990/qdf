@@ -150,9 +150,16 @@ func mkArchive(rows int) archiveSnapshot {
 // Options for that scenario, and a label. It runs encode + decode
 // benchmarks for json, msgpack, qdf.
 func runProfile[T any](b *testing.B, name string, opts qdf.Options, in T) {
-	// Encode.
+	// Pre-compute the wire size each codec produces so every subtest
+	// can report MB/s alongside ns/op + allocs. SetBytes makes the
+	// throughput column comparable across json / msgpack / qdf.
+	jsonBuf, _ := json.Marshal(in)
+	msgpBuf, _ := msgpack.Marshal(in)
+	qdfBuf, _ := qdf.Marshal(in, opts)
+
 	b.Run(name+"/encode/json", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(jsonBuf)))
 		for b.Loop() {
 			_, err := json.Marshal(in)
 			if err != nil {
@@ -162,6 +169,7 @@ func runProfile[T any](b *testing.B, name string, opts qdf.Options, in T) {
 	})
 	b.Run(name+"/encode/msgpack", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(msgpBuf)))
 		for b.Loop() {
 			_, err := msgpack.Marshal(in)
 			if err != nil {
@@ -171,6 +179,7 @@ func runProfile[T any](b *testing.B, name string, opts qdf.Options, in T) {
 	})
 	b.Run(name+"/encode/qdf", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(qdfBuf)))
 		for b.Loop() {
 			_, err := qdf.Marshal(in, opts)
 			if err != nil {
@@ -178,12 +187,9 @@ func runProfile[T any](b *testing.B, name string, opts qdf.Options, in T) {
 			}
 		}
 	})
-	// Decode.
-	jsonBuf, _ := json.Marshal(in)
-	msgpBuf, _ := msgpack.Marshal(in)
-	qdfBuf, _ := qdf.Marshal(in, opts)
 	b.Run(name+"/decode/json", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(jsonBuf)))
 		for b.Loop() {
 			var out T
 			if err := json.Unmarshal(jsonBuf, &out); err != nil {
@@ -193,6 +199,7 @@ func runProfile[T any](b *testing.B, name string, opts qdf.Options, in T) {
 	})
 	b.Run(name+"/decode/msgpack", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(msgpBuf)))
 		for b.Loop() {
 			var out T
 			if err := msgpack.Unmarshal(msgpBuf, &out); err != nil {
@@ -202,6 +209,7 @@ func runProfile[T any](b *testing.B, name string, opts qdf.Options, in T) {
 	})
 	b.Run(name+"/decode/qdf", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(qdfBuf)))
 		for b.Loop() {
 			var out T
 			if err := qdf.Unmarshal(qdfBuf, &out); err != nil {
@@ -224,6 +232,45 @@ func BenchmarkProfile_HotPath(b *testing.B) {
 // OptBalanced.
 func BenchmarkProfile_TelemetryBatch(b *testing.B) {
 	runProfile(b, "telemetry_1k", qdf.OptBalanced, mkTelemetryBatch(1000))
+}
+
+// BenchmarkProfile_TelemetryBatch_PreIntern measures the encode
+// win when the caller registers the hot string pool via
+// Encoder.PreIntern before encoding. Real services with a known
+// vocabulary (service names, region codes, severity levels)
+// can use the API to skip the intern table's hash + probe on
+// every WriteString that hits the pool.
+func BenchmarkProfile_TelemetryBatch_PreIntern(b *testing.B) {
+	const records = 1000
+	rows := mkTelemetryBatch(records)
+	// Hot pool: same backing slices the fixture builder reused.
+	services := []string{"billing", "auth", "ingest", "metrics", "api"}
+	regions := []string{"eu-west-1", "us-east-1", "ap-southeast-2"}
+	levels := []string{"info", "warn", "error"}
+	tags := []string{"prod", "v3"}
+	hotPool := append(append(append(append([]string{}, services...), regions...), levels...), tags...)
+
+	// Probe a single encode so the throughput column matches the
+	// default Profile_TelemetryBatch/encode/qdf line in MB/s.
+	probe := qdf.NewEncoderWith(qdf.OptBalanced)
+	probe.PreIntern(hotPool...)
+	_ = probe.EncodeValue(rows)
+	wireBytes := int64(len(probe.Bytes()))
+
+	b.Run("telemetry_1k_preintern/encode/qdf", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(wireBytes)
+		enc := qdf.NewEncoderWith(qdf.OptBalanced)
+		for b.Loop() {
+			enc.Reset()
+			enc.ApplyOpts(qdf.OptBalanced)
+			enc.PreIntern(hotPool...)
+			if err := enc.EncodeValue(rows); err != nil {
+				b.Fatal(err)
+			}
+			_ = enc.Bytes()
+		}
+	})
 }
 
 // BenchmarkProfile_MetricSeries — numeric / boolean columns, no

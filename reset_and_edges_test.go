@@ -30,12 +30,12 @@ func TestReset_EncoderBufferTruncated(t *testing.T) {
 func TestReset_EncoderInternTableCleared(t *testing.T) {
 	e := NewEncoder(Dense)
 	e.WriteString("region-eu-west-1")
-	if len(e.state.ids) == 0 {
+	if int(e.state.internLoad) == 0 {
 		t.Fatal("intern table empty after WriteString")
 	}
 	e.Reset()
-	if len(e.state.ids) != 0 {
-		t.Fatalf("intern table not cleared: %d entries", len(e.state.ids))
+	if int(e.state.internLoad) != 0 {
+		t.Fatalf("intern table not cleared: %d entries", int(e.state.internLoad))
 	}
 }
 

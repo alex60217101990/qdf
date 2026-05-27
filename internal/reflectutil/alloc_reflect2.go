@@ -1,6 +1,6 @@
 //go:build qdf_reflect2
 
-package qdf
+package reflectutil
 
 import (
 	"reflect"
@@ -26,19 +26,20 @@ func reflect2TypeFor(t reflect.Type) reflect2.Type {
 	return actual.(reflect2.Type)
 }
 
-func makeSliceUnsafe(t reflect.Type, n int, p unsafe.Pointer) {
+// MakeSlice — see alloc.go for the contract.
+func MakeSlice(t reflect.Type, n int, p unsafe.Pointer) {
 	st := reflect2TypeFor(t).(reflect2.SliceType)
 	hdr := st.UnsafeMakeSlice(n, n)
-	// UnsafeMakeSlice returns a heap-allocated slice header; copy the
-	// three words into the caller's storage.
 	*(*[3]uintptr)(p) = *(*[3]uintptr)(hdr)
 }
 
-func sliceDataUnsafe(t reflect.Type, p unsafe.Pointer) unsafe.Pointer {
+// SliceData — see alloc.go for the contract.
+func SliceData(t reflect.Type, p unsafe.Pointer) unsafe.Pointer {
 	return *(*unsafe.Pointer)(p)
 }
 
-func makeMapUnsafe(t reflect.Type, n int, p unsafe.Pointer) {
+// MakeMap — see alloc.go for the contract.
+func MakeMap(t reflect.Type, n int, p unsafe.Pointer) {
 	mt := reflect2TypeFor(t).(reflect2.MapType)
 	m := mt.UnsafeMakeMap(n)
 	*(*unsafe.Pointer)(p) = *(*unsafe.Pointer)(m)

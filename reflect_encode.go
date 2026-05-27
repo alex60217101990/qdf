@@ -2,11 +2,13 @@ package qdf
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unsafe"
 
+	"github.com/alex60217101990/qdf/internal/reflectutil"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
 
@@ -508,9 +510,45 @@ func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 func encodeSlice(elem *typeDesc, stride uintptr) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
 		hdr := (*sliceHeader)(p)
-		e.WriteArrayHeader(hdr.Len)
+		n := hdr.Len
+		e.WriteArrayHeader(n)
 		base := hdr.Data
-		for i := 0; i < hdr.Len; i++ {
+		// Probe-and-grow for large slices: encode the first
+		// sliceProbeSize records, measure the per-record buffer
+		// growth, then pre-grow the output buffer for the rest in
+		// one shot. Eliminates the log(n) doubling chain
+		// (runtime.memmove + madvise) that dominated 50 k-record
+		// encodes — at scale the buffer can balloon from 4 KiB to
+		// 60 MiB through ~14 doublings, copying ~4× the final size.
+		// The probe cost is negligible because the same elements
+		// are emitted exactly once.
+		const sliceProbeSize = 32
+		if n <= sliceProbeSize {
+			for i := range n {
+				if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		probeStart := len(e.buf)
+		for i := range sliceProbeSize {
+			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
+				return err
+			}
+		}
+		probeBytes := len(e.buf) - probeStart
+		if probeBytes > 0 {
+			// Project total size from probe + 25 % slack so the
+			// growslice short-circuit fires inside slices.Grow
+			// without forcing another doubling on a slight
+			// underestimate.
+			remaining := n - sliceProbeSize
+			projected := probeBytes * remaining / sliceProbeSize
+			projected += projected >> 2
+			e.buf = slices.Grow(e.buf, projected)
+		}
+		for i := sliceProbeSize; i < n; i++ {
 			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
 				return err
 			}
@@ -528,10 +566,11 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr) func(*Decoder, 
 		if err := d.CheckLength(n, 1); err != nil {
 			return err
 		}
-		// makeSliceUnsafe is swapped out under -tags qdf_reflect2 for the
-		// reflect2 implementation (skips reflect.MakeSlice type checks).
-		makeSliceUnsafe(t, n, p)
-		base := sliceDataUnsafe(t, p)
+		// reflectutil.MakeSlice is swapped out under -tags qdf_reflect2
+		// for the reflect2 implementation (skips reflect.MakeSlice
+		// type checks).
+		reflectutil.MakeSlice(t, n, p)
+		base := reflectutil.SliceData(t, p)
 		for i := range n {
 			if err := elem.decode(d, unsafe.Add(base, uintptr(i)*stride)); err != nil {
 				return err
@@ -633,8 +672,8 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 		if err := d.CheckLength(n, 2); err != nil {
 			return err
 		}
-		// Allocate via the swappable backend.
-		makeMapUnsafe(t, n, p)
+		// Allocate via the swappable reflectutil backend.
+		reflectutil.MakeMap(t, n, p)
 		mapVal := reflect.NewAt(t, p).Elem()
 		for range n {
 			kv := reflect.New(keyType).Elem()
@@ -729,7 +768,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			pairOn := e.opts.Has(OptPairPred)
 			for i := range fields {
 				f := &fields[i]
-				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 					if id, ok := st.lookupOrAssign(f.name); ok {
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)
@@ -769,7 +808,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			pairOn := e.opts.Has(OptPairPred)
 			for i := range fields {
 				f := &fields[i]
-				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 					if id, ok := st.lookupOrAssign(f.name); ok {
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)

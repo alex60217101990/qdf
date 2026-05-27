@@ -19,20 +19,20 @@ func TestShrink_EncStateRebuildsBigMap(t *testing.T) {
 	for i := range maxRetainedIDs + 100 {
 		st.lookupOrAssign(fmt.Sprintf("burst-key-%05d", i))
 	}
-	if len(st.ids) <= maxRetainedIDs {
+	if int(st.internLoad) <= maxRetainedIDs {
 		t.Fatalf("test premise: burst should exceed maxRetainedIDs (%d), got %d",
-			maxRetainedIDs, len(st.ids))
+			maxRetainedIDs, int(st.internLoad))
 	}
 	st.reset()
-	if len(st.ids) != 0 {
-		t.Fatalf("reset did not clear ids: %d", len(st.ids))
+	if int(st.internLoad) != 0 {
+		t.Fatalf("reset did not clear ids: %d", int(st.internLoad))
 	}
 	// After shrink the map header was replaced with a fresh one;
 	// adding a single entry should not grow the buckets back to
 	// the pre-shrink size in a single step.
 	st.lookupOrAssign("post-shrink")
-	if len(st.ids) != 1 {
-		t.Fatalf("post-shrink lookup did not register: %d", len(st.ids))
+	if int(st.internLoad) != 1 {
+		t.Fatalf("post-shrink lookup did not register: %d", int(st.internLoad))
 	}
 }
 
@@ -42,16 +42,16 @@ func TestShrink_EncStateDropsLRUOverCap(t *testing.T) {
 	for i := range maxRetainedLRUCap + 64 {
 		st.lookupOrAssign(fmt.Sprintf("lru-%05d", i))
 	}
-	if cap(st.lruPrev) <= maxRetainedLRUCap {
+	if cap(st.lruLink) <= maxRetainedLRUCap {
 		t.Fatalf("test premise: lruPrev should exceed cap (%d), got %d",
-			maxRetainedLRUCap, cap(st.lruPrev))
+			maxRetainedLRUCap, cap(st.lruLink))
 	}
 	st.reset()
-	if st.lruPrev != nil {
-		t.Fatalf("reset did not drop oversized lruPrev: cap=%d", cap(st.lruPrev))
+	if st.lruLink != nil {
+		t.Fatalf("reset did not drop oversized lruPrev: cap=%d", cap(st.lruLink))
 	}
-	if st.lruNext != nil {
-		t.Fatalf("reset did not drop oversized lruNext: cap=%d", cap(st.lruNext))
+	if st.lruLink != nil {
+		t.Fatalf("reset did not drop oversized lruNext: cap=%d", cap(st.lruLink))
 	}
 }
 
@@ -65,7 +65,7 @@ func TestShrink_EncStateDropsPairPredOverCap(t *testing.T) {
 	}
 	// Force pair records — record a pair for the highest prev id
 	// so pairPred slice is grown to that length.
-	last := uint32(len(st.ids) - 1)
+	last := uint32(int(st.internLoad) - 1)
 	st.pairRecord(last, last-1)
 	if cap(st.pairPred) <= maxRetainedPairCap {
 		t.Fatalf("test premise: pairPred should exceed cap (%d), got %d",
@@ -84,8 +84,8 @@ func TestShrink_EncStateKeepsCapsUnderThreshold(t *testing.T) {
 	for i := range 100 {
 		st.lookupOrAssign(fmt.Sprintf("steady-%05d", i))
 	}
-	preIDs := len(st.ids)
-	preLRU := cap(st.lruPrev)
+	preIDs := int(st.internLoad)
+	preLRU := cap(st.lruLink)
 	st.reset()
 	// After reset the map must still be the same instance (no
 	// rebuild because we were under the cap). Test this indirectly:
@@ -102,8 +102,8 @@ func TestShrink_EncStateKeepsCapsUnderThreshold(t *testing.T) {
 	for i := range 100 {
 		st.lookupOrAssign(fmt.Sprintf("steady-after-%05d", i))
 	}
-	if cap(st.lruPrev) > preLRU*2 {
-		t.Fatalf("lruPrev cap grew unexpectedly: pre=%d post=%d", preLRU, cap(st.lruPrev))
+	if cap(st.lruLink) > preLRU*2 {
+		t.Fatalf("lruPrev cap grew unexpectedly: pre=%d post=%d", preLRU, cap(st.lruLink))
 	}
 }
 
@@ -126,7 +126,7 @@ func TestShrink_DecStateDropsValuesOverCap(t *testing.T) {
 	if d.values != nil {
 		t.Fatalf("decoder reset did not drop oversized values: cap=%d", cap(d.values))
 	}
-	if d.lruPrev != nil {
+	if d.lruLink != nil {
 		t.Fatalf("decoder reset did not drop lruPrev under oversized cap")
 	}
 }
@@ -143,11 +143,11 @@ func TestShrink_BurstThenSteadyState(t *testing.T) {
 	for i := range maxRetainedIDs + 64 {
 		st.lookupOrAssign(fmt.Sprintf("burst-%05d-%s", i, strings.Repeat("z", 16)))
 	}
-	st.pairRecord(uint32(len(st.ids)-1), 0) // grow pairPred too
+	st.pairRecord(uint32(int(st.internLoad)-1), 0) // grow pairPred too
 
 	// Snapshot the burst-peak state.
-	burstIDs := len(st.ids)
-	burstLRUCap := cap(st.lruPrev)
+	burstIDs := int(st.internLoad)
+	burstLRUCap := cap(st.lruLink)
 	burstPairCap := cap(st.pairPred)
 	burstArena := st.arena.BytesUsed()
 	t.Logf("burst peak: ids=%d lruCap=%d pairCap=%d arenaUsed=%d KiB",
@@ -165,9 +165,9 @@ func TestShrink_BurstThenSteadyState(t *testing.T) {
 	// burst-time capacity any longer; either they were rebuilt to
 	// a small size or they grew naturally to fit the steady-state
 	// workload only.
-	if cap(st.lruPrev) >= burstLRUCap && burstLRUCap > maxRetainedLRUCap {
+	if cap(st.lruLink) >= burstLRUCap && burstLRUCap > maxRetainedLRUCap {
 		t.Fatalf("lruPrev cap did not shrink after burst→reset: burst=%d post=%d",
-			burstLRUCap, cap(st.lruPrev))
+			burstLRUCap, cap(st.lruLink))
 	}
 	if cap(st.pairPred) >= burstPairCap && burstPairCap > maxRetainedPairCap {
 		t.Fatalf("pairPred cap did not shrink: burst=%d post=%d",

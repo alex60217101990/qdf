@@ -1,6 +1,8 @@
 // Package qdf is a compact, streaming-friendly binary serialization
 // format.
 //
+// # Quick start
+//
 // One encode entry point: Marshal(v, opts). The Options bit-mask
 // picks which codecs run for that call. Convenience bundles cover
 // the common tradeoffs:
@@ -24,6 +26,64 @@
 //
 // Marshal returns a freshly-allocated slice owned by the caller.
 // AppendMarshal is the zero-extra-copy variant.
+//
+// # Public API surface
+//
+// The package contract is split across four layers; everything else
+// under internal/ is implementation detail and may change between
+// releases without notice.
+//
+// Top-level entry points (file: qdf.go):
+//
+//	func Marshal(v any, opts Options) ([]byte, error)
+//	func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error)
+//	func Unmarshal(data []byte, out any) error
+//	type Options uint32   // bit-mask of OptDense, OptQPack, OptMTF, …
+//
+// Typed convenience wrappers — generic, zero-extra-reflection (file:
+// qdf_generic.go):
+//
+//	func MarshalT[T any](v T, opts Options) ([]byte, error)
+//	func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error)
+//	func UnmarshalT[T any](data []byte) (T, error)
+//
+// Low-level encoder / decoder for callers driving the wire directly
+// or interoperating with the qdfgen code generator (files:
+// encoder.go, decoder.go, stream.go):
+//
+//	type Encoder struct{ … }
+//	    NewEncoder(mode Mode) *Encoder
+//	    NewEncoderWith(opts Options) *Encoder
+//	    NewEncoderOnBuf(buf []byte, mode Mode) *Encoder
+//	    (e *Encoder) WriteString / WriteBytes / WriteInt / WriteUint /
+//	                WriteFloat32 / WriteFloat64 / WriteBool / WriteNil /
+//	                WriteArrayHeader / WriteMapHeader /
+//	                WriteTimestampNano / WriteStringInline
+//	    (e *Encoder) AppendBytes / EnsureHeader / Bytes / Take /
+//	                Reset / SetBuffer / AdoptBuffer / SetIntern /
+//	                SetMaxDepth / SetQPack / QPack / ApplyOpts /
+//	                EncodeValue / PreIntern
+//	type Decoder struct{ … }
+//	    NewDecoder() *Decoder
+//	    NewDecoderOnBuf(buf []byte) *Decoder
+//	    (d *Decoder) ReadString / ReadStringBytes / ReadBytes /
+//	                ReadBool / ReadInt / ReadUint / ReadFloat32 /
+//	                ReadFloat64 / ReadNil / ReadArrayHeader /
+//	                ReadMapHeader / ReadTimestampNano / Skip /
+//	                PeekTag / IsNil / Pos / Remaining / RemainingBytes /
+//	                Advance / SetInput / SetNoCopy / MarkHeaderRead /
+//	                CheckLength / InternKey
+//	type StreamEncoder, type StreamDecoder         // io.Writer / io.Reader
+//
+// User-side hook points (file: marshaler.go):
+//
+//	type Marshaler interface   { MarshalQDF(dst []byte) ([]byte, error) }
+//	type Unmarshaler interface { UnmarshalQDF(src []byte) (int, error) }
+//
+// The qdfgen code generator (cmd/qdfgen) emits MarshalQDF /
+// UnmarshalQDF methods for user struct types; the codegen path
+// uses the same Encoder / Decoder primitives listed above and
+// requires no reflection at runtime.
 package qdf
 
 import (
@@ -37,7 +97,15 @@ import (
 // so idle memory stays bounded.
 const (
 	initialEncBuf = 4 * 1024
-	maxPooledBuf  = 1 * 1024 * 1024
+	// maxPooledBuf bounds how big a buffer the encoder pool will
+	// retain between Marshal calls. Profiling on large batches
+	// (50 k+ records, ~60 MiB output) showed the previous 1 MiB cap
+	// caused every iteration to re-grow the buffer from 4 KiB to
+	// the final size — runtime.memmove + runtime.madvise dominated
+	// the trace. Retaining up to 16 MiB lets large encoders reuse
+	// the high-water buffer once it warms up, while still releasing
+	// truly outlier payloads instead of pinning them to the pool.
+	maxPooledBuf = 16 * 1024 * 1024
 )
 
 // Options is a bit-mask of per-call encoder feature toggles. A zero
@@ -151,10 +219,31 @@ func Marshal(v any, opts Options) ([]byte, error) {
 		putEnc(enc, &encPool)
 		return nil, err
 	}
-	out := slices.Clone(enc.buf)
+	// Big-output detach: cloning a multi-megabyte buffer to hand
+	// the caller their own copy used to dominate Large-payload
+	// profiles (slices.Clone + runtime.memmove). At this size the
+	// pool would drop the buffer in putEnc anyway (cap exceeds
+	// maxPooledBuf), so handing the original to the caller and
+	// leaving the pool encoder with a nil buf is strictly cheaper —
+	// it skips the copy entirely. Small payloads stay on the
+	// clone path so the warm 4 KiB pool buffer survives.
+	var out []byte
+	if cap(enc.buf) > marshalDetachThreshold {
+		out = enc.buf
+		enc.buf = nil
+	} else {
+		out = slices.Clone(enc.buf)
+	}
 	encPool.Put(enc)
 	return out, nil
 }
+
+// marshalDetachThreshold is the buffer capacity above which Marshal
+// hands the encoder buffer directly to the caller instead of cloning
+// it. Chosen at 256 KiB — well above typical message sizes (so the
+// hot pool path keeps reusing its buffer) but small enough that any
+// payload heading toward the maxPooledBuf cap skips the copy.
+const marshalDetachThreshold = 256 * 1024
 
 // AppendMarshal encodes v and appends the result to dst. Reuse the
 // returned slice as dst on the next call to avoid per-message

@@ -251,7 +251,7 @@ state-ref.
 | --- | --------- | --------- | ----------------- |
 | `0xE8` | Markov-0: same ID as the previous emission | Runs of the same value (`region`, `region`, `region`). | Distinct values in a row. |
 | `0xE9` | MTF: encode LRU rank instead of raw id | Heavy reuse of a small hot subset of strings that were interned early. | Random access pattern with no recency. |
-| `0xEA` | Markov-1: per-prev ring of 4 most-recent successors | Correlated pairs — `country` → `city`, `service` → `region`. Only emits when the raw id needs ≥ 2 varuint bytes, so the wire never grows on small state tables. | Unique transitions, low-cardinality state. |
+| `0xEA` | Markov-1: top-1 predictor of the previous emission's successor | Correlated pairs — `country` → `city`, `service` → `region`. Only emits when the raw id needs ≥ 2 varuint bytes, so the wire never grows on small state tables. | Unique transitions, low-cardinality state. |
 | `0xEC` | Shape interning: declare struct shape once, reuse by id | Arrays / streams of the same struct type. Per-record saving is ≈ `N × 2` bytes (elided key state-refs + map header). | One-shot encodes of a unique struct type. |
 
 The state table is shared **per stream** in `StreamEncoder` /
@@ -477,6 +477,20 @@ Darwin amd64 / Intel i7-9750H @ 2.6 GHz, Go 1.26.0, `-benchtime=2s`,
 memory tables and reproduction commands are in
 [`docs/BENCH.md`](docs/BENCH.md).
 
+> **May 2026 perf series** (commits `ada9fd7`, `2ea3b48`, `02d6aac`,
+> `7090e25`, `c0517e8`, `95d3c21`, `001864b`) rebuilt the encode +
+> decode hot paths: MRU ring side-cache for MTF rank, flat
+> open-addressed intern table replacing `map[string]uint32`,
+> packed `lruLink`, large-payload buffer probe-and-grow, cached
+> decode interning (`decState.stringValues`), 4-way `mruRank`
+> unroll, opt-in `Encoder.PreIntern` API, and the `qdfgen`
+> codegen path wired into the bench matrix. qdf is now strictly
+> faster than `msgpack` on encode AND decode for every workload
+> in the matrix (-5 % HotPath, -40 % TelemetryBatch, -96 %
+> MetricSeries on encode; -55…-98 % on decode). See
+> [`docs/GUIDE.md`](docs/GUIDE.md#performance-characteristics)
+> for the up-to-date Profile_* matrix.
+
 ### Encode — ns/op
 
 | Payload                  | json    | msgpack | qdf\_fast | qdf\_dense | vs json    | vs msgpack |
@@ -486,7 +500,7 @@ memory tables and reproduction commands are in
 | Nested (4 deep)          |     446 |     793 |   **331** |        786 | **1.35×**  | **2.40×**  |
 | Deep linked-list (16)    |    1157 |    3060 |   **477** |        814 | **2.43×**  | **6.42×**  |
 | Wide × 1000              |   991 k |   991 k |  **213 k**|      289 k | **4.66×**  | **4.66×**  |
-| Log batch × 1000         |   998 k |   624 k |  **171 k**|      562 k | **5.84×**  | **3.65×**  |
+| Log batch × 1000         |   998 k |   624 k |  **186 k**|  **365 k** | **5.36×**  | **3.35×**  |
 | Map-heavy (40 entries)   |    8446 |    5282 |  **1391** |       2019 | **6.07×**  | **3.80×**  |
 | `[]float32` × 512        |  30 054 |  18 270 |  **1821** |          – | **16.5×**  | **10.0×**  |
 | `[]float64` × 512        |  39 819 |  23 856 |  **2450** |          – | **16.3×**  | **9.74×**  |

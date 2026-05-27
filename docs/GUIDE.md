@@ -257,32 +257,53 @@ func (e *Encoder) reset() {
 
 `state.reset()` is where the watermark-based shrink lives. Defaults:
 
-| Structure          | Soft cap | What hits it                                |
-|--------------------|---------:|---------------------------------------------|
-| `ids` (intern map) | 4 096    | unique intern keys per stream               |
-| `lruPrev/Next`     | 4 096    | LRU chain capacity (≈ unique intern keys)   |
-| `pairPred`         | 4 096    | Markov-1 predictor slice capacity           |
-| `shapes`           | 1 024    | declared struct shapes                      |
-| `arena`            | 256 KiB  | total chunk capacity (see internarena)      |
+| Structure          | Soft cap | What hits it                                          |
+|--------------------|---------:|-------------------------------------------------------|
+| `internTable`      | 4 096 ids| flat hash table — drop at `2 * 4096` slots            |
+| `lruLink`          | 4 096    | packed `(prev<<16\|next)` chain capacity              |
+| `pairPred`         | 4 096    | Markov-1 predictor slice capacity                     |
+| `shapes`           | 1 024    | declared struct shapes                                |
+| `arena`            | 256 KiB  | total chunk capacity (see internarena)                |
+| `stringValues`     | 4 096    | decoder string-cache; truncated with `values` (decode-side only) |
 
-Over the cap → rebuild / drop. Under → reuse in place. This keeps a
-long-running pool from pinning peak memory after a single outlier
-payload. See [Memory model](#memory-model) for the why.
+The 128-entry MRU ring side-cache and the four hot scalars
+(`lastID`, `lruHead`, `mruHead`, `internLoad`) live inline in
+`encState` — fixed-size, no shrink path.
+
+Over the cap → rebuild / drop. Under → reuse in place. The pool
+encoder buffer follows the same rule with `maxPooledBuf = 16 MiB`
+(see [Memory model](#memory-model)). Long-running services with
+bursty traffic stay at the steady-state working set rather than
+pinning the historical peak.
 
 ### Decoder symmetry
 
 The decoder mirrors every encoder structure: `values [][]byte` for
-the resolved intern strings, `lruPrev/Next` for the MTF chain,
-`pairPred` for Markov-1, `shapes` for shape-table lookups.
-`pairPred` and the LRU are kept in sync per emission so that a
-`tagStateMTF 0` always resolves to the most-recently-emitted ID on
-both sides.
+the resolved intern bytes (aliasing the wire buffer), a parallel
+`stringValues []string` that caches the materialised Go-string of
+each intern record (populated lazily on the first `ReadString`),
+`lruLink` for the packed MTF chain, `pairPred` for Markov-1,
+`shapes` for shape-table lookups, and its own `mruRing` so
+`tagStateMTF`-encoded ranks resolve in O(1) without walking the
+chain. `pairPred`, the LRU chain, and both sides of the MRU ring
+are kept in sync per emission so a `tagStateMTF 0` always
+resolves to the most-recently-emitted ID on both sides.
+
+`stringValues` is a pure decoder-side optimisation: on dense
+payloads (telemetry, archive) the same intern record is read
+N times via state-ref / MTF / pair / repeat tags; without the
+cache each read paid for a fresh `string(b)` heap copy. With the
+cache, the first read materialises and stores the string; the
+remaining N-1 reads return the cached value with zero alloc.
+Empty interned bytes resolve directly to `""` without touching
+the cache.
 
 If the encoder and decoder diverge by a single bookkeeping step, the
 stream becomes ambiguous from that point on. Every code path that
-touches `state.lastID`, `state.pairRecord`, or `state.lruMoveToFront`
-runs the same call sequence on both sides. Tests in `cycle_test.go`,
-`pair_shape_test.go`, and `mtf_test.go` pin those sequences.
+touches `state.lastID`, `state.pairRecord`, `state.lruMoveFront`,
+or `state.mruPush` runs the same call sequence on both sides. Tests
+in `cycle_test.go`, `pair_shape_test.go`, and `mtf_test.go` pin
+those sequences.
 
 ---
 
@@ -299,9 +320,13 @@ Re-emission:  0xE1 varuint(id)                   tagStateRef
 ```
 
 When `OptDense` is set, `WriteString(s)` and `WriteBytes(b)` look up
-the value in `encState.ids` (a `map[string]uint32`). On a miss the
-key is copied (more on that below) and assigned the next sequential
-ID. On a hit the encoder picks the smallest re-emission tag:
+the value in `encState.internTable` — a flat open-addressed hash
+table (`[]internSlot`, hash precomputed via `hash/maphash.String`
+and stored alongside the key + id). On a miss the key is copied
+(more on that below) and assigned the next sequential ID; the slot
+is installed via linear probing and the table doubles when load
+crosses 0.5. On a hit the encoder picks the smallest re-emission
+tag:
 
 ```
 if id == lastID                          → tagStateRepeat   (1 byte)
@@ -323,10 +348,12 @@ Tuning knobs on the encoder:
   (default 4). Shorter strings go straight to `writeStringInline`
   because the inline encoding would be at most 1 byte longer than
   the state-ref version.
-- `maxStateEntries` — hard cap on `len(state.ids)` (default 16 384).
-  After the cap the encoder falls back to inline emission for new
-  values. Existing entries continue to hit; the cap only blocks
-  unbounded growth on adversarial input.
+- `maxStateEntries` — hard cap on `state.internLoad` (default
+  16 384). After the cap the encoder falls back to inline emission
+  for new values. Existing entries continue to hit; the cap only
+  blocks unbounded growth on adversarial input. The 16-bit MRU
+  ring slot stores IDs up to `0xFFFF - 1`, so the cap also keeps
+  the ring sentinel space safe.
 
 Both knobs live on the encoder (set via `NewEncoderOpts`); the
 top-level `Marshal` uses defaults.
@@ -370,24 +397,39 @@ shrink entirely. The contract is documented at the top of
 the chunk they live in and become invalid after Reset.
 
 `encState.lookupOrAssign` is the only caller. It wraps `arena.Put`
-and `arena.Get` and rebinds the map key to an `unsafestr.String`
-header that aliases the arena bytes — zero copy, zero alloc.
+and `arena.Get` and rebinds the intern slot key to an
+`unsafestr.String` header that aliases the arena bytes — zero copy,
+zero alloc on the hot path.
 
 ### Move-to-Front (MTF) — `tagStateMTF`
 
 When the encoder emits a state-ref, the touched intern ID moves to
-the head of an LRU chain (`lruHead`, `lruPrev`, `lruNext`, indexed by
-ID). With `OptMTF` set, the rank in the chain is encoded as
-`varuint`. On streams with locality (most recently seen IDs are most
-likely to repeat), the rank's varuint is shorter than the raw id's
-varuint, so the MTF emission wins.
+the head of an LRU chain. The chain is stored in `encState.lruLink`
+— a single `[]uint32` slice indexed by ID, with the previous and
+next neighbour packed as `(prev << 0) | (next << 16)`. Halving the
+array footprint vs separate `prev`/`next` slices roughly halves the
+cache lines a `lruMoveFront` has to touch.
 
-The decoder maintains the same chain; `tagStateMTF + rank` walks
-`rank` steps down the chain to resolve the ID.
+With `OptMTF` set, the rank in the chain is encoded as `varuint`.
+On streams with locality the rank's varuint is shorter than the raw
+id's varuint, so the MTF emission wins.
 
-Code: `encState.lruMoveToFront` (returns the rank for the move),
-`encState.lruMoveFront` (no rank, for paths that already picked a
-tag), `decState.lruIDAtRank` (decoder-side walk).
+Rank discovery is the historical bottleneck: walking the linked
+list head-first is one pointer chase per step into cache-cold
+memory, and a typical telemetry batch needed > 10 % of CPU just for
+that walk. `encState.mruRing` (128 uint16 slots, two cache lines)
+caches the IDs of the last 128 emissions in order; `mruRank`
+scans backward from the head and returns the ring offset on hit.
+That offset is the LRU chain rank by construction (every emit
+pushes onto the ring), so the encoder skips the chain walk
+entirely on hit and falls back to a raw `tagStateRef` on miss —
+the chain rank is then ≥ 128 and would not have beaten the raw
+varuint anyway. The decoder carries the same ring (`decState.mruRing`)
+so `tagStateMTF + rank` decodes via direct indexing in O(1).
+
+Code: `encState.mruRank`, `encState.lruMoveFront`,
+`decState.mruIDAtRank` (with the linked-list `lruIDAtRank` as a
+forward-compat fallback for rank ≥ ring size).
 
 ### Markov-0 — `tagStateRepeat`
 
@@ -574,47 +616,57 @@ allocates `encState`.
 
 The naive pool design has a problem: a single outlier payload (a
 1 MiB event with thousands of unique strings) grows the encoder's
-intern map, LRU chain, pair predictor, and arena to fit. The pool
-holds onto the encoder. Every subsequent call inherits the peak
-footprint, forever.
+intern table, LRU chain, pair predictor, and arena to fit. The
+pool holds onto the encoder. Every subsequent call inherits the
+peak footprint, forever.
 
-Fix: each `reset()` checks the post-call capacity against a soft cap.
-Over the cap → drop the backing array; under the cap → reuse in
-place. Defaults are in `state.go`:
+Fix: each `reset()` checks the post-call capacity against a soft
+cap. Over the cap → drop the backing array; under the cap → reuse
+in place. Defaults in `state.go`:
 
 ```go
 const (
-    maxRetainedIDs      = 4096    // intern map size
-    maxRetainedLRUCap   = 4096    // LRU slice cap
-    maxRetainedPairCap  = 4096    // pair predictor slice cap
-    maxRetainedShapeCap = 1024    // shape table cap
+    maxRetainedIDs       = 4096   // flat intern table threshold
+    maxRetainedLRUCap    = 4096   // packed lruLink slice cap
+    maxRetainedPairCap   = 4096   // pair predictor slice cap
+    maxRetainedShapeCap  = 1024   // shape table cap
+    internTableInitSize  = 64     // table size after over-cap rebuild
 )
 ```
 
 `internarena.DefaultRetainBytes = 256 KiB` is the arena's
-counterpart cap. Override with `ResetWithLimit` if you want
-different behaviour for a custom encoder pool.
+counterpart cap. The pool encoder buffer follows the same rule
+with `maxPooledBuf = 16 MiB` in `qdf.go`; outputs bigger than that
+are dropped from the pool instead of pinning multi-megabyte
+buffers across goroutines forever.
 
 Tests in `shrink_test.go` pin the contract: after a burst that
 exceeds every cap, `reset()` shrinks at least one structure;
-post-reset capacity is bounded; new payloads still encode correctly.
+post-reset capacity is bounded; new payloads still encode
+correctly.
 
-### Go map's quirk
+### Reset shape — flat table
 
-`map[K]V` in Go cannot shrink its bucket array once it has grown.
-`clear(m)` only zeros entries — capacity stays. To actually release
-the memory we replace the header:
+The flat intern table is contiguous, so the shrink path is a
+straight rebuild when the capacity is over the soft cap, and a
+memclear of the in-place slots otherwise:
 
 ```go
-if len(e.ids) > maxRetainedIDs {
-    e.ids = make(map[string]uint32, 64)   // fresh map, drops old buckets
+if cap(e.internTable) > maxRetainedIDs*2 {
+    e.internTable = make([]internSlot, internTableInitSize)
 } else {
-    clear(e.ids)                          // keep buckets, fast path
+    for i := range e.internTable {
+        e.internTable[i] = internSlot{}
+    }
 }
+e.internLoad = 0
 ```
 
-This is the only place we allocate during Reset; the rest is in-
-place slice truncation or `clear()`.
+That `*2` accounts for the load-factor headroom: at load 0.5 the
+backing array is twice the active entry count, so an active set of
+4 096 ids sits on an 8 192-slot table — both are "steady state"
+and neither triggers the rebuild. The rest of Reset is in-place
+slice truncation or `clear()`.
 
 ### Arena and GC pressure
 
@@ -635,34 +687,39 @@ moves into "scan one arena slab" instead.
 ## Performance characteristics
 
 Numbers from `bench/profiles_test.go`, Intel i7-9750H, Go 1.26.0,
-median of 3 × 1 s runs. See `docs/BENCH.md` for the full matrix
+median of 3 × 2 s runs. See `docs/BENCH.md` for the full matrix
 and how to reproduce.
 
 | Scenario        | json encode | msgpack encode | qdf encode | qdf vs msgpack |
 |-----------------|-------------|----------------|------------|----------------|
-| HotPath         | 660 ns      | 451 ns         | 326 ns     | **-28 %**      |
-| TelemetryBatch  | 377 µs      | 474 µs         | 720 µs     | +52 %          |
-| MetricSeries    | 155 µs      | 112 µs         | 5.4 µs     | **-95 %**      |
-| EmbeddingVec    | 72 µs       | 26 µs          | 0.72 µs    | **-97 %**      |
-| Config          | 2.1 µs      | 1.7 µs         | 1.74 µs    | **-2 %**       |
-| Archive         | 2.1 ms      | 2.9 ms         | 5.1 ms     | +75 %          |
+| HotPath         | 650 ns      | 423 ns         | 400 ns     | **-5 %**       |
+| TelemetryBatch  | 387 µs      | 477 µs         | 288 µs     | **-40 %**      |
+| MetricSeries    | 161 µs      | 112 µs         | 4.09 µs    | **-96 %**      |
+| EmbeddingVec    | 63 µs       | 25.6 µs        | 837 ns     | **-97 %**      |
+| Config          | 2.23 µs     | 1.83 µs        | 1.39 µs    | **-24 %**      |
+| Archive         | 1.81 ms     | 2.57 ms        | 1.93 ms    | **-25 %**      |
 
 | Scenario        | json decode | msgpack decode | qdf decode | qdf vs msgpack |
 |-----------------|-------------|----------------|------------|----------------|
-| HotPath         | 1.6 µs      | 626 ns         | 306 ns     | **-51 %**      |
-| TelemetryBatch  | 2.3 ms      | 1.0 ms         | 446 µs     | **-56 %**      |
-| MetricSeries    | 627 µs      | 186 µs         | 4.0 µs     | **-98 %**      |
-| EmbeddingVec    | 167 µs      | 44 µs          | 0.71 µs    | **-98 %**      |
-| Config          | 5.6 µs      | 2.9 µs         | 1.53 µs    | **-48 %**      |
-| Archive         | 13 ms       | 5.2 ms         | 3.2 ms     | **-38 %**      |
+| HotPath         | 1.55 µs     | 631 ns         | 287 ns     | **-55 %**      |
+| TelemetryBatch  | 2.46 ms     | 994 µs         | 381 µs     | **-62 %**      |
+| MetricSeries    | 565 µs      | 152 µs         | 4.16 µs    | **-97 %**      |
+| EmbeddingVec    | 162 µs      | 40.5 µs        | 715 ns     | **-98 %**      |
+| Config          | 6.03 µs     | 2.87 µs        | 1.68 µs    | **-42 %**      |
+| Archive         | 11.8 ms     | 4.70 ms        | 2.20 ms    | **-53 %**      |
 
-Where qdf wins: anything with numeric arrays (QPack codecs), anything
-with repeated string keys (Dense intern), anything decoded (smaller
-wire = less to parse).
-
-Where qdf loses: encode side on telemetry / archive payloads
-(complex predictor bookkeeping costs CPU). See [docs/PLAN.md](PLAN.md)
-for the open optimisation work.
+qdf wins across every workload in the matrix after the May 2026
+series (MRU-ring + flat-intern-table + packed-lruLink + large-
+payload buffer work; commits `ada9fd7`, `2ea3b48`, `02d6aac`) and
+the follow-up branch `perf/decode-intern-cache` (cached decode
+interning + mruRank unroll + PreIntern + codegen bench;
+commits `7090e25`, `c0517e8`, `95d3c21`, `001864b`). Largest
+absolute wins remain the QPack-friendly numeric workloads
+(MetricSeries / EmbeddingVec) where Delta+FOR / Gorilla collapse
+`float64`/`int64` columns to near-zero bytes per element, and
+dense-friendly columnar workloads (TelemetryBatch / Archive)
+where intern + Markov + MTF + shape interning bury repeated
+keys and values.
 
 Wire size, telemetry_1k payload:
 
@@ -900,8 +957,8 @@ state.go                — encState / decState: intern table, LRU, pair predict
 wire.go                 — tag constants, varuint helpers
 
 reflect_encode.go       — typeDesc cache, reflect-based encode / decode
-reflect_alloc.go        — stdlib reflect alloc helpers
-reflect_alloc_reflect2.go — qdf_reflect2 build tag swap
+                          (reflect-alloc helpers moved to
+                          internal/reflectutil/)
 
 maps_fast.go            — //go:generate directive, doc stub
 maps_fast_generated.go  — codegen output for 27 (K, V) map pairs
@@ -916,6 +973,10 @@ internal/intern/        — short-string interner used by decoder
 internal/bufpool/       — reusable []byte pool
 internal/unsafestr/     — string ↔ []byte unsafe alias helpers
 internal/mapsgen/       — generator for maps_fast_generated.go
+internal/endian/        — NativeIsLittle build-tag const (replaces old root endian_*.go)
+internal/reflectutil/   — MakeSlice / SliceData / MakeMap helpers
+                          with reflect / reflect2 backends
+                          (replaces old root reflect_alloc*.go)
 internal/codegen_test/  — fixtures and tests for cmd/qdfgen output
 
 cmd/qdfgen/             — code generator emitting MarshalQDF / UnmarshalQDF
@@ -952,6 +1013,12 @@ broken downstream consumers.
 - `docs/CHOOSING.md` — opts cheatsheet for end-users.
 - `docs/PLAN.md` — open optimisation work (encode-side perf vs
   msgpack).
+- `example_*_test.go` files at the repo root — pkg.go.dev surfaces
+  these per-symbol. Cover Marshal / AppendMarshal / MarshalT
+  basics, OptSpeed-vs-OptBalanced wire size, low-level Encoder
+  with PreIntern, StreamEncoder + StreamDecoder, custom
+  Marshaler / Unmarshaler, and Decoder fast-paths (SetNoCopy,
+  PeekTag, IsNil).
 - mcyoung, "Cheating the Reaper in Go" — background reading on the
   arena allocator tricks (uintptr cursor, chunk-keep slice,
   Reset-keeps-chunks).

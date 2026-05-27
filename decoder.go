@@ -340,6 +340,14 @@ func (d *Decoder) ReadFloat64() (float64, error) {
 
 // ReadString returns the next string. If the decoder is in noCopy mode the
 // returned string aliases the input buffer; otherwise a copy is made.
+//
+// When the tag at the cursor resolves through the intern table —
+// tagInternStr, tagStateRef, tagStateMTF, tagStatePair, tagStateRepeat —
+// readStringBytes leaves d.state.lastID set to the entry it just
+// touched. We return the pre-materialised d.state.stringValues[id]
+// from that path instead of allocating a fresh `string(b)` copy on
+// every state-ref hit. Inline reads (fixstr, str8/16/32) set
+// lastID = lruInvalidID, fall through, and pay the copy as before.
 func (d *Decoder) ReadString() (string, error) {
 	b, err := d.readStringBytes()
 	if err != nil {
@@ -347,6 +355,11 @@ func (d *Decoder) ReadString() (string, error) {
 	}
 	if d.noCopy {
 		return unsafestr.String(b), nil
+	}
+	if d.state != nil && d.state.lastID != lruInvalidID {
+		if s, ok := d.state.getString(d.state.lastID); ok {
+			return s, nil
+		}
 	}
 	return string(b), nil
 }
@@ -481,7 +494,17 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		if d.state == nil {
 			return nil, ErrUnknownStateID
 		}
-		id, ok := d.state.lruIDAtRank(uint32(rank64))
+		// Side-cache lookup: the encoder emits tagStateMTF only when
+		// rank fits in fewer varuint bytes than the raw id, which
+		// caps rank at mruRingSize-1 for the common 2-byte id case.
+		// The MRU ring resolves that range in O(1) without walking
+		// the LRU chain. Older/larger ranks fall back to the chain
+		// walk for forward-compatibility.
+		rank := uint32(rank64)
+		id, ok := d.state.mruIDAtRank(rank)
+		if !ok {
+			id, ok = d.state.lruIDAtRank(rank)
+		}
 		if !ok {
 			return nil, ErrUnknownStateID
 		}

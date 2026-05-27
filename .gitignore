@@ -19,9 +19,12 @@ profile.out
 .DS_Store
 
 # Generated qdf code lives next to user source. Keep the committed
-# fixture in internal/codegen_test/sample_qdf.go; ignore anything else.
+# codegen-self-test fixture and the bench-matrix marshalers so
+# `go test -bench` works without an extra `go generate` step.
+# Ignore everything else.
 *_qdf.go
 !internal/codegen_test/sample_qdf.go
+!bench/bench_qdf.go
 
 # Local concept notes — kept on disk, excluded from the PR.
 qdf.md
