@@ -251,32 +251,47 @@ func BenchmarkLargePayload_Encode(b *testing.B) {
 	}
 	const records = 50_000
 	v := makeLargeBatch(records, 3)
+	// Pre-encode once per codec so each subtest reports MB/s based
+	// on the actual wire size produced for the same fixture. Sizes
+	// vary by codec (json ≈ 90 MiB, qdf_dense ≈ 25 MiB) so a single
+	// shared SetBytes would skew the comparison.
+	jb, _ := json.Marshal(v)
+	mb, _ := msgpack.Marshal(v)
+	fb, _ := qdf.Marshal(v, qdf.OptSpeed)
+	qb, _ := qdf.Marshal(v, qdf.OptQPack)
+	db, _ := qdf.Marshal(v, qdf.OptBalanced)
+
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(jb)))
 		for b.Loop() {
 			_, _ = json.Marshal(v)
 		}
 	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(mb)))
 		for b.Loop() {
 			_, _ = msgpack.Marshal(v)
 		}
 	})
 	b.Run("qdf_fast", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(fb)))
 		for b.Loop() {
 			_, _ = qdf.Marshal(v, qdf.OptSpeed)
 		}
 	})
 	b.Run("qdf_qpack", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(qb)))
 		for b.Loop() {
 			_, _ = qdf.Marshal(v, qdf.OptQPack)
 		}
 	})
 	b.Run("qdf_dense", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(db)))
 		for b.Loop() {
 			_, _ = qdf.Marshal(v, qdf.OptBalanced)
 		}
@@ -298,6 +313,7 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 
 	b.Run("json", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(jb)))
 		for b.Loop() {
 			var out largeBatch
 			_ = json.Unmarshal(jb, &out)
@@ -305,6 +321,7 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(mb)))
 		for b.Loop() {
 			var out largeBatch
 			_ = msgpack.Unmarshal(mb, &out)
@@ -312,6 +329,7 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 	})
 	b.Run("qdf_fast", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(fb)))
 		for b.Loop() {
 			var out largeBatch
 			_ = qdf.Unmarshal(fb, &out)
@@ -319,6 +337,7 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 	})
 	b.Run("qdf_qpack", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(qb)))
 		for b.Loop() {
 			var out largeBatch
 			_ = qdf.Unmarshal(qb, &out)
@@ -326,6 +345,7 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 	})
 	b.Run("qdf_dense", func(b *testing.B) {
 		b.ReportAllocs()
+		b.SetBytes(int64(len(db)))
 		for b.Loop() {
 			var out largeBatch
 			_ = qdf.Unmarshal(db, &out)
