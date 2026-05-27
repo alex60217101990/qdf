@@ -1060,6 +1060,46 @@ func (d *Decoder) Skip() error {
 			produced += runLen
 		}
 		return nil
+	case tagPackDict:
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		k := d.buf[d.i]
+		d.i++
+		if k != qpackKindUint64 && k != qpackKindInt64 {
+			return ErrBadTag
+		}
+		distinct64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if distinct64 == 0 || distinct64 > qpackDictMaxDistinct {
+			return ErrBadTag
+		}
+		for range distinct64 {
+			_, nr := readUvarint(d.buf[d.i:])
+			if nr <= 0 {
+				return ErrInvalidLength
+			}
+			d.i += nr
+		}
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		bp := bitsForDistinct(int(distinct64))
+		if bp == 0 {
+			return nil
+		}
+		rem := uint64(len(d.buf) - d.i)
+		if n64 > rem*8/uint64(bp) {
+			return ErrShortBuffer
+		}
+		d.i += int((n64*uint64(bp) + 7) / 8)
+		return nil
 	}
 	return ErrBadTag
 }

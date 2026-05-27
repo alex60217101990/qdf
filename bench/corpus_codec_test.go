@@ -156,6 +156,30 @@ func mkCounterSnapshot(n int) counterSnapshot {
 	}
 }
 
+// spreadEnumColumn is the shape that pins the dictionary codec: a
+// small set of distinct values (≤ qpackDictMaxDistinct) spread far
+// enough apart that FOR can't bit-pack them densely, and arranged
+// randomly so RLE can't fold runs either. This is what shows up when
+// a column carries a categorical id encoded as a wide int (priority
+// buckets at 10^k, latency buckets in microseconds, sensor reading
+// snap-to-quantum where the quanta are spread out).
+type spreadEnumColumn struct {
+	Field  string  `qdf:"field"  json:"field"  msgpack:"field"`
+	Values []int64 `qdf:"values" json:"values" msgpack:"values"`
+}
+
+func mkSpreadEnumColumn(n int) spreadEnumColumn {
+	rnd := rand.New(rand.NewSource(404))
+	// 4 distinct values, range ≈ 2 million → FOR bitsPer = 21, dict
+	// bitsPer = 2. Random distribution kills RLE.
+	values := []int64{200, 999_999, 12345, -1_000_000}
+	v := make([]int64, n)
+	for i := range n {
+		v[i] = values[rnd.Intn(len(values))]
+	}
+	return spreadEnumColumn{Field: "priority_bucket", Values: v}
+}
+
 // tracesBatch is a span-batch shaped like an APM trace export. Long
 // runs of the same operation / service exercise intern + shape; the
 // duration column is a smooth gauge (Gorilla territory under
@@ -200,6 +224,7 @@ func TestCorpusCodec_Sizes(t *testing.T) {
 		{"traces_500", mkTracesBatch(500)},
 		{"metric_smooth_1024", mkMetricSeriesSmooth(1024)},
 		{"status_1024", mkStatusBatch(1024)},
+		{"spread_enum_1024", mkSpreadEnumColumn(1024)},
 	}
 	t.Logf("%-22s %10s %10s %10s %12s %12s",
 		"scenario", "json", "msgpack", "qdf_speed", "qdf_balanced", "qdf_compress")
@@ -226,6 +251,14 @@ func BenchmarkCorpusCodec_WebRequest(b *testing.B) {
 // and sparse-zero (RLE) integer columns side-by-side.
 func BenchmarkCorpusCodec_Counters(b *testing.B) {
 	runProfile(b, "counters_1024", qdf.OptQPack, mkCounterSnapshot(1024))
+}
+
+// BenchmarkCorpusCodec_SpreadEnum exercises the dictionary codec:
+// 4 distinct values spread across a wide range, with no runs to
+// fold. The picker should select qpackDict and the body should
+// collapse to ~2 bits per element.
+func BenchmarkCorpusCodec_SpreadEnum(b *testing.B) {
+	runProfile(b, "spread_enum_1024", qdf.OptQPack, mkSpreadEnumColumn(1024))
 }
 
 // BenchmarkCorpusCodec_Traces exercises shape interning + heavy
