@@ -77,7 +77,7 @@ func TestRLE_PickerHitsHighRepeat(t *testing.T) {
 	// 4 runs of length 32 each — avg run length 32, well above the
 	// probe threshold and clear wire win over raw / FOR / Delta+FOR.
 	u := make([]uint64, 128)
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		u[i] = 200
 	}
 	for i := 32; i < 64; i++ {
@@ -94,7 +94,7 @@ func TestRLE_PickerHitsHighRepeat(t *testing.T) {
 	}
 
 	s := make([]int64, 128)
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		s[i] = -1
 	}
 	for i := 32; i < 64; i++ {
