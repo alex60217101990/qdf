@@ -35,39 +35,63 @@ const pairPredK = 1
 // stable case.
 const pairPredEmpty uint32 = 0
 
+// mruRingSize is the side-cache covering recent emit history for fast
+// MTF rank discovery. Scanning a contiguous 128-entry uint16 ring is
+// dominated by sequential L1 hits (cache-prefetcher friendly) and
+// completes in roughly N×1.5ns. The canonical LRU linked list still
+// holds every ID; the ring just shortcuts the rank-walk on the hot
+// path. 128 covers the full 1-byte rank space (uvarintLen(rank)==1
+// for rank ≤ 127), which is exactly the range where MTF beats the
+// raw 2-byte state-ref encoding most ids land in.
+//
+// uint16 not uint32: the encoder caps maxStateEntries at 1<<14 (=
+// 16 384), well under the uint16 range. Halving the slot width packs
+// the whole ring into 256 B (4 × 64 B cache lines) instead of 512 B
+// — a sequential scan reads half as many lines and finishes faster
+// on the same prefetcher budget. mruEmpty (0xFFFF) is reserved as
+// the "no id here" sentinel; the runtime id space stays below it.
+//
+// Power of two so the modulo collapses to a single AND.
+const (
+	mruRingSize       = 128
+	mruRingMask       = mruRingSize - 1
+	mruEmpty    uint16 = 0xFFFF
+)
+
+
 type encState struct {
+	// Hot scalars first so they share a single cache line with the
+	// adjacent mruHead and the map header. lastID + lruHead + mruHead
+	// are touched on every state-ref emit; co-locating them with
+	// mruRing keeps the per-emit footprint at 1-2 cache lines.
+	lastID  uint32
+	lruHead uint32
+	mruHead uint32
+	_       uint32 // pad to align mruRing on an 8-byte boundary
+
+	// mruRing is a side-cache of the last mruRingSize state-ref emit
+	// IDs. Each new emit pushes its ID at mruRing[mruHead&mask] and
+	// bumps mruHead. Rank discovery scans backwards from mruHead: a
+	// hit at offset r means r OTHER ids were emitted after this one,
+	// which is exactly the LRU chain rank. Storing the ring as uint16
+	// (id space fits) cuts the scan footprint to 256 B / 4 cache
+	// lines.
+	mruRing [mruRingSize]uint16
+
+	// ids is the encode-side intern map. Hot — every WriteString
+	// hits it. Placed right after the scalar hot cluster so the
+	// map header shares cache locality with the index update.
 	ids map[string]uint32
 
-	// arena owns the byte storage that backs every intern key the
-	// encoder allocates. Replaces per-key strings.Clone with a
-	// bump-pointer slab — see internal/internarena. The map keys
-	// stored above are aliases into arena chunks; on Reset we clear
-	// the map first, then the arena, so an aliased key is never
-	// read past its arena's life.
-	//
-	// Inlined by value (not *Arena) so encState creation does not
-	// pay a separate heap allocation for the Arena struct itself.
-	// The slab (chunks[0]) is still lazily allocated on first Put,
-	// so an OptSpeed / OptQPack encoder that never enters Dense
-	// stays slab-free.
-	arena internarena.Arena
-
-	// lastID tracks the most-recently-emitted state-ref ID for the
-	// tagStateRepeat Markov-0 predictor. lruInvalidID signals "no
-	// previous emission" (e.g. fresh stream or after an inline
-	// scalar emission that broke the chain). Valid IDs are bounded
-	// by maxStateEntries, well below the sentinel, so an integer
-	// compare with lastID is sufficient.
-	lastID uint32
-
 	// Move-to-front LRU over intern IDs. lruHead is the ID at rank 0
-	// (most recently emitted state-ref or freshly interned). prev/next
-	// are indexed by ID. Walking head -> next chain gives rank. After
-	// each state-ref / MTF / intern emit, the touched ID is unlinked
-	// and re-inserted at head.
-	lruHead uint32
-	lruPrev []uint32
-	lruNext []uint32
+	// (most recently emitted state-ref or freshly interned). lruLink
+	// packs the previous + next ids for each chain slot into a single
+	// uint32 (low 16 bits = prev, high 16 bits = next). IDs are
+	// bounded by maxStateEntries (1 << 14) so they fit in 16 bits
+	// with 0xFFFF reserved as the "no neighbour" sentinel. Packing
+	// halves the cache lines a lruMoveFront has to touch (one array
+	// instead of two) while keeping the unlink/insert update O(1).
+	lruLink []uint32
 
 	// Pair predictor: top-1 successor per prev intern ID. Slot stores
 	// `succ+1` so zero = empty; this keeps Reset() on a memclr fast
@@ -81,23 +105,18 @@ type encState struct {
 	// small linear-scan registry of (typeDesc → wire ID). Typical
 	// streams emit a handful of struct types, so a slice beats a map
 	// on lookup cost AND keeps the race-detector instrumentation off
-	// the hot path.
-	//
-	// lastShapeTd / lastShapeID memoise the most-recent successful
-	// shape lookup so a run of identical-type struct emits (the
-	// common "array of T" case) is a one-pointer compare per record
-	// instead of a slice scan.
-	//
-	// shapeCount is the running total of declared shape IDs. The
-	// encoder hands out IDs in sequence and only needs the count to
-	// stay aligned with the decoder; we used to keep a []encShape
-	// slice here too, but its only consumer was a now-removed
-	// shapeAssign() and the type carried no live data once the
-	// typeDesc-keyed shapeBindings replaced ordered-key matching.
-	shapeCount    uint32
-	shapeBindings []shapeBinding
+	// the hot path. lastShapeTd / lastShapeID memoise the
+	// most-recent successful shape lookup; shapeCount is the running
+	// total of declared shape IDs.
 	lastShapeTd   *typeDesc
 	lastShapeID   uint32
+	shapeCount    uint32
+	shapeBindings []shapeBinding
+
+	// arena owns the byte storage that backs every intern key the
+	// encoder allocates — accessed only on intern miss, kept at the
+	// end so the hot fields above share earlier cache lines.
+	arena internarena.Arena
 }
 
 // shapeBinding is a (typeDesc → wire shape ID) pair. Stored in a
@@ -113,11 +132,17 @@ const lruInvalidID = ^uint32(0)
 func newEncState() *encState {
 	// arena is zero-value initialised here — its slab is lazily
 	// allocated on first Put (see internarena.Arena.Put).
-	return &encState{
+	e := &encState{
 		ids:     make(map[string]uint32, 64),
 		lruHead: lruInvalidID,
 		lastID:  lruInvalidID,
 	}
+	// Prime ring with sentinels so a scan never matches id 0 by
+	// accident before the ring has been written.
+	for i := range e.mruRing {
+		e.mruRing[i] = mruEmpty
+	}
+	return e
 }
 
 // Soft caps on per-encoder state retention across Reset(). A single
@@ -157,12 +182,10 @@ func (e *encState) reset() {
 
 	e.lastID = lruInvalidID
 	e.lruHead = lruInvalidID
-	if cap(e.lruPrev) > maxRetainedLRUCap {
-		e.lruPrev = nil
-		e.lruNext = nil
+	if cap(e.lruLink) > maxRetainedLRUCap {
+		e.lruLink = nil
 	} else {
-		e.lruPrev = e.lruPrev[:0]
-		e.lruNext = e.lruNext[:0]
+		e.lruLink = e.lruLink[:0]
 	}
 
 	// pairPred slice: clear in place if under the cap (memclr-fast
@@ -182,6 +205,13 @@ func (e *encState) reset() {
 	}
 	e.lastShapeTd = nil
 	e.lastShapeID = 0
+
+	// Ring side-cache: re-prime with sentinels so post-reset emits
+	// can't false-match a stale id 0.
+	for i := range e.mruRing {
+		e.mruRing[i] = mruEmpty
+	}
+	e.mruHead = 0
 }
 
 // shapeForType returns the wire shape ID bound to t in this encoder's
@@ -251,70 +281,114 @@ func (e *encState) pairRecord(prev, curr uint32) {
 	e.pairPred[prev] = curr + 1
 }
 
+// mruPush records id as the newest entry in the side-cache ring.
+// Overwrites the slot at mruHead and advances the head. The ring is
+// power-of-two sized so the modulo collapses to an AND. Caller
+// guarantees id < mruEmpty (maxStateEntries cap ensures this).
+//
+//go:nosplit
+func (e *encState) mruPush(id uint32) {
+	e.mruRing[e.mruHead&mruRingMask] = uint16(id)
+	e.mruHead++
+}
+
+// mruRank scans the ring from newest to oldest looking for id. If
+// found at offset r from the head, r equals the current LRU chain
+// rank (since every state-ref emit is recorded in the ring in
+// order). Returns (rank, true) on hit, (0, false) when id is not in
+// the last mruRingSize emissions — in which case the caller falls
+// back to the raw state-ref encoding (chain rank is necessarily
+// ≥ mruRingSize and would need a multi-byte varuint anyway).
+//
+//go:nosplit
+func (e *encState) mruRank(id uint32) (uint32, bool) {
+	// IDs above the uint16 representable range can never appear in
+	// the uint16 ring; short-circuit so an oversized id (only
+	// reachable if maxStateEntries was bumped) never false-hits the
+	// mruEmpty sentinel.
+	if id >= uint32(mruEmpty) {
+		return 0, false
+	}
+	target := uint16(id)
+	h := e.mruHead
+	// Unroll-friendly tight loop: contiguous array, sequential
+	// reverse access, branch predictor learns the typical low-rank
+	// hit quickly. Each iteration is load + cmp + jne.
+	for r := range uint32(mruRingSize) {
+		if e.mruRing[(h-1-r)&mruRingMask] == target {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// lruLinkInvalid encodes (prev=0xFFFF, next=0xFFFF) — an isolated
+// slot with no neighbours. Used as the append default when growing
+// the lruLink slice.
+const lruLinkInvalid uint32 = 0xFFFF | (0xFFFF << 16)
+const lruLink16Invalid uint32 = 0xFFFF // 16-bit sentinel masked into a uint32
+
+//go:nosplit
+func linkPrev(link uint32) uint32 { return link & 0xFFFF }
+
+//go:nosplit
+func linkNext(link uint32) uint32 { return link >> 16 }
+
+//go:nosplit
+func setLinkPrev(link, prev uint32) uint32 { return (link &^ 0xFFFF) | (prev & 0xFFFF) }
+
+//go:nosplit
+func setLinkNext(link, next uint32) uint32 { return (link & 0xFFFF) | ((next & 0xFFFF) << 16) }
+
 // lruAddFresh inserts a brand-new ID (just assigned) at the head of
 // the LRU. Caller must have ensured id == len(ids)-1 (i.e. ids assigns
-// sequentially starting from 0).
+// sequentially starting from 0). Also records the emit in the MRU
+// ring so the rank-discovery side-cache reflects the new chain head.
 func (e *encState) lruAddFresh(id uint32) {
-	for uint32(len(e.lruPrev)) <= id {
-		e.lruPrev = append(e.lruPrev, lruInvalidID)
-		e.lruNext = append(e.lruNext, lruInvalidID)
+	for uint32(len(e.lruLink)) <= id {
+		e.lruLink = append(e.lruLink, lruLinkInvalid)
 	}
-	e.lruPrev[id] = lruInvalidID
-	e.lruNext[id] = e.lruHead
-	if e.lruHead != lruInvalidID {
-		e.lruPrev[e.lruHead] = id
+	head := e.lruHead
+	// id.prev = invalid, id.next = head
+	if head == lruInvalidID {
+		e.lruLink[id] = lruLinkInvalid
+	} else {
+		e.lruLink[id] = lruLink16Invalid | (head << 16)
+		// head.prev = id
+		e.lruLink[head] = setLinkPrev(e.lruLink[head], id)
 	}
 	e.lruHead = id
+	e.mruPush(id)
 }
 
-// lruMoveToFront unlinks id from its current LRU position and inserts
-// it at head. Returns the rank id had BEFORE the move (0 = was at
-// head). Caller must ensure id is already in the LRU.
-func (e *encState) lruMoveToFront(id uint32) uint32 {
-	if e.lruHead == id {
-		return 0
-	}
-	// Walk from head to find rank.
-	var rank uint32 = 0
-	cur := e.lruHead
-	for cur != id {
-		rank++
-		cur = e.lruNext[cur]
-	}
-	// Unlink.
-	p := e.lruPrev[id]
-	n := e.lruNext[id]
-	e.lruNext[p] = n
-	if n != lruInvalidID {
-		e.lruPrev[n] = p
-	}
-	// Insert at head.
-	e.lruPrev[id] = lruInvalidID
-	e.lruNext[id] = e.lruHead
-	e.lruPrev[e.lruHead] = id
-	e.lruHead = id
-	return rank
-}
-
-// lruMoveFront does the same unlink+insert-at-head as lruMoveToFront
+// lruMoveFront performs the unlink+insert-at-head update of the LRU
 // but skips the rank walk. Use when the caller does not need the
-// rank (e.g. raw state-ref where MTF cannot win).
+// rank (e.g. raw state-ref where MTF cannot win). Also records the
+// emit in the MRU ring so the rank side-cache mirrors the chain
+// head update.
 //
 //go:nosplit
 func (e *encState) lruMoveFront(id uint32) {
 	if e.lruHead == id {
+		e.mruPush(id)
 		return
 	}
-	p := e.lruPrev[id]
-	n := e.lruNext[id]
-	e.lruNext[p] = n
-	if n != lruInvalidID {
-		e.lruPrev[n] = p
+	link := e.lruLink[id]
+	p := linkPrev(link)
+	n := linkNext(link)
+	// p is always valid here (id was not head). Patch p.next = n.
+	e.lruLink[p] = setLinkNext(e.lruLink[p], n)
+	if n != lruLink16Invalid {
+		// Patch n.prev = p.
+		e.lruLink[n] = setLinkPrev(e.lruLink[n], p)
 	}
-	e.lruPrev[id] = lruInvalidID
-	e.lruNext[id] = e.lruHead
-	e.lruPrev[e.lruHead] = id
+	// Insert id at head: id.prev=invalid, id.next=head.
+	head := e.lruHead
+	e.lruLink[id] = lruLink16Invalid | (head << 16)
+	// head.prev = id (head is always valid here — id was in chain).
+	e.lruLink[head] = setLinkPrev(e.lruLink[head], id)
 	e.lruHead = id
+	e.mruPush(id)
 }
 
 // lookupOrAssign returns (id, hit). On a miss a fresh entry is
@@ -360,20 +434,30 @@ type decShape struct {
 }
 
 type decState struct {
-	values [][]byte
+	// Hot scalars first — touched on every tagState* read. Packing
+	// them with the mruRing/head update keeps the per-emit footprint
+	// in the first cache line.
+	lastID  uint32
+	lruHead uint32
+	mruHead uint32
+	_       uint32 // align mruRing on 8-byte boundary
 
-	// Mirror of encState's lastID. lruInvalidID marks "no previous
-	// state-ref emitted" (fresh stream or after an inline scalar
-	// broke the chain). Valid IDs are bounded by maxStateEntries on
-	// the encoder side, so the sentinel cannot collide with a real
-	// table position.
-	lastID uint32
+	// mruRing mirrors the encoder's side-cache: the last mruRingSize
+	// state-ref ids in emission order, stored as uint16 (the id
+	// space is < 2^14 by encoder cap). For tagStateMTF the wire
+	// carries rank — direct index into the ring resolves the id in
+	// O(1) (mruRing[(mruHead-1-rank)&mask]) instead of walking the
+	// LRU chain. Pure decoder-side optimization; the wire format is
+	// unchanged.
+	mruRing [mruRingSize]uint16
+
+	// values holds the decoded byte slices indexed by intern id.
+	values [][]byte
 
 	// LRU mirror of encState's. Decoder maintains the same MTF chain
 	// the encoder did so tagStateMTF + rank resolves to the same ID.
-	lruHead uint32
-	lruPrev []uint32
-	lruNext []uint32
+	// See encState.lruLink for the packing layout.
+	lruLink []uint32
 
 	// Pair predictor mirror. See encState.pairPred for the storage
 	// layout (succ+1 packed into a uint32, 0 = empty). The decoder
@@ -386,11 +470,15 @@ type decState struct {
 }
 
 func newDecState() *decState {
-	return &decState{
+	d := &decState{
 		values:  make([][]byte, 0, 64),
 		lruHead: lruInvalidID,
 		lastID:  lruInvalidID,
 	}
+	for i := range d.mruRing {
+		d.mruRing[i] = mruEmpty
+	}
+	return d
 }
 
 func (d *decState) reset() {
@@ -404,12 +492,10 @@ func (d *decState) reset() {
 	}
 	d.lastID = lruInvalidID
 	d.lruHead = lruInvalidID
-	if cap(d.lruPrev) > maxRetainedLRUCap {
-		d.lruPrev = nil
-		d.lruNext = nil
+	if cap(d.lruLink) > maxRetainedLRUCap {
+		d.lruLink = nil
 	} else {
-		d.lruPrev = d.lruPrev[:0]
-		d.lruNext = d.lruNext[:0]
+		d.lruLink = d.lruLink[:0]
 	}
 	if cap(d.pairPred) > maxRetainedPairCap {
 		d.pairPred = nil
@@ -421,6 +507,10 @@ func (d *decState) reset() {
 	} else {
 		d.shapes = d.shapes[:0]
 	}
+	for i := range d.mruRing {
+		d.mruRing[i] = mruEmpty
+	}
+	d.mruHead = 0
 }
 
 // pairAtRank returns the predicted successor of prev. With top-1
@@ -473,28 +563,65 @@ func (d *decState) shapeLookup(id uint32) *decShape {
 	return &d.shapes[id-1]
 }
 
-func (d *decState) lruAddFresh(id uint32) {
-	for uint32(len(d.lruPrev)) <= id {
-		d.lruPrev = append(d.lruPrev, lruInvalidID)
-		d.lruNext = append(d.lruNext, lruInvalidID)
+// mruPush records id as the newest entry in the decoder side-cache.
+// Mirrors encState.mruPush so the ring sees every emit the encoder
+// recorded. id must fit in uint16 (id space is < 2^14 by encoder
+// cap).
+//
+//go:nosplit
+func (d *decState) mruPush(id uint32) {
+	d.mruRing[d.mruHead&mruRingMask] = uint16(id)
+	d.mruHead++
+}
+
+// mruIDAtRank returns the id stored rank positions back from the head
+// of the ring. Provided the encoder emitted tagStateMTF only for
+// ranks ≤ mruRingSize-1 (which is the only range where MTF beats raw
+// for the common 2-byte id wire form), this resolves the id in O(1)
+// without walking the LRU chain.
+//
+//go:nosplit
+func (d *decState) mruIDAtRank(rank uint32) (uint32, bool) {
+	if rank >= mruRingSize {
+		return 0, false
 	}
-	d.lruPrev[id] = lruInvalidID
-	d.lruNext[id] = d.lruHead
-	if d.lruHead != lruInvalidID {
-		d.lruPrev[d.lruHead] = id
+	id := d.mruRing[(d.mruHead-1-rank)&mruRingMask]
+	if id == mruEmpty {
+		return 0, false
+	}
+	return uint32(id), true
+}
+
+func (d *decState) lruAddFresh(id uint32) {
+	for uint32(len(d.lruLink)) <= id {
+		d.lruLink = append(d.lruLink, lruLinkInvalid)
+	}
+	head := d.lruHead
+	if head == lruInvalidID {
+		d.lruLink[id] = lruLinkInvalid
+	} else {
+		d.lruLink[id] = lruLink16Invalid | (head << 16)
+		d.lruLink[head] = setLinkPrev(d.lruLink[head], id)
 	}
 	d.lruHead = id
+	d.mruPush(id)
 }
 
 // lruIDAtRank returns the ID currently at the given MTF rank (head
-// = 0). Caller must guarantee rank < current LRU size.
+// = 0) by walking the linked-list chain. Used as a fallback when the
+// MRU ring side-cache misses (rank ≥ mruRingSize, which the encoder
+// never emits today but the decoder must still handle for forward
+// compatibility with larger ring sizes on the encoder side).
 func (d *decState) lruIDAtRank(rank uint32) (uint32, bool) {
 	cur := d.lruHead
 	for range rank {
 		if cur == lruInvalidID {
 			return 0, false
 		}
-		cur = d.lruNext[cur]
+		cur = linkNext(d.lruLink[cur])
+		if cur == lruLink16Invalid {
+			cur = lruInvalidID
+		}
 	}
 	if cur == lruInvalidID {
 		return 0, false
@@ -504,18 +631,21 @@ func (d *decState) lruIDAtRank(rank uint32) (uint32, bool) {
 
 func (d *decState) lruMoveToFront(id uint32) {
 	if d.lruHead == id {
+		d.mruPush(id)
 		return
 	}
-	p := d.lruPrev[id]
-	n := d.lruNext[id]
-	d.lruNext[p] = n
-	if n != lruInvalidID {
-		d.lruPrev[n] = p
+	link := d.lruLink[id]
+	p := linkPrev(link)
+	n := linkNext(link)
+	d.lruLink[p] = setLinkNext(d.lruLink[p], n)
+	if n != lruLink16Invalid {
+		d.lruLink[n] = setLinkPrev(d.lruLink[n], p)
 	}
-	d.lruPrev[id] = lruInvalidID
-	d.lruNext[id] = d.lruHead
-	d.lruPrev[d.lruHead] = id
+	head := d.lruHead
+	d.lruLink[id] = lruLink16Invalid | (head << 16)
+	d.lruLink[head] = setLinkPrev(d.lruLink[head], id)
 	d.lruHead = id
+	d.mruPush(id)
 }
 
 func (d *decState) append(b []byte) uint32 {

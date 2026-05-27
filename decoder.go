@@ -481,7 +481,17 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		if d.state == nil {
 			return nil, ErrUnknownStateID
 		}
-		id, ok := d.state.lruIDAtRank(uint32(rank64))
+		// Side-cache lookup: the encoder emits tagStateMTF only when
+		// rank fits in fewer varuint bytes than the raw id, which
+		// caps rank at mruRingSize-1 for the common 2-byte id case.
+		// The MRU ring resolves that range in O(1) without walking
+		// the LRU chain. Older/larger ranks fall back to the chain
+		// walk for forward-compatibility.
+		rank := uint32(rank64)
+		id, ok := d.state.mruIDAtRank(rank)
+		if !ok {
+			id, ok = d.state.lruIDAtRank(rank)
+		}
 		if !ok {
 			return nil, ErrUnknownStateID
 		}

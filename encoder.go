@@ -396,13 +396,30 @@ func (e *Encoder) emitStateRef(id uint32) {
 	// the id varuint. When OptMTF is off the LRU is still maintained
 	// (the chain must stay in sync for the rest of the codec) but the
 	// rank is never emitted; the raw state-ref form is used instead.
+	//
+	// Rank discovery used to walk the LRU linked list head→tail
+	// looking for id (state.go's old lruMoveToFront). Profiling on
+	// telemetry workloads showed that pointer-chase walk consumed
+	// >50% of encode CPU because each step is a cache-cold random
+	// index into lruNext[]. The MRU ring side-cache (mruRank) gives
+	// O(1) rank for the recent-128 emits — a contiguous, cache-warm
+	// scan that covers exactly the rank range where MTF beats the
+	// 2-byte raw state-ref (rank ≤ 127). On a ring miss the chain
+	// rank is necessarily ≥ 128 so the raw form would be picked
+	// anyway; we skip the walk entirely and emit raw.
 	idLen := uvarintLen(uint64(id))
 	if e.opts.Has(OptMTF) {
-		rank := st.lruMoveToFront(id)
-		if rankLen := uvarintLen(uint64(rank)); rankLen < idLen {
-			e.buf = append(e.buf, tagStateMTF)
-			e.buf = appendUvarint(e.buf, uint64(rank))
+		if rank, ok := st.mruRank(id); ok {
+			st.lruMoveFront(id)
+			if rankLen := uvarintLen(uint64(rank)); rankLen < idLen {
+				e.buf = append(e.buf, tagStateMTF)
+				e.buf = appendUvarint(e.buf, uint64(rank))
+			} else {
+				e.buf = append(e.buf, tagStateRef)
+				e.buf = appendUvarint(e.buf, uint64(id))
+			}
 		} else {
+			st.lruMoveFront(id)
 			e.buf = append(e.buf, tagStateRef)
 			e.buf = appendUvarint(e.buf, uint64(id))
 		}
