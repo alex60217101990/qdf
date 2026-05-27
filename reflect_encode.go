@@ -523,7 +523,7 @@ func encodeSlice(elem *typeDesc, stride uintptr) func(*Encoder, unsafe.Pointer) 
 		// are emitted exactly once.
 		const sliceProbeSize = 32
 		if n <= sliceProbeSize {
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
 					return err
 				}
@@ -531,7 +531,7 @@ func encodeSlice(elem *typeDesc, stride uintptr) func(*Encoder, unsafe.Pointer) 
 			return nil
 		}
 		probeStart := len(e.buf)
-		for i := 0; i < sliceProbeSize; i++ {
+		for i := range sliceProbeSize {
 			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
 				return err
 			}
