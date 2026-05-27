@@ -8,6 +8,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/alex60217101990/qdf/internal/reflectutil"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
 
@@ -565,10 +566,11 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr) func(*Decoder, 
 		if err := d.CheckLength(n, 1); err != nil {
 			return err
 		}
-		// makeSliceUnsafe is swapped out under -tags qdf_reflect2 for the
-		// reflect2 implementation (skips reflect.MakeSlice type checks).
-		makeSliceUnsafe(t, n, p)
-		base := sliceDataUnsafe(t, p)
+		// reflectutil.MakeSlice is swapped out under -tags qdf_reflect2
+		// for the reflect2 implementation (skips reflect.MakeSlice
+		// type checks).
+		reflectutil.MakeSlice(t, n, p)
+		base := reflectutil.SliceData(t, p)
 		for i := range n {
 			if err := elem.decode(d, unsafe.Add(base, uintptr(i)*stride)); err != nil {
 				return err
@@ -670,8 +672,8 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 		if err := d.CheckLength(n, 2); err != nil {
 			return err
 		}
-		// Allocate via the swappable backend.
-		makeMapUnsafe(t, n, p)
+		// Allocate via the swappable reflectutil backend.
+		reflectutil.MakeMap(t, n, p)
 		mapVal := reflect.NewAt(t, p).Elem()
 		for range n {
 			kv := reflect.New(keyType).Elem()

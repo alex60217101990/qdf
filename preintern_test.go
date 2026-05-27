@@ -20,7 +20,7 @@ func TestPreIntern_RoundTripDense(t *testing.T) {
 		Region  string `qdf:"region"`
 		Status  int    `qdf:"status"`
 	}
-	services := []string{"billing", "auth", "ingest", "metrics", "api"}
+	services := []string{"billing", "auth", "ingest", "metrics", "api"} //nolint:prealloc // literal slice, prealloc hint is misleading
 	regions := []string{"eu-west-1", "us-east-1", "ap-south-1"}
 	rows := []row{
 		{services[0], regions[0], 200},

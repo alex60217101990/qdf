@@ -86,11 +86,10 @@ const pairPredEmpty uint32 = 0
 //
 // Power of two so the modulo collapses to a single AND.
 const (
-	mruRingSize       = 128
-	mruRingMask       = mruRingSize - 1
+	mruRingSize        = 128
+	mruRingMask        = mruRingSize - 1
 	mruEmpty    uint16 = 0xFFFF
 )
-
 
 type encState struct {
 	// Hot scalars first so they share a single cache line with the

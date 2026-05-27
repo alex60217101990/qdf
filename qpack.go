@@ -4,6 +4,8 @@ import (
 	"math"
 	"slices"
 	"unsafe"
+
+	"github.com/alex60217101990/qdf/internal/endian"
 )
 
 // QPack raw-LE codec kind byte. Low two bits encode the element width as
@@ -181,7 +183,7 @@ func (e *Encoder) writePackedRawBytes(kind byte, n int, payload []byte) {
 // element-wise LE emit loop.
 func (e *Encoder) writePackedUint64Slice(s []uint64) {
 	n := len(s)
-	if nativeLittleEndian && n > 0 {
+	if endian.NativeIsLittle && n > 0 {
 		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*8)
 		e.writePackedRawBytes(qpackKindUint64, n, body)
 		return
@@ -198,7 +200,7 @@ func (e *Encoder) writePackedUint64Slice(s []uint64) {
 
 func (e *Encoder) writePackedInt64Slice(s []int64) {
 	n := len(s)
-	if nativeLittleEndian && n > 0 {
+	if endian.NativeIsLittle && n > 0 {
 		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*8)
 		e.writePackedRawBytes(qpackKindInt64, n, body)
 		return
@@ -215,7 +217,7 @@ func (e *Encoder) writePackedInt64Slice(s []int64) {
 
 func (e *Encoder) writePackedUint32Slice(s []uint32) {
 	n := len(s)
-	if nativeLittleEndian && n > 0 {
+	if endian.NativeIsLittle && n > 0 {
 		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*4)
 		e.writePackedRawBytes(qpackKindUint32, n, body)
 		return
@@ -232,7 +234,7 @@ func (e *Encoder) writePackedUint32Slice(s []uint32) {
 
 func (e *Encoder) writePackedInt32Slice(s []int32) {
 	n := len(s)
-	if nativeLittleEndian && n > 0 {
+	if endian.NativeIsLittle && n > 0 {
 		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*4)
 		e.writePackedRawBytes(qpackKindInt32, n, body)
 		return
@@ -249,7 +251,7 @@ func (e *Encoder) writePackedInt32Slice(s []int32) {
 
 func (e *Encoder) writePackedFloat32Slice(s []float32) {
 	n := len(s)
-	if nativeLittleEndian && n > 0 {
+	if endian.NativeIsLittle && n > 0 {
 		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*4)
 		e.writePackedRawBytes(qpackKindFloat32, n, body)
 		return
@@ -266,7 +268,7 @@ func (e *Encoder) writePackedFloat32Slice(s []float32) {
 
 func (e *Encoder) writePackedFloat64Slice(s []float64) {
 	n := len(s)
-	if nativeLittleEndian && n > 0 {
+	if endian.NativeIsLittle && n > 0 {
 		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*8)
 		e.writePackedRawBytes(qpackKindFloat64, n, body)
 		return
@@ -322,7 +324,7 @@ func (d *Decoder) readPackedUint64Slice() ([]uint64, error) {
 	if n == 0 {
 		return out, nil
 	}
-	if nativeLittleEndian {
+	if endian.NativeIsLittle {
 		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*8)
 		copy(dst, body)
 		return out, nil
@@ -342,7 +344,7 @@ func (d *Decoder) readPackedInt64Slice() ([]int64, error) {
 	if n == 0 {
 		return out, nil
 	}
-	if nativeLittleEndian {
+	if endian.NativeIsLittle {
 		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*8)
 		copy(dst, body)
 		return out, nil
@@ -362,7 +364,7 @@ func (d *Decoder) readPackedUint32Slice() ([]uint32, error) {
 	if n == 0 {
 		return out, nil
 	}
-	if nativeLittleEndian {
+	if endian.NativeIsLittle {
 		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*4)
 		copy(dst, body)
 		return out, nil
@@ -382,7 +384,7 @@ func (d *Decoder) readPackedInt32Slice() ([]int32, error) {
 	if n == 0 {
 		return out, nil
 	}
-	if nativeLittleEndian {
+	if endian.NativeIsLittle {
 		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*4)
 		copy(dst, body)
 		return out, nil
@@ -402,7 +404,7 @@ func (d *Decoder) readPackedFloat32Slice() ([]float32, error) {
 	if n == 0 {
 		return out, nil
 	}
-	if nativeLittleEndian {
+	if endian.NativeIsLittle {
 		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*4)
 		copy(dst, body)
 		return out, nil
@@ -422,7 +424,7 @@ func (d *Decoder) readPackedFloat64Slice() ([]float64, error) {
 	if n == 0 {
 		return out, nil
 	}
-	if nativeLittleEndian {
+	if endian.NativeIsLittle {
 		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*8)
 		copy(dst, body)
 		return out, nil

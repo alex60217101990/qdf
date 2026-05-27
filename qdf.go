@@ -1,6 +1,8 @@
 // Package qdf is a compact, streaming-friendly binary serialization
 // format.
 //
+// # Quick start
+//
 // One encode entry point: Marshal(v, opts). The Options bit-mask
 // picks which codecs run for that call. Convenience bundles cover
 // the common tradeoffs:
@@ -24,6 +26,64 @@
 //
 // Marshal returns a freshly-allocated slice owned by the caller.
 // AppendMarshal is the zero-extra-copy variant.
+//
+// # Public API surface
+//
+// The package contract is split across four layers; everything else
+// under internal/ is implementation detail and may change between
+// releases without notice.
+//
+// Top-level entry points (file: qdf.go):
+//
+//	func Marshal(v any, opts Options) ([]byte, error)
+//	func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error)
+//	func Unmarshal(data []byte, out any) error
+//	type Options uint32   // bit-mask of OptDense, OptQPack, OptMTF, …
+//
+// Typed convenience wrappers — generic, zero-extra-reflection (file:
+// qdf_generic.go):
+//
+//	func MarshalT[T any](v T, opts Options) ([]byte, error)
+//	func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error)
+//	func UnmarshalT[T any](data []byte) (T, error)
+//
+// Low-level encoder / decoder for callers driving the wire directly
+// or interoperating with the qdfgen code generator (files:
+// encoder.go, decoder.go, stream.go):
+//
+//	type Encoder struct{ … }
+//	    NewEncoder(mode Mode) *Encoder
+//	    NewEncoderWith(opts Options) *Encoder
+//	    NewEncoderOnBuf(buf []byte, mode Mode) *Encoder
+//	    (e *Encoder) WriteString / WriteBytes / WriteInt / WriteUint /
+//	                WriteFloat32 / WriteFloat64 / WriteBool / WriteNil /
+//	                WriteArrayHeader / WriteMapHeader /
+//	                WriteTimestampNano / WriteStringInline
+//	    (e *Encoder) AppendBytes / EnsureHeader / Bytes / Take /
+//	                Reset / SetBuffer / AdoptBuffer / SetIntern /
+//	                SetMaxDepth / SetQPack / QPack / ApplyOpts /
+//	                EncodeValue / PreIntern
+//	type Decoder struct{ … }
+//	    NewDecoder() *Decoder
+//	    NewDecoderOnBuf(buf []byte) *Decoder
+//	    (d *Decoder) ReadString / ReadStringBytes / ReadBytes /
+//	                ReadBool / ReadInt / ReadUint / ReadFloat32 /
+//	                ReadFloat64 / ReadNil / ReadArrayHeader /
+//	                ReadMapHeader / ReadTimestampNano / Skip /
+//	                PeekTag / IsNil / Pos / Remaining / RemainingBytes /
+//	                Advance / SetInput / SetNoCopy / MarkHeaderRead /
+//	                CheckLength / InternKey
+//	type StreamEncoder, type StreamDecoder         // io.Writer / io.Reader
+//
+// User-side hook points (file: marshaler.go):
+//
+//	type Marshaler interface   { MarshalQDF(dst []byte) ([]byte, error) }
+//	type Unmarshaler interface { UnmarshalQDF(src []byte) (int, error) }
+//
+// The qdfgen code generator (cmd/qdfgen) emits MarshalQDF /
+// UnmarshalQDF methods for user struct types; the codegen path
+// uses the same Encoder / Decoder primitives listed above and
+// requires no reflection at runtime.
 package qdf
 
 import (

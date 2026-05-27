@@ -957,8 +957,8 @@ state.go                — encState / decState: intern table, LRU, pair predict
 wire.go                 — tag constants, varuint helpers
 
 reflect_encode.go       — typeDesc cache, reflect-based encode / decode
-reflect_alloc.go        — stdlib reflect alloc helpers
-reflect_alloc_reflect2.go — qdf_reflect2 build tag swap
+                          (reflect-alloc helpers moved to
+                          internal/reflectutil/)
 
 maps_fast.go            — //go:generate directive, doc stub
 maps_fast_generated.go  — codegen output for 27 (K, V) map pairs
@@ -973,6 +973,10 @@ internal/intern/        — short-string interner used by decoder
 internal/bufpool/       — reusable []byte pool
 internal/unsafestr/     — string ↔ []byte unsafe alias helpers
 internal/mapsgen/       — generator for maps_fast_generated.go
+internal/endian/        — NativeIsLittle build-tag const (replaces old root endian_*.go)
+internal/reflectutil/   — MakeSlice / SliceData / MakeMap helpers
+                          with reflect / reflect2 backends
+                          (replaces old root reflect_alloc*.go)
 internal/codegen_test/  — fixtures and tests for cmd/qdfgen output
 
 cmd/qdfgen/             — code generator emitting MarshalQDF / UnmarshalQDF
