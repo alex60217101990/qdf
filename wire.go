@@ -94,6 +94,15 @@ const (
 	//                    minDelta (zigzag varuint),
 	//                    varuint(n),
 	//                    ceil((n-1)*bits/8) bytes (LSB-first) of (Δᵢ - minDelta).
+	tagPackRLE = 0xEB // Run-length encoded integer slice. Wins on
+	//                    high-repeat telemetry columns (Status, Level
+	//                    enum-likes, sparse counters). Wire form:
+	//                       tag, kind (qpackKindUint64/qpackKindInt64),
+	//                       varuint(n),
+	//                       runs: pairs of (value-varuint, runLen-varuint).
+	//                    Signed kinds zigzag-encode the value. Total of
+	//                    runLens equals n; the decoder unrolls until n
+	//                    elements are produced.
 	tagStatePair = 0xEA // Markov-1 predictor for Dense state-refs.
 	//                    Conditioned on the previously emitted state-ref ID
 	//                    (lastID), the encoder maintains a small ring of the

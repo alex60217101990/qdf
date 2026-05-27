@@ -543,6 +543,7 @@ slice; the decoder reads the picked tag.
 0xE5  tagPackFor       []uintN      Frame-of-Reference bitpacked
 0xE6  tagPackDeltaFor  []intN       Delta + zigzag + FOR
 0xE7  tagPackGorilla   []float64    Gorilla XOR coding
+0xEB  tagPackRLE       []intN       Run-length encoded (value, runLen) pairs
 ```
 
 Selection logic:
@@ -551,8 +552,11 @@ Selection logic:
   tags).
 - **Integer slice**: compute `m = min(s)`, find the smallest power-
   of-two `bitsPer` that fits `max(s) - m`. If `qpackForSizeUnsigned`
-  beats raw, emit FOR. For monotonic / clustered series, try
-  delta-FOR. Otherwise raw.
+  beats raw, candidate is FOR. For monotonic / clustered series the
+  picker also evaluates Delta+FOR. For run-heavy columns (status
+  codes, enum-like values, sparse counters) a cheap run-fraction
+  probe over the first 32 elements decides whether to compute the
+  full RLE size; the winning estimator wins.
 - **Float slice**: by default, raw. Gorilla is opt-in via
   `OptGorillaFloat` (bundled into `OptCompression`). When the bit is
   set, `pickF64Codec` probes the first 32 consecutive XOR pairs; if

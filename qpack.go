@@ -49,7 +49,7 @@ func qpackRawWidthBytes(kind byte) int {
 
 // pickU64Codec analyses a []uint64 and decides which QPack codec yields
 // the smallest wire form. Cost of the scan is O(n) (min/max + delta
-// stats), which is dominated by the encode itself.
+// stats + RLE probe), which is dominated by the encode itself.
 func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits int) {
 	n := len(s)
 	codec = qpackRaw
@@ -83,11 +83,75 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 			}
 			c := hdr + body
 			if c < bestCost {
+				bestCost = c
 				codec = qpackDeltaFor
 			}
 		}
 	}
+	// RLE: cheap run-fraction probe over the first 32 elements;
+	// skip the full size pass when runs are scarce.
+	if n >= 8 {
+		probeN := min(32, n)
+		probeRuns := 1
+		for i := 1; i < probeN; i++ {
+			if s[i] != s[i-1] {
+				probeRuns++
+			}
+		}
+		// Require avg run length >= 2 (probeRuns <= probeN/2) before
+		// we bother with the full pass.
+		if probeRuns*2 <= probeN {
+			c := qpackRLESizeU64(s, n)
+			if c < bestCost {
+				codec = qpackRLE
+			}
+		}
+	}
 	return
+}
+
+// qpackRLESizeU64 returns the on-wire byte cost of run-length-encoding
+// s as a []uint64. Wire form documented at tagPackRLE.
+//
+//go:nosplit
+func qpackRLESizeU64(s []uint64, n int) int {
+	hdr := 2 + uvarintLen(uint64(n))
+	body := 0
+	runLen := 1
+	prev := s[0]
+	for i := 1; i < n; i++ {
+		if s[i] == prev {
+			runLen++
+			continue
+		}
+		body += uvarintLen(prev) + uvarintLen(uint64(runLen))
+		runLen = 1
+		prev = s[i]
+	}
+	body += uvarintLen(prev) + uvarintLen(uint64(runLen))
+	return hdr + body
+}
+
+// qpackRLESizeI64 mirrors qpackRLESizeU64 for signed slices. Values
+// are zigzag-encoded so small magnitudes still encode in 1-2 bytes.
+//
+//go:nosplit
+func qpackRLESizeI64(s []int64, n int) int {
+	hdr := 2 + uvarintLen(uint64(n))
+	body := 0
+	runLen := 1
+	prev := s[0]
+	for i := 1; i < n; i++ {
+		if s[i] == prev {
+			runLen++
+			continue
+		}
+		body += uvarintLen(zigzagEncode64(prev)) + uvarintLen(uint64(runLen))
+		runLen = 1
+		prev = s[i]
+	}
+	body += uvarintLen(zigzagEncode64(prev)) + uvarintLen(uint64(runLen))
+	return hdr + body
 }
 
 func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits int) {
@@ -122,7 +186,23 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 			}
 			c := hdr + body
 			if c < bestCost {
+				bestCost = c
 				codec = qpackDeltaFor
+			}
+		}
+	}
+	if n >= 8 {
+		probeN := min(32, n)
+		probeRuns := 1
+		for i := 1; i < probeN; i++ {
+			if s[i] != s[i-1] {
+				probeRuns++
+			}
+		}
+		if probeRuns*2 <= probeN {
+			c := qpackRLESizeI64(s, n)
+			if c < bestCost {
+				codec = qpackRLE
 			}
 		}
 	}
@@ -137,6 +217,7 @@ const (
 	qpackFor
 	qpackDeltaFor
 	qpackGorilla
+	qpackRLE
 )
 
 // pickF64Codec selects between the raw-LE bulk codec and the

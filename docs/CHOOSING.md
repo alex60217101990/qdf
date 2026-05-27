@@ -132,6 +132,28 @@ Decode 4 µs vs json 524 µs (130× faster), msgpack 140 µs (35×). Wire
 8.4 KB vs json 37 KB (4.4× smaller). Adding `OptDense` here costs
 intern-table CPU for zero wire benefit — skip it.
 
+### Status-code / enum-like int column
+
+A long `[]int` (or `[]int64`) dominated by a handful of distinct
+values — HTTP status codes, log severities encoded as ints, sparse
+counter snapshots, finite-state-machine traces. Long stretches of
+the same value with short bursts of others is the canonical shape.
+
+**Recipe:** `qdf.OptQPack`
+
+```go
+b, err := qdf.Marshal(batch, qdf.OptQPack)
+```
+
+A 1024-element status column built from realistic HTTP traffic
+(mostly 200, occasional 4xx/5xx incident bursts) lands at **99
+bytes** of wire — 42× smaller than json (4.1 KB), 93× smaller than
+msgpack (9.2 KB). Encode 3.3 µs vs json 25 µs (7.6× faster);
+decode 2.2 µs vs json 133 µs (59× faster). The picker runs a cheap
+run-fraction probe over the first 32 elements and only commits to
+RLE if the win is real, so unrelated random `[]int` columns stay
+on raw / FOR without paying the estimator cost.
+
 ### Embedding vector / dense float array
 
 Single `[]float32` or `[]float64` of 100s–1000s of elements. The

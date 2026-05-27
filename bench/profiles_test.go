@@ -183,6 +183,53 @@ func mkArchive(rows int) archiveSnapshot {
 	}
 }
 
+// statusBatch isolates the kind of column a real telemetry pipeline
+// emits as a dense column: a long run of HTTP-status codes dominated
+// by 200, with sporadic 4xx/5xx bursts when an upstream wobbles. The
+// shape is the canonical RLE win — 1024 elements collapse to ~6-8
+// (value, runLen) varuint pairs once the picker selects qpackRLE.
+type statusBatch struct {
+	Endpoint string  `qdf:"endpoint" json:"endpoint" msgpack:"endpoint"`
+	Codes    []int64 `qdf:"codes"    json:"codes"    msgpack:"codes"`
+}
+
+func mkStatusBatch(n int) statusBatch {
+	codes := make([]int64, n)
+	rnd := rand.New(rand.NewSource(7))
+	// Walk the slice in pseudo-incident bursts: long stretches of
+	// 200 punctuated by short 500 / 404 runs. Run lengths chosen to
+	// emulate a "mostly healthy with occasional outages" SLO trace.
+	idx := 0
+	for idx < n {
+		// healthy run: 50-200 samples of 200
+		runLen := 50 + rnd.Intn(150)
+		if idx+runLen > n {
+			runLen = n - idx
+		}
+		for i := 0; i < runLen; i++ {
+			codes[idx+i] = 200
+		}
+		idx += runLen
+		if idx >= n {
+			break
+		}
+		// fault run: 5-25 samples of 500 or 404
+		code := int64(500)
+		if rnd.Float64() < 0.5 {
+			code = 404
+		}
+		fault := 5 + rnd.Intn(20)
+		if idx+fault > n {
+			fault = n - idx
+		}
+		for i := 0; i < fault; i++ {
+			codes[idx+i] = code
+		}
+		idx += fault
+	}
+	return statusBatch{Endpoint: "POST /v1/ingest", Codes: codes}
+}
+
 // ----- benchmark harness -----------------------------------------
 
 // runProfile defines one scenario: a fixture, the recommended qdf
@@ -336,6 +383,15 @@ func BenchmarkProfile_MetricSeriesSmoothCompress(b *testing.B) {
 	runProfile(b, "metric_smooth_1024_compress", qdf.OptCompression, mkMetricSeriesSmooth(1024))
 }
 
+// BenchmarkProfile_StatusBatch — long []int64 column dominated by
+// repeated values (HTTP-status pattern). Picker selects qpackRLE
+// and wire collapses from ~1024 raw int64 values to a handful of
+// (value, runLen) pairs. Recommended: OptQPack (Dense unused for
+// this single-slice payload).
+func BenchmarkProfile_StatusBatch(b *testing.B) {
+	runProfile(b, "status_1024", qdf.OptQPack, mkStatusBatch(1024))
+}
+
 // BenchmarkProfile_EmbeddingVec — single dense float32 vector.
 // Recommended: OptQPack (Gorilla XOR catches smooth-varying floats;
 // raw-LE bulk otherwise).
@@ -375,6 +431,7 @@ func TestProfile_SizesSummary(t *testing.T) {
 		{"metric_1024", mkMetricSeries(1024), qdf.OptQPack},
 		{"metric_smooth_qpack", mkMetricSeriesSmooth(1024), qdf.OptQPack},
 		{"metric_smooth_zip", mkMetricSeriesSmooth(1024), qdf.OptCompression},
+		{"status_1024", mkStatusBatch(1024), qdf.OptQPack},
 		{"embed_768", mkEmbedding(768), qdf.OptQPack},
 		{"config", mkConfig(), qdf.OptBalanced},
 		{"archive_5k", mkArchive(5000), qdf.OptCompression},
