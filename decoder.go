@@ -1024,6 +1024,42 @@ func (d *Decoder) Skip() error {
 			d.i += int(bodyBytes)
 		}
 		return nil
+	case tagPackRLE:
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		k := d.buf[d.i]
+		d.i++
+		if k != qpackKindUint64 && k != qpackKindInt64 {
+			return ErrBadTag
+		}
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		// Body is a sequence of (value-varuint, runLen-varuint)
+		// pairs whose runLen sum equals n. Walk until n elements
+		// consumed; the loop also catches truncated bodies.
+		var produced uint64
+		for produced < n64 {
+			_, nr := readUvarint(d.buf[d.i:])
+			if nr <= 0 {
+				return ErrInvalidLength
+			}
+			d.i += nr
+			runLen, nr := readUvarint(d.buf[d.i:])
+			if nr <= 0 {
+				return ErrInvalidLength
+			}
+			d.i += nr
+			if runLen == 0 || produced+runLen > n64 {
+				return ErrInvalidLength
+			}
+			produced += runLen
+		}
+		return nil
 	}
 	return ErrBadTag
 }

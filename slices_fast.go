@@ -97,6 +97,8 @@ func encodeSliceInt(e *Encoder, p unsafe.Pointer) error {
 				e.writePackedForInt64Slice(s64, mn, forBits)
 			case qpackDeltaFor:
 				e.writePackedDeltaForInt64Slice(s64, first, minDelta, deltaBits)
+			case qpackRLE:
+				e.writePackedRLEInt64Slice(s64)
 			default:
 				e.writePackedInt64Slice(s64)
 			}
@@ -118,7 +120,7 @@ func decodeSliceInt(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	switch t {
-	case tagPackRaw, tagPackFor, tagPackDeltaFor:
+	case tagPackRaw, tagPackFor, tagPackDeltaFor, tagPackRLE:
 		if unsafe.Sizeof(int(0)) == 8 {
 			var dest []int64
 			if err := decodeSliceInt64(d, unsafe.Pointer(&dest)); err != nil {
@@ -207,6 +209,8 @@ func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
 			e.writePackedForInt64Slice(s, mn, forBits)
 		case qpackDeltaFor:
 			e.writePackedDeltaForInt64Slice(s, first, minDelta, deltaBits)
+		case qpackRLE:
+			e.writePackedRLEInt64Slice(s)
 		default:
 			e.writePackedInt64Slice(s)
 		}
@@ -243,6 +247,14 @@ func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 	case tagPackDeltaFor:
 		d.i++
 		v, err := d.readPackedDeltaForInt64Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]int64)(p) = v
+		return nil
+	case tagPackRLE:
+		d.i++
+		v, err := d.readPackedRLEInt64Slice()
 		if err != nil {
 			return err
 		}
@@ -320,6 +332,8 @@ func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
 			e.writePackedForUint64Slice(s, mn, forBits)
 		case qpackDeltaFor:
 			e.writePackedDeltaForUint64Slice(s, first, minDelta, deltaBits)
+		case qpackRLE:
+			e.writePackedRLEUint64Slice(s)
 		default:
 			e.writePackedUint64Slice(s)
 		}
@@ -356,6 +370,14 @@ func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 	case tagPackDeltaFor:
 		d.i++
 		v, err := d.readPackedDeltaForUint64Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]uint64)(p) = v
+		return nil
+	case tagPackRLE:
+		d.i++
+		v, err := d.readPackedRLEUint64Slice()
 		if err != nil {
 			return err
 		}
