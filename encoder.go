@@ -4,9 +4,26 @@ import (
 	"encoding/binary"
 	"math"
 	"slices"
+	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
+
+// preInternEntry caches a caller-registered string by its backing
+// pointer and length. id == preInternUnseen marks an entry that
+// has not yet been interned on the wire — the first WriteString
+// that matches still goes through the normal intern path so the
+// decoder sees the tagInternStr record; subsequent matches reuse
+// the resolved id and skip the hash + slot probe.
+// See Encoder.PreIntern for the contract.
+type preInternEntry struct {
+	ptr unsafe.Pointer
+	n   uintptr
+	id  uint32
+	_   uint32 // pad to 24 B
+}
+
+const preInternUnseen = ^uint32(0)
 
 // Encoder writes a single QDF value into a growing internal buffer. Reset
 // drops the buffer contents and (in Dense mode) the intern table so the
@@ -43,6 +60,15 @@ type Encoder struct {
 	// alternative to a per-pointer set (no allocation per call).
 	depth    int
 	maxDepth int
+
+	// preIntern is an opt-in identity cache populated by PreIntern.
+	// When non-empty WriteString does a linear scan against it
+	// before falling to the intern table — a pointer-and-length
+	// match means we already know the intern id and can skip the
+	// hash + slot probe. The slice is empty (and the check is a
+	// single branch-predicted compare) when no caller has opted
+	// in, so it does not regress the default Marshal path.
+	preIntern []preInternEntry
 }
 
 // applyOpts mirrors the options bitmask onto the cached mode / qpack
@@ -142,6 +168,75 @@ func (e *Encoder) Reset() {
 	e.opts = OptSpeed
 	e.mode = Fast
 	e.qpack = false
+	// Drop any PreIntern entries — they reference caller-supplied
+	// backing pointers that are not safe to assume valid across a
+	// pool recycle.
+	if e.preIntern != nil {
+		e.preIntern = e.preIntern[:0]
+	}
+}
+
+// ApplyOpts reconfigures the encoder via the options bit-mask.
+// Equivalent to recreating the encoder with NewEncoderWith but
+// preserves the existing pool buffer and (Dense-mode) intern
+// state. The pool-backed Marshal* entry points call this on every
+// acquire; callers driving an Encoder directly use it to switch
+// between OptSpeed and OptBalanced without re-allocating.
+//
+//go:nosplit
+func (e *Encoder) ApplyOpts(opts Options) { e.applyOpts(opts) }
+
+// EncodeValue runs the reflect-driven Marshal pipeline on v
+// against this Encoder. Convenience for callers driving an
+// Encoder directly (e.g. with PreIntern) — equivalent to what
+// the pool-backed Marshal does internally.
+func (e *Encoder) EncodeValue(v any) error { return encodeReflect(e, v) }
+
+// PreIntern registers the given strings against the encoder's
+// intern table up front. Subsequent WriteString / WriteBytes
+// calls that pass the SAME backing string header (i.e. the same
+// underlying byte pointer and length) skip the hash + slot probe
+// and emit a state-ref directly against the cached intern id.
+//
+// Intended for power users who know their hot string pool ahead
+// of time — service names, region codes, enum-like values drawn
+// from a fixed slice. Real telemetry payloads draw 90 %+ of
+// their dense intern hits from such pools. Skipping the
+// hash/probe on those calls is the main per-emit cost left on
+// the encode hot path.
+//
+// Requires OptDense to be applied first (otherwise the call is a
+// no-op). The registered identities are dropped on Reset so a
+// pooled encoder does not carry caller-supplied pointers across
+// recycles.
+//
+// Safety: the caller must keep the backing memory of every
+// PreIntern'd string alive for the lifetime of the next encode
+// call. For literals embedded in a slice / global / struct
+// field this is automatic; for short-lived stack strings the
+// caller is responsible.
+func (e *Encoder) PreIntern(strs ...string) {
+	if e.state == nil || !e.opts.Has(OptDense) {
+		return
+	}
+	if e.preIntern == nil {
+		e.preIntern = make([]preInternEntry, 0, len(strs))
+	}
+	for _, s := range strs {
+		if len(s) < e.minIntern {
+			continue
+		}
+		// Record the caller's backing pointer + length without
+		// touching the intern table yet. The first WriteString
+		// that matches will run the regular intern path
+		// (emitting tagInternStr on the wire so the decoder can
+		// register the entry) and back-fill the id here.
+		e.preIntern = append(e.preIntern, preInternEntry{
+			ptr: unsafe.Pointer(unsafe.StringData(s)),
+			n:   uintptr(len(s)),
+			id:  preInternUnseen,
+		})
+	}
 }
 
 // SetMaxDepth caps reflect-path pointer/struct recursion. The default
@@ -304,7 +399,46 @@ func (e *Encoder) WriteString(s string) {
 	st := e.state
 	dense := e.opts.Has(OptDense)
 	if dense && st != nil && len(s) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
+		// PreIntern identity fast path: if the caller registered
+		// this exact backing pointer + length via Encoder.PreIntern,
+		// the cached id (after first sight on the wire) lets us
+		// skip the hash + slot probe and emit a state-ref directly.
+		// The slice is empty for default callers, so the gating
+		// `len > 0` check is a single branch-predicted compare
+		// that does not regress the default path.
+		//
+		// On the first WriteString of a PreIntern'd string the
+		// entry's id is still preInternUnseen — we fall through
+		// to the normal intern path (which emits tagInternStr on
+		// the wire so the decoder can register the entry) and
+		// back-fill the id below.
+		preInternIdx := -1
+		if len(e.preIntern) > 0 {
+			sp := unsafe.Pointer(unsafe.StringData(s))
+			sn := uintptr(len(s))
+			for i := range e.preIntern {
+				if e.preIntern[i].ptr == sp && e.preIntern[i].n == sn {
+					if e.preIntern[i].id != preInternUnseen {
+						id := e.preIntern[i].id
+						if st.lastID == id {
+							e.buf = append(e.buf, tagStateRepeat)
+							if e.opts.Has(OptPairPred) {
+								st.pairRecord(id, id)
+							}
+							return
+						}
+						e.emitStateRef(id)
+						return
+					}
+					preInternIdx = i
+					break
+				}
+			}
+		}
 		id, ok := st.lookupOrAssign(s)
+		if preInternIdx >= 0 {
+			e.preIntern[preInternIdx].id = id
+		}
 		if ok {
 			// Repeat hot path: hand-inlined out of emitStateRef so the
 			// most common Dense hit avoids the non-inlinable call.

@@ -226,6 +226,37 @@ func BenchmarkProfile_TelemetryBatch(b *testing.B) {
 	runProfile(b, "telemetry_1k", qdf.OptBalanced, mkTelemetryBatch(1000))
 }
 
+// BenchmarkProfile_TelemetryBatch_PreIntern measures the encode
+// win when the caller registers the hot string pool via
+// Encoder.PreIntern before encoding. Real services with a known
+// vocabulary (service names, region codes, severity levels)
+// can use the API to skip the intern table's hash + probe on
+// every WriteString that hits the pool.
+func BenchmarkProfile_TelemetryBatch_PreIntern(b *testing.B) {
+	const records = 1000
+	rows := mkTelemetryBatch(records)
+	// Hot pool: same backing slices the fixture builder reused.
+	services := []string{"billing", "auth", "ingest", "metrics", "api"}
+	regions := []string{"eu-west-1", "us-east-1", "ap-southeast-2"}
+	levels := []string{"info", "warn", "error"}
+	tags := []string{"prod", "v3"}
+	hotPool := append(append(append(append([]string{}, services...), regions...), levels...), tags...)
+
+	b.Run("telemetry_1k_preintern/encode/qdf", func(b *testing.B) {
+		b.ReportAllocs()
+		enc := qdf.NewEncoderWith(qdf.OptBalanced)
+		for b.Loop() {
+			enc.Reset()
+			enc.ApplyOpts(qdf.OptBalanced)
+			enc.PreIntern(hotPool...)
+			if err := enc.EncodeValue(rows); err != nil {
+				b.Fatal(err)
+			}
+			_ = enc.Bytes()
+		}
+	})
+}
+
 // BenchmarkProfile_MetricSeries — numeric / boolean columns, no
 // repeating strings. Recommended: OptQPack (skip intern overhead).
 func BenchmarkProfile_MetricSeries(b *testing.B) {
