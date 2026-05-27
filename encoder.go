@@ -303,7 +303,7 @@ func (e *Encoder) WriteString(s string) {
 	e.writeHeader()
 	st := e.state
 	dense := e.opts.Has(OptDense)
-	if dense && st != nil && len(s) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+	if dense && st != nil && len(s) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 		id, ok := st.lookupOrAssign(s)
 		if ok {
 			// Repeat hot path: hand-inlined out of emitStateRef so the
@@ -467,7 +467,7 @@ func (e *Encoder) WriteBytes(b []byte) {
 	e.writeHeader()
 	st := e.state
 	dense := e.opts.Has(OptDense)
-	if dense && st != nil && len(b) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+	if dense && st != nil && len(b) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 		key := unsafestr.String(b)
 		id, ok := st.lookupOrAssign(key)
 		if ok {

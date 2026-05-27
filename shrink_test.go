@@ -19,20 +19,20 @@ func TestShrink_EncStateRebuildsBigMap(t *testing.T) {
 	for i := range maxRetainedIDs + 100 {
 		st.lookupOrAssign(fmt.Sprintf("burst-key-%05d", i))
 	}
-	if len(st.ids) <= maxRetainedIDs {
+	if int(st.internLoad) <= maxRetainedIDs {
 		t.Fatalf("test premise: burst should exceed maxRetainedIDs (%d), got %d",
-			maxRetainedIDs, len(st.ids))
+			maxRetainedIDs, int(st.internLoad))
 	}
 	st.reset()
-	if len(st.ids) != 0 {
-		t.Fatalf("reset did not clear ids: %d", len(st.ids))
+	if int(st.internLoad) != 0 {
+		t.Fatalf("reset did not clear ids: %d", int(st.internLoad))
 	}
 	// After shrink the map header was replaced with a fresh one;
 	// adding a single entry should not grow the buckets back to
 	// the pre-shrink size in a single step.
 	st.lookupOrAssign("post-shrink")
-	if len(st.ids) != 1 {
-		t.Fatalf("post-shrink lookup did not register: %d", len(st.ids))
+	if int(st.internLoad) != 1 {
+		t.Fatalf("post-shrink lookup did not register: %d", int(st.internLoad))
 	}
 }
 
@@ -65,7 +65,7 @@ func TestShrink_EncStateDropsPairPredOverCap(t *testing.T) {
 	}
 	// Force pair records — record a pair for the highest prev id
 	// so pairPred slice is grown to that length.
-	last := uint32(len(st.ids) - 1)
+	last := uint32(int(st.internLoad) - 1)
 	st.pairRecord(last, last-1)
 	if cap(st.pairPred) <= maxRetainedPairCap {
 		t.Fatalf("test premise: pairPred should exceed cap (%d), got %d",
@@ -84,7 +84,7 @@ func TestShrink_EncStateKeepsCapsUnderThreshold(t *testing.T) {
 	for i := range 100 {
 		st.lookupOrAssign(fmt.Sprintf("steady-%05d", i))
 	}
-	preIDs := len(st.ids)
+	preIDs := int(st.internLoad)
 	preLRU := cap(st.lruLink)
 	st.reset()
 	// After reset the map must still be the same instance (no
@@ -143,10 +143,10 @@ func TestShrink_BurstThenSteadyState(t *testing.T) {
 	for i := range maxRetainedIDs + 64 {
 		st.lookupOrAssign(fmt.Sprintf("burst-%05d-%s", i, strings.Repeat("z", 16)))
 	}
-	st.pairRecord(uint32(len(st.ids)-1), 0) // grow pairPred too
+	st.pairRecord(uint32(int(st.internLoad)-1), 0) // grow pairPred too
 
 	// Snapshot the burst-peak state.
-	burstIDs := len(st.ids)
+	burstIDs := int(st.internLoad)
 	burstLRUCap := cap(st.lruLink)
 	burstPairCap := cap(st.pairPred)
 	burstArena := st.arena.BytesUsed()

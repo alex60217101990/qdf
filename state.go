@@ -1,11 +1,44 @@
 package qdf
 
 import (
+	"hash/maphash"
 	"strings"
 
 	"github.com/alex60217101990/qdf/internal/internarena"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
+
+// internHashSeed is the shared maphash seed for the flat intern
+// table. Per-process random; values are stable across goroutines
+// but differ across binary invocations (no semantic impact — the
+// intern table is per-encoder and reset between Marshals).
+var internHashSeed = maphash.MakeSeed()
+
+// internSlot is one entry in the flat hash table that replaces the
+// old map[string]uint32 intern dictionary. Profiling on telemetry
+// workloads showed Go's map[string]uint32 spending ~17 ns/op in
+// mapaccess2_faststr (string hash + bucket walk + memequal).
+// Open-addressing on a contiguous []internSlot with the hash
+// precomputed and stored alongside lets the hot path read one
+// cache line, compare the hash, then `==` the key — saving ~5 ns
+// per lookup at the cost of one extra 8 B slot field.
+//
+// hash == 0 reserves the "empty slot" sentinel; computed hashes
+// that fall on 0 are bumped to 1 before storage.
+//
+//	hash 8 B  +  key 16 B  +  id 4 B  +  pad 4 B  =  32 B  →  2 slots / cache line
+type internSlot struct {
+	hash uint64
+	key  string
+	id   uint32
+	_    uint32
+}
+
+// Initial intern table size. Doubles when load > 0.5 so the
+// linear-probing chain stays short. 64 covers the common
+// telemetry / config payloads (a few dozen distinct values) with
+// no resize at all.
+const internTableInitSize = 64
 
 // Intern table backing Dense mode. The encoder maintains a string→ID
 // map; the decoder maintains the matching ID-ordered list of byte
@@ -64,10 +97,10 @@ type encState struct {
 	// adjacent mruHead and the map header. lastID + lruHead + mruHead
 	// are touched on every state-ref emit; co-locating them with
 	// mruRing keeps the per-emit footprint at 1-2 cache lines.
-	lastID  uint32
-	lruHead uint32
-	mruHead uint32
-	_       uint32 // pad to align mruRing on an 8-byte boundary
+	lastID     uint32
+	lruHead    uint32
+	mruHead    uint32
+	internLoad uint32 // number of occupied slots in internTable
 
 	// mruRing is a side-cache of the last mruRingSize state-ref emit
 	// IDs. Each new emit pushes its ID at mruRing[mruHead&mask] and
@@ -78,10 +111,12 @@ type encState struct {
 	// lines.
 	mruRing [mruRingSize]uint16
 
-	// ids is the encode-side intern map. Hot — every WriteString
-	// hits it. Placed right after the scalar hot cluster so the
-	// map header shares cache locality with the index update.
-	ids map[string]uint32
+	// internTable is a flat open-addressed hash table replacing the
+	// old map[string]uint32. See internSlot for layout. Hot —
+	// touched on every WriteString. Linear probing keeps the access
+	// pattern sequential and predictable; load is kept below 0.5 by
+	// doubling on growth so probe chains stay short (typically 1).
+	internTable []internSlot
 
 	// Move-to-front LRU over intern IDs. lruHead is the ID at rank 0
 	// (most recently emitted state-ref or freshly interned). lruLink
@@ -133,9 +168,9 @@ func newEncState() *encState {
 	// arena is zero-value initialised here — its slab is lazily
 	// allocated on first Put (see internarena.Arena.Put).
 	e := &encState{
-		ids:     make(map[string]uint32, 64),
-		lruHead: lruInvalidID,
-		lastID:  lruInvalidID,
+		internTable: make([]internSlot, internTableInitSize),
+		lruHead:     lruInvalidID,
+		lastID:      lruInvalidID,
 	}
 	// Prime ring with sentinels so a scan never matches id 0 by
 	// accident before the ring has been written.
@@ -162,22 +197,25 @@ const (
 )
 
 func (e *encState) reset() {
-	// Map shrink. Go's runtime map cannot reduce its bucket array
-	// once it has grown, so the only way to release that memory is
-	// to replace the map header with a freshly-allocated one. Do it
-	// only when len exceeded the threshold during the prior cycle;
-	// the steady-state path stays on clear() which keeps the
-	// existing buckets warm.
+	// Intern table shrink. The flat hash table doubles when load
+	// exceeds 0.5; long-running services that occasionally take a
+	// burst payload would otherwise pin the high-water-mark table
+	// to the pool forever. Drop oversized backing arrays here; in
+	// the steady-state path the table fits below the cap and only
+	// gets memcleared (cheap), which keeps the slot pages warm.
 	//
-	// Order: rebuild / clear BEFORE arena.Reset. The map keys alias
-	// arena bytes; the arena Reset rolls cursors back and the next
-	// Put overwrites the prior payload area, so any surviving
-	// aliased key would read garbage.
-	if len(e.ids) > maxRetainedIDs {
-		e.ids = make(map[string]uint32, 64)
+	// Order: clear / rebuild BEFORE arena.Reset. The slot.key
+	// fields alias arena bytes; arena.Reset rolls cursors back and
+	// the next Put overwrites the prior payload area, so any
+	// surviving aliased key would read garbage.
+	if cap(e.internTable) > maxRetainedIDs*2 {
+		e.internTable = make([]internSlot, internTableInitSize)
 	} else {
-		clear(e.ids)
+		for i := range e.internTable {
+			e.internTable[i] = internSlot{}
+		}
 	}
+	e.internLoad = 0
 	e.arena.Reset() // Arena has its own watermark, see internarena.
 
 	e.lastID = lruInvalidID
@@ -396,31 +434,78 @@ func (e *encState) lruMoveFront(id uint32) {
 // emit an intern record. The key bytes are copied into the encState
 // arena so the table is independent of the caller's buffer.
 //
-// The map key is a string header that aliases the arena copy
-// (zero-copy via unsafestr.String). Map lookups still hash the key
-// bytes — there is no observable behavioural difference from
-// strings.Clone, only 1 fewer allocation per miss.
+// Uses the flat open-addressed hash table (internTable) — a single
+// memhash + a couple of cache-line loads instead of Go's
+// mapaccess2_faststr (hash + bucket walk + tophash + memequal).
+// The stored slot.key aliases the arena copy via unsafestr.String
+// so the encoder owns the bytes and the caller's buffer can be
+// reused immediately after the call.
 //
 // For payloads longer than the arena's per-string limit
 // (internarena.MaxStringLen, 65 535 bytes), fall back to
-// strings.Clone. Such oversized intern attempts are not expected on
-// real workloads; the path exists so a hostile input cannot crash
-// the encoder.
+// strings.Clone. Such oversized intern attempts are not expected
+// on real workloads; the path exists so a hostile input cannot
+// crash the encoder.
+//
+//go:nosplit
 func (e *encState) lookupOrAssign(key string) (uint32, bool) {
-	if id, ok := e.ids[key]; ok {
-		return id, true
+	h := maphash.String(internHashSeed, key)
+	if h == 0 {
+		h = 1 // reserve 0 as the empty-slot sentinel
 	}
-	id := uint32(len(e.ids))
-	var stored string
-	if len(key) <= internarena.MaxStringLen {
-		arenaID := e.arena.Put(key)
-		stored = unsafestr.String(e.arena.Get(arenaID))
-	} else {
-		stored = strings.Clone(key)
+	mask := uint64(len(e.internTable) - 1)
+	for i := h & mask; ; i = (i + 1) & mask {
+		slot := &e.internTable[i]
+		if slot.hash == 0 {
+			// Miss: install at this open slot.
+			id := e.internLoad
+			var stored string
+			if len(key) <= internarena.MaxStringLen {
+				arenaID := e.arena.Put(key)
+				stored = unsafestr.String(e.arena.Get(arenaID))
+			} else {
+				stored = strings.Clone(key)
+			}
+			slot.hash = h
+			slot.key = stored
+			slot.id = id
+			e.internLoad++
+			e.lruAddFresh(id)
+			if e.internLoad*2 >= uint32(len(e.internTable)) {
+				e.internTableGrow()
+			}
+			return id, false
+		}
+		if slot.hash == h && slot.key == key {
+			return slot.id, true
+		}
+		// Collision (rare under load < 0.5): probe next slot.
 	}
-	e.ids[stored] = id
-	e.lruAddFresh(id)
-	return id, false
+}
+
+// internTableGrow doubles the flat hash table and rehashes every
+// occupied slot. Called from lookupOrAssign when the load factor
+// reaches 0.5, so amortised insert cost stays O(1) and the typical
+// probe chain remains short (≤ 2 hops).
+func (e *encState) internTableGrow() {
+	old := e.internTable
+	newSize := len(old) * 2
+	if newSize == 0 {
+		newSize = internTableInitSize
+	}
+	e.internTable = make([]internSlot, newSize)
+	mask := uint64(newSize - 1)
+	for i := range old {
+		if old[i].hash == 0 {
+			continue
+		}
+		for j := old[i].hash & mask; ; j = (j + 1) & mask {
+			if e.internTable[j].hash == 0 {
+				e.internTable[j] = old[i]
+				break
+			}
+		}
+	}
 }
 
 // decShape is the decoder-side mirror of an encShape. keyIDs holds

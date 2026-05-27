@@ -729,7 +729,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			pairOn := e.opts.Has(OptPairPred)
 			for i := range fields {
 				f := &fields[i]
-				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 					if id, ok := st.lookupOrAssign(f.name); ok {
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)
@@ -769,7 +769,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			pairOn := e.opts.Has(OptPairPred)
 			for i := range fields {
 				f := &fields[i]
-				if len(f.name) >= e.minIntern && len(st.ids) < e.maxStateEntries {
+				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 					if id, ok := st.lookupOrAssign(f.name); ok {
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)
