@@ -19,7 +19,7 @@ func ExampleDecoder_SetNoCopy() {
 	dec.SetNoCopy(true)
 
 	n, _ := dec.ReadArrayHeader()
-	for i := 0; i < n; i++ {
+	for range n {
 		s, _ := dec.ReadString() // alias into buf
 		fmt.Println(s)
 	}
@@ -55,7 +55,7 @@ func ExampleDecoder_IsNil() {
 	dec := qdf.NewDecoderOnBuf(buf)
 
 	n, _ := dec.ReadArrayHeader()
-	for i := 0; i < n; i++ {
+	for range n {
 		isNil, _ := dec.IsNil()
 		if isNil {
 			fmt.Println("<nil>")

@@ -23,7 +23,7 @@ func ExampleEncoder() {
 
 	dec := qdf.NewDecoderOnBuf(enc.Bytes())
 	n, _ := dec.ReadMapHeader()
-	for i := 0; i < n; i++ {
+	for range n {
 		k, _ := dec.ReadString()
 		switch k {
 		case "name":
