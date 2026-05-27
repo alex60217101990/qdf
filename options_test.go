@@ -288,10 +288,12 @@ func TestOptions_WireSizeRanking(t *testing.T) {
 	if balanced > dense {
 		t.Fatalf("OptBalanced (%d) must be ≤ OptDense (%d)", balanced, dense)
 	}
-	// OptCompression is currently an alias for OptBalanced; assert
-	// the contract so future changes notice if the alias diverges.
+	// OptCompression diverges from OptBalanced by OptGorillaFloat —
+	// on the long_string_repeats fixture there are no float slices,
+	// so Gorilla never fires and the wire still matches. The check
+	// guards against accidental drift of the shared codec set.
 	if compression != balanced {
-		t.Fatalf("OptCompression (%d) != OptBalanced (%d) — alias drift",
+		t.Fatalf("OptCompression (%d) != OptBalanced (%d) on a float-free fixture — non-Gorilla codec drift",
 			compression, balanced)
 	}
 }
@@ -320,6 +322,12 @@ func TestOptions_BundleAliases(t *testing.T) {
 			}
 		})
 		t.Run(fx.name+"/Compression=Balanced", func(t *testing.T) {
+			// OptCompression = OptBalanced | OptGorillaFloat. The
+			// Gorilla codec only fires on float slices that pass the
+			// pickF64Codec probe; none of the fixtures here trigger
+			// it, so the wire must still match OptBalanced byte for
+			// byte. Drift here means a *non-Gorilla* codec rewired
+			// under one bundle but not the other.
 			a, err := Marshal(in, OptCompression)
 			if err != nil {
 				t.Fatal(err)
@@ -329,7 +337,7 @@ func TestOptions_BundleAliases(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(a, b) {
-				t.Fatalf("OptCompression diverged from OptBalanced — alias broken")
+				t.Fatalf("OptCompression diverged from OptBalanced on a non-Gorilla fixture — shared codec set drifted")
 			}
 		})
 		t.Run(fx.name+"/Balanced=explicit", func(t *testing.T) {
@@ -345,6 +353,67 @@ func TestOptions_BundleAliases(t *testing.T) {
 				t.Fatalf("OptBalanced bundle differs from its explicit composition")
 			}
 		})
+	}
+}
+
+// TestOptions_GorillaFiresUnderCompression pins the contract that
+// OptCompression diverges from OptBalanced by exactly OptGorillaFloat
+// — when given a smooth float series, the OptCompression wire must
+// be materially smaller because Gorilla fires; under OptBalanced the
+// same payload stays on raw-LE. A drift here (Gorilla leaking into
+// OptBalanced, or the gate going dark under OptCompression) would
+// silently break either the speed contract or the size contract.
+func TestOptions_GorillaFiresUnderCompression(t *testing.T) {
+	// Quantised smooth series: 0.7 repeat rate + 0.1 steps. Same
+	// shape as the bench fixture so the wire delta tracks the
+	// published numbers.
+	const n = 1024
+	floats := make([]float64, n)
+	value := 50.0
+	for i := range floats {
+		if i > 0 && i%3 != 0 { // ~67 % repeats — Gorilla-friendly
+			floats[i] = value
+			continue
+		}
+		if i&1 == 0 {
+			value += 0.1
+		} else {
+			value -= 0.1
+		}
+		floats[i] = value
+	}
+	in := struct {
+		F []float64 `qdf:"f"`
+	}{F: floats}
+
+	bBalanced, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bCompress, err := Marshal(in, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bCompress) >= len(bBalanced)/2 {
+		t.Fatalf("OptCompression did not engage Gorilla on smooth floats: balanced=%d compress=%d", len(bBalanced), len(bCompress))
+	}
+	// Sanity: both decode to the same value.
+	var outB, outC struct {
+		F []float64 `qdf:"f"`
+	}
+	if err := Unmarshal(bBalanced, &outB); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unmarshal(bCompress, &outC); err != nil {
+		t.Fatal(err)
+	}
+	if len(outB.F) != n || len(outC.F) != n {
+		t.Fatalf("decode length mismatch: balanced=%d compress=%d want=%d", len(outB.F), len(outC.F), n)
+	}
+	for i := range outB.F {
+		if outB.F[i] != outC.F[i] {
+			t.Fatalf("decoded floats diverged at %d: balanced=%v compress=%v", i, outB.F[i], outC.F[i])
+		}
 	}
 }
 

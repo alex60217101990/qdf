@@ -435,6 +435,15 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float64)(p)
 	if e.qpack {
+		// OptGorillaFloat (bundled under OptCompression) opts in to
+		// the Gorilla XOR codec. pickF64Codec probes the first 32
+		// pairs and falls back to raw-LE when the projected per-
+		// sample cost stays near 64 bits — i.e. Gorilla only fires
+		// when its bit-level work pays for itself on the wire.
+		if e.gorillaFloat && pickF64Codec(s) == qpackGorilla {
+			e.writePackedGorillaFloat64Slice(s)
+			return nil
+		}
 		e.writePackedFloat64Slice(s)
 		return nil
 	}

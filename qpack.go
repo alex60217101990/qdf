@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"math"
+	"math/bits"
 	"slices"
 	"unsafe"
 
@@ -135,7 +136,64 @@ const (
 	qpackRaw qpackCodec = iota
 	qpackFor
 	qpackDeltaFor
+	qpackGorilla
 )
+
+// pickF64Codec selects between the raw-LE bulk codec and the
+// Gorilla XOR codec for a []float64 by probing the XOR
+// distribution of the first sliceProbe consecutive pairs and
+// projecting the per-element bit cost.
+//
+// Raw cost: 64 bits / element. Gorilla worst case approaches raw;
+// best case (smooth time series with repeated XOR windows) drops
+// well below — single equal-value step is 1 control bit. The
+// probe samples enough pairs to estimate the average meaningful-
+// bit count cheaply (~30 ns total), then compares against a
+// threshold that accounts for Gorilla's per-sample control bits
+// and header overhead.
+//
+// Returns qpackGorilla on hit, qpackRaw otherwise. The decoder
+// already handles tagPackGorilla via readPackedGorillaFloat64Slice
+// so the choice is wire-compatible — older decoders that don't
+// know the tag would fail with ErrBadTag, but they can't decode
+// any Dense / QPack stream anyway.
+//
+//go:nosplit
+func pickF64Codec(s []float64) qpackCodec {
+	n := len(s)
+	if n < 8 {
+		// Gorilla overhead (kind + first u64 + numBits varuint)
+		// dominates on tiny slices.
+		return qpackRaw
+	}
+	probe := min(32, n-1)
+	var total uint64
+	prev := math.Float64bits(s[0])
+	for i := 1; i <= probe; i++ {
+		cur := math.Float64bits(s[i])
+		x := cur ^ prev
+		if x == 0 {
+			// Repeat: Gorilla writes a single control bit.
+			total++
+		} else {
+			// Meaningful bits + ~14 control + window-header bits
+			// in the average case (4-bit no-window-update + 11
+			// bit new-window). Slightly pessimistic.
+			meaningful := uint64(64 - bits.LeadingZeros64(x) - bits.TrailingZeros64(x))
+			total += meaningful + 14
+		}
+		prev = cur
+	}
+	// Projected average bits per element for Gorilla. Raw is 64.
+	// Pick Gorilla only when the projection is comfortably below
+	// raw to absorb fixed-header overhead (kind + first value +
+	// numBits varuint = ~10 bytes ≈ 80 bits amortised).
+	avgBits := total / uint64(probe)
+	if avgBits+1 < 48 {
+		return qpackGorilla
+	}
+	return qpackRaw
+}
 
 // QPack codec helpers. Each codec emits a single self-described tagged
 // payload that replaces the per-element tag stream for one slice. The

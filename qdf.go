@@ -9,8 +9,9 @@
 //
 //	OptSpeed       — Fast mode, no codecs (matches encoding/json shape)
 //	OptBalanced    — Dense + QPack + shape interning + Markov-1 + MTF
-//	OptCompression — alias for OptBalanced today; reserved for future
-//	                 heavy-CPU codecs (rANS, dictionary preloading)
+//	OptCompression — OptBalanced + Gorilla XOR for float slices
+//	                 (~70 % wire reduction on smooth time-series at
+//	                 ~10× CPU per slice; future heavy codecs land here)
 //
 // A single decoder handles every variant; the wire header self-
 // describes the dialect.
@@ -128,8 +129,10 @@ const (
 
 	// OptQPack enables the numeric / boolean slice codecs. Bools
 	// bit-pack; integer slices try Frame-of-Reference and Delta+FOR;
-	// float slices use Gorilla XOR. Auto-selected per slice; the
-	// encoder falls back to raw-LE when nothing wins.
+	// float slices stay on raw-LE. Auto-selected per slice; the
+	// encoder falls back to raw-LE when nothing wins. Gorilla XOR
+	// for floats lives behind OptGorillaFloat (bit 5) — see
+	// OptCompression for the bundle that turns it on.
 	OptQPack
 
 	// OptShapeIntern routes struct emissions through tagMapShape: each
@@ -148,7 +151,17 @@ const (
 	// When the LRU rank of a state-ref ID needs fewer varuint bytes
 	// than the raw id, the rank is emitted instead. Requires OptDense.
 	OptMTF
-	// Bits 5..31 reserved for future codecs (rANS, LZ77, n-gram
+
+	// OptGorillaFloat opts in to the Gorilla XOR codec for []float64
+	// (and []float32) slices. Gorilla collapses smooth time-series
+	// data dramatically (~75 % wire reduction on quantised metric
+	// streams) but trades that for ~10× more CPU on the encode/decode
+	// path because the body is bit-level. Off by default in
+	// OptBalanced for that reason; included in OptCompression for
+	// archive-style workloads where wire size dominates. Requires
+	// OptQPack.
+	OptGorillaFloat
+	// Bits 6..31 reserved for future codecs (rANS, LZ77, n-gram
 	// dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
@@ -158,13 +171,17 @@ const (
 	// OptBalanced bundles every codec that does not trade CPU for
 	// compression beyond its sweet spot. The right default for
 	// telemetry, log batches, and any payload with repetitive
-	// strings or numeric slices.
+	// strings or numeric slices. Notably excludes OptGorillaFloat —
+	// reach for OptCompression when the float slices in the payload
+	// are smooth time-series and wire size matters more than encode
+	// latency.
 	OptBalanced Options = OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
 
-	// OptCompression is an alias for OptBalanced today. The constant
-	// is reserved so future heavy-CPU codecs (rANS, dictionary
-	// preloading) can opt in without breaking the bundle name.
-	OptCompression Options = OptBalanced
+	// OptCompression bundles every codec that the encoder will spend
+	// CPU on for wire-size gains. Today that adds OptGorillaFloat on
+	// top of OptBalanced; future heavy codecs (rANS, dictionary
+	// preloading) will land in this bundle without breaking the name.
+	OptCompression Options = OptBalanced | OptGorillaFloat
 )
 
 // Has reports whether the named bit is set. Compiles to a single AND

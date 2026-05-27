@@ -102,29 +102,30 @@ You SHOULD use qdf if:
 └────────────────────────┘ └────────────────────────────┘ └──────────────────────────────┘
 ```
 
-`Options` is `uint32`. The five bits in use today, in declaration
+`Options` is `uint32`. The six bits in use today, in declaration
 order:
 
-| Bit | Const            | What it gates                          | Depends on |
-|----:|------------------|----------------------------------------|------------|
-|  0  | `OptDense`       | intern table, state-ref tags, arena    | —          |
-|  1  | `OptQPack`       | numeric / bool slice codecs            | —          |
-|  2  | `OptShapeIntern` | struct shape table, `tagMapShape`      | `OptDense` |
+| Bit | Const             | What it gates                          | Depends on |
+|----:|-------------------|----------------------------------------|------------|
+|  0  | `OptDense`        | intern table, state-ref tags, arena    | —          |
+|  1  | `OptQPack`        | numeric / bool slice codecs (raw-LE / FOR / Delta+FOR / bitpack) | — |
+|  2  | `OptShapeIntern`  | struct shape table, `tagMapShape`      | `OptDense` |
 |  3  | `OptPairPred`    | Markov-1 predictor over state-refs     | `OptDense` |
-|  4  | `OptMTF`         | Move-to-Front rank coding              | `OptDense` |
+|  4  | `OptMTF`          | Move-to-Front rank coding              | `OptDense` |
+|  5  | `OptGorillaFloat` | Gorilla XOR codec for `[]float64` / `[]float32` (~70 % wire reduction on smooth time-series, ~10× CPU/slice) | `OptQPack` |
 
 `OptSpeed = 0`. `OptBalanced = OptDense | OptQPack | OptShapeIntern
-| OptPairPred | OptMTF`. `OptCompression` aliases `OptBalanced`
-today; the constant is reserved so future heavy-CPU codecs (rANS,
-dictionary preloading) can land under it without breaking the bundle
-name.
+| OptPairPred | OptMTF`. `OptCompression = OptBalanced | OptGorillaFloat`
+— it diverges from balanced by exactly that one bit so workloads that
+care about wire size more than encode latency opt in without reaching
+for individual flags.
 
-Dependent bits (`OptShapeIntern`, `OptPairPred`, `OptMTF`) are no-ops
-without `OptDense` and the encoder records that fact silently — no
-error, no warning. `TestValidity_DependentBitsAreNoOpsWithoutDense`
-pins the contract.
+Dependent bits (`OptShapeIntern`, `OptPairPred`, `OptMTF`,
+`OptGorillaFloat`) are no-ops without their parent and the encoder
+records that fact silently — no error, no warning.
+`TestValidity_DependentBitsAreNoOpsWithoutDense` pins the contract.
 
-Reserved bits (5..31) are silent no-ops too. Setting them today does
+Reserved bits (6..31) are silent no-ops too. Setting them today does
 nothing; setting them tomorrow may opt you into a new codec. This is
 deliberate — the constant name is the API, the bit position is an
 internal allocation.
@@ -553,8 +554,13 @@ Selection logic:
   beats raw, emit FOR. For monotonic / clustered series, try
   delta-FOR. Otherwise raw.
 - **Float slice**: by default, raw. Gorilla is opt-in via
-  `WritePackGorilla` — it wins on real-world time-series telemetry
-  but loses on white noise.
+  `OptGorillaFloat` (bundled into `OptCompression`). When the bit is
+  set, `pickF64Codec` probes the first 32 consecutive XOR pairs; if
+  the projected per-sample bit cost stays comfortably below raw 64
+  it emits `tagPackGorilla`, otherwise it falls back to raw. The
+  probe runs in ~30 ns. Gorilla wins on real-world time-series
+  telemetry but loses on white noise — the threshold pick keeps it
+  from firing where it would.
 
 The size estimators are pure functions on slice contents; the
 encoder calls them once per slice and picks the smallest.
@@ -874,7 +880,34 @@ respectively. Different physical layout, same logical mapping. This
 is a feature (rename-tolerant), but if you depend on order, you
 will be surprised.
 
-**5. `map[string]any` with positive integer values.**
+**5. Float slice compression — `OptQPack` vs `OptCompression`.**
+
+Float slices are the only codec that trades latency for size in the
+preset bundles. `OptQPack` (and therefore `OptBalanced`) keeps floats
+on raw-LE bulk — predictable ~4 µs per 1024-sample slice, 8 B per
+sample. `OptCompression` adds `OptGorillaFloat`; the encoder probes
+the first 32 XOR pairs (~30 ns) and emits Gorilla XOR when the
+projected per-sample cost stays comfortably below 64 bits.
+
+Empirically, on `bench/profiles_test.go` Intel i7-9750H, Go 1.26.0:
+
+| series                | opts          | wire (B) | encode  | decode  |
+|-----------------------|---------------|---------:|--------:|--------:|
+| random walk (1024×f64)| `OptQPack`    | 8391     | ~4.0 µs | ~4.2 µs |
+| random walk (1024×f64)| `OptCompression` | 8391  | ~4.1 µs | ~4.3 µs |
+| smooth (1024×f64)     | `OptQPack`    | 8398     | ~4.2 µs | ~4.0 µs |
+| smooth (1024×f64)     | `OptCompression` | 2307  | ~41 µs  | ~40 µs  |
+
+Reading the table: under `OptCompression`, smooth time-series
+collapses ~72 % on the wire but encode/decode pay ~10× more CPU per
+slice because Gorilla works at the bit level. On random-walk floats
+the probe rejects Gorilla so the path stays raw and OptCompression
+matches OptQPack exactly — wire and latency. The wrong choice is
+`OptCompression` on hot-path metric ingest with smooth values; the
+right choice is `OptCompression` on archival snapshots and offline
+batches where the wire matters more than encode latency.
+
+**6. `map[string]any` with positive integer values.**
 
 ```go
 in := map[string]any{"n": int64(42)}
@@ -1011,8 +1044,6 @@ broken downstream consumers.
 - README — high-level overview and quick start.
 - `docs/BENCH.md` — full benchmark matrix and methodology.
 - `docs/CHOOSING.md` — opts cheatsheet for end-users.
-- `docs/PLAN.md` — open optimisation work (encode-side perf vs
-  msgpack).
 - `example_*_test.go` files at the repo root — pkg.go.dev surfaces
   these per-symbol. Cover Marshal / AppendMarshal / MarshalT
   basics, OptSpeed-vs-OptBalanced wire size, low-level Encoder

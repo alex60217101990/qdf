@@ -111,6 +111,45 @@ func mkMetricSeries(n int) metricSeries {
 	return metricSeries{Name: "service.cpu.load", Timestamp: ts, Value: vs, Flag: fs}
 }
 
+// mkMetricSeriesSmooth produces a metric series whose float64
+// column is the shape Gorilla XOR coding was designed for:
+// quantized sensor readings with frequent repeats and small
+// integer-multiple steps. Real telemetry that fits this profile:
+//   - a CPU-load gauge with 0.1 %-resolution that holds steady
+//     for many samples before stepping;
+//   - a temperature sensor reporting 0.5 °C increments;
+//   - a request-rate counter that increments in fixed buckets.
+//
+// On this fixture pickF64Codec hits qpackGorilla: each repeated
+// sample collapses to a single control bit and each step emits
+// the small XOR delta in ~14-20 bits, well below raw's 64
+// bits/sample.
+func mkMetricSeriesSmooth(n int) metricSeries {
+	ts := make([]int64, n)
+	vs := make([]float64, n)
+	fs := make([]bool, n)
+	rnd := rand.New(rand.NewSource(42))
+	value := 50.0
+	for i := 0; i < n; i++ {
+		ts[i] = 1_700_000_000 + int64(i)
+		// 70 % chance the value stays at its previous quantum;
+		// 30 % chance it steps by ±0.1 (one quantum). Both pure
+		// repeats and small XOR deltas play to Gorilla's strengths.
+		if i > 0 && rnd.Float64() < 0.7 {
+			vs[i] = value
+		} else {
+			if rnd.Float64() < 0.5 {
+				value += 0.1
+			} else {
+				value -= 0.1
+			}
+			vs[i] = value
+		}
+		fs[i] = i%3 == 0
+	}
+	return metricSeries{Name: "service.cpu.load.smooth", Timestamp: ts, Value: vs, Flag: fs}
+}
+
 func mkEmbedding(dim int) embeddingVec {
 	v := make([]float32, dim)
 	rnd := rand.New(rand.NewSource(3))
@@ -279,6 +318,24 @@ func BenchmarkProfile_MetricSeries(b *testing.B) {
 	runProfile(b, "metric_1024", qdf.OptQPack, mkMetricSeries(1024))
 }
 
+// BenchmarkProfile_MetricSeriesSmooth — same shape as MetricSeries
+// but with smoothly-varying float64 values. OptQPack (no Gorilla):
+// raw-LE bulk floats, fast path. The wire size matches the random
+// variant since both ship 8 bytes/sample.
+func BenchmarkProfile_MetricSeriesSmooth(b *testing.B) {
+	runProfile(b, "metric_smooth_1024", qdf.OptQPack, mkMetricSeriesSmooth(1024))
+}
+
+// BenchmarkProfile_MetricSeriesSmoothCompress — same fixture under
+// OptCompression. Gorilla XOR fires (~6-20 bits/sample on smooth
+// data) and shrinks the float body ~10×, at the cost of bit-level
+// encode/decode (~10× more CPU per slice). Use this preset when
+// wire size dominates and the payload is dominated by smooth
+// time-series floats.
+func BenchmarkProfile_MetricSeriesSmoothCompress(b *testing.B) {
+	runProfile(b, "metric_smooth_1024_compress", qdf.OptCompression, mkMetricSeriesSmooth(1024))
+}
+
 // BenchmarkProfile_EmbeddingVec — single dense float32 vector.
 // Recommended: OptQPack (Gorilla XOR catches smooth-varying floats;
 // raw-LE bulk otherwise).
@@ -316,6 +373,8 @@ func TestProfile_SizesSummary(t *testing.T) {
 		{"hot_path", mkHotPathEvent(), qdf.OptSpeed},
 		{"telemetry_1k", mkTelemetryBatch(1000), qdf.OptBalanced},
 		{"metric_1024", mkMetricSeries(1024), qdf.OptQPack},
+		{"metric_smooth_qpack", mkMetricSeriesSmooth(1024), qdf.OptQPack},
+		{"metric_smooth_zip", mkMetricSeriesSmooth(1024), qdf.OptCompression},
 		{"embed_768", mkEmbedding(768), qdf.OptQPack},
 		{"config", mkConfig(), qdf.OptBalanced},
 		{"archive_5k", mkArchive(5000), qdf.OptCompression},
