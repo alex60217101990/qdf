@@ -257,13 +257,14 @@ func (e *Encoder) reset() {
 
 `state.reset()` is where the watermark-based shrink lives. Defaults:
 
-| Structure          | Soft cap | What hits it                                |
-|--------------------|---------:|---------------------------------------------|
-| `internTable`      | 4 096 ids| flat hash table — drop at `2 * 4096` slots  |
-| `lruLink`          | 4 096    | packed `(prev<<16\|next)` chain capacity    |
-| `pairPred`         | 4 096    | Markov-1 predictor slice capacity           |
-| `shapes`           | 1 024    | declared struct shapes                      |
-| `arena`            | 256 KiB  | total chunk capacity (see internarena)      |
+| Structure          | Soft cap | What hits it                                          |
+|--------------------|---------:|-------------------------------------------------------|
+| `internTable`      | 4 096 ids| flat hash table — drop at `2 * 4096` slots            |
+| `lruLink`          | 4 096    | packed `(prev<<16\|next)` chain capacity              |
+| `pairPred`         | 4 096    | Markov-1 predictor slice capacity                     |
+| `shapes`           | 1 024    | declared struct shapes                                |
+| `arena`            | 256 KiB  | total chunk capacity (see internarena)                |
+| `stringValues`     | 4 096    | decoder string-cache; truncated with `values` (decode-side only) |
 
 The 128-entry MRU ring side-cache and the four hot scalars
 (`lastID`, `lruHead`, `mruHead`, `internLoad`) live inline in
@@ -278,13 +279,24 @@ pinning the historical peak.
 ### Decoder symmetry
 
 The decoder mirrors every encoder structure: `values [][]byte` for
-the resolved intern strings, `lruLink` for the packed MTF chain,
-`pairPred` for Markov-1, `shapes` for shape-table lookups, and its
-own `mruRing` so `tagStateMTF`-encoded ranks resolve in O(1)
-without walking the chain. `pairPred`, the LRU chain, and both
-sides of the MRU ring are kept in sync per emission so a
-`tagStateMTF 0` always resolves to the most-recently-emitted ID on
-both sides.
+the resolved intern bytes (aliasing the wire buffer), a parallel
+`stringValues []string` that caches the materialised Go-string of
+each intern record (populated lazily on the first `ReadString`),
+`lruLink` for the packed MTF chain, `pairPred` for Markov-1,
+`shapes` for shape-table lookups, and its own `mruRing` so
+`tagStateMTF`-encoded ranks resolve in O(1) without walking the
+chain. `pairPred`, the LRU chain, and both sides of the MRU ring
+are kept in sync per emission so a `tagStateMTF 0` always
+resolves to the most-recently-emitted ID on both sides.
+
+`stringValues` is a pure decoder-side optimisation: on dense
+payloads (telemetry, archive) the same intern record is read
+N times via state-ref / MTF / pair / repeat tags; without the
+cache each read paid for a fresh `string(b)` heap copy. With the
+cache, the first read materialises and stores the string; the
+remaining N-1 reads return the cached value with zero alloc.
+Empty interned bytes resolve directly to `""` without touching
+the cache.
 
 If the encoder and decoder diverge by a single bookkeeping step, the
 stream becomes ambiguous from that point on. Every code path that

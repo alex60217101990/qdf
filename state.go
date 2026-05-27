@@ -566,8 +566,19 @@ type decState struct {
 	// unchanged.
 	mruRing [mruRingSize]uint16
 
-	// values holds the decoded byte slices indexed by intern id.
+	// values holds the decoded byte slices indexed by intern id —
+	// each entry aliases the wire buffer (zero-copy).
 	values [][]byte
+
+	// stringValues caches a heap-allocated `string` copy per intern
+	// record. Populated once at append time (one `string(b)` alloc
+	// per first occurrence); subsequent state-ref / MTF / pair /
+	// repeat reads return the cached string from Decoder.ReadString
+	// without paying another `string(b)` copy each time. On dense
+	// payloads with repeated values (telemetry, archive,
+	// LargePayload) this collapses N-1 of every N reads to zero
+	// alloc.
+	stringValues []string
 
 	// LRU mirror of encState's. Decoder maintains the same MTF chain
 	// the encoder did so tagStateMTF + rank resolves to the same ID.
@@ -586,9 +597,10 @@ type decState struct {
 
 func newDecState() *decState {
 	d := &decState{
-		values:  make([][]byte, 0, 64),
-		lruHead: lruInvalidID,
-		lastID:  lruInvalidID,
+		values:       make([][]byte, 0, 64),
+		stringValues: make([]string, 0, 64),
+		lruHead:      lruInvalidID,
+		lastID:       lruInvalidID,
 	}
 	for i := range d.mruRing {
 		d.mruRing[i] = mruEmpty
@@ -602,8 +614,10 @@ func (d *decState) reset() {
 	// cap, otherwise reuse the existing slices in place.
 	if cap(d.values) > maxRetainedIDs {
 		d.values = nil
+		d.stringValues = nil
 	} else {
 		d.values = d.values[:0]
+		d.stringValues = d.stringValues[:0]
 	}
 	d.lastID = lruInvalidID
 	d.lruHead = lruInvalidID
@@ -763,9 +777,21 @@ func (d *decState) lruMoveToFront(id uint32) {
 	d.mruPush(id)
 }
 
+// append registers a fresh intern record with the decoder. b
+// aliases the wire buffer; the cached string slot is left empty so
+// the first ReadString of this record pays the string(b) copy
+// exactly once, and every later state-ref / MTF / pair / repeat
+// read returns the cached value without alloc.
+//
+// Eager materialisation would punish single-shot decodes (Config-
+// shaped workloads, ~10 distinct interns, each read once) where
+// the cache slot never gets re-read; lazy population matches what
+// the old direct-string(b) path did on first sight and adds zero
+// alloc on subsequent reads.
 func (d *decState) append(b []byte) uint32 {
 	id := uint32(len(d.values))
 	d.values = append(d.values, b)
+	d.stringValues = append(d.stringValues, "")
 	d.lruAddFresh(id)
 	return id
 }
@@ -775,4 +801,29 @@ func (d *decState) get(id uint32) ([]byte, bool) {
 		return nil, false
 	}
 	return d.values[id], true
+}
+
+// getString returns the cached string copy of the intern record at
+// id, populating the slot on first call. Empty interned bytes
+// resolve to "" without an extra alloc — the `len(b) == 0` branch
+// short-circuits before the materialisation. Used on the state-ref
+// / MTF / pair / repeat decode paths so ReadString skips the
+// string(b) heap copy after the first sight.
+//
+//go:nosplit
+func (d *decState) getString(id uint32) (string, bool) {
+	if id >= uint32(len(d.stringValues)) {
+		return "", false
+	}
+	s := d.stringValues[id]
+	if s != "" {
+		return s, true
+	}
+	b := d.values[id]
+	if len(b) == 0 {
+		return "", true
+	}
+	s = string(b)
+	d.stringValues[id] = s
+	return s, true
 }
