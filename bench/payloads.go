@@ -1,5 +1,11 @@
 // Package bench provides shared payload types and helpers for cross-format
 // benchmarks.
+//
+// Regenerate the qdfgen-emitted marshalers in bench_qdf.go via:
+//
+//	go generate ./bench/
+//
+//go:generate go run github.com/alex60217101990/qdf/cmd/qdfgen -type LogEntry,LogBatch .
 package bench
 
 import (

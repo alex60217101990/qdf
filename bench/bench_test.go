@@ -172,3 +172,56 @@ func BenchmarkDecode_Nested(b *testing.B)     { benchDecode(b, "Nested", MakeNes
 func BenchmarkDecode_Deep16(b *testing.B)     { benchDecode(b, "Deep16", MakeDeep(16)) }
 func BenchmarkDecode_Wide_x1000(b *testing.B) { benchDecode(b, "Wide1k", MakeWide(1000)) }
 func BenchmarkDecode_LogBatch1k(b *testing.B) { benchDecode(b, "LogBatch1k", MakeLogBatch(1000)) }
+
+// BenchmarkEncode_LogBatch1k_Codegen exercises the qdfgen-emitted
+// MarshalQDF method on the same 1000-record LogBatch fixture so
+// the bench matrix can compare the reflection-free path side by
+// side with qdf_fast / qdf_dense. The generated code lives in
+// bench_qdf.go (qdfgen -type LogEntry,LogBatch).
+//
+// Note on the trade-off this bench captures: generated MarshalQDF
+// emits Fast-mode wire (no intern table, no MTF, no shape
+// interning). For a single struct or a slice of records with
+// little repetition, that beats the reflect path by ~25-35 %
+// (see internal/codegen_test/bench_test.go for the Sample
+// fixture). For a slice with high string repetition (LogBatch1k
+// has 1000 rows that share a few hot service/region/level
+// values), the reflect+Dense path saves enough wire that the
+// reflect overhead is hidden — Dense wins on encode CPU AND
+// produces a much smaller wire. Use codegen for hot one-shot
+// types, Dense for batched repetitive payloads.
+func BenchmarkEncode_LogBatch1k_Codegen(b *testing.B) {
+	v := MakeLogBatch(1000)
+	b.ReportAllocs()
+	b.SetBytes(int64(approxLogBatchBytes(v)))
+	for b.Loop() {
+		if _, err := v.MarshalQDF(nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkDecode_LogBatch1k_Codegen mirrors the encode side using
+// the generated UnmarshalQDF.
+func BenchmarkDecode_LogBatch1k_Codegen(b *testing.B) {
+	v := MakeLogBatch(1000)
+	buf, _ := v.MarshalQDF(nil)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(buf)))
+	for b.Loop() {
+		var out LogBatch
+		if _, err := out.UnmarshalQDF(buf); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// approxLogBatchBytes returns the encoded byte size, falling back
+// to a fresh MarshalQDF call when called outside the benchmark
+// setup. Used as a SetBytes hint so the throughput column in
+// `go test -bench` output is comparable to the qdf_fast / qdf_dense
+// rows.
+func approxLogBatchBytes(v LogBatch) int {
+	b, _ := v.MarshalQDF(nil)
+	return len(b)
+}
