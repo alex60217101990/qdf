@@ -149,7 +149,14 @@ const (
 	//                    payload). Decoder resolves it from its per-column
 	//                    last-value mirror. Only emitted under
 	//                    OptDense+OptShapeIntern+OptPairPred.
-	// 0xEF reserved.
+	tagColStruct = 0xEF // Columnar container for a slice of homogeneous flat
+	//                    structs. Wire: 0xEF, varuint(M), varuint(shapeID)
+	//                    (shapeID==0 declares: varuint(K) + K×(name, kind
+	//                    byte)), then K columns in field order. Numeric/bool
+	//                    columns are a QPack slice payload; string/[]byte
+	//                    columns are M values emitted consecutively through the
+	//                    intern path. Chosen per-array by a probe; the encoder
+	//                    falls back to row-major when columnar would not win.
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1
