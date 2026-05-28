@@ -9,8 +9,7 @@
 //
 //	OptSpeed       — Fast mode, no codecs (matches encoding/json shape)
 //	OptBalanced    — Dense + QPack + shape interning + Markov-1 + MTF
-//	OptCompression — OptBalanced + Gorilla XOR for float slices +
-//	                 column-repeat codec for repeating struct fields
+//	OptCompression — OptBalanced + Gorilla XOR for float slices
 //	                 (~70 % wire reduction on smooth time-series at
 //	                 ~10× CPU per slice; future heavy codecs land here)
 //
@@ -28,6 +27,30 @@
 //
 // Marshal returns a freshly-allocated slice owned by the caller.
 // AppendMarshal is the zero-extra-copy variant.
+//
+// # Data shapes and codecs
+//
+// Under OptBalanced the encoder picks a codec per slice from the data
+// itself: integer slices use Frame-of-Reference, delta, run-length or
+// dictionary coding; bool slices bit-pack; repeated strings are interned
+// and back-referenced. A slice of homogeneous flat structs is transposed
+// and compressed column-by-column automatically — numeric columns get the
+// integer codecs, repeated string columns collapse — with no flag, and a
+// per-array probe falls back to the plain row encoding when columnar would
+// not help. Gorilla float coding is the one codec that trades CPU for
+// size, so it lives behind OptCompression.
+//
+// # Concurrency
+//
+// Marshal, Unmarshal and AppendMarshal are safe for concurrent use: each
+// call leases its own encoder/decoder from a pool. A single Encoder,
+// Decoder or StreamEncoder value is not safe to share across goroutines —
+// use one per goroutine. A Dense document is a sequential stream, so one
+// document cannot be encoded or decoded in parallel; to parallelize a
+// large dataset, split it into independent shards and Marshal each
+// separately.
+//
+// See docs/USAGE.md in the repository for a fuller guide.
 //
 // # Public API surface
 //
