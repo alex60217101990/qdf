@@ -34,6 +34,12 @@ func init() {
 // practical decimal resolution; 16..18 only ever add exceptions.
 const alpMaxExpSearch = 15
 
+// alpMaxElems caps the element count ALP will encode or accept. A constant
+// (width==0) slice carries no per-element bytes, so n is otherwise unbounded by
+// the buffer; capping on both sides keeps a hostile header from forcing an
+// oversized allocation while never rejecting anything the encoder emits.
+const alpMaxElems = 1 << 24
+
 // alpFloatPlan is the chosen encoding parameters for one []float64 block.
 type alpFloatPlan struct {
 	d      int   // effective decimal exponent (e-f)
@@ -105,6 +111,9 @@ func alpPlanFloat64(s []float64) (plan alpFloatPlan, estBytes int, ok bool) {
 	n := len(s)
 	if n == 0 {
 		return alpFloatPlan{}, 2 + 1, true // tag+kind+varuint(0)
+	}
+	if n > alpMaxElems {
+		return alpFloatPlan{}, 0, false // too large; raw/Gorilla (buffer-bounded) handle it
 	}
 	d := alpChooseExp(s)
 	forMin, width, exc := alpScoreExp(s, d)
@@ -186,6 +195,9 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 	d.i += nr
 	if n64 == 0 {
 		return []float64{}, nil
+	}
+	if n64 > alpMaxElems {
+		return nil, ErrInvalidLength
 	}
 	// Header: d(1), forMin zigzag-varuint, width(1).
 	if d.i >= len(d.buf) {
