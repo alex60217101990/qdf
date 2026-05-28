@@ -550,3 +550,22 @@ func TestColRepeat_NestedStructRoundTrips(t *testing.T) {
 		t.Fatalf("nested round-trip mismatch")
 	}
 }
+
+func TestColRepeat_ShrinksWireVsSpeed(t *testing.T) {
+	const N = 256
+	in := make([]colLogEntry, N)
+	for i := range in {
+		in[i] = colLogEntry{Level: "INFO", Service: "api", Msg: "m" + itoa(i)}
+	}
+	balanced, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	speed, err := Marshal(in, OptSpeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(balanced) >= len(speed) {
+		t.Fatalf("balanced (%d) must beat speed (%d) on repeating columns", len(balanced), len(speed))
+	}
+}
