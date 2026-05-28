@@ -76,3 +76,36 @@ func TestALPCodecRoundTrip(t *testing.T) {
 		alpRoundTrip(t, name, s)
 	}
 }
+
+// TestALPDecodeHostileCount feeds a hand-crafted payload whose n header is far
+// larger than the buffer can back. With width==0 there are no per-element body
+// bytes, so the body-size check never bounds n; the alpMaxElems guard must
+// reject it with an error rather than reaching make([]float64, n) and panicking.
+// Byte layout after the tag, exactly as readPackedALPFloat64Slice reads it:
+// kind, n (varuint), d (byte), forMin (zigzag-varuint), width (byte), excN
+// (varuint). width==0 means no body.
+func TestALPDecodeHostileCount(t *testing.T) {
+	var payload []byte
+	payload = append(payload, qpackKindFloat64)         // kind
+	payload = appendUvarint(payload, 1<<40)             // n: oversized count
+	payload = append(payload, 2)                        // d: effective exponent
+	payload = appendUvarint(payload, zigzagEncode64(0)) // forMin
+	payload = append(payload, 0)                        // width==0 (constant slice, no body)
+	payload = appendUvarint(payload, 0)                 // excN
+
+	d := &Decoder{buf: payload}
+	got, err := d.readPackedALPFloat64Slice()
+	if err == nil {
+		t.Fatalf("expected error for hostile n, got %d values", len(got))
+	}
+}
+
+// TestALPEncoderDeclinesHugeConstant verifies the encode-side cap: the picker
+// must decline ALP for slices beyond alpMaxElems so it never emits a payload
+// the decoder would reject.
+func TestALPEncoderDeclinesHugeConstant(t *testing.T) {
+	_, _, ok := alpPlanFloat64(make([]float64, alpMaxElems+1))
+	if ok {
+		t.Fatal("alpPlanFloat64 should decline a slice larger than alpMaxElems")
+	}
+}
