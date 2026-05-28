@@ -227,6 +227,7 @@ func TestCorpusCodec_Sizes(t *testing.T) {
 		{"status_1024", mkStatusBatch(1024)},
 		{"spread_enum_1024", mkSpreadEnumColumn(1024)},
 		{"logentries_1024", logEntriesBatch(1024)},
+		{"events_1024", eventsBatch(1024)},
 	}
 	t.Logf("%-22s %10s %10s %10s %12s %12s",
 		"scenario", "json", "msgpack", "qdf_speed", "qdf_balanced", "qdf_compress")
@@ -302,6 +303,39 @@ func BenchmarkCorpusCodec_SpreadEnum(b *testing.B) {
 // unique.
 func BenchmarkCorpusCodec_Traces(b *testing.B) {
 	runProfile(b, "traces_500", qdf.OptBalanced, mkTracesBatch(500))
+}
+
+// benchEvent is a structured-event row where Level/Service repeat heavily
+// row-to-row, Code is a small enum-like set, LatencyMs clusters in a
+// tight window, and OK is a high-cardinality boolean column. All numeric
+// fields are columnar-friendly: Code and LatencyMs hit FOR/delta/dict
+// codecs they never reached in row-major encoding.
+type benchEvent struct {
+	Level     string `qdf:"level"      json:"level"      msgpack:"level"`
+	Service   string `qdf:"service"    json:"service"    msgpack:"service"`
+	Code      int    `qdf:"code"       json:"code"       msgpack:"code"`
+	LatencyMs int    `qdf:"latency_ms" json:"latency_ms" msgpack:"latency_ms"`
+	OK        bool   `qdf:"ok"         json:"ok"         msgpack:"ok"`
+}
+
+// eventsBatch models an event/log batch: Level/Service repeat row-to-row,
+// Code is a small enum-like set, LatencyMs clusters, OK is mostly true.
+// All-columnar-friendly: exercises the columnar []struct codec.
+func eventsBatch(n int) []benchEvent {
+	levels := []string{"INFO", "INFO", "INFO", "WARN", "ERROR"}
+	services := []string{"api-gateway", "auth", "billing"}
+	codes := []int{200, 200, 200, 404, 500}
+	out := make([]benchEvent, n)
+	for i := range out {
+		out[i] = benchEvent{
+			Level:     levels[i%len(levels)],
+			Service:   services[i%len(services)],
+			Code:      codes[i%len(codes)],
+			LatencyMs: 10 + (i % 40),
+			OK:        i%7 != 0,
+		}
+	}
+	return out
 }
 
 // Reference timer to keep the file from accidentally depending on
