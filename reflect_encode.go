@@ -15,11 +15,11 @@ import (
 // typeDesc is the compiled descriptor for a reflect.Type. Looked up via the
 // typeCache map keyed by the Type's runtime pointer (cheap and stable).
 type typeDesc struct {
-	kind   reflect.Kind
-	rType  reflect.Type
-	fields []fieldDesc // structs only
-	elem    *typeDesc    // slice/array/map-value/ptr
-	key     *typeDesc    // map-key
+	kind    reflect.Kind
+	rType   reflect.Type
+	fields  []fieldDesc   // structs only
+	elem    *typeDesc     // slice/array/map-value/ptr
+	key     *typeDesc     // map-key
 	colPlan *columnarPlan // non-nil on a []struct whose element is columnar-eligible
 
 	// encode is the specialized encoder for this type. It receives a pointer
