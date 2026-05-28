@@ -288,12 +288,10 @@ func TestOptions_WireSizeRanking(t *testing.T) {
 	if balanced > dense {
 		t.Fatalf("OptBalanced (%d) must be ≤ OptDense (%d)", balanced, dense)
 	}
-	// OptCompression adds OptGorillaFloat and OptColRepeat on top of
-	// OptBalanced. There are no float slices in this fixture so Gorilla
-	// never fires, but the column-repeat codec collapses the repeating
-	// string columns, so OptCompression must be ≤ OptBalanced (and is
-	// strictly smaller here). The check guards against the heavy bundle
-	// ever growing the wire over the balanced default.
+	// OptCompression adds OptGorillaFloat on top of OptBalanced. There
+	// are no float slices in this fixture so Gorilla never fires and the
+	// wires match byte for byte; the check guards against the heavy
+	// bundle ever growing the wire over the balanced default.
 	if compression > balanced {
 		t.Fatalf("OptCompression (%d) must be ≤ OptBalanced (%d) on a repetitive corpus",
 			compression, balanced)
@@ -324,14 +322,12 @@ func TestOptions_BundleAliases(t *testing.T) {
 			}
 		})
 		t.Run(fx.name+"/Compression≤Balanced", func(t *testing.T) {
-			// OptCompression = OptBalanced | OptGorillaFloat |
-			// OptColRepeat. Gorilla only fires on float slices and
-			// the column-repeat codec only collapses repeating struct
-			// columns — both can only shrink the wire, never grow it.
-			// So OptCompression must never be larger than OptBalanced
-			// (on fixtures with neither trigger the wires match byte
-			// for byte). A regression here means a heavy codec leaked
-			// extra bytes under OptCompression.
+			// OptCompression = OptBalanced | OptGorillaFloat. Gorilla
+			// only fires on float slices and can only shrink the wire,
+			// never grow it. So OptCompression must never be larger
+			// than OptBalanced (on fixtures without float slices the
+			// wires match byte for byte). A regression here means a
+			// heavy codec leaked extra bytes under OptCompression.
 			a, err := Marshal(in, OptCompression)
 			if err != nil {
 				t.Fatal(err)

@@ -18,11 +18,6 @@ const (
 	// with ErrBadTag on the first packed slice; the flag is an early hint
 	// so callers can refuse the buffer up front.
 	FlagQPack byte = 1 << 1
-	// FlagColRepeat signals that the encoder emitted the column-conditional
-	// repeat codec (tagStateColRepeat, 0xEE) for Dense shape field values.
-	// The decoder threads per-column predictor state only when this is set,
-	// so OptBalanced streams (flag clear) pay none of the predictor's cost.
-	FlagColRepeat byte = 1 << 2
 )
 
 // Tag bytes.
@@ -141,14 +136,6 @@ const (
 	//                    shapeID > 0 reuses a previously declared shape:
 	//                       0xEC, varuint(id), [N x value]
 	//                    N is recovered from the shape table.
-	tagStateColRepeat = 0xEE // Column-conditional repeat for Dense shape
-	//                    field values. Inside a tagMapShape struct, an
-	//                    interned string/bytes value equal to the last
-	//                    value emitted in the same (shapeID, fieldIdx)
-	//                    column is encoded as this single byte (no
-	//                    payload). Decoder resolves it from its per-column
-	//                    last-value mirror. Only emitted under
-	//                    OptDense+OptShapeIntern+OptPairPred.
 	tagColStruct = 0xEF // Columnar container for a slice of homogeneous flat
 	//                    structs. Wire: 0xEF, varuint(M), varuint(shapeID)
 	//                    (shapeID==0 declares: varuint(K) + K×(name, kind

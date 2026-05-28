@@ -739,11 +739,11 @@ func TestValidity_DependentBitsAreNoOpsWithoutDense(t *testing.T) {
 }
 
 // TestValidity_ReservedBitsAreNoOps verifies that setting reserved
-// (currently unused) bits 7..31 has no observable effect on the
+// (currently unused) bits 6..31 has no observable effect on the
 // wire. Forward-compatibility check: future codec bits must opt
 // into their own emission via explicit gating, not by accident.
-// Bits 5 (OptGorillaFloat) and 6 (OptColRepeat) are real codec bits
-// that change the header flags / wire, so they are excluded here.
+// Bit 5 (OptGorillaFloat) is a real codec bit that changes the
+// header flags / wire, so it is excluded here.
 func TestValidity_ReservedBitsAreNoOps(t *testing.T) {
 	type fixture struct {
 		A int    `qdf:"a"`
@@ -759,7 +759,7 @@ func TestValidity_ReservedBitsAreNoOps(t *testing.T) {
 		// Probe every reserved bit position above the user-facing
 		// codec bits. Each must not change the wire when OR-ed onto an
 		// existing base.
-		for bit := uint(7); bit < 32; bit++ {
+		for bit := uint(6); bit < 32; bit++ {
 			variant := base | (Options(1) << bit)
 			t.Run(fmt.Sprintf("base=%05b/bit=%d", base, bit), func(t *testing.T) {
 				got, err := Marshal(in, variant)
