@@ -350,6 +350,48 @@ func (e *encState) pairRecord(prev, curr uint32) {
 	e.pairPred[prev] = curr + 1
 }
 
+// colReserve allocates a contiguous block of n column slots for a newly
+// declared shape and returns the base slot. The block is recorded in
+// shapeColBase so a later reuse of the same shape resolves the same base.
+//
+//go:nosplit
+func (e *encState) colReserve(n uint32) uint32 {
+	base := e.colSlotNext
+	e.colSlotNext += n
+	e.colEnsure(e.colSlotNext)
+	e.shapeColBase = append(e.shapeColBase, base)
+	return base
+}
+
+// colBaseForShape returns the base column slot reserved for shape id
+// (id ≥ 1). Used on the reuse path.
+//
+//go:nosplit
+func (e *encState) colBaseForShape(id uint32) uint32 {
+	return e.shapeColBase[id-1]
+}
+
+//go:nosplit
+func (e *encState) colEnsure(n uint32) {
+	for uint32(len(e.colPred)) < n {
+		e.colPred = append(e.colPred, 0)
+	}
+}
+
+//go:nosplit
+func (e *encState) colLookup(slot, id uint32) bool {
+	if int(slot) >= len(e.colPred) {
+		return false
+	}
+	return e.colPred[slot] == id+1
+}
+
+//go:nosplit
+func (e *encState) colRecord(slot, id uint32) {
+	e.colEnsure(slot + 1)
+	e.colPred[slot] = id + 1
+}
+
 // mruPush records id as the newest entry in the side-cache ring.
 // Overwrites the slot at mruHead and advances the head. The ring is
 // power-of-two sized so the modulo collapses to an AND. Caller
@@ -739,6 +781,39 @@ func (d *decState) pairEnsure(prev uint32) {
 func (d *decState) pairRecord(prev, curr uint32) {
 	d.pairEnsure(prev)
 	d.pairPred[prev] = curr + 1
+}
+
+//go:nosplit
+func (d *decState) colReserve(n uint32) uint32 {
+	base := d.colSlotNext
+	d.colSlotNext += n
+	d.colEnsure(d.colSlotNext)
+	return base
+}
+
+//go:nosplit
+func (d *decState) colEnsure(n uint32) {
+	for uint32(len(d.colPred)) < n {
+		d.colPred = append(d.colPred, 0)
+	}
+}
+
+//go:nosplit
+func (d *decState) colAt(slot uint32) (uint32, bool) {
+	if int(slot) >= len(d.colPred) {
+		return 0, false
+	}
+	v := d.colPred[slot]
+	if v == 0 {
+		return 0, false
+	}
+	return v - 1, true
+}
+
+//go:nosplit
+func (d *decState) colRecord(slot, id uint32) {
+	d.colEnsure(slot + 1)
+	d.colPred[slot] = id + 1
 }
 
 // shapeDeclare appends a new shape with the next sequential wire ID
