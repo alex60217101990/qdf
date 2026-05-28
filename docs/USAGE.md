@@ -1,0 +1,228 @@
+# qdf Usage Guide
+
+Practical how-to for the common cases. For the "why is it shaped this
+way" deep-dive see [`docs/GUIDE.md`](GUIDE.md). For a quick opts
+cheatsheet see [`docs/CHOOSING.md`](CHOOSING.md).
+
+---
+
+## Quick start
+
+### Marshal / Unmarshal
+
+```go
+import "github.com/alex60217101990/qdf"
+
+type Event struct {
+    Service string    `qdf:"service"`
+    Level   string    `qdf:"level"`
+    TS      int64     `qdf:"ts"`
+    Msg     string    `qdf:"msg"`
+}
+
+b, err := qdf.Marshal(event, qdf.OptBalanced)
+if err != nil { ... }
+
+var out Event
+err = qdf.Unmarshal(b, &out)
+```
+
+`Marshal` returns a freshly-allocated `[]byte` owned by the caller.
+`Unmarshal` reads any buffer produced by `Marshal` — the wire
+self-describes its codec dialect, so the decoder does not need to know
+which `Options` the encoder used.
+
+### Generic variant
+
+`MarshalT[T]` skips the `any`-boxing that `Marshal` does on value
+types. Same wire, one fewer allocation on small/medium structs.
+
+```go
+b, err := qdf.MarshalT(event, qdf.OptBalanced)
+out, err := qdf.UnmarshalT[Event](b)
+```
+
+### Buffer reuse with AppendMarshal
+
+On hot paths that produce many messages, reuse the output slice to
+avoid per-call allocations:
+
+```go
+var buf []byte
+for _, ev := range events {
+    var err error
+    buf, err = qdf.AppendMarshal(buf[:0], ev, qdf.OptSpeed)
+    if err != nil { ... }
+    sink.Write(buf)
+}
+```
+
+Pass `buf[:0]` to reset length while keeping capacity. The returned
+slice is valid until the next call.
+
+---
+
+## Choosing an Options preset
+
+| Preset | What it is | When to use |
+|---|---|---|
+| `OptSpeed` | No codecs. Raw tag stream. | Hot request path, single events, latency under 1 µs. |
+| `OptBalanced` | Dense interning + QPack + shape interning + Markov predictors + MTF. | Telemetry, logs, event batches with repeating string fields or numeric slices. Good default. |
+| `OptCompression` | `OptBalanced` + Gorilla XOR for float slices. | Cold storage, backup, archive. Wire size matters more than encode CPU. |
+
+Decision list:
+
+- Hot request path, one event per call → `OptSpeed`
+- Telemetry / logs / event batches, general use → `OptBalanced`
+- Float time-series being archived, wire size dominates → `OptCompression`
+- Numeric vectors only (metrics, embeddings), no repeated strings → `qdf.OptQPack`
+
+---
+
+## Composing your own bitmask
+
+Presets are just `|`-combined constants. You can build your own:
+
+```go
+b, err := qdf.Marshal(v, qdf.OptDense|qdf.OptQPack|qdf.OptShapeIntern)
+```
+
+Bit reference:
+
+| Bit | Constant | Effect | Requires |
+|-----|----------|--------|----------|
+| 0 | `OptDense` | Inline intern table; repeated strings/bytes → back-references by ID. | — |
+| 1 | `OptQPack` | Numeric/bool slice codecs: bit-pack bools, FOR, Delta+FOR, RLE, dict. Auto-picks per slice. | — |
+| 2 | `OptShapeIntern` | Struct shape table: first emit declares field order, subsequent emits write only shape ID + values. | `OptDense` |
+| 3 | `OptPairPred` | Markov-1 successor predictor over intern IDs (two-byte hit when transition is predictable). | `OptDense` |
+| 4 | `OptMTF` | Move-to-Front rank coding over intern IDs (shorter varuint when LRU rank < raw ID). | `OptDense` |
+| 5 | `OptGorillaFloat` | Gorilla XOR codec for `[]float64`/`[]float32`. ~70% wire reduction on smooth time-series; ~10× CPU/slice. | `OptQPack` |
+
+Dependent bits without their parent are silent no-ops — the encoder
+does not error, it just ignores them. `OptSpeed = 0` is the zero value.
+
+```go
+// This silently encodes in Fast mode — no intern table.
+// OptShapeIntern and OptMTF need OptDense.
+qdf.Marshal(v, qdf.OptShapeIntern|qdf.OptMTF)
+
+// Correct: include OptDense explicitly.
+qdf.Marshal(v, qdf.OptDense|qdf.OptShapeIntern|qdf.OptMTF)
+```
+
+---
+
+## How your data shape maps to codecs
+
+QPack (`OptQPack`) auto-selects the best codec per slice at encode
+time. You do not need to hint it — just set the bit.
+
+| Data shape | Codec fired | Preset that enables it |
+|---|---|---|
+| `[]bool` | bit-pack (1 bit/elem) | `OptQPack` |
+| `[]intN`/`[]uintN`, clustered range | Frame-of-Reference (FOR) | `OptQPack` |
+| `[]int64`/`[]uint64`, monotonic or time-series | Delta+FOR | `OptQPack` |
+| `[]intN`, run-heavy (status codes, enum-like, sparse counters) | RLE (value, runLen pairs) | `OptQPack` |
+| `[]intN`, small distinct cardinality (≤16), wide value range | Dictionary codec | `OptQPack` |
+| `[]float64`/`[]float32`, smooth time-series | Gorilla XOR | `OptCompression` (or `OptGorillaFloat`) |
+| Repeated strings / `[]byte` across messages | Intern table + state-ref | `OptDense` |
+| Arrays of identical struct type | Shape interning | `OptBalanced` |
+| Predictable field transitions (e.g. service→region) | Markov-1 pair predictor | `OptBalanced` |
+| `[]SomeStruct` where fields are int/uint/float/bool/string/[]byte | Columnar transpose: numeric fields get FOR/delta/RLE/dict, repeated string fields collapse via intern. Automatic — no flag. The encoder probes each array and falls back to row-major when columnar would not win. | `OptBalanced` (Dense + ShapeIntern) |
+
+The encoder probes a slice's structure before committing. For
+integer slices it evaluates FOR, Delta+FOR, RLE, and dict by
+predicted wire size and picks the smallest. For float slices, Gorilla
+is evaluated only when `OptGorillaFloat` is set, via a 32-sample XOR
+probe (~30 ns); it falls back to raw-LE if the projected cost is not
+clearly below 64 bits/sample.
+
+FOR/Delta+FOR win on tight or monotonic integer ranges. RLE wins when
+a handful of distinct values repeat in long runs. Dict wins when the
+cardinality is small but values are spread wide (e.g. HTTP status
+codes 200/301/404/500 scattered randomly — no long runs, not a tight
+range). Gorilla wins on sensor data and quantised metric streams; it
+loses on white noise.
+
+---
+
+## The `qdf:"name"` struct tag
+
+qdf reads `qdf:"name"` struct tags to determine the wire field name.
+If `qdf:"name"` is absent it falls back to `json:"name"`, then the
+field name as-is.
+
+```go
+type Record struct {
+    UserID   int64  `qdf:"user_id"`
+    Email    string `qdf:"email"`
+    Internal string `qdf:"-"`   // skip this field
+}
+```
+
+The wire field name matters for back-compatibility and for the Dense
+intern table: two struct types with the same `qdf:"name"` field set
+share the same shape ID on the wire. If you rename a field tag, old
+decoders that `Unmarshal` into a struct that still has the old tag
+will silently not populate that field (the wire key no longer matches).
+
+---
+
+## Concurrency contract
+
+`Marshal`, `AppendMarshal`, and `Unmarshal` are safe for concurrent
+use from many goroutines. Each call leases an encoder or decoder from
+an internal `sync.Pool`, does its work, and returns it. No shared
+mutable state between calls.
+
+A single `*Encoder`, `*Decoder`, or `*StreamEncoder` instance is
+**not** safe to share across goroutines. Use one per goroutine, or
+protect with a mutex.
+
+A single Dense document is a sequential stream: values back-reference
+each other via intern IDs that only make sense in emission order. One
+document cannot be encoded or decoded in parallel. To parallelize a
+large dataset:
+
+```go
+// Split into independent shards. Each shard encodes separately;
+// each resulting []byte is self-contained and decodes independently.
+shards := splitIntoChunks(bigSlice, chunkSize)
+results := make([][]byte, len(shards))
+var wg sync.WaitGroup
+for i, shard := range shards {
+    wg.Add(1)
+    go func(i int, s []MyStruct) {
+        defer wg.Done()
+        b, err := qdf.Marshal(s, qdf.OptBalanced)
+        if err != nil { ... }
+        results[i] = b
+    }(i, shard)
+}
+wg.Wait()
+// Decode results[i] independently in any goroutine.
+```
+
+---
+
+## Tuning checklist
+
+- Pick the preset that matches your workload (see table above). Do not
+  reach for `OptCompression` on hot paths.
+- If your payload is purely numeric (metrics, embeddings) with no
+  repeated strings, use `OptQPack` alone — `OptDense` adds CPU for no
+  wire benefit.
+- Reuse the output buffer with `AppendMarshal(buf[:0], ...)` on hot
+  paths to eliminate per-call allocations.
+- If you have smooth float time-series going to cold storage, use
+  `OptCompression` — the Gorilla codec cuts float wire size ~70% at
+  the cost of ~10× more CPU per slice, which is fine for archival.
+- For large datasets that need to be processed in parallel, split them
+  into independent shards and `Marshal` each one separately. Each
+  `[]byte` decodes independently with no coordination.
+- The `qdfgen` code generator (`cmd/qdfgen`) emits typed
+  `MarshalQDF`/`UnmarshalQDF` methods that bypass reflect entirely.
+  Worth it for hot paths encoding the same struct type millions of
+  times — typically 30–60% faster than the reflect path on encode.
+- Build with `-tags qdf_simd` on amd64 to enable AVX2-accelerated
+  bit-unpack for QPack codecs (~50 GB/s, runtime CPUID-gated).

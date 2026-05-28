@@ -2,6 +2,7 @@
 
 qdf has one encode entry point: `Marshal(v, opts)`. The `opts` bit-mask
 picks which codecs run. This page is a cheatsheet for the choice.
+For the full API reference and data-shape-to-codec mapping see [`docs/USAGE.md`](USAGE.md).
 
 If you don't read anything else, copy one of these:
 
@@ -28,6 +29,9 @@ live small (archives, cold storage, paginated history) wants
 `OptCompression`; anything hot path stays on `OptBalanced` /
 `OptQPack`. Both bundles share every other codec; only the Gorilla
 bit differs.
+
+Arrays of flat homogeneous structs are compressed columnar automatically
+under `OptBalanced` and above — no flag needed.
 
 ---
 

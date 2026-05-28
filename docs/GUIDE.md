@@ -5,6 +5,7 @@ this and how do I use it"; this file answers "why is it shaped this
 way and how does each feature pay for itself". If you are deciding
 whether to depend on qdf, reading code in `state.go` /
 `encoder.go` / `decoder.go`, or planning a contribution, start here.
+For practical usage and preset selection see [`docs/USAGE.md`](USAGE.md).
 
 The shape of this guide:
 
@@ -179,13 +180,15 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xE8  tagStateRepeat    (Dense)   Markov-0 hit: id == lastID
 0xE9  tagStateMTF       (Dense)   MTF rank reference: varuint(rank)
 0xEA  tagStatePair      (Dense)   Markov-1 hit: varuint(rank=0 in top-1)
+0xEB  tagPackRLE        (QPack)   run-length encoded integer slice
 0xEC  tagMapShape       (Dense)   struct shape table reference
-0xEE  tagStateColRepeat (Dense)   column-conditional repeat: field == same field in prev row; 1 byte, no payload
+0xED  tagPackDict       (QPack)   dictionary-coded integer slice
+0xEF  tagColStruct      (QPack)   columnar container for []struct; see below
 0xF0..0xF2  tagExt8/16/32         user-extension envelope
 0xF3        tagTimestamp          int64 ns since unix epoch
 ```
 
-Tags 0xEB, 0xED, 0xEF, 0xF4..0xFF are reserved.
+Tags 0xEE, 0xF4..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
@@ -546,6 +549,7 @@ slice; the decoder reads the picked tag.
 0xE6  tagPackDeltaFor  []intN       Delta + zigzag + FOR
 0xE7  tagPackGorilla   []float64    Gorilla XOR coding
 0xEB  tagPackRLE       []intN       Run-length encoded (value, runLen) pairs
+0xED  tagPackDict      []intN       Dictionary-coded; ≤16 distinct values
 ```
 
 Selection logic:
@@ -558,7 +562,9 @@ Selection logic:
   picker also evaluates Delta+FOR. For run-heavy columns (status
   codes, enum-like values, sparse counters) a cheap run-fraction
   probe over the first 32 elements decides whether to compute the
-  full RLE size; the winning estimator wins.
+  full RLE size. For small distinct cardinality (≤ 16) with a wide
+  spread where FOR can't pack tightly, the picker evaluates dict
+  (`tagPackDict`). The winning estimator wins.
 - **Float slice**: by default, raw. Gorilla is opt-in via
   `OptGorillaFloat` (bundled into `OptCompression`). When the bit is
   set, `pickF64Codec` probes the first 32 consecutive XOR pairs; if
@@ -611,6 +617,42 @@ depending on struct shape.
 The generator is independent of `internal/mapsgen` — that one
 generates the map type-switch dispatch inside `package qdf`; this
 one generates per-user-type marshalers in the user's package.
+
+### Columnar struct-array codec (`tagColStruct`, 0xEF)
+
+When the encoder sees a `[]SomeStruct` under `OptBalanced`
+(Dense + ShapeIntern), it checks whether the element type is a flat,
+homogeneous struct — fields of kind `int*`, `uint*`, `float*`, `bool`,
+`string`, or `[]byte`, no custom marshalers, no nested structs. If it
+is, a per-array probe samples up to 16 elements and estimates the
+columnar wire size vs row-major. On a commit the encoder transposes
+the slice:
+
+- Numeric (`int*`/`uint*`) and bool columns are gathered into a
+  scratch slice and passed through the existing QPack codec selector
+  (FOR, Delta+FOR, RLE, dict, bitpack). Each column's full-length
+  slice is encoded as a single QPack payload.
+- Float columns are emitted as raw-LE slices (Gorilla is opt-in via
+  `OptGorillaFloat`).
+- String and `[]byte` columns are emitted as M consecutive inline
+  string/bytes values through the normal intern path; repeated values
+  collapse to state-refs.
+
+The wire layout is `0xEF, varuint(M), varuint(shapeID)` followed by K
+column payloads in declaration order. `shapeID == 0` declares a new
+columnar shape inline (field names + kinds); subsequent arrays of the
+same struct type reuse the ID. The decoder scatters columns back into
+the output `[]SomeStruct`.
+
+This path is **automatic under `OptBalanced`** — there is no flag to
+set. The probe is conservative: when the estimated columnar size does
+not clearly beat row-major, the encoder falls back to the existing
+row-major path. Non-struct-array payloads and incompressible inputs
+are byte-and-speed identical to the pre-columnar behaviour.
+
+Measured ~11× smaller than `OptSpeed` on a numeric-heavy event-batch
+fixture. The columnar path subsumes the older column-conditional
+repeat codec, which has been removed.
 
 ---
 
