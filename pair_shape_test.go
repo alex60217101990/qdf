@@ -400,3 +400,49 @@ func TestMapShape_HeterogeneousStructsKeepDistinctShapes(t *testing.T) {
 }
 
 func containsByte(b []byte, t byte) bool { return bytes.IndexByte(b, t) >= 0 }
+
+func TestColPred_EncStateSemantics(t *testing.T) {
+	st := newEncState()
+	base := st.colReserve(3) // shape with 3 fields → slots base..base+2
+	if base != 0 {
+		t.Fatalf("first reserve base = %d, want 0", base)
+	}
+	slot := base + 1
+	if st.colLookup(slot, 7) {
+		t.Fatal("empty column slot must miss")
+	}
+	st.colRecord(slot, 7)
+	if !st.colLookup(slot, 7) {
+		t.Fatal("hit on recorded value")
+	}
+	if st.colLookup(slot, 8) {
+		t.Fatal("non-matching value must miss")
+	}
+	st.colRecord(slot, 8) // overwrite
+	if st.colLookup(slot, 7) {
+		t.Fatal("overwrite must drop old value")
+	}
+	st.colRecord(slot, 0) // value id 0 is valid (stored as +1)
+	if !st.colLookup(slot, 0) {
+		t.Fatal("value id 0 must be distinguishable from empty")
+	}
+	// A second reserve must not overlap the first.
+	base2 := st.colReserve(2)
+	if base2 != 3 {
+		t.Fatalf("second reserve base = %d, want 3", base2)
+	}
+}
+
+func TestColPred_DecStateMirror(t *testing.T) {
+	d := newDecState()
+	base := d.colReserve(2)
+	slot := base + 0
+	if _, ok := d.colAt(slot); ok {
+		t.Fatal("empty slot must miss")
+	}
+	d.colRecord(slot, 42)
+	got, ok := d.colAt(slot)
+	if !ok || got != 42 {
+		t.Fatalf("mirror miss: got=%d ok=%v want 42", got, ok)
+	}
+}
