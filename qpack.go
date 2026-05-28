@@ -342,7 +342,11 @@ func qpackDictSizeI64(distinct []int64, n int) int {
 // pickF64Codec selects between the raw-LE bulk codec and the
 // Gorilla XOR codec for a []float64 by probing the XOR
 // distribution of the first sliceProbe consecutive pairs and
-// projecting the per-element bit cost.
+// projecting the per-element bit cost. It also returns the
+// projected Gorilla wire size in bytes, which the float64 picker
+// compares against the ALP estimate. The byte projection is only
+// meaningful when the returned codec is qpackGorilla; when
+// qpackRaw it is set to a raw-equivalent value.
 //
 // Raw cost: 64 bits / element. Gorilla worst case approaches raw;
 // best case (smooth time series with repeated XOR windows) drops
@@ -359,12 +363,13 @@ func qpackDictSizeI64(distinct []int64, n int) int {
 // any Dense / QPack stream anyway.
 //
 //go:nosplit
-func pickF64Codec(s []float64) qpackCodec {
+func pickF64Codec(s []float64) (qpackCodec, int) {
 	n := len(s)
+	rawBytes := 12 + n*8
 	if n < 8 {
 		// Gorilla overhead (kind + first u64 + numBits varuint)
 		// dominates on tiny slices.
-		return qpackRaw
+		return qpackRaw, rawBytes
 	}
 	probe := min(32, n-1)
 	var total uint64
@@ -389,10 +394,11 @@ func pickF64Codec(s []float64) qpackCodec {
 	// raw to absorb fixed-header overhead (kind + first value +
 	// numBits varuint = ~10 bytes ≈ 80 bits amortised).
 	avgBits := total / uint64(probe)
+	gorBytes := 12 + (int(avgBits)*n+7)/8
 	if avgBits+1 < 48 {
-		return qpackGorilla
+		return qpackGorilla, gorBytes
 	}
-	return qpackRaw
+	return qpackRaw, rawBytes
 }
 
 // QPack codec helpers. Each codec emits a single self-described tagged

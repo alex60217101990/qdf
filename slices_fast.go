@@ -479,14 +479,26 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float64)(p)
 	if e.qpack {
-		// OptGorillaFloat (bundled under OptCompression) opts in to
-		// the Gorilla XOR codec. pickF64Codec probes the first 32
-		// pairs and falls back to raw-LE when the projected per-
-		// sample cost stays near 64 bits — i.e. Gorilla only fires
-		// when its bit-level work pays for itself on the wire.
-		if e.gorillaFloat && pickF64Codec(s) == qpackGorilla {
-			e.writePackedGorillaFloat64Slice(s)
-			return nil
+		// Under OptCompression both Gorilla and ALP are enabled. Pick the
+		// smallest of {raw-LE, Gorilla projection, ALP estimate}. ALP's
+		// estimate is a conservative upper bound, so it is chosen only when it
+		// strictly beats both alternatives — pure-smooth floats keep Gorilla,
+		// and nothing grows the wire.
+		if e.gorillaFloat {
+			rawEst := 12 + len(s)*8
+			best := rawEst
+			gorCodec, gorEst := pickF64Codec(s)
+			if gorCodec == qpackGorilla && gorEst < best {
+				best = gorEst
+			}
+			if plan, alpEst, ok := alpPlanFloat64(s); ok && alpEst < best {
+				e.writePackedALPFloat64Slice(s, plan)
+				return nil
+			}
+			if gorCodec == qpackGorilla && gorEst < rawEst {
+				e.writePackedGorillaFloat64Slice(s)
+				return nil
+			}
 		}
 		e.writePackedFloat64Slice(s)
 		return nil
@@ -510,6 +522,15 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 	if t == tagPackGorilla {
 		d.i++
 		v, err := d.readPackedGorillaFloat64Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]float64)(p) = v
+		return nil
+	}
+	if t == tagPackALP {
+		d.i++
+		v, err := d.readPackedALPFloat64Slice()
 		if err != nil {
 			return err
 		}

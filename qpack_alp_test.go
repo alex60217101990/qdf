@@ -109,3 +109,62 @@ func TestALPEncoderDeclinesHugeConstant(t *testing.T) {
 		t.Fatal("alpPlanFloat64 should decline a slice larger than alpMaxElems")
 	}
 }
+
+// alpTagOf marshals a struct holding one []float64 field under OptCompression
+// and returns the codec tag the encoder picked for that slice. The corpus
+// wraps the slice in a struct so we exercise the real encode path.
+type alpProbe struct {
+	V []float64 `qdf:"v"`
+}
+
+func TestALPPickerChoosesByData(t *testing.T) {
+	quant := alpFixtureQuantized()
+	smooth := alpFixtureSmooth()
+
+	encQuant, err := Marshal(alpProbe{V: quant}, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encSmooth, err := Marshal(alpProbe{V: smooth}, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !containsTag(encQuant, tagPackALP) {
+		t.Errorf("quantized data: expected ALP tag on wire, not found")
+	}
+	if containsTag(encSmooth, tagPackALP) {
+		t.Errorf("pure-smooth data: ALP should lose to Gorilla/raw, but ALP tag present")
+	}
+
+	// Round-trips regardless of codec.
+	for name, enc := range map[string][]byte{"quant": encQuant, "smooth": encSmooth} {
+		var got alpProbe
+		if err := Unmarshal(enc, &got); err != nil {
+			t.Fatalf("%s: unmarshal: %v", name, err)
+		}
+	}
+	var gotQ alpProbe
+	_ = Unmarshal(encQuant, &gotQ)
+	for i := range quant {
+		if math.Float64bits(gotQ.V[i]) != math.Float64bits(quant[i]) {
+			t.Fatalf("quant round-trip mismatch at %d", i)
+		}
+	}
+}
+
+// containsTag reports whether b carries a packed-float64 slice payload led by
+// the given codec tag. A bare byte-scan is not reliable: a raw-LE float64
+// payload contains arbitrary data bytes that frequently collide with the tag
+// values (0xF4 / 0xE7 / 0xE4), so a single-byte match yields false positives.
+// Every packed-float64 codec frames its payload as the two-byte structural
+// header {tag, qpackKindFloat64}; scanning for that pair distinguishes a real
+// codec choice from a coincidental data byte.
+func containsTag(b []byte, tag byte) bool {
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] == tag && b[i+1] == qpackKindFloat64 {
+			return true
+		}
+	}
+	return false
+}
