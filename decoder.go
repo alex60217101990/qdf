@@ -985,6 +985,70 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += int((nb64 + 7) >> 3)
 		return nil
+	case tagPackALP:
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		if d.buf[d.i] != qpackKindFloat64 {
+			return ErrTypeMismatch
+		}
+		d.i++ // kind
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if n64 == 0 {
+			return nil
+		}
+		if n64 > alpMaxElems {
+			return ErrInvalidLength
+		}
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		d.i++                                           // d exponent
+		if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 { // forMin
+			return ErrInvalidLength
+		} else {
+			d.i += nr
+		}
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		width := int(d.buf[d.i])
+		d.i++
+		if width > qpackForMaxBits {
+			return ErrBadTag
+		}
+		if width > 0 {
+			rem := uint64(len(d.buf) - d.i)
+			if n64 > rem*8/uint64(width) {
+				return ErrShortBuffer
+			}
+			d.i += int((n64*uint64(width) + 7) / 8)
+		}
+		excN, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if excN > n64 {
+			return ErrInvalidLength
+		}
+		for range excN {
+			_, nr := readUvarint(d.buf[d.i:])
+			if nr <= 0 {
+				return ErrInvalidLength
+			}
+			d.i += nr
+			if d.i+8 > len(d.buf) {
+				return ErrShortBuffer
+			}
+			d.i += 8
+		}
+		return nil
 	case tagPackDeltaFor:
 		d.i++
 		if d.i+2 > len(d.buf) {

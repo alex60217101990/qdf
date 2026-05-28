@@ -168,3 +168,22 @@ func containsTag(b []byte, tag byte) bool {
 	}
 	return false
 }
+
+func TestALPSkip(t *testing.T) {
+	s := alpFixtureQuantized()
+	e := NewEncoderWith(OptCompression)
+	plan, _, ok := alpPlanFloat64(s)
+	if !ok {
+		t.Skip("ALP not applicable for fixture")
+	}
+	e.writePackedALPFloat64Slice(s, plan)
+	payload := e.buf[5:] // strip header; payload[0] == tagPackALP
+	d := &Decoder{buf: payload}
+	d.MarkHeaderRead() // payload begins at the tag, not the 5-byte QDF header
+	if err := d.Skip(); err != nil {
+		t.Fatalf("Skip over ALP payload: %v", err)
+	}
+	if d.i != len(payload) {
+		t.Fatalf("Skip left cursor at %d, want %d (full payload consumed)", d.i, len(payload))
+	}
+}
