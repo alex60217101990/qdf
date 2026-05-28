@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"testing"
 	"time"
 
@@ -225,6 +226,7 @@ func TestCorpusCodec_Sizes(t *testing.T) {
 		{"metric_smooth_1024", mkMetricSeriesSmooth(1024)},
 		{"status_1024", mkStatusBatch(1024)},
 		{"spread_enum_1024", mkSpreadEnumColumn(1024)},
+		{"logentries_1024", logEntriesBatch(1024)},
 	}
 	t.Logf("%-22s %10s %10s %10s %12s %12s",
 		"scenario", "json", "msgpack", "qdf_speed", "qdf_balanced", "qdf_compress")
@@ -237,6 +239,37 @@ func TestCorpusCodec_Sizes(t *testing.T) {
 		t.Logf("%-22s %10d %10d %10d %12d %12d",
 			c.name, len(jb), len(mb), len(qs), len(qb), len(qc))
 	}
+}
+
+// benchLogEntry is a structured-log row where Level/Service/Host repeat
+// heavily row-to-row (exercises the column-conditional repeat predictor),
+// while Msg and TraceID are unique per row.
+type benchLogEntry struct {
+	Level   string `qdf:"level"    json:"level"    msgpack:"level"`
+	Service string `qdf:"service"  json:"service"  msgpack:"service"`
+	Host    string `qdf:"host"     json:"host"     msgpack:"host"`
+	Msg     string `qdf:"msg"      json:"msg"      msgpack:"msg"`
+	TraceID string `qdf:"trace_id" json:"trace_id" msgpack:"trace_id"`
+}
+
+// logEntriesBatch models a structured-log batch: Level/Service/Host repeat
+// heavily row-to-row (exercises the column-conditional repeat predictor),
+// while Msg and TraceID are unique per row.
+func logEntriesBatch(n int) []benchLogEntry {
+	levels := []string{"INFO", "INFO", "INFO", "WARN", "ERROR"}
+	services := []string{"api-gateway", "auth", "billing"}
+	hosts := []string{"node-1", "node-2", "node-3", "node-4"}
+	out := make([]benchLogEntry, n)
+	for i := range out {
+		out[i] = benchLogEntry{
+			Level:   levels[i%len(levels)],
+			Service: services[i%len(services)],
+			Host:    hosts[i%len(hosts)],
+			Msg:     "handled request id=" + strconv.Itoa(i),
+			TraceID: "trace-" + strconv.Itoa(i*2654435761&0xffffff),
+		}
+	}
+	return out
 }
 
 // BenchmarkCorpusCodec_WebRequest exercises the most codec-diverse
