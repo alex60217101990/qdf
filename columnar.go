@@ -128,7 +128,7 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 		case colKindInt, colKindUint:
 			var mn, mx uint64 = ^uint64(0), 0
 			distinct := map[uint64]struct{}{}
-			for i := 0; i < sample; i++ {
+			for i := range sample {
 				v := loadScalarU64(base, plan.stride, col, i)
 				if v < mn {
 					mn = v
@@ -166,7 +166,7 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 		case colKindString:
 			prev := ""
 			first := true
-			for i := 0; i < sample; i++ {
+			for i := range sample {
 				s := loadStringField(base, plan.stride, col, i)
 				if !first && s == prev {
 					colBytes += 1 // tagStateRepeat
