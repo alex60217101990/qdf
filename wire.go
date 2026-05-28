@@ -149,6 +149,16 @@ const (
 	tagExt16     = 0xF1
 	tagExt32     = 0xF2
 	tagTimestamp = 0xF3
+
+	// ALP (Adaptive Lossless floating-Point, CWI 2023), decimal path,
+	// for []float64 under OptCompression. Self-describing:
+	//   0xF4, qpackKindFloat64, varuint(n),
+	//   d(1), zigzag-varuint(forMin), width(1),
+	//   ceil(n*width/8) LSB-first body (absent when width==0),
+	//   varuint(excN), excN×(varuint(pos), 8 LE raw float64).
+	// Chosen by the float64 picker only when strictly smaller than raw
+	// and the Gorilla projection, so it never grows the wire.
+	tagPackALP = 0xF4
 )
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
