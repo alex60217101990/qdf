@@ -1,0 +1,91 @@
+name: release
+
+# Releases are cut on demand, never on a plain merge to main:
+#   - push a semver tag:   git tag v0.1.0 && git push origin v0.1.0
+#   - or run this workflow from the Actions tab and type the version
+#     (the tag is created and pushed for you).
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. v0.1.0 (tag is created + pushed)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the GitHub release and (on dispatch) push the tag
+
+env:
+  GO_VERSION: "1.26"
+  GOEXPERIMENT: simd
+  MODULE: github.com/alex60217101990/qdf
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for --generate-notes
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Resolve and validate version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$VERSION' is not a vMAJOR.MINOR.PATCH[-prerelease] tag"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify at the release commit
+        run: |
+          go vet ./...
+          go test -race -count=1 -timeout=10m ./...
+
+      - name: Create and push tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "::error::tag $VERSION already exists on origin"
+            exit 1
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            --verify-tag
+
+      - name: Warm pkg.go.dev via the module proxy
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          # Fetching the version through the public proxy triggers
+          # indexing on pkg.go.dev. Best-effort: the proxy can lag a
+          # few minutes behind the tag, so a miss here is not fatal.
+          curl -fsS "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info" || true
