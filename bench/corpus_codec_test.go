@@ -3,6 +3,7 @@ package bench
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -210,6 +211,27 @@ func mkTracesBatch(n int) []spanRow {
 	return rows
 }
 
+// metricQuantColumn is the shape ALP was built for: a float64 gauge stored at
+// fixed 2-decimal resolution (prices, percentages, rounded sensor readings).
+// Every value lies exactly on the 0.01 grid, so ALP encodes each as a small
+// integer mantissa with zero exceptions and crushes it well below Gorilla.
+type metricQuantColumn struct {
+	Name   string    `qdf:"name"   json:"name"   msgpack:"name"`
+	Values []float64 `qdf:"values" json:"values" msgpack:"values"`
+}
+
+func mkMetricQuantColumn(n int) metricQuantColumn {
+	rnd := rand.New(rand.NewSource(606))
+	v := make([]float64, n)
+	cur := 50.0
+	for i := range v {
+		// Random-walk in 0.01 steps, snapped to the exact 2-decimal grid.
+		cur += float64(rnd.Intn(11)-5) / 100.0
+		v[i] = math.Round(cur*100) / 100
+	}
+	return metricQuantColumn{Name: "billing.amount.usd", Values: v}
+}
+
 // TestCorpusCodec_Sizes prints a wire-size table covering the new
 // corpus across OptSpeed / OptBalanced / OptCompression. Run with
 // `go test -C bench -run TestCorpusCodec_Sizes -v` and copy the
@@ -224,6 +246,7 @@ func TestCorpusCodec_Sizes(t *testing.T) {
 		{"counters_1024", mkCounterSnapshot(1024)},
 		{"traces_500", mkTracesBatch(500)},
 		{"metric_smooth_1024", mkMetricSeriesSmooth(1024)},
+		{"metric_quant_1024", mkMetricQuantColumn(1024)},
 		{"status_1024", mkStatusBatch(1024)},
 		{"spread_enum_1024", mkSpreadEnumColumn(1024)},
 		{"logentries_1024", logEntriesBatch(1024)},
@@ -239,6 +262,34 @@ func TestCorpusCodec_Sizes(t *testing.T) {
 		qc, _ := qdf.Marshal(c.v, qdf.OptCompression)
 		t.Logf("%-22s %10d %10d %10d %12d %12d",
 			c.name, len(jb), len(mb), len(qs), len(qb), len(qc))
+	}
+}
+
+// TestALPCorpusSizes asserts the ALP codec shrinks the quantized-float fixture
+// under OptCompression and does not grow the smooth fixture (picker keeps
+// Gorilla/raw there).
+func TestALPCorpusSizes(t *testing.T) {
+	quant := mkMetricQuantColumn(1024)
+	smooth := mkMetricSeriesSmooth(1024)
+
+	qComp, _ := qdf.Marshal(quant, qdf.OptCompression)
+	qBal, _ := qdf.Marshal(quant, qdf.OptBalanced)
+	// Compression (ALP enabled) must beat Balanced (no float compression) on
+	// quantized data by a wide margin.
+	if len(qComp) >= len(qBal) {
+		t.Errorf("quantized: OptCompression (%d B) did not beat OptBalanced (%d B)", len(qComp), len(qBal))
+	}
+	// ~2-decimal data over 1024 samples should land well under raw 8 KB.
+	if len(qComp) > 4000 {
+		t.Errorf("quantized: OptCompression size %d B larger than expected (ALP likely not chosen)", len(qComp))
+	}
+
+	sComp, _ := qdf.Marshal(smooth, qdf.OptCompression)
+	sBal, _ := qdf.Marshal(smooth, qdf.OptBalanced)
+	// Smooth fixture must not regress vs the pre-ALP baseline: Compression
+	// stays <= Balanced (ALP either wins or is not chosen).
+	if len(sComp) > len(sBal) {
+		t.Errorf("smooth: OptCompression (%d B) regressed past OptBalanced (%d B)", len(sComp), len(sBal))
 	}
 }
 
