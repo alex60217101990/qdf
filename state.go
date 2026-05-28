@@ -135,7 +135,7 @@ type encState struct {
 	pairPred []uint32
 
 	// Per-column last-value predictor for shape field values. colPred is
-	// indexed by a flat "column slot" = colSlotBase[shapeID] + fieldIdx
+	// indexed by a flat "column slot" = shapeColBase[shapeID-1] + fieldIdx
 	// and stores lastValueID+1 (0 = empty, so Reset() uses clear()).
 	// curColSlot holds the slot of the value currently being emitted, or
 	// colSlotNone outside a shape field-value context. colSlotNext is the
@@ -697,6 +697,7 @@ func (d *decState) reset() {
 	}
 	d.curColSlot = colSlotNone
 	d.colSlotNext = 0
+	// decShape.colBase is reset implicitly via the shapes reset below.
 	if cap(d.shapes) > maxRetainedShapeCap {
 		d.shapes = nil
 	} else {
