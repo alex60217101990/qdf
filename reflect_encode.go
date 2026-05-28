@@ -178,8 +178,8 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 			if elem.kind == reflect.Struct {
 				td.colPlan = buildColumnarPlan(elem)
 			}
-			td.encode = encodeSlice(elem, t.Elem().Size())
-			td.decode = decodeSlice(t, elem, t.Elem().Size())
+			td.encode = encodeSlice(elem, t.Elem().Size(), td.colPlan)
+			td.decode = decodeSlice(t, elem, t.Elem().Size(), td.colPlan)
 		}
 	case reflect.Array:
 		elem, err := descBuild(t.Elem(), ctx)
@@ -511,10 +511,16 @@ func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 	return nil
 }
 
-func encodeSlice(elem *typeDesc, stride uintptr) func(*Encoder, unsafe.Pointer) error {
+func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
 		hdr := (*sliceHeader)(p)
 		n := hdr.Len
+		if colPlan != nil && n >= columnarMinElems && e.state != nil &&
+			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) &&
+			columnarProbe(colPlan, hdr.Data, n) {
+			e.writeHeader()
+			return e.encodeColumnar(colPlan, hdr.Data, n)
+		}
 		e.WriteArrayHeader(n)
 		base := hdr.Data
 		// Probe-and-grow for large slices: encode the first
@@ -561,8 +567,13 @@ func encodeSlice(elem *typeDesc, stride uintptr) func(*Encoder, unsafe.Pointer) 
 	}
 }
 
-func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr) func(*Decoder, unsafe.Pointer) error {
+func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*Decoder, unsafe.Pointer) error {
 	return func(d *Decoder, p unsafe.Pointer) error {
+		if colPlan != nil {
+			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
+				return decodeColumnar(d, t, colPlan, p)
+			}
+		}
 		n, err := d.ReadArrayHeader()
 		if err != nil {
 			return err
@@ -1208,6 +1219,8 @@ func decodeAny(d *Decoder) (any, error) {
 		}
 		d.state.curColSlot = prevCol
 		return out, nil
+	case tagColStruct:
+		return decodeColumnarAny(d)
 	case tagTimestamp:
 		ns, err := d.ReadTimestampNano()
 		return time.Unix(0, ns), err

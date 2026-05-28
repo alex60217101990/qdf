@@ -7,7 +7,7 @@ import (
 )
 
 func TestColumnar_Probe(t *testing.T) {
-	td, _ := descOf(reflect.TypeOf([]colElig(nil)))
+	td, _ := descOf(reflect.TypeFor[[]colElig]())
 	plan := td.colPlan
 	if plan == nil {
 		t.Fatal("[]colElig must have a colPlan")
@@ -93,5 +93,67 @@ func TestColumnar_ShapeTable(t *testing.T) {
 	}
 	if d.colShapeLookup(1) == nil {
 		t.Fatal("decoder lookup by id=1 must hit")
+	}
+}
+
+func TestColumnar_RoundTripTyped(t *testing.T) {
+	in := make([]colElig, 200)
+	for i := range in {
+		in[i] = colElig{A: 1000 + i%5, B: uint32(i % 3), C: 2.5, D: i%2 == 0, E: []string{"INFO", "WARN"}[i%2]}
+	}
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !containsByte(b, tagColStruct) {
+		t.Fatalf("expected tagColStruct on a compressible struct array, got %x...", b[:min(48, len(b))])
+	}
+	var out []colElig
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("round-trip mismatch")
+	}
+}
+
+func TestColumnar_FallbackRoundTrip(t *testing.T) {
+	in := make([]colElig, 4) // below columnarMinElems → row-major
+	for i := range in {
+		in[i] = colElig{A: i, E: "x"}
+	}
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsByte(b, tagColStruct) {
+		t.Fatal("below columnarMinElems must not use columnar")
+	}
+	var out []colElig
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatal("fallback round-trip mismatch")
+	}
+}
+
+func TestColumnar_DecodeAny(t *testing.T) {
+	in := make([]colElig, 64)
+	for i := range in {
+		in[i] = colElig{A: 7, B: 1, C: 3.0, D: true, E: "INFO"}
+	}
+	b, _ := Marshal(in, OptBalanced)
+	var v any
+	if err := Unmarshal(b, &v); err != nil {
+		t.Fatalf("decode-any: %v", err)
+	}
+	arr, ok := v.([]any)
+	if !ok || len(arr) != 64 {
+		t.Fatalf("want []any len 64, got %T", v)
+	}
+	m, ok := arr[0].(map[string]any)
+	if !ok || m["e"] != "INFO" {
+		t.Fatalf("decode-any element wrong: %#v", arr[0])
 	}
 }
