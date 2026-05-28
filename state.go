@@ -783,6 +783,11 @@ func (d *decState) pairRecord(prev, curr uint32) {
 	d.pairPred[prev] = curr + 1
 }
 
+// colReserve mirrors encState.colReserve. The reserved base is returned
+// and stored by the caller in decShape.colBase (there is no parallel
+// shapeColBase slice as on the encoder; the per-shape decShape already
+// carries the base), so reuse-path lookups read sh.colBase directly.
+//
 //go:nosplit
 func (d *decState) colReserve(n uint32) uint32 {
 	base := d.colSlotNext
