@@ -19,7 +19,7 @@ type colInelig struct {
 }
 
 func TestColumnar_Eligibility(t *testing.T) {
-	eligTd, err := descOf(reflect.TypeOf(colElig{}))
+	eligTd, err := descOf(reflect.TypeFor[colElig]())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,11 +34,35 @@ func TestColumnar_Eligibility(t *testing.T) {
 		t.Fatalf("kind classification wrong: %+v", plan.cols)
 	}
 
-	inTd, err := descOf(reflect.TypeOf(colInelig{}))
+	inTd, err := descOf(reflect.TypeFor[colInelig]())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if buildColumnarPlan(inTd) != nil {
 		t.Fatal("struct with a slice field must be ineligible")
+	}
+}
+
+func TestColumnar_ShapeTable(t *testing.T) {
+	st := newEncState()
+	kinds := []colKind{colKindInt, colKindString}
+	id1 := st.colShapeDeclare([]string{"a", "b"}, kinds)
+	if id1 != 1 {
+		t.Fatalf("first columnar shape id = %d, want 1", id1)
+	}
+	if got := st.colShapeFor([]string{"a", "b"}, kinds); got != 1 {
+		t.Fatalf("reuse lookup = %d, want 1", got)
+	}
+	if got := st.colShapeFor([]string{"x"}, []colKind{colKindInt}); got != 0 {
+		t.Fatal("unknown shape must return 0")
+	}
+
+	d := newDecState()
+	sh := d.colShapeDeclareDec([]string{"a", "b"}, kinds)
+	if sh == nil || len(sh.names) != 2 || sh.kinds[1] != colKindString {
+		t.Fatalf("decoder columnar shape wrong: %+v", sh)
+	}
+	if d.colShapeLookup(1) == nil {
+		t.Fatal("decoder lookup by id=1 must hit")
 	}
 }

@@ -159,6 +159,18 @@ type encState struct {
 	shapeCount    uint32
 	shapeBindings []shapeBinding
 
+	// Columnar shape table (tagColStruct). Separate from shapeBindings
+	// because columnar shapes carry field kinds. Keyed by structural
+	// identity (names + kinds) since the same struct type always produces
+	// the same columnar shape.
+	colShapeNames [][]string
+	colShapeKinds [][]colKind
+	// Pooled transpose scratch, reused across columns and across calls.
+	colScratchI64  []int64
+	colScratchU64  []uint64
+	colScratchF64  []float64
+	colScratchBool []bool
+
 	// arena owns the byte storage that backs every intern key the
 	// encoder allocates — accessed only on intern miss, kept at the
 	// end so the hot fields above share earlier cache lines.
@@ -274,6 +286,17 @@ func (e *encState) reset() {
 	}
 	e.lastShapeTd = nil
 	e.lastShapeID = 0
+
+	if cap(e.colShapeNames) > maxRetainedShapeCap {
+		e.colShapeNames = nil
+		e.colShapeKinds = nil
+	} else {
+		e.colShapeNames = e.colShapeNames[:0]
+		e.colShapeKinds = e.colShapeKinds[:0]
+	}
+	if cap(e.colScratchI64) > maxRetainedIDs {
+		e.colScratchI64, e.colScratchU64, e.colScratchF64, e.colScratchBool = nil, nil, nil, nil
+	}
 
 	// Ring side-cache: re-prime with sentinels so post-reset emits
 	// can't false-match a stale id 0.
@@ -642,6 +665,13 @@ type decShape struct {
 	colBase uint32 // base column slot for this shape's fields
 }
 
+// decColShape is the decoder-side descriptor for a columnar struct shape
+// (tagColStruct). Parallel to encState's colShapeNames/colShapeKinds entries.
+type decColShape struct {
+	names []string
+	kinds []colKind
+}
+
 type decState struct {
 	// Hot scalars first — touched on every tagState* read. Packing
 	// them with the mruRing/head update keeps the per-emit footprint
@@ -692,6 +722,14 @@ type decState struct {
 
 	// Shape table mirror. shapes[i] is the shape with wire-ID i+1.
 	shapes []decShape
+
+	// Columnar shape table (tagColStruct). colShapes[i] is the columnar
+	// shape with wire-ID i+1. Parallel to encState's colShapeNames/colShapeKinds.
+	colShapes      []decColShape
+	colScratchI64  []int64
+	colScratchU64  []uint64
+	colScratchF64  []float64
+	colScratchBool []bool
 }
 
 func newDecState() *decState {
@@ -743,6 +781,14 @@ func (d *decState) reset() {
 		d.shapes = nil
 	} else {
 		d.shapes = d.shapes[:0]
+	}
+	if cap(d.colShapes) > maxRetainedShapeCap {
+		d.colShapes = nil
+	} else {
+		d.colShapes = d.colShapes[:0]
+	}
+	if cap(d.colScratchI64) > maxRetainedIDs {
+		d.colScratchI64, d.colScratchU64, d.colScratchF64, d.colScratchBool = nil, nil, nil, nil
 	}
 	for i := range d.mruRing {
 		d.mruRing[i] = mruEmpty

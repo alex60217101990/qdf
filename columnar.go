@@ -55,6 +55,55 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 	return &columnarPlan{cols: cols, stride: td.rType.Size()}
 }
 
+// colShapeDeclare registers a new columnar shape (names + kinds) on the encoder
+// and returns its 1-based wire ID. Always appends; call colShapeFor first to
+// avoid duplicates.
+func (e *encState) colShapeDeclare(names []string, kinds []colKind) uint32 {
+	e.colShapeNames = append(e.colShapeNames, names)
+	e.colShapeKinds = append(e.colShapeKinds, kinds)
+	return uint32(len(e.colShapeNames)) // ids start at 1
+}
+
+// colShapeFor returns the 1-based wire ID for an already-declared columnar shape
+// whose names and kinds match exactly, or 0 if not found.
+func (e *encState) colShapeFor(names []string, kinds []colKind) uint32 {
+	for i := range e.colShapeNames {
+		if colShapeEq(e.colShapeNames[i], e.colShapeKinds[i], names, kinds) {
+			return uint32(i + 1)
+		}
+	}
+	return 0
+}
+
+// colShapeEq reports whether two (names, kinds) pairs are structurally identical.
+func colShapeEq(an []string, ak []colKind, bn []string, bk []colKind) bool {
+	if len(an) != len(bn) || len(ak) != len(bk) {
+		return false
+	}
+	for i := range an {
+		if an[i] != bn[i] || ak[i] != bk[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// colShapeDeclareDec appends a new columnar shape to the decoder's table and
+// returns a pointer to the stored entry (wire ID = len after append).
+func (d *decState) colShapeDeclareDec(names []string, kinds []colKind) *decColShape {
+	d.colShapes = append(d.colShapes, decColShape{names: names, kinds: kinds})
+	return &d.colShapes[len(d.colShapes)-1]
+}
+
+// colShapeLookup returns the columnar shape with the given 1-based wire ID,
+// or nil if the ID is out of range.
+func (d *decState) colShapeLookup(id uint32) *decColShape {
+	if id == 0 || id > uint32(len(d.colShapes)) {
+		return nil
+	}
+	return &d.colShapes[id-1]
+}
+
 func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok bool) {
 	if fd.marshalerKind != 0 {
 		return 0, 0, false, false // custom marshaler → row-major
