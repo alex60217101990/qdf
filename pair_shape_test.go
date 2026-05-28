@@ -446,3 +446,107 @@ func TestColPred_DecStateMirror(t *testing.T) {
 		t.Fatalf("mirror miss: got=%d ok=%v want 42", got, ok)
 	}
 }
+
+type colLogEntry struct {
+	Level   string `qdf:"level"`
+	Service string `qdf:"service"`
+	Msg     string `qdf:"msg"`
+}
+
+func TestColRepeat_FiresAcrossRows(t *testing.T) {
+	const N = 64
+	in := make([]colLogEntry, N)
+	for i := range in {
+		in[i] = colLogEntry{
+			Level:   "INFO",
+			Service: "api-gateway",
+			Msg:     "request-" + itoa(i),
+		}
+	}
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !containsByte(b, tagStateColRepeat) {
+		t.Fatalf("expected tagStateColRepeat in wire, got=%x...", b[:min(64, len(b))])
+	}
+	var out []colLogEntry
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("round-trip mismatch")
+	}
+}
+
+func TestColRepeat_NoRegressionOnUniqueColumns(t *testing.T) {
+	const N = 32
+	in := make([]colLogEntry, N)
+	for i := range in {
+		in[i] = colLogEntry{
+			Level:   "L" + itoa(i),
+			Service: "S" + itoa(i*7),
+			Msg:     "M" + itoa(i),
+		}
+	}
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var out []colLogEntry
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("round-trip mismatch on unique columns")
+	}
+}
+
+func TestColRepeat_DecodesAsAny(t *testing.T) {
+	in := []colLogEntry{
+		{Level: "INFO", Service: "api", Msg: "a"},
+		{Level: "INFO", Service: "api", Msg: "b"},
+	}
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var v any
+	if err := Unmarshal(b, &v); err != nil {
+		t.Fatalf("decode-any: %v", err)
+	}
+	arr, ok := v.([]any)
+	if !ok || len(arr) != 2 {
+		t.Fatalf("expected []any len 2, got %T", v)
+	}
+	m, ok := arr[1].(map[string]any)
+	if !ok || m["level"] != "INFO" || m["service"] != "api" || m["msg"] != "b" {
+		t.Fatalf("decode-any mismatch: %#v", arr[1])
+	}
+}
+
+func TestColRepeat_NestedStructRoundTrips(t *testing.T) {
+	type inner struct {
+		A string `qdf:"a"`
+		B string `qdf:"b"`
+	}
+	type outer struct {
+		Tag   string `qdf:"tag"`
+		Child inner  `qdf:"child"`
+	}
+	in := []outer{
+		{Tag: "T", Child: inner{A: "x", B: "y"}},
+		{Tag: "T", Child: inner{A: "x", B: "z"}},
+	}
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var out []outer
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("nested round-trip mismatch")
+	}
+}

@@ -428,6 +428,10 @@ func (e *Encoder) WriteString(s string) {
 				if e.preIntern[i].ptr == sp && e.preIntern[i].n == sn {
 					if e.preIntern[i].id != preInternUnseen {
 						id := e.preIntern[i].id
+						if st.curColSlot != colSlotNone {
+							e.emitColValue(id)
+							return
+						}
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)
 							if e.opts.Has(OptPairPred) {
@@ -448,6 +452,10 @@ func (e *Encoder) WriteString(s string) {
 			e.preIntern[preInternIdx].id = id
 		}
 		if ok {
+			if st.curColSlot != colSlotNone {
+				e.emitColValue(id)
+				return
+			}
 			// Repeat hot path: hand-inlined out of emitStateRef so the
 			// most common Dense hit avoids the non-inlinable call.
 			if st.lastID == id {
@@ -467,6 +475,9 @@ func (e *Encoder) WriteString(s string) {
 			st.pairRecord(st.lastID, id)
 		}
 		st.lastID = id
+		if st.curColSlot != colSlotNone {
+			st.colRecord(st.curColSlot, id)
+		}
 		return
 	}
 	if dense && st != nil {
@@ -576,6 +587,37 @@ func (e *Encoder) emitStateRef(id uint32) {
 	st.lastID = id
 }
 
+// emitColValue emits an interned string/bytes value while inside a shape
+// field-value context (curColSlot != colSlotNone). It is the column-aware
+// sibling of the inlined repeat / emitStateRef fast paths used outside a
+// column. Every path records the value as the column's new last value so
+// the next row can predict against it.
+func (e *Encoder) emitColValue(id uint32) {
+	st := e.state
+	slot := st.curColSlot
+	pairOn := e.opts.Has(OptPairPred)
+	if st.lastID == id {
+		e.buf = append(e.buf, tagStateRepeat)
+		if pairOn {
+			st.pairRecord(id, id)
+		}
+		st.colRecord(slot, id)
+		return
+	}
+	if pairOn && st.colLookup(slot, id) {
+		e.buf = append(e.buf, tagStateColRepeat)
+		st.lruMoveFront(id)
+		if st.lastID != lruInvalidID {
+			st.pairRecord(st.lastID, id)
+		}
+		st.lastID = id
+		st.colRecord(slot, id)
+		return
+	}
+	e.emitStateRef(id)
+	st.colRecord(slot, id)
+}
+
 // WriteStringInline forces an in-line encoding even when Dense intern would
 // be eligible. Use for fields known to be unique per message.
 func (e *Encoder) WriteStringInline(s string) {
@@ -613,6 +655,10 @@ func (e *Encoder) WriteBytes(b []byte) {
 		key := unsafestr.String(b)
 		id, ok := st.lookupOrAssign(key)
 		if ok {
+			if st.curColSlot != colSlotNone {
+				e.emitColValue(id)
+				return
+			}
 			if st.lastID == id {
 				e.buf = append(e.buf, tagStateRepeat)
 				if e.opts.Has(OptPairPred) {
@@ -630,6 +676,9 @@ func (e *Encoder) WriteBytes(b []byte) {
 			st.pairRecord(st.lastID, id)
 		}
 		st.lastID = id
+		if st.curColSlot != colSlotNone {
+			st.colRecord(st.curColSlot, id)
+		}
 		return
 	}
 	if dense && st != nil {
