@@ -180,11 +180,12 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xE9  tagStateMTF       (Dense)   MTF rank reference: varuint(rank)
 0xEA  tagStatePair      (Dense)   Markov-1 hit: varuint(rank=0 in top-1)
 0xEC  tagMapShape       (Dense)   struct shape table reference
+0xEE  tagStateColRepeat (Dense)   column-conditional repeat: field == same field in prev row; 1 byte, no payload
 0xF0..0xF2  tagExt8/16/32         user-extension envelope
 0xF3        tagTimestamp          int64 ns since unix epoch
 ```
 
-Tags 0xEB, 0xED..0xEF, 0xF4..0xFF are reserved.
+Tags 0xEB, 0xED, 0xEF, 0xF4..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
