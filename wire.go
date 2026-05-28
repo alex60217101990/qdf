@@ -144,6 +144,7 @@ const (
 	//                    payload). Decoder resolves it from its per-column
 	//                    last-value mirror. Only emitted under
 	//                    OptDense+OptShapeIntern+OptPairPred.
+	// 0xEF reserved.
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1
