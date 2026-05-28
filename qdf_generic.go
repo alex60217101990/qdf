@@ -59,7 +59,6 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	dec.buf = data
 	dec.i = 0
 	dec.headerRead = false
-	dec.colRepeat = false
 	dec.mode = Fast
 	if dec.state != nil {
 		dec.state.reset()

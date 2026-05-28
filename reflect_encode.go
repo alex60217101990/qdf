@@ -763,41 +763,24 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 		// per-field.
 		if e.opts.Has(OptDense) && e.state != nil && e.opts.Has(OptShapeIntern) {
 			if id := e.state.shapeForType(td); id != 0 {
-				st := e.state
 				e.buf = append(e.buf, tagMapShape)
 				e.buf = appendUvarint(e.buf, uint64(id))
-				prevCol := st.curColSlot
-				var base uint32
-				if e.colRepeat {
-					base = st.colBaseForShape(id)
-				}
 				for i := range fields {
 					f := &fields[i]
-					if e.colRepeat {
-						st.curColSlot = base + uint32(i)
-					}
 					if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
-						st.curColSlot = prevCol
 						return err
 					}
 				}
-				st.curColSlot = prevCol
 				return nil
 			}
 			// First time: declare and emit keys via the standard intern path.
 			shapeID := e.state.shapeDeclareEnc()
 			e.state.shapeBindType(td, shapeID)
 			st := e.state
-			var base uint32
-			if e.colRepeat {
-				base = st.colReserve(uint32(n))
-			}
 			e.buf = append(e.buf, tagMapShape)
 			e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
 			e.buf = appendUvarint(e.buf, uint64(n))
 			pairOn := e.opts.Has(OptPairPred)
-			prevCol := st.curColSlot
-			st.curColSlot = colSlotNone // keys never col-repeat
 			for i := range fields {
 				f := &fields[i]
 				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
@@ -824,15 +807,10 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			}
 			for i := range fields {
 				f := &fields[i]
-				if e.colRepeat {
-					st.curColSlot = base + uint32(i)
-				}
 				if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
-					st.curColSlot = prevCol
 					return err
 				}
 			}
-			st.curColSlot = prevCol
 			return nil
 		}
 		// Dense without OptShapeIntern: tagMap8/16/32 header + per-field
@@ -941,7 +919,6 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 				d.state = newDecState()
 			}
 			var fieldNames []string
-			var shapeColBase uint32
 			if shapeID == 0 {
 				// Declaration: read count, then N keys, then N values.
 				cnt64, n := readUvarint(d.buf[d.i:])
@@ -954,18 +931,11 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					return err
 				}
 				sh := d.state.shapeDeclare()
-				if d.colRepeat {
-					sh.colBase = d.state.colReserve(uint32(cnt))
-					shapeColBase = sh.colBase
-				}
 				sh.keyIDs = make([]uint32, 0, cnt)
 				keys := make([]string, 0, cnt)
-				prevCol := d.state.curColSlot
-				d.state.curColSlot = colSlotNone // keys never col-repeat
 				for range cnt {
 					kb, err := d.readStringBytes()
 					if err != nil {
-						d.state.curColSlot = prevCol
 						return err
 					}
 					// Cache the resolved name. The decoder state's
@@ -980,7 +950,6 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 						sh.keyIDs = append(sh.keyIDs, 0)
 					}
 				}
-				d.state.curColSlot = prevCol
 				// Attach the field name slice to the shape entry by
 				// stashing it after keyIDs: we reuse a small parallel
 				// slice (the names) keyed by index.
@@ -992,27 +961,19 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					return ErrUnknownStateID
 				}
 				fieldNames = sh.names
-				shapeColBase = sh.colBase
 			}
-			prevCol := d.state.curColSlot
-			for i, name := range fieldNames {
-				if d.colRepeat {
-					d.state.curColSlot = shapeColBase + uint32(i)
-				}
+			for _, name := range fieldNames {
 				fd := resolveField(name)
 				if fd == nil {
 					if err := d.Skip(); err != nil {
-						d.state.curColSlot = prevCol
 						return err
 					}
 					continue
 				}
 				if err := fd.desc.decode(d, unsafe.Add(p, fd.offset)); err != nil {
-					d.state.curColSlot = prevCol
 					return err
 				}
 			}
-			d.state.curColSlot = prevCol
 			return nil
 		}
 		// tagMap8/16/32 path — used by Fast mode, by Dense without
@@ -1108,7 +1069,7 @@ func decodeAny(d *Decoder) (any, error) {
 	case tagFloat64:
 		return d.ReadFloat64()
 	case tagStr8, tagStr16, tagStr32, tagInternStr, tagStateRef,
-		tagStateRepeat, tagStateMTF, tagStatePair, tagStateColRepeat:
+		tagStateRepeat, tagStateMTF, tagStatePair:
 		return d.ReadString()
 	case tagBin8, tagBin16, tagBin32, tagInternBin:
 		return d.ReadBytes()
@@ -1161,7 +1122,6 @@ func decodeAny(d *Decoder) (any, error) {
 			d.state = newDecState()
 		}
 		var names []string
-		var shapeColBase uint32
 		if shapeID == 0 {
 			cnt64, n := readUvarint(d.buf[d.i:])
 			if n <= 0 {
@@ -1173,18 +1133,11 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, err
 			}
 			sh := d.state.shapeDeclare()
-			if d.colRepeat {
-				sh.colBase = d.state.colReserve(uint32(cnt))
-				shapeColBase = sh.colBase
-			}
 			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
-			prevCol := d.state.curColSlot
-			d.state.curColSlot = colSlotNone // keys never col-repeat
 			for range cnt {
 				kb, err := d.readStringBytes()
 				if err != nil {
-					d.state.curColSlot = prevCol
 					return nil, err
 				}
 				sh.names = append(sh.names, d.keyCache.Make(kb))
@@ -1194,7 +1147,6 @@ func decodeAny(d *Decoder) (any, error) {
 					sh.keyIDs = append(sh.keyIDs, 0)
 				}
 			}
-			d.state.curColSlot = prevCol
 			names = sh.names
 		} else {
 			sh := d.state.shapeLookup(uint32(shapeID))
@@ -1202,22 +1154,15 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, ErrUnknownStateID
 			}
 			names = sh.names
-			shapeColBase = sh.colBase
 		}
 		out := make(map[string]any, len(names))
-		prevCol := d.state.curColSlot
-		for i, name := range names {
-			if d.colRepeat {
-				d.state.curColSlot = shapeColBase + uint32(i)
-			}
+		for _, name := range names {
 			v, err := decodeAny(d)
 			if err != nil {
-				d.state.curColSlot = prevCol
 				return nil, err
 			}
 			out[name] = v
 		}
-		d.state.curColSlot = prevCol
 		return out, nil
 	case tagColStruct:
 		return decodeColumnarAny(d)

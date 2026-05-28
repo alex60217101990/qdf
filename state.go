@@ -134,18 +134,6 @@ type encState struct {
 	// pairLookup / pairRecord methods for the lookup contract.
 	pairPred []uint32
 
-	// Per-column last-value predictor for shape field values. colPred is
-	// indexed by a flat "column slot" = shapeColBase[shapeID-1] + fieldIdx
-	// and stores lastValueID+1 (0 = empty, so Reset() uses clear()).
-	// curColSlot holds the slot of the value currently being emitted, or
-	// colSlotNone outside a shape field-value context. colSlotNext is the
-	// running slot allocator; shapeColBase[id-1] is the base slot reserved
-	// for shape id.
-	colPred      []uint32
-	curColSlot   uint32
-	colSlotNext  uint32
-	shapeColBase []uint32
-
 	// Shape table for tagMapShape. shapes is indexed by id-1 (id 0 is
 	// reserved on the wire to mean "declare"). shapeBindings is a
 	// small linear-scan registry of (typeDesc → wire ID). Typical
@@ -187,11 +175,6 @@ type shapeBinding struct {
 
 const lruInvalidID = ^uint32(0)
 
-// colSlotNone marks "not currently emitting/reading a shape field value",
-// i.e. the column-conditional repeat predictor is inactive. Field names
-// (keys) and every non-shape emit run with curColSlot == colSlotNone.
-const colSlotNone = ^uint32(0)
-
 func newEncState() *encState {
 	// arena is zero-value initialised here — its slab is lazily
 	// allocated on first Put (see internarena.Arena.Put).
@@ -205,7 +188,6 @@ func newEncState() *encState {
 	for i := range e.mruRing {
 		e.mruRing[i] = mruEmpty
 	}
-	e.curColSlot = colSlotNone
 	return e
 }
 
@@ -223,7 +205,6 @@ const (
 	maxRetainedLRUCap   = 4096
 	maxRetainedPairCap  = 4096
 	maxRetainedShapeCap = 1024
-	maxRetainedColCap   = 4096
 )
 
 func (e *encState) reset() {
@@ -263,19 +244,6 @@ func (e *encState) reset() {
 		e.pairPred = nil
 	} else {
 		clear(e.pairPred)
-	}
-
-	if cap(e.colPred) > maxRetainedColCap {
-		e.colPred = nil
-	} else {
-		clear(e.colPred)
-	}
-	e.curColSlot = colSlotNone
-	e.colSlotNext = 0
-	if cap(e.shapeColBase) > maxRetainedShapeCap {
-		e.shapeColBase = nil
-	} else {
-		e.shapeColBase = e.shapeColBase[:0]
 	}
 
 	e.shapeCount = 0
@@ -371,47 +339,6 @@ func (e *encState) pairEnsure(prev uint32) {
 func (e *encState) pairRecord(prev, curr uint32) {
 	e.pairEnsure(prev)
 	e.pairPred[prev] = curr + 1
-}
-
-// colReserve allocates a contiguous block of n column slots for a newly
-// declared shape and returns the base slot. The block is recorded in
-// shapeColBase so a later reuse of the same shape resolves the same base.
-//
-//go:nosplit
-func (e *encState) colReserve(n uint32) uint32 {
-	base := e.colSlotNext
-	e.colSlotNext += n
-	e.colEnsure(e.colSlotNext)
-	e.shapeColBase = append(e.shapeColBase, base)
-	return base
-}
-
-// colBaseForShape returns the base column slot reserved for shape id
-// (id ≥ 1). Used on the reuse path.
-//
-//go:nosplit
-func (e *encState) colBaseForShape(id uint32) uint32 {
-	return e.shapeColBase[id-1]
-}
-
-//go:nosplit
-func (e *encState) colEnsure(n uint32) {
-	for uint32(len(e.colPred)) < n {
-		e.colPred = append(e.colPred, 0)
-	}
-}
-
-//go:nosplit
-func (e *encState) colLookup(slot, id uint32) bool {
-	if int(slot) >= len(e.colPred) {
-		return false
-	}
-	return e.colPred[slot] == id+1
-}
-
-//go:nosplit
-func (e *encState) colRecord(slot, id uint32) {
-	e.colPred[slot] = id + 1
 }
 
 // mruPush records id as the newest entry in the side-cache ring.
@@ -660,9 +587,8 @@ func (e *encState) internTableGrow() {
 // declaration order — used to dispatch values to struct fields when
 // the shape is re-used.
 type decShape struct {
-	keyIDs  []uint32
-	names   []string
-	colBase uint32 // base column slot for this shape's fields
+	keyIDs []uint32
+	names  []string
 }
 
 // decColShape is the decoder-side descriptor for a columnar struct shape
@@ -715,11 +641,6 @@ type decState struct {
 	// rejected upstream as malformed.
 	pairPred []uint32
 
-	// Mirror of encState's per-column predictor. See encState.colPred.
-	colPred     []uint32
-	curColSlot  uint32
-	colSlotNext uint32
-
 	// Shape table mirror. shapes[i] is the shape with wire-ID i+1.
 	shapes []decShape
 
@@ -742,7 +663,6 @@ func newDecState() *decState {
 	for i := range d.mruRing {
 		d.mruRing[i] = mruEmpty
 	}
-	d.curColSlot = colSlotNone
 	return d
 }
 
@@ -769,14 +689,6 @@ func (d *decState) reset() {
 	} else {
 		clear(d.pairPred)
 	}
-	if cap(d.colPred) > maxRetainedColCap {
-		d.colPred = nil
-	} else {
-		clear(d.colPred)
-	}
-	d.curColSlot = colSlotNone
-	d.colSlotNext = 0
-	// decShape.colBase is reset implicitly via the shapes reset below.
 	if cap(d.shapes) > maxRetainedShapeCap {
 		d.shapes = nil
 	} else {
@@ -826,43 +738,6 @@ func (d *decState) pairEnsure(prev uint32) {
 func (d *decState) pairRecord(prev, curr uint32) {
 	d.pairEnsure(prev)
 	d.pairPred[prev] = curr + 1
-}
-
-// colReserve mirrors encState.colReserve. The reserved base is returned
-// and stored by the caller in decShape.colBase (there is no parallel
-// shapeColBase slice as on the encoder; the per-shape decShape already
-// carries the base), so reuse-path lookups read sh.colBase directly.
-//
-//go:nosplit
-func (d *decState) colReserve(n uint32) uint32 {
-	base := d.colSlotNext
-	d.colSlotNext += n
-	d.colEnsure(d.colSlotNext)
-	return base
-}
-
-//go:nosplit
-func (d *decState) colEnsure(n uint32) {
-	for uint32(len(d.colPred)) < n {
-		d.colPred = append(d.colPred, 0)
-	}
-}
-
-//go:nosplit
-func (d *decState) colAt(slot uint32) (uint32, bool) {
-	if int(slot) >= len(d.colPred) {
-		return 0, false
-	}
-	v := d.colPred[slot]
-	if v == 0 {
-		return 0, false
-	}
-	return v - 1, true
-}
-
-//go:nosplit
-func (d *decState) colRecord(slot, id uint32) {
-	d.colPred[slot] = id + 1
 }
 
 // shapeDeclare appends a new shape with the next sequential wire ID
