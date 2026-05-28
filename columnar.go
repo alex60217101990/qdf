@@ -41,6 +41,24 @@ type columnarPlan struct {
 // the shape-declaration + probe overhead is not amortized.
 const columnarMinElems = 16
 
+// maxColumnarElems caps the struct count a tagColStruct header may claim. The
+// per-byte length sanity check used for row-major slices does not apply here:
+// a constant column compresses M structs into a few bytes, so M is not bounded
+// by the remaining buffer. This fixed ceiling guards the output MakeSlice
+// against a hostile element count while staying well above any realistic batch
+// (callers with more rows should shard or stream).
+const maxColumnarElems = 1 << 24
+
+// checkColumnarN validates a tagColStruct struct count. Unlike row-major
+// slices, a columnar count is not byte-bounded (compressed columns), so it is
+// checked against a fixed ceiling rather than the remaining buffer length.
+func checkColumnarN(n int) error {
+	if n < 0 || n > maxColumnarElems {
+		return ErrInvalidLength
+	}
+	return nil
+}
+
 // buildColumnarPlan returns a plan if td is a struct whose every field is a
 // columnar-eligible scalar/string, else nil. Called once at fillDesc time;
 // the result is cached so the hot path never reflects.
@@ -318,7 +336,7 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 	}
 	d.i += k
 	n := int(n64)
-	if err := d.CheckLength(n, 1); err != nil {
+	if err := checkColumnarN(n); err != nil {
 		return err
 	}
 	if d.state == nil {
@@ -486,7 +504,7 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 	}
 	d.i += k
 	n := int(n64)
-	if err := d.CheckLength(n, 1); err != nil {
+	if err := checkColumnarN(n); err != nil {
 		return nil, err
 	}
 	if d.state == nil {
