@@ -136,6 +136,14 @@ const (
 	//                    shapeID > 0 reuses a previously declared shape:
 	//                       0xEC, varuint(id), [N x value]
 	//                    N is recovered from the shape table.
+	tagStateColRepeat = 0xEE // Column-conditional repeat for Dense shape
+	//                    field values. Inside a tagMapShape struct, an
+	//                    interned string/bytes value equal to the last
+	//                    value emitted in the same (shapeID, fieldIdx)
+	//                    column is encoded as this single byte (no
+	//                    payload). Decoder resolves it from its per-column
+	//                    last-value mirror. Only emitted under
+	//                    OptDense+OptShapeIntern+OptPairPred.
 
 	tagExt8      = 0xF0
 	tagExt16     = 0xF1
