@@ -388,7 +388,6 @@ func (e *encState) colLookup(slot, id uint32) bool {
 
 //go:nosplit
 func (e *encState) colRecord(slot, id uint32) {
-	e.colEnsure(slot + 1)
 	e.colPred[slot] = id + 1
 }
 
@@ -817,7 +816,6 @@ func (d *decState) colAt(slot uint32) (uint32, bool) {
 
 //go:nosplit
 func (d *decState) colRecord(slot, id uint32) {
-	d.colEnsure(slot + 1)
 	d.colPred[slot] = id + 1
 }
 

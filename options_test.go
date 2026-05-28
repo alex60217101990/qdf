@@ -288,12 +288,14 @@ func TestOptions_WireSizeRanking(t *testing.T) {
 	if balanced > dense {
 		t.Fatalf("OptBalanced (%d) must be ≤ OptDense (%d)", balanced, dense)
 	}
-	// OptCompression diverges from OptBalanced by OptGorillaFloat —
-	// on the long_string_repeats fixture there are no float slices,
-	// so Gorilla never fires and the wire still matches. The check
-	// guards against accidental drift of the shared codec set.
-	if compression != balanced {
-		t.Fatalf("OptCompression (%d) != OptBalanced (%d) on a float-free fixture — non-Gorilla codec drift",
+	// OptCompression adds OptGorillaFloat and OptColRepeat on top of
+	// OptBalanced. There are no float slices in this fixture so Gorilla
+	// never fires, but the column-repeat codec collapses the repeating
+	// string columns, so OptCompression must be ≤ OptBalanced (and is
+	// strictly smaller here). The check guards against the heavy bundle
+	// ever growing the wire over the balanced default.
+	if compression > balanced {
+		t.Fatalf("OptCompression (%d) must be ≤ OptBalanced (%d) on a repetitive corpus",
 			compression, balanced)
 	}
 }
@@ -321,13 +323,15 @@ func TestOptions_BundleAliases(t *testing.T) {
 				t.Fatalf("OptSpeed differs from Options(0)")
 			}
 		})
-		t.Run(fx.name+"/Compression=Balanced", func(t *testing.T) {
-			// OptCompression = OptBalanced | OptGorillaFloat. The
-			// Gorilla codec only fires on float slices that pass the
-			// pickF64Codec probe; none of the fixtures here trigger
-			// it, so the wire must still match OptBalanced byte for
-			// byte. Drift here means a *non-Gorilla* codec rewired
-			// under one bundle but not the other.
+		t.Run(fx.name+"/Compression≤Balanced", func(t *testing.T) {
+			// OptCompression = OptBalanced | OptGorillaFloat |
+			// OptColRepeat. Gorilla only fires on float slices and
+			// the column-repeat codec only collapses repeating struct
+			// columns — both can only shrink the wire, never grow it.
+			// So OptCompression must never be larger than OptBalanced
+			// (on fixtures with neither trigger the wires match byte
+			// for byte). A regression here means a heavy codec leaked
+			// extra bytes under OptCompression.
 			a, err := Marshal(in, OptCompression)
 			if err != nil {
 				t.Fatal(err)
@@ -336,8 +340,8 @@ func TestOptions_BundleAliases(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Equal(a, b) {
-				t.Fatalf("OptCompression diverged from OptBalanced on a non-Gorilla fixture — shared codec set drifted")
+			if len(a) > len(b) {
+				t.Fatalf("OptCompression (%d) larger than OptBalanced (%d) — heavy codec grew the wire", len(a), len(b))
 			}
 		})
 		t.Run(fx.name+"/Balanced=explicit", func(t *testing.T) {

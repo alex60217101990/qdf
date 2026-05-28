@@ -60,6 +60,13 @@ type Encoder struct {
 	// OptBalanced; flipped on by OptCompression. Implies qpack.
 	gorillaFloat bool
 
+	// colRepeat enables the column-conditional repeat codec for Dense
+	// shape field values. Off in OptBalanced (the per-value bookkeeping
+	// costs ~10% CPU on struct arrays); on under OptCompression. When set,
+	// the header's FlagColRepeat bit is emitted so the decoder threads the
+	// matching per-column predictor state. Requires OptShapeIntern.
+	colRepeat bool
+
 	// depth tracks nested pointer/struct traversal. Pointer cycles do
 	// not crash the process; encodePtr increments depth on entry and
 	// returns ErrCycleDetected when it exceeds maxDepth. Lightweight
@@ -93,6 +100,7 @@ func (e *Encoder) applyOpts(opts Options) {
 	}
 	e.qpack = opts.Has(OptQPack)
 	e.gorillaFloat = e.qpack && opts.Has(OptGorillaFloat)
+	e.colRepeat = opts.Has(OptColRepeat) && opts.Has(OptShapeIntern) && opts.Has(OptDense)
 }
 
 // DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
@@ -176,6 +184,7 @@ func (e *Encoder) Reset() {
 	e.mode = Fast
 	e.qpack = false
 	e.gorillaFloat = false
+	e.colRepeat = false
 	// Drop any PreIntern entries — they reference caller-supplied
 	// backing pointers that are not safe to assume valid across a
 	// pool recycle.
@@ -305,6 +314,9 @@ func (e *Encoder) writeHeader() {
 	}
 	if e.qpack {
 		flag |= FlagQPack
+	}
+	if e.colRepeat {
+		flag |= FlagColRepeat
 	}
 	e.buf = append(e.buf, Magic0, Magic1, Magic2, Version1, flag)
 	e.headerOut = true
