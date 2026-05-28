@@ -191,8 +191,9 @@ A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
 `tagStatePair` payload is also `varuint(rank)` but the predictor is
 top-1, so the rank byte is always 0 (kept on the wire for parser
-compatibility — see [`docs/PLAN.md`](PLAN.md) Task 5 if you are
-curious about the K=4 → K=1 trade).
+compatibility; K=4 was benchmarked and showed negligible hit-rate
+gain over K=1 at significant memory cost, so the predictor was kept
+at top-1 for simplicity).
 
 `tagMapShape` is a small protocol of its own:
 
@@ -447,8 +448,8 @@ from avoiding a non-inlinable function call.
 ### Markov-1 predictor — `tagStatePair`
 
 For each `prev` intern ID we remember its most-recent successor
-(top-1, see [docs/PLAN.md](PLAN.md) Task 5 for the why-not-K=4
-discussion). When the next emission matches, write `0xEA 0x00` —
+(top-1; K=4 was evaluated and found to offer negligible hit-rate
+gain at significant memory cost, so the predictor remains at K=1). When the next emission matches, write `0xEA 0x00` —
 two bytes regardless of how many digits the raw ID has.
 
 Top-1 storage:
@@ -577,7 +578,7 @@ loop at `bitsPer ∈ {8, 16, 32}`. 22–53× faster than the scalar
 fallback at memory-bandwidth saturation (~50 GB/s on
 i7-9750H). CPUID-gated at runtime; non-amd64 builds compile a stub.
 
-Encode-side SIMD is a planned task (PLAN.md #10) — the encode
+Encode-side SIMD is not yet implemented — the encode
 inner loop is still scalar today.
 
 ### reflect2 swap (`qdf_reflect2` build tag)
@@ -1022,7 +1023,6 @@ cmd/qdfgen/             — code generator emitting MarshalQDF / UnmarshalQDF
 bench/                  — separate go module with benchmarks vs json / msgpack
 docs/BENCH.md           — bench numbers and reproduction instructions
 docs/CHOOSING.md        — opts cheatsheet for end-users
-docs/PLAN.md            — internal optimisation roadmap (not user-facing)
 docs/GUIDE.md           — this file
 ```
 
