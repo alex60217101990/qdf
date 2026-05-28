@@ -463,6 +463,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 			d.state.pairRecord(d.state.lastID, id)
 		}
 		d.state.lastID = id
+		if d.state.curColSlot != colSlotNone {
+			d.state.colRecord(d.state.curColSlot, d.state.lastID)
+		}
 		return out, nil
 	case tagStateRef:
 		id64, n := readUvarint(d.buf[d.i:])
@@ -484,6 +487,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 			d.state.pairRecord(d.state.lastID, uint32(id64))
 		}
 		d.state.lastID = uint32(id64)
+		if d.state.curColSlot != colSlotNone {
+			d.state.colRecord(d.state.curColSlot, d.state.lastID)
+		}
 		return out, nil
 	case tagStateMTF:
 		rank64, n := readUvarint(d.buf[d.i:])
@@ -517,6 +523,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 			d.state.pairRecord(d.state.lastID, id)
 		}
 		d.state.lastID = id
+		if d.state.curColSlot != colSlotNone {
+			d.state.colRecord(d.state.curColSlot, d.state.lastID)
+		}
 		return out, nil
 	case tagStatePair:
 		if d.state == nil || d.state.lastID == lruInvalidID {
@@ -544,6 +553,9 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		d.state.lruMoveToFront(id)
 		d.state.pairRecord(prev, id)
 		d.state.lastID = id
+		if d.state.curColSlot != colSlotNone {
+			d.state.colRecord(d.state.curColSlot, d.state.lastID)
+		}
 		return out, nil
 	case tagStateRepeat:
 		if d.state == nil || d.state.lastID == lruInvalidID {
@@ -555,6 +567,28 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		}
 		// Pair predictor: mirror encoder's self-record.
 		d.state.pairRecord(d.state.lastID, d.state.lastID)
+		if d.state.curColSlot != colSlotNone {
+			d.state.colRecord(d.state.curColSlot, d.state.lastID)
+		}
+		return out, nil
+	case tagStateColRepeat:
+		if d.state == nil || d.state.curColSlot == colSlotNone {
+			return nil, ErrUnknownStateID
+		}
+		id, ok := d.state.colAt(d.state.curColSlot)
+		if !ok {
+			return nil, ErrUnknownStateID
+		}
+		out, ok := d.state.get(id)
+		if !ok {
+			return nil, ErrUnknownStateID
+		}
+		d.state.lruMoveToFront(id)
+		if d.state.lastID != lruInvalidID {
+			d.state.pairRecord(d.state.lastID, id)
+		}
+		d.state.lastID = id
+		d.state.colRecord(d.state.curColSlot, id)
 		return out, nil
 	}
 	return nil, ErrTypeMismatch
@@ -824,7 +858,7 @@ func (d *Decoder) Skip() error {
 		// in sync with the stream.
 		_, err := d.readStringBytes()
 		return err
-	case tagStateRef, tagStateRepeat, tagStateMTF, tagStatePair:
+	case tagStateRef, tagStateRepeat, tagStateMTF, tagStatePair, tagStateColRepeat:
 		_, err := d.readStringBytes()
 		return err
 	case tagMapShape:
@@ -843,6 +877,7 @@ func (d *Decoder) Skip() error {
 			d.state = newDecState()
 		}
 		var cnt int
+		var base uint32
 		if shapeID == 0 {
 			cnt64, n := readUvarint(d.buf[d.i:])
 			if n <= 0 {
@@ -854,11 +889,16 @@ func (d *Decoder) Skip() error {
 			}
 			cnt = int(cnt64)
 			sh := d.state.shapeDeclare()
+			sh.colBase = d.state.colReserve(uint32(cnt))
+			base = sh.colBase
 			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
+			prevCol := d.state.curColSlot
+			d.state.curColSlot = colSlotNone // keys never col-repeat
 			for i := 0; i < cnt; i++ {
 				kb, err := d.readStringBytes()
 				if err != nil {
+					d.state.curColSlot = prevCol
 					return err
 				}
 				sh.names = append(sh.names, string(kb))
@@ -868,18 +908,24 @@ func (d *Decoder) Skip() error {
 					sh.keyIDs = append(sh.keyIDs, 0)
 				}
 			}
+			d.state.curColSlot = prevCol
 		} else {
 			sh := d.state.shapeLookup(uint32(shapeID))
 			if sh == nil {
 				return ErrUnknownStateID
 			}
 			cnt = len(sh.names)
+			base = sh.colBase
 		}
-		for range cnt {
+		prevCol := d.state.curColSlot
+		for i := 0; i < cnt; i++ {
+			d.state.curColSlot = base + uint32(i)
 			if err := d.Skip(); err != nil {
+				d.state.curColSlot = prevCol
 				return err
 			}
 		}
+		d.state.curColSlot = prevCol
 		return nil
 	case tagPackBool:
 		d.i++
