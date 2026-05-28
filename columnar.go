@@ -1,6 +1,9 @@
 package qdf
 
-import "reflect"
+import (
+	"reflect"
+	"unsafe"
+)
 
 // colKind classifies a struct field for columnar encoding. Only these kinds
 // are columnar-eligible; any other field kind makes the whole struct fall
@@ -102,6 +105,109 @@ func (d *decState) colShapeLookup(id uint32) *decColShape {
 		return nil
 	}
 	return &d.colShapes[id-1]
+}
+
+const (
+	columnarProbeSample = 32
+	// columnarMinGainPct is the minimum estimated wire reduction (percent of
+	// the row-major estimate) required to commit to columnar.
+	columnarMinGainPct = 10
+)
+
+// columnarProbe samples up to columnarProbeSample elements and estimates
+// whether column-major beats row-major on those samples. Conservative: any
+// uncertainty falls back to row-major (returns false).
+func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
+	sample := n
+	if sample > columnarProbeSample {
+		sample = columnarProbeSample
+	}
+	var rowBytes, colBytes int
+	for c := range plan.cols {
+		col := &plan.cols[c]
+		switch col.kind {
+		case colKindInt, colKindUint:
+			var mn, mx uint64 = ^uint64(0), 0
+			distinct := map[uint64]struct{}{}
+			for i := 0; i < sample; i++ {
+				v := loadScalarU64(base, plan.stride, col, i)
+				if v < mn {
+					mn = v
+				}
+				if v > mx {
+					mx = v
+				}
+				if len(distinct) <= 16 {
+					distinct[v] = struct{}{}
+				}
+				rowBytes += uvarintLen(v) // row-major: one varint per value
+			}
+			spread := mx - mn
+			bits := 0
+			for spread > 0 {
+				bits++
+				spread >>= 1
+			}
+			forEst := 3 + (bits*sample+7)/8
+			dictEst := 1 << 30
+			if len(distinct) <= 16 {
+				idxBits := 0
+				for (1 << idxBits) < len(distinct) {
+					idxBits++
+				}
+				dictEst = 3 + len(distinct)*8 + (idxBits*sample+7)/8
+			}
+			colBytes += min(forEst, dictEst)
+		case colKindFloat:
+			rowBytes += sample * 8
+			colBytes += sample * 8 // raw-LE both ways; no probe win (Gorilla is opt-in)
+		case colKindBool:
+			rowBytes += sample
+			colBytes += (sample + 7) / 8
+		case colKindString:
+			prev := ""
+			first := true
+			for i := 0; i < sample; i++ {
+				s := loadStringField(base, plan.stride, col, i)
+				if !first && s == prev {
+					colBytes += 1 // tagStateRepeat
+				} else {
+					colBytes += 2 + len(s)
+				}
+				rowBytes += 2 + len(s)
+				prev = s
+				first = false
+			}
+		}
+	}
+	if rowBytes == 0 {
+		return false
+	}
+	return colBytes*100 <= rowBytes*(100-columnarMinGainPct)
+}
+
+//go:nosplit
+func loadScalarU64(base unsafe.Pointer, stride uintptr, col *colColumn, i int) uint64 {
+	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
+	switch col.width {
+	case 1:
+		return uint64(*(*uint8)(p))
+	case 2:
+		return uint64(*(*uint16)(p))
+	case 4:
+		return uint64(*(*uint32)(p))
+	default:
+		return *(*uint64)(p)
+	}
+}
+
+//go:nosplit
+func loadStringField(base unsafe.Pointer, stride uintptr, col *colColumn, i int) string {
+	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
+	if col.isByte {
+		return string(*(*[]byte)(p))
+	}
+	return *(*string)(p)
 }
 
 func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok bool) {
