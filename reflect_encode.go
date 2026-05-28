@@ -751,11 +751,16 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 				st := e.state
 				e.buf = append(e.buf, tagMapShape)
 				e.buf = appendUvarint(e.buf, uint64(id))
-				base := st.colBaseForShape(id)
 				prevCol := st.curColSlot
+				var base uint32
+				if e.colRepeat {
+					base = st.colBaseForShape(id)
+				}
 				for i := range fields {
 					f := &fields[i]
-					st.curColSlot = base + uint32(i)
+					if e.colRepeat {
+						st.curColSlot = base + uint32(i)
+					}
 					if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
 						st.curColSlot = prevCol
 						return err
@@ -768,7 +773,10 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			shapeID := e.state.shapeDeclareEnc()
 			e.state.shapeBindType(td, shapeID)
 			st := e.state
-			base := st.colReserve(uint32(n))
+			var base uint32
+			if e.colRepeat {
+				base = st.colReserve(uint32(n))
+			}
 			e.buf = append(e.buf, tagMapShape)
 			e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
 			e.buf = appendUvarint(e.buf, uint64(n))
@@ -801,7 +809,9 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			}
 			for i := range fields {
 				f := &fields[i]
-				st.curColSlot = base + uint32(i)
+				if e.colRepeat {
+					st.curColSlot = base + uint32(i)
+				}
 				if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
 					st.curColSlot = prevCol
 					return err
@@ -929,8 +939,10 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					return err
 				}
 				sh := d.state.shapeDeclare()
-				sh.colBase = d.state.colReserve(uint32(cnt))
-				shapeColBase = sh.colBase
+				if d.colRepeat {
+					sh.colBase = d.state.colReserve(uint32(cnt))
+					shapeColBase = sh.colBase
+				}
 				sh.keyIDs = make([]uint32, 0, cnt)
 				keys := make([]string, 0, cnt)
 				prevCol := d.state.curColSlot
@@ -969,7 +981,9 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 			}
 			prevCol := d.state.curColSlot
 			for i, name := range fieldNames {
-				d.state.curColSlot = shapeColBase + uint32(i)
+				if d.colRepeat {
+					d.state.curColSlot = shapeColBase + uint32(i)
+				}
 				fd := resolveField(name)
 				if fd == nil {
 					if err := d.Skip(); err != nil {
@@ -1144,8 +1158,10 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, err
 			}
 			sh := d.state.shapeDeclare()
-			sh.colBase = d.state.colReserve(uint32(cnt))
-			shapeColBase = sh.colBase
+			if d.colRepeat {
+				sh.colBase = d.state.colReserve(uint32(cnt))
+				shapeColBase = sh.colBase
+			}
 			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
 			prevCol := d.state.curColSlot
@@ -1176,7 +1192,9 @@ func decodeAny(d *Decoder) (any, error) {
 		out := make(map[string]any, len(names))
 		prevCol := d.state.curColSlot
 		for i, name := range names {
-			d.state.curColSlot = shapeColBase + uint32(i)
+			if d.colRepeat {
+				d.state.curColSlot = shapeColBase + uint32(i)
+			}
 			v, err := decodeAny(d)
 			if err != nil {
 				d.state.curColSlot = prevCol

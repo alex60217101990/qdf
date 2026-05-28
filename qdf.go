@@ -9,7 +9,8 @@
 //
 //	OptSpeed       — Fast mode, no codecs (matches encoding/json shape)
 //	OptBalanced    — Dense + QPack + shape interning + Markov-1 + MTF
-//	OptCompression — OptBalanced + Gorilla XOR for float slices
+//	OptCompression — OptBalanced + Gorilla XOR for float slices +
+//	                 column-repeat codec for repeating struct fields
 //	                 (~70 % wire reduction on smooth time-series at
 //	                 ~10× CPU per slice; future heavy codecs land here)
 //
@@ -161,7 +162,17 @@ const (
 	// archive-style workloads where wire size dominates. Requires
 	// OptQPack.
 	OptGorillaFloat
-	// Bits 6..31 reserved for future codecs (rANS, LZ77, n-gram
+
+	// OptColRepeat enables the column-conditional repeat codec
+	// (tagStateColRepeat, 0xEE) for Dense struct field values: inside a
+	// struct array, a field value equal to the same field's value in the
+	// previous row collapses to a single byte. Wins on logs / records with
+	// repeating string columns (Level, Service, Host). Costs ~10% encode
+	// and decode CPU on struct arrays — paid on every shape value whether
+	// or not columns repeat — so it stays out of OptBalanced and ships in
+	// OptCompression. Requires OptShapeIntern + OptDense.
+	OptColRepeat
+	// Bits 7..31 reserved for future codecs (rANS, LZ77, n-gram
 	// dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
@@ -178,10 +189,14 @@ const (
 	OptBalanced Options = OptDense | OptQPack | OptShapeIntern | OptPairPred | OptMTF
 
 	// OptCompression bundles every codec that the encoder will spend
-	// CPU on for wire-size gains. Today that adds OptGorillaFloat on
-	// top of OptBalanced; future heavy codecs (rANS, dictionary
-	// preloading) will land in this bundle without breaking the name.
-	OptCompression Options = OptBalanced | OptGorillaFloat
+	// CPU on for wire-size gains. On top of OptBalanced it adds
+	// OptGorillaFloat (Gorilla XOR for float slices) and OptColRepeat
+	// (the column-conditional repeat codec for repeating struct field
+	// values). Both trade encode/decode CPU for wire size, so they stay
+	// out of the OptBalanced default; future heavy codecs (rANS,
+	// dictionary preloading) will land in this bundle without breaking
+	// the name.
+	OptCompression Options = OptBalanced | OptGorillaFloat | OptColRepeat
 )
 
 // Has reports whether the named bit is set. Compiles to a single AND
@@ -289,6 +304,7 @@ func Unmarshal(data []byte, out any) error {
 	dec.buf = data
 	dec.i = 0
 	dec.headerRead = false
+	dec.colRepeat = false
 	dec.mode = Fast
 	if dec.state != nil {
 		dec.state.reset()

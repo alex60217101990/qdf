@@ -26,6 +26,7 @@ type Decoder struct {
 	keyCache intern.Cache
 
 	headerRead bool
+	colRepeat  bool // mirrors encoder; set from FlagColRepeat in readHeader
 }
 
 // InternKey returns a string equal to b, sharing storage with prior
@@ -86,6 +87,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.buf = buf
 	d.i = 0
 	d.headerRead = false
+	d.colRepeat = false
 	d.mode = Fast
 	if d.state != nil {
 		d.state.reset()
@@ -139,6 +141,7 @@ func (d *Decoder) readHeader() error {
 			d.state = newDecState()
 		}
 	}
+	d.colRepeat = flags&FlagColRepeat != 0
 	d.i += 5
 	d.headerRead = true
 	return nil
@@ -889,8 +892,10 @@ func (d *Decoder) Skip() error {
 			}
 			cnt = int(cnt64)
 			sh := d.state.shapeDeclare()
-			sh.colBase = d.state.colReserve(uint32(cnt))
-			base = sh.colBase
+			if d.colRepeat {
+				sh.colBase = d.state.colReserve(uint32(cnt))
+				base = sh.colBase
+			}
 			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
 			prevCol := d.state.curColSlot
@@ -919,7 +924,9 @@ func (d *Decoder) Skip() error {
 		}
 		prevCol := d.state.curColSlot
 		for i := 0; i < cnt; i++ {
-			d.state.curColSlot = base + uint32(i)
+			if d.colRepeat {
+				d.state.curColSlot = base + uint32(i)
+			}
 			if err := d.Skip(); err != nil {
 				d.state.curColSlot = prevCol
 				return err

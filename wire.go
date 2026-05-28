@@ -18,6 +18,11 @@ const (
 	// with ErrBadTag on the first packed slice; the flag is an early hint
 	// so callers can refuse the buffer up front.
 	FlagQPack byte = 1 << 1
+	// FlagColRepeat signals that the encoder emitted the column-conditional
+	// repeat codec (tagStateColRepeat, 0xEE) for Dense shape field values.
+	// The decoder threads per-column predictor state only when this is set,
+	// so OptBalanced streams (flag clear) pay none of the predictor's cost.
+	FlagColRepeat byte = 1 << 2
 )
 
 // Tag bytes.

@@ -463,7 +463,7 @@ func TestColRepeat_FiresAcrossRows(t *testing.T) {
 			Msg:     "request-" + itoa(i),
 		}
 	}
-	b, err := Marshal(in, OptBalanced)
+	b, err := Marshal(in, OptCompression)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestColRepeat_NoRegressionOnUniqueColumns(t *testing.T) {
 			Msg:     "M" + itoa(i),
 		}
 	}
-	b, err := Marshal(in, OptBalanced)
+	b, err := Marshal(in, OptCompression)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -502,12 +502,43 @@ func TestColRepeat_NoRegressionOnUniqueColumns(t *testing.T) {
 	}
 }
 
+func TestColRepeat_GatedToCompression(t *testing.T) {
+	in := make([]colLogEntry, 32)
+	for i := range in {
+		in[i] = colLogEntry{Level: "INFO", Service: "api", Msg: "m" + itoa(i)}
+	}
+	bBal, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsByte(bBal, tagStateColRepeat) {
+		t.Fatal("OptBalanced must NOT emit tagStateColRepeat (gated to OptCompression)")
+	}
+	bCmp, err := Marshal(in, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsByte(bCmp, tagStateColRepeat) {
+		t.Fatal("OptCompression must emit tagStateColRepeat on repeating columns")
+	}
+	// Both must round-trip.
+	for _, b := range [][]byte{bBal, bCmp} {
+		var out []colLogEntry
+		if err := Unmarshal(b, &out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if !reflect.DeepEqual(in, out) {
+			t.Fatalf("round-trip mismatch")
+		}
+	}
+}
+
 func TestColRepeat_DecodesAsAny(t *testing.T) {
 	in := []colLogEntry{
 		{Level: "INFO", Service: "api", Msg: "a"},
 		{Level: "INFO", Service: "api", Msg: "b"},
 	}
-	b, err := Marshal(in, OptBalanced)
+	b, err := Marshal(in, OptCompression)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -538,7 +569,7 @@ func TestColRepeat_NestedStructRoundTrips(t *testing.T) {
 		{Tag: "T", Child: inner{A: "x", B: "y"}},
 		{Tag: "T", Child: inner{A: "x", B: "z"}},
 	}
-	b, err := Marshal(in, OptBalanced)
+	b, err := Marshal(in, OptCompression)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -557,7 +588,7 @@ func TestColRepeat_ShrinksWireVsSpeed(t *testing.T) {
 	for i := range in {
 		in[i] = colLogEntry{Level: "INFO", Service: "api", Msg: "m" + itoa(i)}
 	}
-	balanced, err := Marshal(in, OptBalanced)
+	compressed, err := Marshal(in, OptCompression)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +596,7 @@ func TestColRepeat_ShrinksWireVsSpeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(balanced) >= len(speed) {
-		t.Fatalf("balanced (%d) must beat speed (%d) on repeating columns", len(balanced), len(speed))
+	if len(compressed) >= len(speed) {
+		t.Fatalf("compression (%d) must beat speed (%d) on repeating columns", len(compressed), len(speed))
 	}
 }

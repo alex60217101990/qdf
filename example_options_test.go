@@ -35,7 +35,7 @@ func ExampleOptions() {
 	}
 	// Output:
 	// OptSpeed     wire=2208 bytes
-	// OptBalanced  wire=352 bytes
+	// OptBalanced  wire=450 bytes
 }
 
 // ExampleOptions_streamingDictShared shows the headline Dense-mode
