@@ -13,7 +13,7 @@ func TestRoundTrip_Edges(t *testing.T) {
 		bytes.Repeat([]byte{0xAB}, 4096),
 		func() []byte { // all 256 symbols, skewed
 			b := make([]byte, 0, 5000)
-			for s := 0; s < 256; s++ {
+			for s := range 256 {
 				b = append(b, bytes.Repeat([]byte{byte(s)}, s+1)...)
 			}
 			return b

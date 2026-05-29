@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/alex60217101990/qdf/internal/intern"
+	"github.com/alex60217101990/qdf/internal/rans"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
 
@@ -141,6 +142,27 @@ func (d *Decoder) readHeader() error {
 	}
 	d.i += 5
 	d.headerRead = true
+	if flags&FlagRANS != 0 {
+		rest := d.buf[d.i:]
+		origLen, k := readUvarint(rest)
+		if k <= 0 {
+			return ErrInvalidLength
+		}
+		// Bound the allocation: reject a hostile origLen that dwarfs the
+		// input. rANS shrinks at best modestly, so a real origLen stays
+		// within a small factor of the compressed size.
+		if origLen > uint64(len(d.buf))*64+(1<<20) {
+			return ErrInvalidLength
+		}
+		body, err := rans.Decode(rest[k:], int(origLen))
+		if err != nil {
+			return err
+		}
+		// The reconstructed body is a plain (post-decompression) tag stream;
+		// read it from offset 0, exactly as a non-rANS buffer's body.
+		d.buf = body
+		d.i = 0
+	}
 	return nil
 }
 
