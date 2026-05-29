@@ -1,4 +1,4 @@
-//go:build !amd64 || !qdf_simd
+//go:build (!amd64 && !arm64) || !qdf_simd
 
 package qdf
 
