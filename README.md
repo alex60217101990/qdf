@@ -2,6 +2,8 @@
 
 [![ci](https://github.com/alex60217101990/qdf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/alex60217101990/qdf/actions/workflows/ci.yml)
 [![codeql](https://github.com/alex60217101990/qdf/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/alex60217101990/qdf/actions/workflows/codeql.yml)
+[![codecov](https://codecov.io/gh/alex60217101990/qdf/branch/main/graph/badge.svg)](https://codecov.io/gh/alex60217101990/qdf)
+[![benchmarks](https://img.shields.io/badge/benchmarks-dashboard-blue)](https://alex60217101990.github.io/qdf/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/alex60217101990/qdf.svg)](https://pkg.go.dev/github.com/alex60217101990/qdf)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alex60217101990/qdf)](https://goreportcard.com/report/github.com/alex60217101990/qdf)
 ![Go](https://img.shields.io/badge/go-1.26-blue?logo=go)
