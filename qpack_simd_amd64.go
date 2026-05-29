@@ -25,6 +25,61 @@ func unpackBits8AVX2(out []uint64, in []byte, n int)
 //go:noescape
 func packBoolsAVX2Block32(out []byte, in []bool, blocks int)
 
+//go:noescape
+func packBits8AVX2(out []byte, vals []uint64, n int)
+
+//go:noescape
+func packBits16AVX2(out []byte, vals []uint64, n int)
+
+//go:noescape
+func packBits32AVX2(out []byte, vals []uint64, n int)
+
+// packBits8 writes the low byte of each value contiguously. With AVX2 it
+// dispatches to a Plan9-asm VPSHUFB gather (4 values -> 4 bytes per iter);
+// the tail (n%4) uses a scalar loop. Encode inverse of unpackBits8.
+func packBits8(out []byte, vals []uint64) {
+	n := len(vals)
+	off := 0
+	if hasAVX2 && n >= 4 {
+		blocks := n &^ 3
+		packBits8AVX2(out[:blocks], vals[:blocks], blocks)
+		off = blocks
+	}
+	for i := off; i < n; i++ {
+		out[i] = byte(vals[i])
+	}
+}
+
+// packBits16 writes the low 2 bytes LE per value. AVX2 VPSHUFB gather
+// (4 values -> 8 bytes per iter) with a scalar n%4 tail.
+func packBits16(out []byte, vals []uint64) {
+	n := len(vals)
+	off := 0
+	if hasAVX2 && n >= 4 {
+		blocks := n &^ 3
+		packBits16AVX2(out[:blocks*2], vals[:blocks], blocks)
+		off = blocks
+	}
+	for i := off; i < n; i++ {
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(vals[i]))
+	}
+}
+
+// packBits32 writes the low 4 bytes LE per value. AVX2 VPSHUFB gather
+// (4 values -> 16 bytes per iter) with a scalar n%4 tail.
+func packBits32(out []byte, vals []uint64) {
+	n := len(vals)
+	off := 0
+	if hasAVX2 && n >= 4 {
+		blocks := n &^ 3
+		packBits32AVX2(out[:blocks*4], vals[:blocks], blocks)
+		off = blocks
+	}
+	for i := off; i < n; i++ {
+		binary.LittleEndian.PutUint32(out[i*4:], uint32(vals[i]))
+	}
+}
+
 // packBoolsBitsLSB writes n booleans from src as ceil(n/8) bytes into
 // dst, LSB-first (bool i -> bit (i%8) of dst[i/8]). dst must have
 // length ceil(n/8) and be cleared. With qdf_simd and AVX2, blocks of

@@ -153,3 +153,131 @@ loop32_bp:
 done_bp:
 	VZEROUPPER
 	RET
+
+// packlow8mask is the per-128-bit-lane VPSHUFB control that gathers the
+// low byte of each of two uint64 lanes to byte positions 0 and 1, zeroing
+// the rest (0x80 high bit ⇒ output 0). Replicated across both 128-bit
+// lanes so one VPSHUFB handles four uint64s.
+DATA packlow8mask<>+0(SB)/8,  $0x8080808080800800
+DATA packlow8mask<>+8(SB)/8,  $0x8080808080808080
+DATA packlow8mask<>+16(SB)/8, $0x8080808080800800
+DATA packlow8mask<>+24(SB)/8, $0x8080808080808080
+GLOBL packlow8mask<>(SB), RODATA|NOPTR, $32
+
+// func packBits8AVX2(out []byte, vals []uint64, n int)
+//
+// Packs the low byte of each of n uint64 values into n contiguous bytes
+// of out (the encode inverse of unpackBits8AVX2). Equivalent to:
+//
+//	for i := 0; i < n; i++ {
+//	    out[i] = byte(vals[i])
+//	}
+//
+// Loads 4 uint64s (32 bytes), VPSHUFB-gathers the four low bytes to
+// positions 0,1 of each 128-bit lane, then writes 2 bytes from the low
+// lane and 2 from the high lane. Caller guarantees len(out) >= n,
+// len(vals) >= n, n a multiple of 4, and AVX2 available.
+TEXT ·packBits8AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    vals_base+24(FP), SI
+	MOVQ    n+48(FP), CX
+	VMOVDQU packlow8mask<>(SB), Y2
+
+loop4_p8:
+	CMPQ         CX, $4
+	JL           done_p8
+	VMOVDQU      (SI), Y0
+	VPSHUFB      Y2, Y0, Y0
+	VMOVD        X0, AX
+	MOVW         AX, (DI)
+	VEXTRACTI128 $1, Y0, X1
+	VMOVD        X1, BX
+	MOVW         BX, 2(DI)
+	ADDQ         $32, SI
+	ADDQ         $4, DI
+	SUBQ         $4, CX
+	JMP          loop4_p8
+
+done_p8:
+	VZEROUPPER
+	RET
+
+// packlow16mask gathers the low 2 bytes of each of two uint64 lanes to
+// byte positions 0..3 of each 128-bit lane.
+DATA packlow16mask<>+0(SB)/8,  $0x8080808009080100
+DATA packlow16mask<>+8(SB)/8,  $0x8080808080808080
+DATA packlow16mask<>+16(SB)/8, $0x8080808009080100
+DATA packlow16mask<>+24(SB)/8, $0x8080808080808080
+GLOBL packlow16mask<>(SB), RODATA|NOPTR, $32
+
+// func packBits16AVX2(out []byte, vals []uint64, n int)
+//
+// Packs the low 2 bytes (LE) of each of n uint64 values into 2*n bytes of
+// out. Loads 4 uint64s, VPSHUFB-gathers each lane's low 2 bytes to the
+// front of its 128-bit lane, writes 4 bytes from the low lane and 4 from
+// the high lane. Caller guarantees len(out) >= 2*n, len(vals) >= n, n a
+// multiple of 4, AVX2 available.
+TEXT ·packBits16AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    vals_base+24(FP), SI
+	MOVQ    n+48(FP), CX
+	VMOVDQU packlow16mask<>(SB), Y2
+
+loop4_p16:
+	CMPQ         CX, $4
+	JL           done_p16
+	VMOVDQU      (SI), Y0
+	VPSHUFB      Y2, Y0, Y0
+	VMOVD        X0, AX
+	MOVL         AX, (DI)
+	VEXTRACTI128 $1, Y0, X1
+	VMOVD        X1, BX
+	MOVL         BX, 4(DI)
+	ADDQ         $32, SI
+	ADDQ         $8, DI
+	SUBQ         $4, CX
+	JMP          loop4_p16
+
+done_p16:
+	VZEROUPPER
+	RET
+
+// packlow32mask gathers the low 4 bytes of each of two uint64 lanes to
+// byte positions 0..7 of each 128-bit lane.
+DATA packlow32mask<>+0(SB)/8,  $0x0b0a090803020100
+DATA packlow32mask<>+8(SB)/8,  $0x8080808080808080
+DATA packlow32mask<>+16(SB)/8, $0x0b0a090803020100
+DATA packlow32mask<>+24(SB)/8, $0x8080808080808080
+GLOBL packlow32mask<>(SB), RODATA|NOPTR, $32
+
+// func packBits32AVX2(out []byte, vals []uint64, n int)
+//
+// Packs the low 4 bytes (LE) of each of n uint64 values into 4*n bytes of
+// out. Loads 4 uint64s, VPSHUFB-gathers each lane's low 4 bytes to the
+// front of its 128-bit lane, writes 8 bytes from the low lane and 8 from
+// the high lane. Caller guarantees len(out) >= 4*n, len(vals) >= n, n a
+// multiple of 4, AVX2 available.
+TEXT ·packBits32AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    vals_base+24(FP), SI
+	MOVQ    n+48(FP), CX
+	VMOVDQU packlow32mask<>(SB), Y2
+
+loop4_p32:
+	CMPQ         CX, $4
+	JL           done_p32
+	VMOVDQU      (SI), Y0
+	VPSHUFB      Y2, Y0, Y0
+	VMOVQ        X0, AX
+	MOVQ         AX, (DI)
+	VEXTRACTI128 $1, Y0, X1
+	VMOVQ        X1, BX
+	MOVQ         BX, 8(DI)
+	ADDQ         $32, SI
+	ADDQ         $16, DI
+	SUBQ         $4, CX
+	JMP          loop4_p32
+
+done_p32:
+	VZEROUPPER
+	RET
