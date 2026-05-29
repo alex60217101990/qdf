@@ -123,6 +123,17 @@ const (
 	//                    bitsPer is implicit (derivable from distinct);
 	//                    distinct == 1 emits a zero-width body and the
 	//                    decoder broadcasts the single value.
+	tagPackPFor = 0xEE // Patched Frame-of-Reference integer slice. The FOR
+	//                    body is bit-packed at a reduced width b chosen so the
+	//                    few values that don't fit (outliers) go to an
+	//                    exception list instead of widening every slot. Wire:
+	//                       tag, kind, varuint(n), b(1 byte), <min>,
+	//                       body (n*b bits, LSB-first, (delta & mask)),
+	//                       varuint(excN),
+	//                       excN x ( varuint(dPos), varuint(delta) ).
+	//                    <min> is varuint (unsigned kinds) or zigzag-varuint
+	//                    (signed). Selected only when strictly smaller than
+	//                    every other codec, so the wire never grows.
 	tagStatePair = 0xEA // Markov-1 predictor for Dense state-refs.
 	//                    Conditioned on the previously emitted state-ref ID
 	//                    (lastID), the encoder maintains a small ring of the
