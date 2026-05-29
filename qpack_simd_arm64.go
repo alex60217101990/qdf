@@ -66,12 +66,50 @@ func unpackBits32(out []uint64, in []byte) {
 
 // --- scalar bodies (to be replaced by NEON in later tasks) ---
 
-func unpackBitsVar(out []uint64, in []byte, bitsPer int)     { bitUnpackU64LEFast(out, in, bitsPer) }
-func unpackBitsVarWide(out []uint64, in []byte, bitsPer int) { bitUnpackU64LEFast(out, in, bitsPer) }
-func unpackBits10(out []uint64, in []byte)                   { bitUnpackU64LEFast(out, in, 10) }
-func unpackBits12(out []uint64, in []byte)                   { bitUnpackU64LEFast(out, in, 12) }
-func unpackBits14(out []uint64, in []byte)                   { bitUnpackU64LEFast(out, in, 14) }
-func unpackBits20(out []uint64, in []byte)                   { bitUnpackU64LEFast(out, in, 20) }
+//go:noescape
+func unpackVar2NEON(out []uint64, in []byte, pairs int, twoB int, shifts *[16]int64, mask uint64)
+
+// unpackVarNEON decodes an arbitrary width b in [1,28] using NEON: 2 values
+// per iteration (128-bit = 2 uint64 lanes). Each pair broadcasts the 8-byte
+// window (LD1R) and right-shifts each lane by its in-window offset via USHL
+// with a negative shift vector, then masks. The scalar sliding window handles
+// the remainder; group count is bounded by 8-byte read headroom and a
+// byte-aligned handoff. Widths > 28 stay scalar.
+func unpackVarNEON(out []uint64, in []byte, b int) {
+	n := len(out)
+	if n == 0 {
+		return
+	}
+	pairs := 0
+	if b >= 1 && b <= 28 {
+		var shifts [16]int64
+		for off := 0; off < 8; off++ {
+			shifts[off*2+0] = -int64(off)
+			shifts[off*2+1] = -int64(off + b)
+		}
+		mask := uint64(1)<<uint(b) - 1
+		pairs = n / 2
+		for pairs > 0 && ((pairs-1)*2*b)/8+8 > len(in) {
+			pairs--
+		}
+		for pairs > 0 && (2*pairs*b)%8 != 0 {
+			pairs--
+		}
+		if pairs > 0 {
+			unpackVar2NEON(out[:2*pairs], in, pairs, 2*b, &shifts, mask)
+		}
+	}
+	if done := 2 * pairs; done < n {
+		bitUnpackU64LEFast(out[done:], in[(2*pairs*b)/8:], b)
+	}
+}
+
+func unpackBitsVar(out []uint64, in []byte, bitsPer int)     { unpackVarNEON(out, in, bitsPer) }
+func unpackBitsVarWide(out []uint64, in []byte, bitsPer int) { unpackVarNEON(out, in, bitsPer) }
+func unpackBits10(out []uint64, in []byte)                   { unpackVarNEON(out, in, 10) }
+func unpackBits12(out []uint64, in []byte)                   { unpackVarNEON(out, in, 12) }
+func unpackBits14(out []uint64, in []byte)                   { unpackVarNEON(out, in, 14) }
+func unpackBits20(out []uint64, in []byte)                   { unpackVarNEON(out, in, 20) }
 
 func packBits8(out []byte, vals []uint64) {
 	for i, v := range vals {
