@@ -9,9 +9,9 @@
 //
 //	OptSpeed       — Fast mode, no codecs (matches encoding/json shape)
 //	OptBalanced    — Dense + QPack + shape interning + Markov-1 + MTF
-//	OptCompression — OptBalanced + Gorilla XOR for float slices
-//	                 (~70 % wire reduction on smooth time-series at
-//	                 ~10× CPU per slice; future heavy codecs land here)
+//	OptCompression — OptBalanced + heavier float codecs: Gorilla XOR for
+//	                 smooth time-series and ALP for quantized/decimal
+//	                 float64 (large wire reduction at higher encode CPU)
 //
 // A single decoder handles every variant; the wire header self-
 // describes the dialect.
@@ -37,8 +37,9 @@
 // and compressed column-by-column automatically — numeric columns get the
 // integer codecs, repeated string columns collapse — with no flag, and a
 // per-array probe falls back to the plain row encoding when columnar would
-// not help. Gorilla float coding is the one codec that trades CPU for
-// size, so it lives behind OptCompression.
+// not help. The float codecs that trade encode CPU for size live behind
+// OptCompression: Gorilla XOR on smooth series, ALP on quantized/decimal
+// float64 grids (quantized telemetry, prices, latencies).
 //
 // # Concurrency
 //

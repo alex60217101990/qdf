@@ -186,9 +186,10 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xEF  tagColStruct      (QPack)   columnar container for []struct; see below
 0xF0..0xF2  tagExt8/16/32         user-extension envelope
 0xF3        tagTimestamp          int64 ns since unix epoch
+0xF4  tagPackALP        (QPack)   ALP decimal-coded []float64 slice
 ```
 
-Tags 0xEE, 0xF4..0xFF are reserved.
+Tags 0xEE, 0xF5..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A

@@ -68,7 +68,7 @@ slice is valid until the next call.
 |---|---|---|
 | `OptSpeed` | No codecs. Raw tag stream. | Hot request path, single events, latency under 1 µs. |
 | `OptBalanced` | Dense interning + QPack + shape interning + Markov predictors + MTF. | Telemetry, logs, event batches with repeating string fields or numeric slices. Good default. |
-| `OptCompression` | `OptBalanced` + Gorilla XOR for float slices. | Cold storage, backup, archive. Wire size matters more than encode CPU. |
+| `OptCompression` | `OptBalanced` + Gorilla XOR and ALP decimal coding for float slices. | Cold storage, backup, archive. Wire size matters more than encode CPU. |
 
 Decision list:
 
@@ -125,6 +125,7 @@ time. You do not need to hint it — just set the bit.
 | `[]intN`, run-heavy (status codes, enum-like, sparse counters) | RLE (value, runLen pairs) | `OptQPack` |
 | `[]intN`, small distinct cardinality (≤16), wide value range | Dictionary codec | `OptQPack` |
 | `[]float64`/`[]float32`, smooth time-series | Gorilla XOR | `OptCompression` (or `OptGorillaFloat`) |
+| `[]float64`, quantized/decimal grid (prices, percentages, latencies) | ALP decimal (integer-mantissa FOR + exception list) | `OptCompression` |
 | Repeated strings / `[]byte` across messages | Intern table + state-ref | `OptDense` |
 | Arrays of identical struct type | Shape interning | `OptBalanced` |
 | Predictable field transitions (e.g. service→region) | Markov-1 pair predictor | `OptBalanced` |
@@ -132,17 +133,19 @@ time. You do not need to hint it — just set the bit.
 
 The encoder probes a slice's structure before committing. For
 integer slices it evaluates FOR, Delta+FOR, RLE, and dict by
-predicted wire size and picks the smallest. For float slices, Gorilla
-is evaluated only when `OptGorillaFloat` is set, via a 32-sample XOR
-probe (~30 ns); it falls back to raw-LE if the projected cost is not
-clearly below 64 bits/sample.
+predicted wire size and picks the smallest. For `[]float64` under
+`OptCompression` it picks the smallest of raw-LE, a Gorilla XOR
+projection (32-sample probe), and an ALP decimal estimate; the ALP
+estimate is a conservative upper bound, so ALP is chosen only when it
+is strictly smaller than both — no smooth-float workload regresses.
 
 FOR/Delta+FOR win on tight or monotonic integer ranges. RLE wins when
 a handful of distinct values repeat in long runs. Dict wins when the
 cardinality is small but values are spread wide (e.g. HTTP status
 codes 200/301/404/500 scattered randomly — no long runs, not a tight
-range). Gorilla wins on sensor data and quantised metric streams; it
-loses on white noise.
+range). Gorilla wins on smooth sensor data; it loses on white noise.
+ALP wins on quantized/decimal streams (2-decimal metrics, prices,
+latencies) that sit on a fixed grid Gorilla cannot exploit.
 
 ---
 
