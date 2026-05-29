@@ -77,10 +77,15 @@ func bitUnpackU64LE(out []uint64, in []byte, bitsPer int) {
 		return
 	}
 	// Remaining small widths (1-7, 9, 11, 13) go through the general
-	// VPSRLVQ kernel under qdf_simd; it falls back to the scalar window
-	// on non-SIMD builds or non-AVX2 CPUs.
+	// 4-value VPSRLVQ kernel; the wider non-aligned widths (15, 17-19,
+	// 21-28) use the 2-value kernel. Both fall back to the scalar window
+	// on non-SIMD builds or non-AVX2 CPUs. Widths >= 29 stay scalar.
 	if bitsPer <= 14 {
 		unpackBitsVar(out, in, bitsPer)
+		return
+	}
+	if bitsPer <= 28 {
+		unpackBitsVarWide(out, in, bitsPer)
 		return
 	}
 	bitUnpackU64LEFast(out, in, bitsPer)

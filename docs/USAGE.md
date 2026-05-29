@@ -254,12 +254,14 @@ Only the QPack codecs that pack fixed-width integers and booleans:
 | Operation | Accelerated widths | Typical speedup vs scalar |
 | --------- | ------------------ | ------------------------- |
 | Integer **decode** (FOR) | 8, 16, 32 (byte-aligned, `VPMOVZX`) | ~3–8× |
-| Integer **decode** (FOR) | all widths 1–14, plus 20 (`VPSRLVQ`) | ~7–11× |
+| Integer **decode** (FOR) | 1–14 (4 values/iter, `VPSRLVQ`) | ~7–11× |
+| Integer **decode** (FOR) | 15–28 (2 values/iter, `VPSRLVQ`) | ~5–7× |
 | Integer **encode** (FOR) | 8, 16, 32 (`VPSHUFB`) | ~2–5× |
 | `[]bool` pack | — | large |
 
-Decode is the most broadly accelerated: every width up to 14 bits per value
-(the common range for packed FOR deltas) plus 16/20/32 has a SIMD path.
+Decode is the most broadly accelerated: every bit width from 1 to 28 (plus
+32) has a SIMD path. Only widths 29–31 and 33–56 still run the scalar
+window — uncommon for real FOR deltas.
 
 Everything else runs the same scalar code whether or not the tag is set:
 strings, maps, struct shapes, varints, the Gorilla and ALP float codecs, and

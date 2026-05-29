@@ -116,6 +116,47 @@ func unpackBitsVar(out []uint64, in []byte, b int) {
 	}
 }
 
+//go:noescape
+func unpackBitsVarWide2AVX2(out []uint64, in []byte, pairs int, twoB int, shifts *[16]uint64, mask uint64)
+
+// unpackBitsVarWide decodes a width b in [15,28] — too wide for four values
+// in a 64-bit window, but two values fit (7 + 2*28 < 64). It processes 2
+// values per VPSRLVQ iteration with a per-pair in-byte offset; `shifts`
+// holds the 8 possible 2-lane shift vectors (one per offset 0..7). pairs is
+// bounded by read headroom (each pair loads 8 bytes) and by a byte-aligned
+// handoff so the scalar tail resumes on a byte boundary.
+func unpackBitsVarWide(out []uint64, in []byte, b int) {
+	n := len(out)
+	if n == 0 {
+		return
+	}
+	pairs := 0
+	if hasAVX2 && b >= 15 && b <= 28 {
+		var shifts [16]uint64
+		for off := 0; off < 8; off++ {
+			shifts[off*2+0] = uint64(off)
+			shifts[off*2+1] = uint64(off + b)
+		}
+		mask := uint64(1)<<uint(b) - 1
+		pairs = n / 2
+		// Last pair's VPBROADCASTQ reads 8 bytes at ((pairs-1)*2b)>>3.
+		for pairs > 0 && ((pairs-1)*2*b)/8+8 > len(in) {
+			pairs--
+		}
+		// The scalar tail resumes at bit 2*pairs*b, which must be a whole
+		// number of bytes.
+		for pairs > 0 && (2*pairs*b)%8 != 0 {
+			pairs--
+		}
+		if pairs > 0 {
+			unpackBitsVarWide2AVX2(out[:2*pairs], in, pairs, 2*b, &shifts, mask)
+		}
+	}
+	if done := 2 * pairs; done < n {
+		bitUnpackU64LEFast(out[done:], in[(2*pairs*b)/8:], b)
+	}
+}
+
 // unpackBits10 decodes a width-10 FOR stream: 4 values per byte-aligned
 // 5-byte chunk via VPSRLVQ, scalar tail for the remainder.
 func unpackBits10(out []uint64, in []byte) {

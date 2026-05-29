@@ -584,11 +584,12 @@ encoder calls them once per slice and picks the smallest.
 inner loops, both directions:
 
 - **Decode** (`VPMOVZX*`) at byte-aligned `bitsPer ∈ {8, 16, 32}`,
-  and (`VPBROADCASTQ` + `VPSRLVQ`) at every width `1..14` plus `20` —
-  fixed-shift kernels for `{10,12,14,20}`, and a general kernel
-  (table-indexed per-group offset) for the rest, including odd widths.
-  Each group of four values fits one 64-bit broadcast (`7 + 4*14 < 64`),
-  shifted per-lane and masked.
+  and (`VPBROADCASTQ` + `VPSRLVQ`) at every width `1..28`. Two general
+  kernels load one 8-byte window per group and shift each lane by a
+  per-group offset selected from a small table: 4 values/iter for
+  `b ≤ 14` (`7 + 4·14 < 64`), 2 values/iter for `15 ≤ b ≤ 28`
+  (`7 + 2·28 < 64`). Fixed-shift kernels handle the hot `{10,12,14,20}`.
+  Widths 29–31 and 33–56 stay on the scalar window.
 - **Encode** (`VPSHUFB` byte-gather) at `{8, 16, 32}` — the mirror of
   the decode fast path.
 - `[]bool` pack (`VPSLLW` + `VPMOVMSKB`).
@@ -804,7 +805,7 @@ payloads.
 
 | Tag             | Effect                                                                                                                                                                                                                                                                                | Platform                              |
 |-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `qdf_simd`      | AVX2 for the QPack integer/bool codecs: decode at every `bits ∈ 1..14` plus `{16,20,32}`, encode at `{8,16,32}`, `[]bool` pack. Output byte-identical to scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently; other arches compile a stub. See docs/USAGE.md for when to use it. | amd64; AVX2 detected at run time      |
+| `qdf_simd`      | AVX2 for the QPack integer/bool codecs: decode at every `bits ∈ 1..28` plus `32`, encode at `{8,16,32}`, `[]bool` pack. Output byte-identical to scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently; other arches compile a stub. See docs/USAGE.md for when to use it. | amd64; AVX2 detected at run time      |
 | `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` / `reflect.New` for `modern-go/reflect2` unsafe equivalents.                                                                                                                                                                             | none — pure Go                        |
 
 Combine freely:

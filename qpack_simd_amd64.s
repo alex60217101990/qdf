@@ -482,3 +482,45 @@ loop_var:
 done_var:
 	VZEROUPPER
 	RET
+
+// func unpackBitsVarWide2AVX2(out []uint64, in []byte, pairs int, twoB int, shifts *[16]uint64, mask uint64)
+//
+// General width-b decoder for b in [15,28]: two values per iteration. Two
+// consecutive values plus the worst in-byte offset fit a single 64-bit
+// window (7 + 2*28 = 63 < 64), so each pair loads 8 bytes at its start
+// byte, VPBROADCASTQ to both 128-bit lanes, then VPSRLVQ by per-pair shift
+// [off, off+b] and AND mask. `shifts` is a caller-built table of those
+// 2-lane vectors indexed by off (0..7); `twoB` is 2*b. The caller bounds
+// pairs by read headroom and a byte-aligned handoff. mask = (1<<b)-1.
+TEXT ·unpackBitsVarWide2AVX2(SB), NOSPLIT, $0-80
+	MOVQ         out_base+0(FP), DI
+	MOVQ         in_base+24(FP), BX
+	MOVQ         pairs+48(FP), R10
+	MOVQ         twoB+56(FP), R9
+	MOVQ         shifts+64(FP), R11
+	MOVQ         mask+72(FP), AX
+	MOVQ         AX, X2
+	VPBROADCASTQ X2, X2
+	XORQ         R8, R8
+
+loop_vw:
+	TESTQ        R10, R10
+	JZ           done_vw
+	MOVQ         R8, AX
+	MOVQ         R8, DX
+	SHRQ         $3, AX
+	ANDQ         $7, DX
+	VPBROADCASTQ (BX)(AX*1), X0
+	SHLQ         $4, DX
+	VMOVDQU      (R11)(DX*1), X1
+	VPSRLVQ      X1, X0, X0
+	VPAND        X2, X0, X0
+	VMOVDQU      X0, (DI)
+	ADDQ         R9, R8
+	ADDQ         $16, DI
+	DECQ         R10
+	JMP          loop_vw
+
+done_vw:
+	VZEROUPPER
+	RET
