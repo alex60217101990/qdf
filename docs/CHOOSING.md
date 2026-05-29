@@ -158,6 +158,28 @@ run-fraction probe over the first 32 elements and only commits to
 RLE if the win is real, so unrelated random `[]int` columns stay
 on raw / FOR without paying the estimator cost.
 
+### Latency / outlier-heavy int column
+
+A long `[]int`/`[]uint64` that is mostly small but carries a rare
+tail of large values — request latencies in microseconds with the
+occasional slow request, byte counters with the odd jumbo payload,
+counters that reset. The spikes are what kill plain Frame-of-Reference:
+a handful of large values force every slot to a wide bit count.
+
+**Recipe:** `qdf.OptQPack`
+
+```go
+b, err := qdf.Marshal(batch, qdf.OptQPack)
+```
+
+The picker evaluates Patched FOR (`tagPackPFor`): it packs the common
+case at a reduced bit width and stores the few outliers in an exception
+list. On a 1024-element latency column with ~1 % spikes this lands at
+**1 215 bytes** versus 2 566 for plain FOR (~53 % smaller). The PFOR
+cost estimate uses a conservative upper bound, so it is chosen only
+when strictly smaller than every other codec — a clean, tightly-ranged
+column keeps FOR and the wire is byte-identical.
+
 ### Embedding vector / dense float array
 
 Single `[]float32` or `[]float64` of 100s–1000s of elements. The
@@ -261,7 +283,7 @@ Compile-time switches, orthogonal to runtime `Options`. Build with
 
 | Tag           | What it does                                                          | When to use                                                   |
 | ------------- | --------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `qdf_simd`    | Compiles in AVX2 bit-unpack for FOR / Delta+FOR codecs (decode side). | amd64, large numeric payloads under `OptQPack` or `OptBalanced`. CPUID-gated at runtime — safe to ship even if the target doesn't have AVX2 (falls back to scalar). |
+| `qdf_simd`    | Compiles in AVX2/NEON bit-unpack shared by every bit-packed integer codec (FOR, Delta+FOR, dict, Patched FOR) on the decode side. | amd64 (AVX2, CPUID-gated) or arm64 (NEON, baseline), large numeric payloads under `OptQPack` or `OptBalanced`. Safe to ship even without AVX2 (falls back to scalar). |
 | `qdf_reflect2`| Swaps the reflect-based allocator for `github.com/modern-go/reflect2`. | Profile shows `reflect.MakeSlice` / `reflect.MakeMap` on the decode hot path. Otherwise leave off. |
 
 These tags affect linked binary contents (different SIMD code paths,
