@@ -580,13 +580,22 @@ encoder calls them once per slice and picks the smallest.
 
 #### SIMD AVX2 (`qdf_simd` build tag)
 
-`qpack_simd_amd64.s` is hand-rolled AVX2 for the bit-unpack inner
-loop at `bitsPer ∈ {8, 16, 32}`. 22–53× faster than the scalar
-fallback at memory-bandwidth saturation (~50 GB/s on
-i7-9750H). CPUID-gated at runtime; non-amd64 builds compile a stub.
+`qpack_simd_amd64.s` is hand-rolled AVX2 for the QPack integer/bool
+inner loops, both directions:
 
-Encode-side SIMD is not yet implemented — the encode
-inner loop is still scalar today.
+- **Decode** (`VPMOVZX*`) at byte-aligned `bitsPer ∈ {8, 16, 32}`,
+  and (`VPBROADCASTQ` + `VPSRLVQ`) at the common non-byte-aligned
+  widths `{10, 12, 14, 20}` — each group of values shares one
+  byte-aligned chunk that fits a 64-bit broadcast, shifted per-lane.
+- **Encode** (`VPSHUFB` byte-gather) at `{8, 16, 32}` — the mirror of
+  the decode fast path.
+- `[]bool` pack (`VPSLLW` + `VPMOVMSKB`).
+
+Widths not listed (odd widths, ≥ ~24 non-aligned) and the float
+codecs stay on the scalar path. CPUID-gated at runtime; non-amd64
+builds compile a scalar stub. Output is byte-identical to scalar —
+the tag is a pure speed switch. See `docs/USAGE.md` for a
+plain-language "when to use it" guide.
 
 ### reflect2 swap (`qdf_reflect2` build tag)
 
@@ -793,7 +802,7 @@ payloads.
 
 | Tag             | Effect                                                                                                                                                                                                                                                                                | Platform                              |
 |-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `qdf_simd`      | AVX2 bit-unpack at `bits ∈ {8, 16, 32}`. 22–53× over scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently. Other arches compile a stub. | amd64; AVX2 detected at run time      |
+| `qdf_simd`      | AVX2 for the QPack integer/bool codecs: decode at `bits ∈ {8,16,32,10,12,14,20}`, encode at `{8,16,32}`, `[]bool` pack. Output byte-identical to scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently; other arches compile a stub. See docs/USAGE.md for when to use it. | amd64; AVX2 detected at run time      |
 | `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` / `reflect.New` for `modern-go/reflect2` unsafe equivalents.                                                                                                                                                                             | none — pure Go                        |
 
 Combine freely:

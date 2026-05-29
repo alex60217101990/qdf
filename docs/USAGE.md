@@ -227,5 +227,72 @@ wg.Wait()
   `MarshalQDF`/`UnmarshalQDF` methods that bypass reflect entirely.
   Worth it for hot paths encoding the same struct type millions of
   times — typically 30–60% faster than the reflect path on encode.
-- Build with `-tags qdf_simd` on amd64 to enable AVX2-accelerated
-  bit-unpack for QPack codecs (~50 GB/s, runtime CPUID-gated).
+- Build with `-tags qdf_simd` on amd64 to accelerate the numeric-slice
+  codecs with AVX2. It is opt-in and changes nothing else — see the
+  section below for when it actually helps.
+
+---
+
+## SIMD acceleration (`qdf_simd` build tag)
+
+`qdf_simd` is an **opt-in build tag** that swaps hand-written AVX2 assembly
+into the inner loops of the numeric-slice (QPack) codecs:
+
+```bash
+go build -tags qdf_simd ./...
+go test  -tags qdf_simd ./...
+```
+
+It is **off by default**. Turning it on does **not** change the wire format,
+the API, or the output — encoded bytes are byte-for-byte identical with and
+without the tag. It is purely a speed switch, safe to flip.
+
+### What it speeds up
+
+Only the QPack codecs that pack fixed-width integers and booleans:
+
+| Operation | Accelerated widths | Typical speedup vs scalar |
+| --------- | ------------------ | ------------------------- |
+| Integer **decode** (FOR) | 8, 16, 32 (byte-aligned) | ~3–8× |
+| Integer **decode** (FOR) | 10, 12, 14, 20 (common packed widths) | ~7–11× |
+| Integer **encode** (FOR) | 8, 16, 32 | ~2–5× |
+| `[]bool` pack | — | large |
+
+Everything else runs the same scalar code whether or not the tag is set:
+strings, maps, struct shapes, varints, the Gorilla and ALP float codecs, and
+integer widths not listed above. The tag simply doesn't touch them.
+
+### When it helps
+
+- Payloads dominated by **large numeric or boolean slices** that go through
+  QPack/FOR: metrics, counters, sensor batches, columnar numeric rows,
+  integer-quantized embeddings. The bigger the slices, the bigger the win —
+  it is a per-element inner-loop speedup, so fixed overhead dominates on small
+  slices.
+
+### When it does *not* help
+
+- Small payloads, single objects, config-shaped data (few or short slices) —
+  the overhead swamps any gain.
+- String-heavy, map-heavy, or struct-shape-heavy payloads — those paths are
+  scalar regardless of the tag.
+- Float time-series (Gorilla / ALP) — not SIMD-accelerated yet.
+
+### Architectures
+
+- **amd64 with AVX2** is the only accelerated target. A runtime CPUID check
+  gates the asm: on a CPU without AVX2 it transparently falls back to scalar,
+  so the binary still runs correctly everywhere.
+- **Other architectures** (arm64, etc.) compile a scalar stub — building with
+  the tag is safe but gives no speedup. (arm64 NEON is a possible future
+  addition, not implemented today.)
+- No special environment is required — plain `-tags qdf_simd` is enough.
+
+### Recommendation
+
+Use the default build unless profiling shows that encode/decode of numeric
+slices is a hot spot **and** your payloads carry big integer/bool slices. In
+that case enable `qdf_simd` and measure on your real data
+(`go test -bench` with and without the tag) — if your data is string- or
+struct-heavy, expect little change. Because the output is identical and the
+fallback is automatic, it is safe to enable broadly; worst case it is a no-op.
