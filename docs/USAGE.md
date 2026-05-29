@@ -310,12 +310,14 @@ integer widths not listed above. The tag simply doesn't touch them.
 
 ### Architectures
 
-- **amd64 with AVX2** is the only accelerated target. A runtime CPUID check
-  gates the asm: on a CPU without AVX2 it transparently falls back to scalar,
-  so the binary still runs correctly everywhere.
-- **Other architectures** (arm64, etc.) compile a scalar stub — building with
-  the tag is safe but gives no speedup. (arm64 NEON is a possible future
-  addition, not implemented today.)
+- **amd64 with AVX2** — full coverage: integer decode (1–28, 32), integer
+  encode (8/10/12/14/16/20/32), `[]bool` pack. A runtime CPUID check gates the
+  asm; a CPU without AVX2 transparently falls back to scalar.
+- **arm64 with NEON** — integer **decode** for widths 1–28 plus 32 (NEON is
+  baseline on arm64, no runtime gate). Encode and `[]bool` pack are scalar on
+  arm64 for now (a follow-up).
+- **Other architectures** compile a scalar stub — building with the tag is safe
+  but gives no speedup.
 - No special environment is required — plain `-tags qdf_simd` is enough.
 
 ### Recommendation

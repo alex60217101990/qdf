@@ -26,7 +26,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-24.04-arm gives a native arm64 lane so the qdf_simd NEON
+        # kernels are tested on real hardware (macos-latest is also arm64,
+        # but this is the canonical Linux arm64 runner).
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
