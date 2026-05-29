@@ -148,10 +148,11 @@ Tag space is msgpack-inspired with a few additions:
 | `0xEB`               | QPack: run-length encoded integer slice       |
 | `0xEC`               | Dense: struct/map shape declare / reuse       |
 | `0xED`               | QPack: dictionary-coded integer slice         |
+| `0xEE`               | QPack: Patched FOR integer slice (outliers)   |
 | `0xEF`               | QPack: columnar `[]struct` container          |
 | `0xF0..0xF3`         | ext / timestamp                               |
 | `0xF4`               | QPack: ALP decimal-coded `[]float64` slice    |
-| `0xEE`, `0xF5..0xFF` | reserved (rANS, n-gram graph, future)         |
+| `0xF5..0xFF`         | reserved (rANS, n-gram graph, future)         |
 
 The 5th header byte holds two flag bits: `FlagDense` (`0x01`) for the
 intern dialect, and `FlagQPack` (`0x02`) as an early hint that the body
@@ -387,6 +388,7 @@ floats).
 | Raw-LE     | numeric slice, large delta range                   | Unsafe-slice cast → single `memmove` of LE bytes. 10-50× faster.      |
 | FOR        | numeric slice, clustered values                    | Frame-of-Reference: store `min` and `ceil(log₂(max-min+1))`-bit deltas.|
 | Delta+FOR  | monotonic / near-monotonic integers                | Δᵢ = aᵢ - aᵢ₋₁, zigzag bias, FOR over the deltas.                     |
+| Patched FOR| integer slice with rare outliers (latency spikes)  | FOR body at a reduced width `b` + an exception list for the few values that don't fit. ~50% smaller than FOR on spiky columns. |
 | Gorilla    | float slices (explicit opt-in via low-level API)   | XOR with previous, run-length leading/meaningful-bit window. (Facebook VLDB 2015.) |
 
 Head-to-head on a mixed 256-bool / 512-monotonic-u64 / 512-i64 / 256-f64
