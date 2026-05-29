@@ -186,8 +186,15 @@ const (
 	// archive-style workloads where wire size dominates. Requires
 	// OptQPack.
 	OptGorillaFloat
-	// Bits 6..31 reserved for future codecs (rANS, LZ77, n-gram
-	// dictionary, etc.).
+
+	// OptRANS adds a final static order-0 rANS entropy pass over the whole
+	// encoded body. Opt-in (bundled into OptCompression) because it trades
+	// encode/decode CPU for wire size. The encoder applies it only when the
+	// rANS form is strictly smaller than the plain body, so it never makes a
+	// buffer larger. Whole-buffer, so the streaming encoder ignores it.
+	OptRANS
+
+	// Bits 7..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.
@@ -208,7 +215,7 @@ const (
 	// encode/decode CPU for wire size, so it stays out of the
 	// OptBalanced default; future heavy codecs (rANS, dictionary
 	// preloading) will land in this bundle without breaking the name.
-	OptCompression Options = OptBalanced | OptGorillaFloat
+	OptCompression Options = OptBalanced | OptGorillaFloat | OptRANS
 )
 
 // Has reports whether the named bit is set. Compiles to a single AND
