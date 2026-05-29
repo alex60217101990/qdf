@@ -34,6 +34,111 @@ func packBits16AVX2(out []byte, vals []uint64, n int)
 //go:noescape
 func packBits32AVX2(out []byte, vals []uint64, n int)
 
+//go:noescape
+func unpackBits12AVX2(out []uint64, in []byte, groups int)
+
+// unpackBits12 decodes a width-12 FOR stream: 4 values per byte-aligned
+// 6-byte chunk via VPBROADCASTQ + VPSRLVQ; the remainder (and the last
+// chunk, which lacks 8-byte read headroom) falls back to the scalar
+// sliding window. Byte-aligned handoff: 4*groups values consume exactly
+// 6*groups bytes.
+func unpackBits12(out []uint64, in []byte) {
+	n := len(out)
+	if n == 0 {
+		return
+	}
+	groups := 0
+	if hasAVX2 {
+		groups = n / 4
+		// The last chunk's VPBROADCASTQ reads in[6*(groups-1) : +8]; keep
+		// that read inside the buffer.
+		for groups > 0 && 6*(groups-1)+8 > len(in) {
+			groups--
+		}
+		if groups > 0 {
+			unpackBits12AVX2(out[:4*groups], in, groups)
+		}
+	}
+	if done := 4 * groups; done < n {
+		bitUnpackU64LEFast(out[done:], in[6*groups:], 12)
+	}
+}
+
+//go:noescape
+func unpackBits10AVX2(out []uint64, in []byte, groups int)
+
+//go:noescape
+func unpackBits14AVX2(out []uint64, in []byte, groups int)
+
+//go:noescape
+func unpackBits20AVX2(out []uint64, in []byte, pairs int)
+
+// unpackBits10 decodes a width-10 FOR stream: 4 values per byte-aligned
+// 5-byte chunk via VPSRLVQ, scalar tail for the remainder.
+func unpackBits10(out []uint64, in []byte) {
+	n := len(out)
+	if n == 0 {
+		return
+	}
+	groups := 0
+	if hasAVX2 {
+		groups = n / 4
+		for groups > 0 && 5*(groups-1)+8 > len(in) {
+			groups--
+		}
+		if groups > 0 {
+			unpackBits10AVX2(out[:4*groups], in, groups)
+		}
+	}
+	if done := 4 * groups; done < n {
+		bitUnpackU64LEFast(out[done:], in[5*groups:], 10)
+	}
+}
+
+// unpackBits14 decodes a width-14 FOR stream: 4 values per byte-aligned
+// 7-byte chunk.
+func unpackBits14(out []uint64, in []byte) {
+	n := len(out)
+	if n == 0 {
+		return
+	}
+	groups := 0
+	if hasAVX2 {
+		groups = n / 4
+		for groups > 0 && 7*(groups-1)+8 > len(in) {
+			groups--
+		}
+		if groups > 0 {
+			unpackBits14AVX2(out[:4*groups], in, groups)
+		}
+	}
+	if done := 4 * groups; done < n {
+		bitUnpackU64LEFast(out[done:], in[7*groups:], 14)
+	}
+}
+
+// unpackBits20 decodes a width-20 FOR stream: 2 values per byte-aligned
+// 5-byte chunk.
+func unpackBits20(out []uint64, in []byte) {
+	n := len(out)
+	if n == 0 {
+		return
+	}
+	pairs := 0
+	if hasAVX2 {
+		pairs = n / 2
+		for pairs > 0 && 5*(pairs-1)+8 > len(in) {
+			pairs--
+		}
+		if pairs > 0 {
+			unpackBits20AVX2(out[:2*pairs], in, pairs)
+		}
+	}
+	if done := 2 * pairs; done < n {
+		bitUnpackU64LEFast(out[done:], in[5*pairs:], 20)
+	}
+}
+
 // packBits8 writes the low byte of each value contiguously. With AVX2 it
 // dispatches to a Plan9-asm VPSHUFB gather (4 values -> 4 bytes per iter);
 // the tail (n%4) uses a scalar loop. Encode inverse of unpackBits8.

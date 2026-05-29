@@ -57,8 +57,20 @@ func bitUnpackU64LE(out []uint64, in []byte, bitsPer int) {
 	case 8:
 		unpackBits8(out, in)
 		return
+	case 10:
+		unpackBits10(out, in)
+		return
+	case 12:
+		unpackBits12(out, in)
+		return
+	case 14:
+		unpackBits14(out, in)
+		return
 	case 16:
 		unpackBits16(out, in)
+		return
+	case 20:
+		unpackBits20(out, in)
 		return
 	case 32:
 		unpackBits32(out, in)

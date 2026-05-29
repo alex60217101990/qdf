@@ -47,6 +47,12 @@ func packBits32(out []byte, vals []uint64) {
 	}
 }
 
+// unpackBits10/12/14/20 fallbacks: the scalar sliding-window decoder.
+func unpackBits10(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 10) }
+func unpackBits12(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 12) }
+func unpackBits14(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 14) }
+func unpackBits20(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 20) }
+
 // packBoolsBitsLSB fallback: plain scalar bit-by-bit pack.
 func packBoolsBitsLSB(dst []byte, src []bool, n int) {
 	for i := range n {

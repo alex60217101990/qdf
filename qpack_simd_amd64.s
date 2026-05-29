@@ -281,3 +281,160 @@ loop4_p32:
 done_p32:
 	VZEROUPPER
 	RET
+
+// shift12/mask12: four 12-bit values share a byte-aligned 48-bit chunk
+// (6 bytes) at offsets 0,12,24,36 — all within a single 64-bit broadcast.
+DATA shift12<>+0(SB)/8,  $0x0000000000000000
+DATA shift12<>+8(SB)/8,  $0x000000000000000C
+DATA shift12<>+16(SB)/8, $0x0000000000000018
+DATA shift12<>+24(SB)/8, $0x0000000000000024
+GLOBL shift12<>(SB), RODATA|NOPTR, $32
+DATA mask12<>+0(SB)/8,  $0x0000000000000FFF
+DATA mask12<>+8(SB)/8,  $0x0000000000000FFF
+DATA mask12<>+16(SB)/8, $0x0000000000000FFF
+DATA mask12<>+24(SB)/8, $0x0000000000000FFF
+GLOBL mask12<>(SB), RODATA|NOPTR, $32
+
+// func unpackBits12AVX2(out []uint64, in []byte, groups int)
+//
+// Decodes `groups` chunks of four 12-bit LSB-first values. Each chunk is
+// byte-aligned (48 bits = 6 bytes); VPBROADCASTQ loads the 8 bytes at the
+// chunk start (overreads 2) into all four lanes, VPSRLVQ shifts by
+// 0/12/24/36, then AND 0xFFF isolates each value. Writes 4 uint64 per
+// chunk, advances 6 input bytes. Caller guarantees len(out) >= 4*groups,
+// 6*(groups-1)+8 <= len(in), AVX2 available.
+TEXT ·unpackBits12AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    in_base+24(FP), SI
+	MOVQ    groups+48(FP), CX
+	VMOVDQU shift12<>(SB), Y1
+	VMOVDQU mask12<>(SB), Y2
+
+loop_p12:
+	TESTQ        CX, CX
+	JZ           done_p12
+	VPBROADCASTQ (SI), Y0
+	VPSRLVQ      Y1, Y0, Y0
+	VPAND        Y2, Y0, Y0
+	VMOVDQU      Y0, (DI)
+	ADDQ         $6, SI
+	ADDQ         $32, DI
+	DECQ         CX
+	JMP          loop_p12
+
+done_p12:
+	VZEROUPPER
+	RET
+
+// width-10: four 10-bit values share a byte-aligned 40-bit chunk (5 bytes)
+// at offsets 0,10,20,30. Four lanes -> 256-bit.
+DATA shift10<>+0(SB)/8,  $0x0000000000000000
+DATA shift10<>+8(SB)/8,  $0x000000000000000A
+DATA shift10<>+16(SB)/8, $0x0000000000000014
+DATA shift10<>+24(SB)/8, $0x000000000000001E
+GLOBL shift10<>(SB), RODATA|NOPTR, $32
+DATA mask10<>+0(SB)/8,  $0x00000000000003FF
+DATA mask10<>+8(SB)/8,  $0x00000000000003FF
+DATA mask10<>+16(SB)/8, $0x00000000000003FF
+DATA mask10<>+24(SB)/8, $0x00000000000003FF
+GLOBL mask10<>(SB), RODATA|NOPTR, $32
+
+// func unpackBits10AVX2(out []uint64, in []byte, groups int)
+// Each group: 4 values from a 5-byte chunk. VPBROADCASTQ the 8 bytes at
+// the chunk start (overreads 3) to all four lanes, VPSRLVQ by 0/10/20/30,
+// AND 0x3FF. Caller guarantees len(out) >= 4*groups, 5*(groups-1)+8 <=
+// len(in), AVX2 available.
+TEXT ·unpackBits10AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    in_base+24(FP), SI
+	MOVQ    groups+48(FP), CX
+	VMOVDQU shift10<>(SB), Y1
+	VMOVDQU mask10<>(SB), Y2
+
+loop_p10:
+	TESTQ        CX, CX
+	JZ           done_p10
+	VPBROADCASTQ (SI), Y0
+	VPSRLVQ      Y1, Y0, Y0
+	VPAND        Y2, Y0, Y0
+	VMOVDQU      Y0, (DI)
+	ADDQ         $5, SI
+	ADDQ         $32, DI
+	DECQ         CX
+	JMP          loop_p10
+
+done_p10:
+	VZEROUPPER
+	RET
+
+// width-14: four 14-bit values share a byte-aligned 56-bit chunk (7 bytes)
+// at offsets 0,14,28,42.
+DATA shift14<>+0(SB)/8,  $0x0000000000000000
+DATA shift14<>+8(SB)/8,  $0x000000000000000E
+DATA shift14<>+16(SB)/8, $0x000000000000001C
+DATA shift14<>+24(SB)/8, $0x000000000000002A
+GLOBL shift14<>(SB), RODATA|NOPTR, $32
+DATA mask14<>+0(SB)/8,  $0x0000000000003FFF
+DATA mask14<>+8(SB)/8,  $0x0000000000003FFF
+DATA mask14<>+16(SB)/8, $0x0000000000003FFF
+DATA mask14<>+24(SB)/8, $0x0000000000003FFF
+GLOBL mask14<>(SB), RODATA|NOPTR, $32
+
+// func unpackBits14AVX2(out []uint64, in []byte, groups int)
+// Each group: 4 values from a 7-byte chunk (overreads 1).
+TEXT ·unpackBits14AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    in_base+24(FP), SI
+	MOVQ    groups+48(FP), CX
+	VMOVDQU shift14<>(SB), Y1
+	VMOVDQU mask14<>(SB), Y2
+
+loop_p14:
+	TESTQ        CX, CX
+	JZ           done_p14
+	VPBROADCASTQ (SI), Y0
+	VPSRLVQ      Y1, Y0, Y0
+	VPAND        Y2, Y0, Y0
+	VMOVDQU      Y0, (DI)
+	ADDQ         $7, SI
+	ADDQ         $32, DI
+	DECQ         CX
+	JMP          loop_p14
+
+done_p14:
+	VZEROUPPER
+	RET
+
+// width-20: two 20-bit values share a byte-aligned 40-bit chunk (5 bytes)
+// at offsets 0,20. Two lanes -> 128-bit.
+DATA shift20<>+0(SB)/8, $0x0000000000000000
+DATA shift20<>+8(SB)/8, $0x0000000000000014
+GLOBL shift20<>(SB), RODATA|NOPTR, $16
+DATA mask20<>+0(SB)/8, $0x00000000000FFFFF
+DATA mask20<>+8(SB)/8, $0x00000000000FFFFF
+GLOBL mask20<>(SB), RODATA|NOPTR, $16
+
+// func unpackBits20AVX2(out []uint64, in []byte, pairs int)
+// Each pair: 2 values from a 5-byte chunk (overreads 3).
+TEXT ·unpackBits20AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    in_base+24(FP), SI
+	MOVQ    pairs+48(FP), CX
+	VMOVDQU shift20<>(SB), X1
+	VMOVDQU mask20<>(SB), X2
+
+loop_p20:
+	TESTQ        CX, CX
+	JZ           done_p20
+	VPBROADCASTQ (SI), X0
+	VPSRLVQ      X1, X0, X0
+	VPAND        X2, X0, X0
+	VMOVDQU      X0, (DI)
+	ADDQ         $5, SI
+	ADDQ         $16, DI
+	DECQ         CX
+	JMP          loop_p20
+
+done_p20:
+	VZEROUPPER
+	RET
