@@ -9,9 +9,10 @@ Operating modes compared:
   paths for common slice (`[]string`, `[]int*`, `[]uint*`,
   `[]float32/64`, `[]bool`) and map types.
 - **qdf_qpack** — Fast mode + QPack codecs (bit-packed bool, raw-LE,
-  Frame-of-Reference, Delta+FOR; Gorilla XOR available explicitly) for
-  numeric and bool slices. Auto-selects the smallest predicted form
-  per slice.
+  Frame-of-Reference, Delta+FOR, RLE, dictionary for numeric/bool
+  slices; Gorilla XOR and ALP decimal for float64 under
+  `OptCompression`). Auto-selects the smallest predicted form per
+  slice.
 - **qdf_dense** — qdf_qpack + inline state-table interning for
   repeating strings (logs, columnar telemetry).
 - **qdf_codegen** — code-generated `MarshalQDF`/`UnmarshalQDF` from
@@ -224,12 +225,15 @@ Payload: 256 booleans, 512 monotonic `uint64` (timestamps), 512 `int64`,
 | **qdf_qpack** |  **2 132** | **2 300** |  **2 600** |
 | **qdf_dense** |  **2 134** | **2 500** |  **2 500** |
 
-QPack auto-selects, per slice, between four codecs by predicted wire
-size: bit-packed bool, raw-LE bulk, Frame-of-Reference + bit-pack,
-and Delta + zigzag + FOR. Gorilla XOR is available for floats via the
-low-level helpers but not auto-selected (its bit-level work makes it
-~100× slower than raw-LE memmove; only worth it when size matters
-more than CPU).
+QPack auto-selects, per slice, by predicted wire size: bit-packed
+bool, raw-LE bulk, Frame-of-Reference + bit-pack, Delta + zigzag +
+FOR, run-length, and a low-cardinality dictionary codec for integer
+slices. Float slices add two codecs under `OptCompression` — Gorilla
+XOR for smooth series and ALP decimal for quantized/decimal grids —
+picked against raw-LE only when strictly smaller, since their
+bit-level work costs CPU that pays off only when size matters more.
+On a 2-decimal `metric_quant_1024` fixture ALP brings `OptCompression`
+to 2 592 B versus 8 238 B at `OptBalanced` (3.2× smaller).
 
 On a 1024-element monotonic Unix-second timestamp vector the Delta+FOR
 codec collapses the wire from 8 201 bytes (raw) to **16 bytes** —
