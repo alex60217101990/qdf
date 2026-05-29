@@ -26,6 +26,62 @@ func pforTestSlicesU64() [][]uint64 {
 	}
 }
 
+func pforTestSlicesI64() [][]int64 {
+	r := rand.New(rand.NewSource(2))
+	mk := func(n int, base int64, spikePct int, spike int64) []int64 {
+		s := make([]int64, n)
+		for i := range s {
+			if spikePct > 0 && r.Intn(100) < spikePct {
+				s[i] = spike + int64(r.Intn(1000))
+			} else {
+				s[i] = base + int64(r.Intn(16))
+			}
+		}
+		return s
+	}
+	return [][]int64{
+		mk(100, -1000, 1, 1<<40),    // negative min, rare huge spikes
+		mk(1000, -50, 3, -(1 << 20)), // 3% negative spikes
+		mk(257, 7, 0, 0),             // no spikes
+		mk(512, -(1 << 30), 2, 1<<45),
+	}
+}
+
+func TestPFor_RoundTripI64(t *testing.T) {
+	for ci, s := range pforTestSlicesI64() {
+		mn, mx := minMaxI64(s)
+		forBits := bitsForDelta(uint64(mx) - uint64(mn))
+		b, _, ok := pforPlanSigned(s, mn, forBits)
+		if !ok {
+			continue
+		}
+		var e Encoder
+		e.writePackedPForInt64Slice(s, mn, b)
+		var d Decoder
+		d.buf = e.buf
+		d.i = 0
+		if err := d.readHeader(); err != nil {
+			t.Fatalf("case %d header: %v", ci, err)
+		}
+		if d.buf[d.i] != tagPackPFor {
+			t.Fatalf("case %d: expected tagPackPFor", ci)
+		}
+		d.i++
+		got, err := d.readPackedPForInt64Slice()
+		if err != nil {
+			t.Fatalf("case %d decode: %v", ci, err)
+		}
+		if len(got) != len(s) {
+			t.Fatalf("case %d len %d != %d", ci, len(got), len(s))
+		}
+		for i := range s {
+			if got[i] != s[i] {
+				t.Fatalf("case %d i=%d: got %d want %d", ci, i, got[i], s[i])
+			}
+		}
+	}
+}
+
 func TestPFor_RoundTripU64(t *testing.T) {
 	for ci, s := range pforTestSlicesU64() {
 		if len(s) == 0 {
