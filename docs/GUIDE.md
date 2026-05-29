@@ -597,10 +597,17 @@ inner loops, both directions:
   scalar (they would need cross-chunk byte merging).
 - `[]bool` pack (`VPSLLW` + `VPMOVMSKB`).
 
-Widths not listed (odd widths, ≥ ~24 non-aligned) and the float
-codecs stay on the scalar path. CPUID-gated at runtime; non-amd64
-builds compile a scalar stub. Output is byte-identical to scalar —
-the tag is a pure speed switch. See `docs/USAGE.md` for a
+The float codecs stay on the scalar path. CPUID-gated at runtime on
+amd64; non-AVX2 amd64 falls back transparently.
+
+**arm64 NEON** (`qpack_simd_arm64.s`, baseline — no gate): integer
+**decode** for widths 1–28 plus 32 — `USHLL` zero-extend widen for
+8/16/32, and a 2-lane `VLD1R`+`USHL`(negative shift)+`VAND` kernel for
+the rest (the `USHL` register-variable shift is hand-encoded via `WORD`,
+which Go's arm64 assembler lacks). Encode and `[]bool` pack are scalar on
+arm64 for now. Other architectures compile a scalar stub. Output is
+byte-identical to scalar on every arch — the tag is a pure speed switch.
+See `docs/USAGE.md` for a
 plain-language "when to use it" guide.
 
 ### reflect2 swap (`qdf_reflect2` build tag)
@@ -837,7 +844,7 @@ payloads.
 
 | Tag             | Effect                                                                                                                                                                                                                                                                                | Platform                              |
 |-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `qdf_simd`      | AVX2 for the QPack integer/bool codecs: decode at every `bits ∈ 1..28` plus `32`, encode at `{8,10,12,14,16,20,32}`, `[]bool` pack. Output byte-identical to scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently; other arches compile a stub. See docs/USAGE.md for when to use it. | amd64; AVX2 detected at run time      |
+| `qdf_simd`      | SIMD for the QPack integer/bool codecs. **amd64 (AVX2):** decode `bits ∈ 1..28` plus `32`, encode `{8,10,12,14,16,20,32}`, `[]bool` pack; runtime CPUID gate, non-AVX2 falls back. **arm64 (NEON):** decode `1..28` plus `32` (encode/bool scalar for now), baseline — no gate. Other arches compile a scalar stub. Output byte-identical to scalar. See docs/USAGE.md. | amd64 (AVX2 at run time) / arm64 (NEON) |
 | `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` / `reflect.New` for `modern-go/reflect2` unsafe equivalents.                                                                                                                                                                             | none — pure Go                        |
 
 Combine freely:
