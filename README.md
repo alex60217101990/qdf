@@ -694,7 +694,7 @@ QPack codecs, and a 128-bit sliding-window bit-unpacker for FOR / Delta+FOR.
 | Tag             | Effect                                                                                                  | Build prerequisite |
 | --------------- | ------------------------------------------------------------------------------------------------------- | ------------------ |
 | `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` for `modern-go/reflect2` unsafe equivalents. Smaller decode allocations on map / slice heavy workloads. | none — pure Go     |
-| `qdf_simd`      | AVX2 fast path for QPack bit-unpack at bits ∈ {8, 16, 32}. 22-53× over the pure-Go path on those widths (≈ 50 GB/s, memory-bandwidth bound). Runtime CPUID gate via `golang.org/x/sys/cpu`; older amd64 without AVX2 transparently falls back to the scalar zero-extend. Non-amd64 targets compile a stub. | amd64; AVX2 detected at run time |
+| `qdf_simd`      | AVX2 fast paths for the QPack integer/bool codecs: decode at bits ∈ {8,16,32} (`VPMOVZX`) and {10,12,14,20} (`VPBROADCASTQ`+`VPSRLVQ`), encode at {8,16,32} (`VPSHUFB`), `[]bool` pack. ~3-11× over the pure-Go path on those widths. Output byte-identical to scalar. Runtime CPUID gate via `golang.org/x/sys/cpu`; older amd64 without AVX2 falls back transparently; non-amd64 targets compile a stub. See `docs/USAGE.md` for when to use it. | amd64; AVX2 detected at run time |
 
 ```bash
 go build -tags qdf_reflect2 ./...
@@ -702,10 +702,10 @@ go build -tags qdf_simd ./...
 go build -tags "qdf_simd qdf_reflect2" ./...   # combined
 ```
 
-The `qdf_simd` path only changes behaviour for QPack-encoded numeric
-slices whose chosen codec is FOR or Delta+FOR at one of the byte-aligned
-bit widths; other widths and other codecs run the pure-Go path
-unchanged.
+The `qdf_simd` path only changes the speed of QPack-encoded numeric and
+bool slices at the accelerated widths; string / map / struct paths, the
+float codecs, and other bit widths run the pure-Go path unchanged. It is
+a pure speed switch — the wire format and output are identical.
 
 ---
 
