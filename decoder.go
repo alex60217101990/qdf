@@ -1186,6 +1186,63 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += int((n64*uint64(bp) + 7) / 8)
 		return nil
+	case tagPackPFor:
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		k := d.buf[d.i]
+		d.i++
+		if k != qpackKindUint64 && k != qpackKindInt64 {
+			return ErrBadTag
+		}
+		n64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		b := int(d.buf[d.i])
+		d.i++
+		if b > qpackForMaxBits {
+			return ErrBadTag
+		}
+		// min varuint
+		if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 {
+			return ErrInvalidLength
+		} else {
+			d.i += nr
+		}
+		// body: n*b bits
+		rem := uint64(len(d.buf) - d.i)
+		if b > 0 && n64 > rem*8/uint64(b) {
+			return ErrShortBuffer
+		}
+		d.i += int((n64*uint64(b) + 7) / 8)
+		// exception list: excN pairs of (dPos, delta) varuints
+		excN64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if excN64 > n64 {
+			return ErrInvalidLength
+		}
+		for range excN64 {
+			if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 {
+				return ErrInvalidLength
+			} else {
+				d.i += nr
+			}
+			if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 {
+				return ErrInvalidLength
+			} else {
+				d.i += nr
+			}
+		}
+		return nil
 	}
 	return ErrBadTag
 }
