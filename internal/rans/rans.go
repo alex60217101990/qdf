@@ -34,7 +34,7 @@ func buildFreqs(src []byte) (freq [256]uint32, cum [257]uint32) {
 	}
 	n := uint64(len(src))
 	var total uint32
-	for s := 0; s < 256; s++ {
+	for s := range 256 {
 		if raw[s] == 0 {
 			continue
 		}
@@ -49,7 +49,7 @@ func buildFreqs(src []byte) (freq [256]uint32, cum [257]uint32) {
 	// current largest frequency each step; never drop a used symbol below 1.
 	for total > scale {
 		bi, bf := -1, uint32(0)
-		for s := 0; s < 256; s++ {
+		for s := range 256 {
 			if freq[s] > 1 && freq[s] > bf {
 				bf, bi = freq[s], s
 			}
@@ -59,7 +59,7 @@ func buildFreqs(src []byte) (freq [256]uint32, cum [257]uint32) {
 	}
 	for total < scale {
 		bi, bf := -1, uint32(0)
-		for s := 0; s < 256; s++ {
+		for s := range 256 {
 			if freq[s] > bf {
 				bf, bi = freq[s], s
 			}
@@ -68,7 +68,7 @@ func buildFreqs(src []byte) (freq [256]uint32, cum [257]uint32) {
 		total++
 	}
 	var c uint32
-	for s := 0; s < 256; s++ {
+	for s := range 256 {
 		cum[s] = c
 		c += freq[s]
 	}
@@ -79,7 +79,7 @@ func buildFreqs(src []byte) (freq [256]uint32, cum [257]uint32) {
 // buildSlot returns the 4096-entry slot->symbol lookup for decode.
 func buildSlot(cum *[257]uint32) *[scale]byte {
 	var slot [scale]byte
-	for s := 0; s < 256; s++ {
+	for s := range 256 {
 		for c := cum[s]; c < cum[s+1]; c++ {
 			slot[c] = byte(s)
 		}
@@ -103,7 +103,7 @@ func encodeStream(src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
 			buf[pos] = byte(x)
 			x >>= 8
 		}
-		x = ((x/f)<<scaleBits) + (x%f) + cum[s]
+		x = ((x / f) << scaleBits) + (x % f) + cum[s]
 	}
 	pos -= 4
 	binary.LittleEndian.PutUint32(buf[pos:], x)
@@ -118,7 +118,7 @@ func decodeStream(stream []byte, freq *[256]uint32, slot *[scale]byte, cum *[257
 	x := binary.LittleEndian.Uint32(stream[:4])
 	pos := 4
 	out := make([]byte, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s := slot[x&(scale-1)]
 		out[i] = s
 		x = freq[s]*(x>>scaleBits) + (x & (scale - 1)) - cum[s]
@@ -135,7 +135,7 @@ func decodeStream(stream []byte, freq *[256]uint32, slot *[scale]byte, cum *[257
 
 // appendTable serializes the 256 normalized frequencies as varuints.
 func appendTable(dst []byte, freq *[256]uint32) []byte {
-	for s := 0; s < 256; s++ {
+	for s := range 256 {
 		dst = appendUvarint(dst, uint64(freq[s]))
 	}
 	return dst
@@ -146,7 +146,7 @@ func appendTable(dst []byte, freq *[256]uint32) []byte {
 func parseTable(src []byte) (freq [256]uint32, cum [257]uint32, used int, err error) {
 	pos := 0
 	var total uint32
-	for s := 0; s < 256; s++ {
+	for s := range 256 {
 		v, k := uvarint(src[pos:])
 		if k <= 0 {
 			return freq, cum, 0, ErrBadTable
@@ -162,7 +162,7 @@ func parseTable(src []byte) (freq [256]uint32, cum [257]uint32, used int, err er
 		return freq, cum, 0, ErrBadTable
 	}
 	var c uint32
-	for s := 0; s < 256; s++ {
+	for s := range 256 {
 		cum[s] = c
 		c += freq[s]
 	}

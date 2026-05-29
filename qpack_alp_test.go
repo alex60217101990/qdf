@@ -121,11 +121,14 @@ func TestALPPickerChoosesByData(t *testing.T) {
 	quant := alpFixtureQuantized()
 	smooth := alpFixtureSmooth()
 
-	encQuant, err := Marshal(alpProbe{V: quant}, OptCompression)
+	// Inspect the codec choice on the raw wire, so exclude the rANS entropy
+	// post-pass (it would wrap the body and hide the inner tag).
+	codecOpts := OptCompression &^ OptRANS
+	encQuant, err := Marshal(alpProbe{V: quant}, codecOpts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encSmooth, err := Marshal(alpProbe{V: smooth}, OptCompression)
+	encSmooth, err := Marshal(alpProbe{V: smooth}, codecOpts)
 	if err != nil {
 		t.Fatal(err)
 	}
