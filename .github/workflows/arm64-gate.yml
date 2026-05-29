@@ -35,7 +35,7 @@ jobs:
       - name: bench NEON vs scalar
         run: |
           set -euo pipefail
-          go test -tags qdf_simd -run=^$ -bench='BenchmarkUnpack(8|16|32)$' -benchtime=300ms -count=6 . | tee /tmp/neon.txt
-          go test            -run=^$ -bench='BenchmarkUnpack(8|16|32)$' -benchtime=300ms -count=6 . | tee /tmp/scalar.txt
+          go test -tags qdf_simd -run=^$ -bench='BenchmarkUnpack' -benchtime=300ms -count=6 . | tee /tmp/neon.txt
+          go test            -run=^$ -bench='BenchmarkUnpack' -benchtime=300ms -count=6 . | tee /tmp/scalar.txt
           echo '==== NEON (qdf_simd) ===='; grep Unpack /tmp/neon.txt
           echo '==== scalar (default) ===='; grep Unpack /tmp/scalar.txt
