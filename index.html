@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>qdf — benchmarks & coverage</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 48rem; margin: 3rem auto; padding: 0 1.25rem; }
+    h1 { margin-bottom: 0.25rem; }
+    p.sub { color: #888; margin-top: 0; }
+    ul { list-style: none; padding: 0; }
+    li { margin: 0.75rem 0; }
+    a.card { display: block; padding: 1rem 1.25rem; border: 1px solid #8884; border-radius: 10px; text-decoration: none; }
+    a.card:hover { border-color: #888; }
+    a.card b { display: block; font-size: 1.1rem; }
+    a.card span { color: #888; font-size: 0.9rem; }
+    .note { font-size: 0.85rem; color: #888; border-left: 3px solid #8884; padding-left: 0.75rem; }
+  </style>
+</head>
+<body>
+  <h1>qdf</h1>
+  <p class="sub">compact, streaming-friendly binary serialization for Go</p>
+
+  <ul>
+    <li><a class="card" href="./dev/bench/">
+      <b>Benchmark trends &rarr;</b>
+      <span>per-commit ns/op, B/op, allocs/op with regression alerts</span>
+    </a></li>
+    <li><a class="card" href="./coverage.html">
+      <b>Coverage snapshot &rarr;</b>
+      <span>latest <code>go tool cover</code> HTML report</span>
+    </a></li>
+    <li><a class="card" href="https://codecov.io/gh/alex60217101990/qdf">
+      <b>Codecov &rarr;</b>
+      <span>coverage history, sunburst, file-level view</span>
+    </a></li>
+    <li><a class="card" href="https://github.com/alex60217101990/qdf">
+      <b>Repository &rarr;</b>
+      <span>source, README, wire-format docs</span>
+    </a></li>
+  </ul>
+
+  <p class="note">
+    Benchmark numbers come from shared GitHub-hosted runners and are meaningful
+    as a <em>relative trend</em>, not as absolute performance. Headline numbers
+    in the README are measured on dedicated hardware.
+  </p>
+</body>
+</html>
