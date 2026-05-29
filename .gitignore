@@ -29,3 +29,5 @@ profile.out
 # Local concept notes — kept on disk, excluded from the PR.
 qdf.md
 qdf-*.md
+docs/PLAN*.md
+docs/superpowers
