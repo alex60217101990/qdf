@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"encoding/binary"
 	"math/rand"
 	"testing"
 )
@@ -118,4 +119,46 @@ func TestPFor_RoundTripU64(t *testing.T) {
 			}
 		}
 	}
+}
+
+func FuzzPForRoundTrip(f *testing.F) {
+	f.Add([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+	f.Add(make([]byte, 256))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		n := len(raw) / 8
+		if n == 0 {
+			return
+		}
+		s := make([]uint64, n)
+		for i := range s {
+			s[i] = binary.LittleEndian.Uint64(raw[i*8:])
+		}
+		mn, mx := minMaxU64(s)
+		forBits := bitsForDelta(mx - mn)
+		b, _, ok := pforPlanUnsigned(s, mn, forBits)
+		if !ok {
+			return
+		}
+		var e Encoder
+		e.writePackedPForUint64Slice(s, mn, b)
+		var d Decoder
+		d.buf = e.buf
+		d.i = 0
+		if err := d.readHeader(); err != nil {
+			t.Fatalf("header: %v", err)
+		}
+		d.i++ // tag
+		got, err := d.readPackedPForUint64Slice()
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(got) != len(s) {
+			t.Fatalf("len %d != %d", len(got), len(s))
+		}
+		for i := range s {
+			if got[i] != s[i] {
+				t.Fatalf("i=%d got %d want %d", i, got[i], s[i])
+			}
+		}
+	})
 }
