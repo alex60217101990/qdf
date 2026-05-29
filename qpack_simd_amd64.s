@@ -438,3 +438,47 @@ loop_p20:
 done_p20:
 	VZEROUPPER
 	RET
+
+// func unpackBitsVarAVX2(out []uint64, in []byte, groups int, fourB int, shifts *[32]uint64, mask uint64)
+//
+// General width-b decoder for b in [1,14]: four values per iteration. For
+// width b<=14 any four consecutive values fit a single 64-bit window even
+// at the worst in-byte start offset (7 + 4*14 = 63 < 64), so each group
+// loads 8 bytes at the byte containing its start, VPBROADCASTQ to all
+// lanes, then VPSRLVQ by per-lane shift [off, off+b, off+2b, off+3b] and
+// AND mask. `shifts` is a caller-built table of those vectors indexed by
+// off (0..7); `fourB` is 4*b, the per-group bit advance. The last group
+// loads 8 bytes at ((groups-1)*4b)>>3, so the caller bounds groups by both
+// read headroom and a byte-aligned handoff. mask = (1<<b)-1.
+TEXT ·unpackBitsVarAVX2(SB), NOSPLIT, $0-80
+	MOVQ         out_base+0(FP), DI
+	MOVQ         in_base+24(FP), BX
+	MOVQ         groups+48(FP), R10
+	MOVQ         fourB+56(FP), R9
+	MOVQ         shifts+64(FP), R11
+	MOVQ         mask+72(FP), AX
+	MOVQ         AX, X2
+	VPBROADCASTQ X2, Y2
+	XORQ         R8, R8
+
+loop_var:
+	TESTQ        R10, R10
+	JZ           done_var
+	MOVQ         R8, AX
+	MOVQ         R8, DX
+	SHRQ         $3, AX
+	ANDQ         $7, DX
+	VPBROADCASTQ (BX)(AX*1), Y0
+	SHLQ         $5, DX
+	VMOVDQU      (R11)(DX*1), Y1
+	VPSRLVQ      Y1, Y0, Y0
+	VPAND        Y2, Y0, Y0
+	VMOVDQU      Y0, (DI)
+	ADDQ         R9, R8
+	ADDQ         $32, DI
+	DECQ         R10
+	JMP          loop_var
+
+done_var:
+	VZEROUPPER
+	RET
