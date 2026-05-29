@@ -1,0 +1,101 @@
+name: bench-trend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# contents:write — push history to gh-pages. pull-requests:write — post the alert comment.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: bench-trend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: bench-trend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: gocache-benchtrend-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/*.go') }}
+          restore-keys: |
+            gocache-benchtrend-${{ runner.os }}-
+
+      - name: run benchmarks (default tags)
+        working-directory: bench
+        run: |
+          set -euo pipefail
+          go test -bench=. -benchmem -run=^$ -benchtime=2s -count=1 -timeout=15m | tee output.txt
+
+      # --- main: append to history + publish the trend dashboard ---
+      - name: store benchmark result (push to gh-pages)
+        if: github.event_name == 'push'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: qdf Go Benchmarks
+          tool: go
+          output-file-path: bench/output.txt
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "150%"
+          comment-on-alert: false
+          fail-on-alert: false
+
+      # --- PR: comment-only regression alert, never push, never fail ---
+      - name: compare benchmark result (PR alert)
+        if: github.event_name == 'pull_request'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: qdf Go Benchmarks
+          tool: go
+          output-file-path: bench/output.txt
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          save-data-file: false
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          summary-always: true
+
+      # --- main: coverage snapshot + landing, staged into ./public ---
+      - name: coverage snapshot
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          go test -coverprofile=coverage.out -covermode=atomic ./...
+          go tool cover -html=coverage.out -o coverage.html
+          mkdir -p public
+          cp coverage.html public/coverage.html
+          cp .github/pages/index.html public/index.html
+
+      # Runs AFTER the benchmark action's push, so the two gh-pages writes are
+      # sequenced. keep_files:true preserves dev/bench/ that the action wrote.
+      - name: publish landing + coverage to gh-pages
+        if: github.event_name == 'push'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./public
+          keep_files: true
