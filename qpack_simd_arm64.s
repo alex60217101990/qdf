@@ -74,3 +74,38 @@ loop32:
 
 done32:
 	RET
+
+// func unpackVar2NEON(out []uint64, in []byte, pairs int, twoB int, shifts *[16]int64, mask uint64)
+// Decodes 2 values per iteration for an arbitrary width b in [1,28]. Each pair
+// broadcasts the 8-byte window at the current byte offset to both lanes, shifts
+// each lane right by its in-window offset (USHL with the negative shift vector
+// for off), and ANDs the width mask. bitOff advances by twoB (=2*b) per pair.
+TEXT ·unpackVar2NEON(SB), NOSPLIT, $0-80
+	MOVD out_base+0(FP), R0
+	MOVD in_base+24(FP), R1
+	MOVD pairs+48(FP), R2
+	MOVD twoB+56(FP), R3
+	MOVD shifts+64(FP), R4
+	MOVD mask+72(FP), R5
+	VDUP R5, V2.D2                 // mask broadcast to both lanes
+	MOVD $0, R6                    // bitOff
+
+loop_v2:
+	CBZ   R2, done_v2
+	LSR   $3, R6, R7              // byteOff = bitOff>>3
+	AND   $7, R6, R8             // off = bitOff&7
+	ADD   R7, R1, R9             // ptr = in_base + byteOff
+	VLD1R (R9), [V0.D2]          // broadcast 8 bytes -> both lanes
+	LSL   $4, R8, R10            // off*16 (16 bytes per shift vector)
+	ADD   R10, R4, R11
+	VLD1  (R11), [V1.D2]         // shift vector [-off, -(off+b)]
+	WORD  $0x4EE14400            // USHL V0.2D, V0.2D, V1.2D (Go asm lacks VUSHL)
+	VAND  V2.B16, V0.B16, V0.B16 // mask
+	VST1  [V0.D2], (R0)
+	ADD   $16, R0
+	ADD   R3, R6, R6             // bitOff += 2*b
+	SUB   $1, R2, R2
+	B     loop_v2
+
+done_v2:
+	RET
