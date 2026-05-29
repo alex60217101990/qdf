@@ -47,6 +47,11 @@ func packBits32(out []byte, vals []uint64) {
 	}
 }
 
+// unpackBitsVar fallback: scalar sliding window for an arbitrary width.
+func unpackBitsVar(out []uint64, in []byte, bitsPer int) {
+	bitUnpackU64LEFast(out, in, bitsPer)
+}
+
 // unpackBits10/12/14/20 fallbacks: the scalar sliding-window decoder.
 func unpackBits10(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 10) }
 func unpackBits12(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 12) }

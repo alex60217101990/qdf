@@ -38,6 +38,25 @@ func BenchmarkUnpack12(b *testing.B) { benchUnpack(b, 12) }
 func BenchmarkUnpack14(b *testing.B) { benchUnpack(b, 14) }
 func BenchmarkUnpack20(b *testing.B) { benchUnpack(b, 20) }
 
+func benchUnpackVar(b *testing.B, bitsPer int) {
+	vals := make([]uint64, unpackBenchN)
+	mask := uint64(1)<<uint(bitsPer) - 1
+	for i := range vals {
+		vals[i] = uint64(i*2654435761+11) & mask
+	}
+	body := make([]byte, (unpackBenchN*bitsPer+7)/8)
+	bitPackU64LE(body, vals, bitsPer)
+	out := make([]uint64, unpackBenchN)
+	b.SetBytes(int64(unpackBenchN * 8))
+	for b.Loop() {
+		unpackBitsVar(out, body, bitsPer)
+	}
+}
+
+func BenchmarkUnpackVar9(b *testing.B)  { benchUnpackVar(b, 9) }
+func BenchmarkUnpackVar11(b *testing.B) { benchUnpackVar(b, 11) }
+func BenchmarkUnpackVar13(b *testing.B) { benchUnpackVar(b, 13) }
+
 // BenchmarkUnpack12Direct exercises unpackBits12 (the VPSRLVQ path under
 // qdf_simd, scalar otherwise) directly, isolating the width-12 codec from
 // the bitUnpackU64LE dispatch.

@@ -76,6 +76,13 @@ func bitUnpackU64LE(out []uint64, in []byte, bitsPer int) {
 		unpackBits32(out, in)
 		return
 	}
+	// Remaining small widths (1-7, 9, 11, 13) go through the general
+	// VPSRLVQ kernel under qdf_simd; it falls back to the scalar window
+	// on non-SIMD builds or non-AVX2 CPUs.
+	if bitsPer <= 14 {
+		unpackBitsVar(out, in, bitsPer)
+		return
+	}
 	bitUnpackU64LEFast(out, in, bitsPer)
 }
 

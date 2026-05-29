@@ -73,6 +73,49 @@ func unpackBits14AVX2(out []uint64, in []byte, groups int)
 //go:noescape
 func unpackBits20AVX2(out []uint64, in []byte, pairs int)
 
+//go:noescape
+func unpackBitsVarAVX2(out []uint64, in []byte, groups int, fourB int, shifts *[32]uint64, mask uint64)
+
+// unpackBitsVar decodes an arbitrary width b in [1,14] (including the odd
+// widths that lack a fixed byte-aligned chunk). It processes 4 values per
+// VPSRLVQ iteration with a per-group in-byte offset; the table `shifts`
+// holds the 8 possible shift vectors (one per offset 0..7). groups is
+// bounded by read headroom (each group loads 8 bytes) and by a
+// byte-aligned handoff so the scalar tail can resume on a byte boundary.
+func unpackBitsVar(out []uint64, in []byte, b int) {
+	n := len(out)
+	if n == 0 {
+		return
+	}
+	groups := 0
+	if hasAVX2 && b >= 1 && b <= 14 {
+		var shifts [32]uint64
+		for off := 0; off < 8; off++ {
+			for k := 0; k < 4; k++ {
+				shifts[off*4+k] = uint64(off + k*b)
+			}
+		}
+		mask := uint64(1)<<uint(b) - 1
+		groups = n / 4
+		// Last group's VPBROADCASTQ reads 8 bytes at ((groups-1)*4b)>>3.
+		for groups > 0 && ((groups-1)*4*b)/8+8 > len(in) {
+			groups--
+		}
+		// The scalar tail resumes at bit 4*groups*b, which must be a whole
+		// number of bytes (always true for even b; trims to even groups
+		// for odd b).
+		for groups > 0 && (4*groups*b)%8 != 0 {
+			groups--
+		}
+		if groups > 0 {
+			unpackBitsVarAVX2(out[:4*groups], in, groups, 4*b, &shifts, mask)
+		}
+	}
+	if done := 4 * groups; done < n {
+		bitUnpackU64LEFast(out[done:], in[(4*groups*b)/8:], b)
+	}
+}
+
 // unpackBits10 decodes a width-10 FOR stream: 4 values per byte-aligned
 // 5-byte chunk via VPSRLVQ, scalar tail for the remainder.
 func unpackBits10(out []uint64, in []byte) {
