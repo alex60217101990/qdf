@@ -60,9 +60,25 @@ jobs:
           comment-on-alert: false
           fail-on-alert: false
 
+      # The PR alert path fetches gh-pages to read the baseline and hard-fails
+      # (git exit 128) if the branch does not exist yet. On a fresh repo the
+      # first main run creates gh-pages; until then, skip the comparison —
+      # there is no baseline to compare against anyway.
+      - name: check gh-pages branch exists
+        id: ghpages
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::gh-pages branch does not exist yet; PR baseline comparison skipped until the first main run creates it."
+          fi
+
       # --- PR: comment-only regression alert, never push, never fail ---
       - name: compare benchmark result (PR alert)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.ghpages.outputs.exists == 'true'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: qdf Go Benchmarks
