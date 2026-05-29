@@ -61,7 +61,11 @@ jobs:
             tmp="$(mktemp -d)"
             git -C "$tmp" init -q
             git -C "$tmp" checkout -q --orphan gh-pages
-            git -C "$tmp" commit -q --allow-empty -m "init gh-pages"
+            # The runner has no global git identity; set one for this commit.
+            git -C "$tmp" \
+              -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q --allow-empty -m "init gh-pages"
             git -C "$tmp" push -q \
               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
               gh-pages
