@@ -194,8 +194,24 @@ func bitPackChunkInto(out []byte, vals []uint64, bitsPer int, elemOff int) {
 	if bitsPer == 0 || len(vals) == 0 {
 		return
 	}
-	mask := uint64(1)<<uint(bitsPer) - 1
 	bitOff := elemOff * bitsPer
+	// Byte-aligned widths land on whole-byte boundaries (bitsPer multiple
+	// of 8 ⇒ bitOff multiple of 8), so each value is an independent LE
+	// store with no cross-byte accumulator. These dedicated packers mirror
+	// the byte-aligned unpack fast paths and get a SIMD variant under
+	// qdf_simd.
+	switch bitsPer {
+	case 8:
+		packBits8(out[bitOff>>3:], vals)
+		return
+	case 16:
+		packBits16(out[bitOff>>3:], vals)
+		return
+	case 32:
+		packBits32(out[bitOff>>3:], vals)
+		return
+	}
+	mask := uint64(1)<<uint(bitsPer) - 1
 	pos := bitOff >> 3
 	bitInByte := uint(bitOff & 7)
 	var acc uint64

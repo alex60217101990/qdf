@@ -26,6 +26,27 @@ func unpackBits8(out []uint64, in []byte) {
 	}
 }
 
+// packBits8 fallback: low byte of each value, contiguous.
+func packBits8(out []byte, vals []uint64) {
+	for i, v := range vals {
+		out[i] = byte(v)
+	}
+}
+
+// packBits16 fallback: low 2 bytes LE per value.
+func packBits16(out []byte, vals []uint64) {
+	for i, v := range vals {
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(v))
+	}
+}
+
+// packBits32 fallback: low 4 bytes LE per value.
+func packBits32(out []byte, vals []uint64) {
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(out[i*4:], uint32(v))
+	}
+}
+
 // packBoolsBitsLSB fallback: plain scalar bit-by-bit pack.
 func packBoolsBitsLSB(dst []byte, src []bool, n int) {
 	for i := range n {
