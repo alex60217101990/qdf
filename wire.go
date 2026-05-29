@@ -18,6 +18,12 @@ const (
 	// with ErrBadTag on the first packed slice; the flag is an early hint
 	// so callers can refuse the buffer up front.
 	FlagQPack byte = 1 << 1
+
+	// FlagRANS signals that the body (everything after the 5-byte header) is
+	// rANS-compressed: varuint(origLen) + 256-entry frequency table +
+	// rANS stream. The decoder reverses it before reading tags. Set only
+	// when the rANS form is strictly smaller than the plain body.
+	FlagRANS byte = 1 << 2
 )
 
 // Tag bytes.
