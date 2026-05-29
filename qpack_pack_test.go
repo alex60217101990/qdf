@@ -5,8 +5,10 @@ import (
 	"testing"
 )
 
-func benchPackVals(n int, mask uint64) []uint64 {
-	vals := make([]uint64, n)
+const benchPackN = 1024
+
+func benchPackVals(mask uint64) []uint64 {
+	vals := make([]uint64, benchPackN)
 	for i := range vals {
 		vals[i] = uint64(i*2654435761+11) & mask
 	}
@@ -14,7 +16,7 @@ func benchPackVals(n int, mask uint64) []uint64 {
 }
 
 func BenchmarkPack8_Accumulator(b *testing.B) {
-	vals := benchPackVals(1024, 0xFF)
+	vals := benchPackVals(0xFF)
 	out := make([]byte, 1024)
 	b.SetBytes(1024)
 	for b.Loop() {
@@ -23,7 +25,7 @@ func BenchmarkPack8_Accumulator(b *testing.B) {
 }
 
 func BenchmarkPack8_Fast(b *testing.B) {
-	vals := benchPackVals(1024, 0xFF)
+	vals := benchPackVals(0xFF)
 	out := make([]byte, 1024)
 	b.SetBytes(1024)
 	for b.Loop() {
@@ -32,7 +34,7 @@ func BenchmarkPack8_Fast(b *testing.B) {
 }
 
 func BenchmarkPack16_Accumulator(b *testing.B) {
-	vals := benchPackVals(1024, 0xFFFF)
+	vals := benchPackVals(0xFFFF)
 	out := make([]byte, 1024*2)
 	b.SetBytes(1024 * 2)
 	for b.Loop() {
@@ -41,7 +43,7 @@ func BenchmarkPack16_Accumulator(b *testing.B) {
 }
 
 func BenchmarkPack16_Fast(b *testing.B) {
-	vals := benchPackVals(1024, 0xFFFF)
+	vals := benchPackVals(0xFFFF)
 	out := make([]byte, 1024*2)
 	b.SetBytes(1024 * 2)
 	for b.Loop() {
@@ -50,7 +52,7 @@ func BenchmarkPack16_Fast(b *testing.B) {
 }
 
 func BenchmarkPack32_Accumulator(b *testing.B) {
-	vals := benchPackVals(1024, 0xFFFFFFFF)
+	vals := benchPackVals(0xFFFFFFFF)
 	out := make([]byte, 1024*4)
 	b.SetBytes(1024 * 4)
 	for b.Loop() {
@@ -59,7 +61,7 @@ func BenchmarkPack32_Accumulator(b *testing.B) {
 }
 
 func BenchmarkPack32_Fast(b *testing.B) {
-	vals := benchPackVals(1024, 0xFFFFFFFF)
+	vals := benchPackVals(0xFFFFFFFF)
 	out := make([]byte, 1024*4)
 	b.SetBytes(1024 * 4)
 	for b.Loop() {
