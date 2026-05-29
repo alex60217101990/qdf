@@ -184,13 +184,14 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xEB  tagPackRLE        (QPack)   run-length encoded integer slice
 0xEC  tagMapShape       (Dense)   struct shape table reference
 0xED  tagPackDict       (QPack)   dictionary-coded integer slice
+0xEE  tagPackPFor       (QPack)   Patched FOR integer slice (rare outliers)
 0xEF  tagColStruct      (QPack)   columnar container for []struct; see below
 0xF0..0xF2  tagExt8/16/32         user-extension envelope
 0xF3        tagTimestamp          int64 ns since unix epoch
 0xF4  tagPackALP        (QPack)   ALP decimal-coded []float64 slice
 ```
 
-Tags 0xEE, 0xF5..0xFF are reserved.
+Tags 0xF5..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
@@ -552,6 +553,7 @@ slice; the decoder reads the picked tag.
 0xE7  tagPackGorilla   []float64    Gorilla XOR coding
 0xEB  tagPackRLE       []intN       Run-length encoded (value, runLen) pairs
 0xED  tagPackDict      []intN       Dictionary-coded; ≤16 distinct values
+0xEE  tagPackPFor      []intN       Patched FOR: narrow body + outlier exceptions
 ```
 
 Selection logic:
@@ -566,7 +568,13 @@ Selection logic:
   probe over the first 32 elements decides whether to compute the
   full RLE size. For small distinct cardinality (≤ 16) with a wide
   spread where FOR can't pack tightly, the picker evaluates dict
-  (`tagPackDict`). The winning estimator wins.
+  (`tagPackDict`). For columns whose values are mostly small but carry
+  a rare tail of large outliers (latency spikes, counters with resets),
+  the picker evaluates Patched FOR (`tagPackPFor`): a FOR body at a
+  reduced width plus an exception list for the few values that don't
+  fit. Its size estimate uses a conservative upper bound on the
+  exception bytes, so it is chosen only when strictly smaller than every
+  other codec. The winning estimator wins.
 - **Float slice**: by default, raw. Gorilla is opt-in via
   `OptGorillaFloat` (bundled into `OptCompression`). When the bit is
   set, `pickF64Codec` probes the first 32 consecutive XOR pairs; if

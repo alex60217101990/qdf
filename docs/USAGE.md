@@ -148,6 +148,7 @@ time. You do not need to hint it — just set the bit.
 | `[]int64`/`[]uint64`, monotonic or time-series | Delta+FOR | `OptQPack` |
 | `[]intN`, run-heavy (status codes, enum-like, sparse counters) | RLE (value, runLen pairs) | `OptQPack` |
 | `[]intN`, small distinct cardinality (≤16), wide value range | Dictionary codec | `OptQPack` |
+| `[]intN`/`[]uintN`, mostly small with rare large outliers (latency spikes, counter resets) | Patched FOR (narrow body + exception list) | `OptQPack` |
 | `[]float64`/`[]float32`, smooth time-series | Gorilla XOR | `OptCompression` (or `OptGorillaFloat`) |
 | `[]float64`, quantized/decimal grid (prices, percentages, latencies) | ALP decimal (integer-mantissa FOR + exception list) | `OptCompression` |
 | Repeated strings / `[]byte` across messages | Intern table + state-ref | `OptDense` |
@@ -156,8 +157,8 @@ time. You do not need to hint it — just set the bit.
 | `[]SomeStruct` where fields are int/uint/float/bool/string/[]byte | Columnar transpose: numeric fields get FOR/delta/RLE/dict, repeated string fields collapse via intern. Automatic — no flag. The encoder probes each array and falls back to row-major when columnar would not win. | `OptBalanced` (Dense + ShapeIntern) |
 
 The encoder probes a slice's structure before committing. For
-integer slices it evaluates FOR, Delta+FOR, RLE, and dict by
-predicted wire size and picks the smallest. For `[]float64` under
+integer slices it evaluates FOR, Delta+FOR, RLE, dict, and Patched FOR
+by predicted wire size and picks the smallest. For `[]float64` under
 `OptCompression` it picks the smallest of raw-LE, a Gorilla XOR
 projection (32-sample probe), and an ALP decimal estimate; the ALP
 estimate is a conservative upper bound, so ALP is chosen only when it
@@ -167,7 +168,11 @@ FOR/Delta+FOR win on tight or monotonic integer ranges. RLE wins when
 a handful of distinct values repeat in long runs. Dict wins when the
 cardinality is small but values are spread wide (e.g. HTTP status
 codes 200/301/404/500 scattered randomly — no long runs, not a tight
-range). Gorilla wins on smooth sensor data; it loses on white noise.
+range). Patched FOR wins when the column is mostly small but a rare
+tail of large values would otherwise force FOR to a wide bit count —
+it packs the common case narrow and patches the outliers (≈50% smaller
+than FOR on a latency column with ~1% spikes). Gorilla wins on smooth
+sensor data; it loses on white noise.
 ALP wins on quantized/decimal streams (2-decimal metrics, prices,
 latencies) that sit on a fixed grid Gorilla cannot exploit.
 
