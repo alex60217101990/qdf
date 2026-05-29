@@ -47,6 +47,12 @@ func packBits32(out []byte, vals []uint64) {
 	}
 }
 
+// packBits10/12/14/20 fallbacks: scalar accumulator packer.
+func packBits10(out []byte, vals []uint64) { bitPackU64LE(out, vals, 10) }
+func packBits12(out []byte, vals []uint64) { bitPackU64LE(out, vals, 12) }
+func packBits14(out []byte, vals []uint64) { bitPackU64LE(out, vals, 14) }
+func packBits20(out []byte, vals []uint64) { bitPackU64LE(out, vals, 20) }
+
 // unpackBitsVar / unpackBitsVarWide fallbacks: scalar sliding window.
 func unpackBitsVar(out []uint64, in []byte, bitsPer int) {
 	bitUnpackU64LEFast(out, in, bitsPer)

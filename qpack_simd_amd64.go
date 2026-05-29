@@ -29,6 +29,81 @@ func packBoolsAVX2Block32(out []byte, in []bool, blocks int)
 func packBits8AVX2(out []byte, vals []uint64, n int)
 
 //go:noescape
+func packBits12AVX2(out []byte, vals []uint64, groups int)
+
+//go:noescape
+func packBits10AVX2(out []byte, vals []uint64, groups int)
+
+//go:noescape
+func packBits14AVX2(out []byte, vals []uint64, groups int)
+
+//go:noescape
+func packBits20AVX2(out []byte, vals []uint64, pairs int)
+
+// packBits10 packs width-10 values, 4 per byte-aligned 40-bit chunk (5
+// bytes); trailing values use the scalar accumulator on a byte boundary.
+func packBits10(out []byte, vals []uint64) {
+	n := len(vals)
+	groups := 0
+	if hasAVX2 {
+		groups = n / 4
+		if groups > 0 {
+			packBits10AVX2(out, vals, groups)
+		}
+	}
+	if done := 4 * groups; done < n {
+		bitPackU64LE(out[5*groups:], vals[done:], 10)
+	}
+}
+
+// packBits14 packs width-14 values, 4 per byte-aligned 56-bit chunk (7 bytes).
+func packBits14(out []byte, vals []uint64) {
+	n := len(vals)
+	groups := 0
+	if hasAVX2 {
+		groups = n / 4
+		if groups > 0 {
+			packBits14AVX2(out, vals, groups)
+		}
+	}
+	if done := 4 * groups; done < n {
+		bitPackU64LE(out[7*groups:], vals[done:], 14)
+	}
+}
+
+// packBits20 packs width-20 values, 2 per byte-aligned 40-bit chunk (5 bytes).
+func packBits20(out []byte, vals []uint64) {
+	n := len(vals)
+	pairs := 0
+	if hasAVX2 {
+		pairs = n / 2
+		if pairs > 0 {
+			packBits20AVX2(out, vals, pairs)
+		}
+	}
+	if done := 2 * pairs; done < n {
+		bitPackU64LE(out[5*pairs:], vals[done:], 20)
+	}
+}
+
+// packBits12 packs width-12 values, 4 per byte-aligned 48-bit chunk (6
+// bytes) via VPSLLVQ + lane OR; trailing values use the scalar accumulator
+// on a byte boundary (4 values = 6 bytes).
+func packBits12(out []byte, vals []uint64) {
+	n := len(vals)
+	groups := 0
+	if hasAVX2 {
+		groups = n / 4
+		if groups > 0 {
+			packBits12AVX2(out, vals, groups)
+		}
+	}
+	if done := 4 * groups; done < n {
+		bitPackU64LE(out[6*groups:], vals[done:], 12)
+	}
+}
+
+//go:noescape
 func packBits16AVX2(out []byte, vals []uint64, n int)
 
 //go:noescape

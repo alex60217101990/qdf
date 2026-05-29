@@ -524,3 +524,177 @@ loop_vw:
 done_vw:
 	VZEROUPPER
 	RET
+
+// shift12pk/mask12pk: encode width-12 — four values per byte-aligned 48-bit
+// chunk (6 bytes) at offsets 0,12,24,36.
+DATA shift12pk<>+0(SB)/8,  $0x0000000000000000
+DATA shift12pk<>+8(SB)/8,  $0x000000000000000C
+DATA shift12pk<>+16(SB)/8, $0x0000000000000018
+DATA shift12pk<>+24(SB)/8, $0x0000000000000024
+GLOBL shift12pk<>(SB), RODATA|NOPTR, $32
+DATA mask12pk<>+0(SB)/8,  $0x0000000000000FFF
+DATA mask12pk<>+8(SB)/8,  $0x0000000000000FFF
+DATA mask12pk<>+16(SB)/8, $0x0000000000000FFF
+DATA mask12pk<>+24(SB)/8, $0x0000000000000FFF
+GLOBL mask12pk<>(SB), RODATA|NOPTR, $32
+
+// func packBits12AVX2(out []byte, vals []uint64, groups int)
+//
+// Packs `groups` chunks of four 12-bit values into byte-aligned 48-bit
+// chunks. Each group loads four uint64s, masks to 12 bits, VPSLLVQ by
+// 0/12/24/36, ORs the four lanes into one 48-bit word, and writes 6 bytes.
+// Caller guarantees len(out) >= 6*groups, len(vals) >= 4*groups, AVX2.
+TEXT ·packBits12AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    vals_base+24(FP), SI
+	MOVQ    groups+48(FP), CX
+	VMOVDQU shift12pk<>(SB), Y1
+	VMOVDQU mask12pk<>(SB), Y2
+
+loop_e12:
+	TESTQ        CX, CX
+	JZ           done_e12
+	VMOVDQU      (SI), Y0
+	VPAND        Y2, Y0, Y0
+	VPSLLVQ      Y1, Y0, Y0
+	VEXTRACTI128 $1, Y0, X3
+	VPOR         X3, X0, X0
+	VMOVQ        X0, AX
+	VPEXTRQ      $1, X0, DX
+	ORQ          DX, AX
+	MOVL         AX, (DI)
+	SHRQ         $32, AX
+	MOVW         AX, 4(DI)
+	ADDQ         $32, SI
+	ADDQ         $6, DI
+	DECQ         CX
+	JMP          loop_e12
+
+done_e12:
+	VZEROUPPER
+	RET
+
+// encode width-10: four values per byte-aligned 40-bit chunk (5 bytes).
+DATA shift10pk<>+0(SB)/8,  $0x0000000000000000
+DATA shift10pk<>+8(SB)/8,  $0x000000000000000A
+DATA shift10pk<>+16(SB)/8, $0x0000000000000014
+DATA shift10pk<>+24(SB)/8, $0x000000000000001E
+GLOBL shift10pk<>(SB), RODATA|NOPTR, $32
+DATA mask10pk<>+0(SB)/8,  $0x00000000000003FF
+DATA mask10pk<>+8(SB)/8,  $0x00000000000003FF
+DATA mask10pk<>+16(SB)/8, $0x00000000000003FF
+DATA mask10pk<>+24(SB)/8, $0x00000000000003FF
+GLOBL mask10pk<>(SB), RODATA|NOPTR, $32
+
+// func packBits10AVX2(out []byte, vals []uint64, groups int)
+TEXT ·packBits10AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    vals_base+24(FP), SI
+	MOVQ    groups+48(FP), CX
+	VMOVDQU shift10pk<>(SB), Y1
+	VMOVDQU mask10pk<>(SB), Y2
+
+loop_e10:
+	TESTQ        CX, CX
+	JZ           done_e10
+	VMOVDQU      (SI), Y0
+	VPAND        Y2, Y0, Y0
+	VPSLLVQ      Y1, Y0, Y0
+	VEXTRACTI128 $1, Y0, X3
+	VPOR         X3, X0, X0
+	VMOVQ        X0, AX
+	VPEXTRQ      $1, X0, DX
+	ORQ          DX, AX
+	MOVL         AX, (DI)
+	SHRQ         $32, AX
+	MOVB         AL, 4(DI)
+	ADDQ         $32, SI
+	ADDQ         $5, DI
+	DECQ         CX
+	JMP          loop_e10
+
+done_e10:
+	VZEROUPPER
+	RET
+
+// encode width-14: four values per byte-aligned 56-bit chunk (7 bytes).
+DATA shift14pk<>+0(SB)/8,  $0x0000000000000000
+DATA shift14pk<>+8(SB)/8,  $0x000000000000000E
+DATA shift14pk<>+16(SB)/8, $0x000000000000001C
+DATA shift14pk<>+24(SB)/8, $0x000000000000002A
+GLOBL shift14pk<>(SB), RODATA|NOPTR, $32
+DATA mask14pk<>+0(SB)/8,  $0x0000000000003FFF
+DATA mask14pk<>+8(SB)/8,  $0x0000000000003FFF
+DATA mask14pk<>+16(SB)/8, $0x0000000000003FFF
+DATA mask14pk<>+24(SB)/8, $0x0000000000003FFF
+GLOBL mask14pk<>(SB), RODATA|NOPTR, $32
+
+// func packBits14AVX2(out []byte, vals []uint64, groups int)
+TEXT ·packBits14AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    vals_base+24(FP), SI
+	MOVQ    groups+48(FP), CX
+	VMOVDQU shift14pk<>(SB), Y1
+	VMOVDQU mask14pk<>(SB), Y2
+
+loop_e14:
+	TESTQ        CX, CX
+	JZ           done_e14
+	VMOVDQU      (SI), Y0
+	VPAND        Y2, Y0, Y0
+	VPSLLVQ      Y1, Y0, Y0
+	VEXTRACTI128 $1, Y0, X3
+	VPOR         X3, X0, X0
+	VMOVQ        X0, AX
+	VPEXTRQ      $1, X0, DX
+	ORQ          DX, AX
+	MOVL         AX, (DI)
+	SHRQ         $32, AX
+	MOVW         AX, 4(DI)
+	SHRQ         $16, AX
+	MOVB         AL, 6(DI)
+	ADDQ         $32, SI
+	ADDQ         $7, DI
+	DECQ         CX
+	JMP          loop_e14
+
+done_e14:
+	VZEROUPPER
+	RET
+
+// encode width-20: two values per byte-aligned 40-bit chunk (5 bytes).
+DATA shift20pk<>+0(SB)/8, $0x0000000000000000
+DATA shift20pk<>+8(SB)/8, $0x0000000000000014
+GLOBL shift20pk<>(SB), RODATA|NOPTR, $16
+DATA mask20pk<>+0(SB)/8, $0x00000000000FFFFF
+DATA mask20pk<>+8(SB)/8, $0x00000000000FFFFF
+GLOBL mask20pk<>(SB), RODATA|NOPTR, $16
+
+// func packBits20AVX2(out []byte, vals []uint64, pairs int)
+TEXT ·packBits20AVX2(SB), NOSPLIT, $0-56
+	MOVQ    out_base+0(FP), DI
+	MOVQ    vals_base+24(FP), SI
+	MOVQ    pairs+48(FP), CX
+	VMOVDQU shift20pk<>(SB), X1
+	VMOVDQU mask20pk<>(SB), X2
+
+loop_e20:
+	TESTQ   CX, CX
+	JZ      done_e20
+	VMOVDQU (SI), X0
+	VPAND   X2, X0, X0
+	VPSLLVQ X1, X0, X0
+	VMOVQ   X0, AX
+	VPEXTRQ $1, X0, DX
+	ORQ     DX, AX
+	MOVL    AX, (DI)
+	SHRQ    $32, AX
+	MOVB    AL, 4(DI)
+	ADDQ    $16, SI
+	ADDQ    $5, DI
+	DECQ    CX
+	JMP     loop_e20
+
+done_e20:
+	VZEROUPPER
+	RET

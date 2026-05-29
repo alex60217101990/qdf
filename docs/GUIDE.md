@@ -590,8 +590,10 @@ inner loops, both directions:
   `b ≤ 14` (`7 + 4·14 < 64`), 2 values/iter for `15 ≤ b ≤ 28`
   (`7 + 2·28 < 64`). Fixed-shift kernels handle the hot `{10,12,14,20}`.
   Widths 29–31 and 33–56 stay on the scalar window.
-- **Encode** (`VPSHUFB` byte-gather) at `{8, 16, 32}` — the mirror of
-  the decode fast path.
+- **Encode** at `{8, 16, 32}` (`VPSHUFB` byte-gather) and `{10,12,14,20}`
+  (`VPSLLVQ` shifts each value to its slot, then a lane-OR reduction folds
+  the group into one byte-aligned chunk). Odd / wider encode widths stay
+  scalar (they would need cross-chunk byte merging).
 - `[]bool` pack (`VPSLLW` + `VPMOVMSKB`).
 
 Widths not listed (odd widths, ≥ ~24 non-aligned) and the float
@@ -805,7 +807,7 @@ payloads.
 
 | Tag             | Effect                                                                                                                                                                                                                                                                                | Platform                              |
 |-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `qdf_simd`      | AVX2 for the QPack integer/bool codecs: decode at every `bits ∈ 1..28` plus `32`, encode at `{8,16,32}`, `[]bool` pack. Output byte-identical to scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently; other arches compile a stub. See docs/USAGE.md for when to use it. | amd64; AVX2 detected at run time      |
+| `qdf_simd`      | AVX2 for the QPack integer/bool codecs: decode at every `bits ∈ 1..28` plus `32`, encode at `{8,10,12,14,16,20,32}`, `[]bool` pack. Output byte-identical to scalar. Runtime CPUID gate; non-AVX2 amd64 falls back transparently; other arches compile a stub. See docs/USAGE.md for when to use it. | amd64; AVX2 detected at run time      |
 | `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` / `reflect.New` for `modern-go/reflect2` unsafe equivalents.                                                                                                                                                                             | none — pure Go                        |
 
 Combine freely:
