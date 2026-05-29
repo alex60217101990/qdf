@@ -28,6 +28,7 @@ func MarshalT[T any](v T, opts Options) ([]byte, error) {
 		putEnc(enc, &encPool)
 		return nil, err
 	}
+	enc.maybeApplyRANS(0)
 	out := slices.Clone(enc.buf)
 	encPool.Put(enc)
 	return out, nil
@@ -38,11 +39,13 @@ func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error) {
 	enc := encPool.Get().(*Encoder)
 	enc.Reset()
 	enc.applyOpts(opts)
+	start := len(dst)
 	enc.buf = dst
 	if err := encodeT(enc, &v); err != nil {
 		putEnc(enc, &encPool)
 		return dst, err
 	}
+	enc.maybeApplyRANS(start)
 	out := enc.buf
 	enc.buf = nil
 	encPool.Put(enc)

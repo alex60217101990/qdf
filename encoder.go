@@ -6,8 +6,36 @@ import (
 	"slices"
 	"unsafe"
 
+	"github.com/alex60217101990/qdf/internal/rans"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
+
+// ransMinBytes is the smallest message body worth a rANS attempt. Below it
+// the 256-entry frequency table dwarfs any entropy saving, so the picker
+// would reject it anyway — this threshold just skips the wasted encode.
+const ransMinBytes = 512
+
+// maybeApplyRANS rewrites the message at e.buf[start:] in place to a
+// rANS-compressed body when that is strictly smaller than the plain body,
+// setting FlagRANS in the header. start is the message's header offset (0 for
+// Marshal, len(dst) for AppendMarshal). No-op unless OptRANS is set.
+func (e *Encoder) maybeApplyRANS(start int) {
+	if !e.rans {
+		return
+	}
+	const hdr = 5
+	if len(e.buf)-start < hdr+ransMinBytes {
+		return
+	}
+	body := e.buf[start+hdr:]
+	cand := appendUvarint(make([]byte, 0, len(body)/2+512), uint64(len(body)))
+	cand = rans.Encode(cand, body)
+	if len(cand) >= len(body) {
+		return // no win — keep the plain body
+	}
+	e.buf = append(e.buf[:start+hdr], cand...)
+	e.buf[start+4] |= FlagRANS
+}
 
 // preInternEntry caches a caller-registered string by its backing
 // pointer and length. id == preInternUnseen marks an entry that
@@ -60,6 +88,11 @@ type Encoder struct {
 	// OptBalanced; flipped on by OptCompression. Implies qpack.
 	gorillaFloat bool
 
+	// rans enables the order-0 rANS entropy post-pass over the finished
+	// body at the top-level Marshal entry points (never per nested value,
+	// never in streaming). Set from OptRANS; applied only when it shrinks.
+	rans bool
+
 	// depth tracks nested pointer/struct traversal. Pointer cycles do
 	// not crash the process; encodePtr increments depth on entry and
 	// returns ErrCycleDetected when it exceeds maxDepth. Lightweight
@@ -93,6 +126,7 @@ func (e *Encoder) applyOpts(opts Options) {
 	}
 	e.qpack = opts.Has(OptQPack)
 	e.gorillaFloat = e.qpack && opts.Has(OptGorillaFloat)
+	e.rans = opts.Has(OptRANS)
 }
 
 // DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
@@ -176,6 +210,7 @@ func (e *Encoder) Reset() {
 	e.mode = Fast
 	e.qpack = false
 	e.gorillaFloat = false
+	e.rans = false
 	// Drop any PreIntern entries — they reference caller-supplied
 	// backing pointers that are not safe to assume valid across a
 	// pool recycle.

@@ -270,6 +270,7 @@ func Marshal(v any, opts Options) ([]byte, error) {
 		putEnc(enc, &encPool)
 		return nil, err
 	}
+	enc.maybeApplyRANS(0)
 	// Big-output detach: cloning a multi-megabyte buffer to hand
 	// the caller their own copy used to dominate Large-payload
 	// profiles (slices.Clone + runtime.memmove). At this size the
@@ -303,11 +304,13 @@ func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
 	enc := encPool.Get().(*Encoder)
 	enc.Reset()
 	enc.applyOpts(opts)
+	start := len(dst)
 	enc.buf = dst
 	if err := encodeReflect(enc, v); err != nil {
 		putEnc(enc, &encPool)
 		return dst, err
 	}
+	enc.maybeApplyRANS(start)
 	out := enc.buf
 	enc.buf = nil
 	encPool.Put(enc)

@@ -80,9 +80,10 @@ func UnmarshalDirect[T Unmarshaler](data []byte, out T) error {
 	if data[3] != Version1 {
 		return ErrBadVersion
 	}
-	if data[4]&FlagDense != 0 {
+	if data[4]&(FlagDense|FlagRANS) != 0 {
 		// Dense buffers carry an intern table that generated code does
-		// not maintain; fall back to the reflect path which does.
+		// not maintain, and rANS buffers need the entropy pass reversed
+		// first; fall back to the reflect path which handles both.
 		return Unmarshal(data, out)
 	}
 	_, err := out.UnmarshalQDF(data[5:])
