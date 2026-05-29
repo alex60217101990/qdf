@@ -243,6 +243,7 @@ const (
 	qpackGorilla
 	qpackRLE
 	qpackDict
+	qpackPFor
 )
 
 // qpackDictMaxDistinct caps the dictionary codec: a slice with more
