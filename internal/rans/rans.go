@@ -48,21 +48,27 @@ func buildFreqs(src []byte) (freq [256]uint32, cum [257]uint32) {
 	// Correct rounding so the frequencies sum to exactly `scale`. Adjust the
 	// current largest frequency each step; never drop a used symbol below 1.
 	for total > scale {
-		bi, bf := -1, uint32(0)
+		bi, bf, found := 0, uint32(0), false
 		for s := range 256 {
 			if freq[s] > 1 && freq[s] > bf {
-				bf, bi = freq[s], s
+				bf, bi, found = freq[s], s, true
 			}
+		}
+		if !found {
+			break // unreachable: total>scale implies some freq>1
 		}
 		freq[bi]--
 		total--
 	}
 	for total < scale {
-		bi, bf := -1, uint32(0)
+		bi, bf, found := 0, uint32(0), false
 		for s := range 256 {
 			if freq[s] > bf {
-				bf, bi = freq[s], s
+				bf, bi, found = freq[s], s, true
 			}
+		}
+		if !found {
+			break // unreachable: non-empty src has at least one freq>=1
 		}
 		freq[bi]++
 		total++

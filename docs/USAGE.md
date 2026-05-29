@@ -68,7 +68,7 @@ slice is valid until the next call.
 |---|---|---|
 | `OptSpeed` | No codecs. Raw tag stream. | Hot request path, single events, latency under 1 µs. |
 | `OptBalanced` | Dense interning + QPack + shape interning + Markov predictors + MTF. | Telemetry, logs, event batches with repeating string fields or numeric slices. Good default. |
-| `OptCompression` | `OptBalanced` + Gorilla XOR and ALP decimal coding for float slices. | Cold storage, backup, archive. Wire size matters more than encode CPU. |
+| `OptCompression` | `OptBalanced` + Gorilla XOR and ALP decimal float coding + a final order-0 rANS entropy pass over the whole body. | Cold storage, backup, archive. Wire size matters more than encode CPU. |
 
 Decision list:
 
@@ -76,6 +76,29 @@ Decision list:
 - Telemetry / logs / event batches, general use → `OptBalanced`
 - Float time-series being archived, wire size dominates → `OptCompression`
 - Numeric vectors only (metrics, embeddings), no repeated strings → `qdf.OptQPack`
+
+### The rANS entropy pass
+
+`OptCompression` adds `OptRANS`: after the body is encoded, a static order-0
+rANS pass entropy-codes the whole body. It is **never larger** — the encoder
+keeps the plain body unless the rANS form is strictly smaller — and it kicks in
+only for bodies above ~512 B, so small messages are untouched. It is a
+whole-buffer pass, so `StreamEncoder` ignores it (streaming stays per-message).
+
+It pays off where the encoded body still has byte-level redundancy that the
+structural codecs do not remove — most visibly **string/hex-heavy** data:
+
+| workload | `OptCompression` w/o rANS | with rANS |
+| -------- | ------------------------: | --------: |
+| trace batch (unique hex IDs) | 33 607 | **21 003** (−37%) |
+| log batch (repeated fields) | ~8 800 | **~5 200** (−40%) |
+| smooth metric series (Gorilla) | 2 307 | **1 671** (−27%) |
+| already-dense numeric (FOR/dict) | — | unchanged (rANS declines) |
+
+The cost is encode/decode CPU: roughly **4–6× slower** on the bodies where it
+fires (it does extra entropy-coding work). That trade is why it lives only in
+`OptCompression` — use it for archives and cold storage, not hot paths. You can
+opt out while keeping the float codecs with `OptCompression &^ OptRANS`.
 
 ---
 
@@ -97,6 +120,7 @@ Bit reference:
 | 3 | `OptPairPred` | Markov-1 successor predictor over intern IDs (two-byte hit when transition is predictable). | `OptDense` |
 | 4 | `OptMTF` | Move-to-Front rank coding over intern IDs (shorter varuint when LRU rank < raw ID). | `OptDense` |
 | 5 | `OptGorillaFloat` | Gorilla XOR codec for `[]float64`/`[]float32`. ~70% wire reduction on smooth time-series; ~10× CPU/slice. | `OptQPack` |
+| 6 | `OptRANS` | Order-0 rANS entropy pass over the whole body. Never larger (applied only when it shrinks); ~4–6× CPU where it fires; whole-buffer (not for `StreamEncoder`). | — |
 
 Dependent bits without their parent are silent no-ops — the encoder
 does not error, it just ignores them. `OptSpeed = 0` is the zero value.
