@@ -44,6 +44,29 @@ jobs:
           set -euo pipefail
           go test -bench=. -benchmem -run=^$ -benchtime=2s -count=1 -timeout=15m | tee output.txt
 
+      # github-action-benchmark fetches gh-pages before writing and hard-fails
+      # (git exit 128) when the branch is absent — it does not bootstrap it.
+      # Create an empty orphan gh-pages on the first main run so the store step
+      # below has a branch to fetch and append to.
+      - name: ensure gh-pages branch exists
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            echo "gh-pages already exists"
+          else
+            echo "creating empty gh-pages branch"
+            tmp="$(mktemp -d)"
+            git -C "$tmp" init -q
+            git -C "$tmp" checkout -q --orphan gh-pages
+            git -C "$tmp" commit -q --allow-empty -m "init gh-pages"
+            git -C "$tmp" push -q \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              gh-pages
+          fi
+
       # --- main: append to history + publish the trend dashboard ---
       - name: store benchmark result (push to gh-pages)
         if: github.event_name == 'push'
