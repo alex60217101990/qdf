@@ -114,12 +114,13 @@ order:
 |  3  | `OptPairPred`    | Markov-1 predictor over state-refs     | `OptDense` |
 |  4  | `OptMTF`          | Move-to-Front rank coding              | `OptDense` |
 |  5  | `OptGorillaFloat` | Gorilla XOR codec for `[]float64` / `[]float32` (~70 % wire reduction on smooth time-series, ~10× CPU/slice) | `OptQPack` |
+|  6  | `OptRANS` | Order-0 rANS entropy pass over the whole body, applied only when it shrinks (`FlagRANS`) — never larger, ~4–6× CPU where it fires, whole-buffer (not streaming) | — |
 
 `OptSpeed = 0`. `OptBalanced = OptDense | OptQPack | OptShapeIntern
-| OptPairPred | OptMTF`. `OptCompression = OptBalanced | OptGorillaFloat`
-— it diverges from balanced by exactly that one bit so workloads that
-care about wire size more than encode latency opt in without reaching
-for individual flags.
+| OptPairPred | OptMTF`. `OptCompression = OptBalanced | OptGorillaFloat
+| OptRANS` — the two extra bits are the codecs that trade CPU for wire
+size, so workloads that care about size more than encode latency opt in
+with one bundle instead of reaching for individual flags.
 
 Dependent bits (`OptShapeIntern`, `OptPairPred`, `OptMTF`,
 `OptGorillaFloat`) are no-ops without their parent and the encoder
@@ -668,6 +669,35 @@ are byte-and-speed identical to the pre-columnar behaviour.
 Measured ~11× smaller than `OptSpeed` on a numeric-heavy event-batch
 fixture. The columnar path subsumes the older column-conditional
 repeat codec, which has been removed.
+
+### rANS entropy pass (`OptRANS`, `FlagRANS`)
+
+Under `OptCompression` the encoder runs one more pass after the body is
+fully built: a static order-0 rANS (the canonical rans_byte — 32-bit
+state, byte renormalization, frequencies normalized to a 12-bit table)
+over the whole body. It is the last stage, downstream of every structural
+codec, and it targets the residual byte-level redundancy those codecs
+leave behind (most visibly string/hex-heavy payloads such as trace IDs).
+
+It runs at the top-level `Marshal` entry points only — never per nested
+value, and never in `StreamEncoder` (a whole-buffer pass is incompatible
+with per-message streaming, so the stream encoder ignores `OptRANS`).
+
+The wire form, set behind `FlagRANS` in the 5th header byte, is
+`varuint(origLen)` + the 256-entry frequency table (one varuint per
+symbol) + the rANS stream. The encoder applies it through a **picker**:
+the rANS form replaces the plain body only when it is strictly smaller,
+and bodies under ~512 B are not even attempted (the table would dominate).
+So `OptCompression` never produces a larger buffer than it did before, on
+any payload. The decoder, on seeing `FlagRANS`, bounds `origLen` against
+the input size, decodes the body, and reads tags from the reconstructed
+plain body exactly as for a non-rANS buffer.
+
+Measured wire reductions on the corpus under `OptCompression`: trace
+batches −37 %, smooth metric series −27 %, quantized metrics −8 %;
+already-dense numeric fixtures decline rANS and are unchanged. The cost
+is ~4–6× encode/decode CPU on the bodies where it fires — the reason it
+stays in the opt-in `OptCompression` tier and out of `OptBalanced`.
 
 ---
 

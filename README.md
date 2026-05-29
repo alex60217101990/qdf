@@ -61,7 +61,7 @@ the practical subset of that idea:
 | **Probabilistic / residual coding** — predict, then store only the deviation. | QPack's Delta+FOR codec is exactly this for monotonic integer sequences: encode the first value plus the bit-packed residual against a `aᵢ = aᵢ₋₁ + minΔ` predictor. Gorilla does the same for floats by XOR-ing each sample against the previous one and storing the differing bits only. |
 | **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Three stacked predictors on the Dense state stream. **Markov-0** (`tagStateRepeat`, `0xE8`) collapses an immediate repeat of the previously emitted state-ref to a single byte. **MTF rank** (`tagStateMTF`, `0xE9`) encodes the LRU rank of the touched ID when that varuint is shorter than the raw id. **Markov-1 pair** (`tagStatePair`, `0xEA`) keeps the last 4 successors observed after each prev ID and encodes a hit as `0xEA + 1-byte rank` — wins when the prev → curr transition is predictable and the raw id needs a multi-byte varuint. The encoder picks the shortest of the four variants per emission, so the wire is never larger than the plain `tagStateRef` encoding. A full conditional-probability table beyond order-1 stays in the reserved `0xEB / 0xED..0xEF` block. |
 | **Shape interning** — repeated structure means the *layout* itself is information. | Dense mode emits structs (and `map[string]any` of stable shape via the reflect-struct path) through `tagMapShape` (`0xEC`). First occurrence declares the shape inline: `0xEC, 0, varuint(N), N × key`. Subsequent occurrences of the same shape emit `0xEC + varuint(shapeID) + N × value` — keys are *not* re-emitted. Per-record saving on an array of identical-shape structs is `N × 2` bytes for the elided state-refs plus the map header. The shape table is per-stream, addressed by `*typeDesc` on the encoder and by sequential ID on the wire. Shapes never collide across types because the encoder keys the binding on the descriptor pointer. |
-| **Arithmetic / range coding (rANS)** — push the encoded stream to its Shannon limit. | Not yet. The state-table + back-reference pair plus QPack already captures most of the practical win on telemetry workloads; rANS would buy further compression at a CPU cost. |
+| **Arithmetic / range coding (rANS)** — push the encoded stream to its Shannon limit. | Shipped behind `OptRANS` (in `OptCompression`): a static order-0 rANS pass over the whole body, applied only when it shrinks (never larger). Squeezes the residual byte-entropy the structural codecs leave — e.g. −37 % on trace batches — at ~4–6× CPU, so it stays in the opt-in compression tier. |
 
 The conceptual roadmap (state table → entanglement graph → predictive
 encoder) is preserved in the codebase: tag space and the encoder
@@ -224,7 +224,7 @@ convenience bundles cover the common tradeoffs:
 | ------------------ | ------------------------------------------------------------ |
 | `qdf.OptSpeed`     | Fast path. Tightest CPU cost; size comparable to msgpack. Drop-in for `encoding/json` behaviour. |
 | `qdf.OptBalanced`  | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices use QPack codecs; struct shapes intern; Markov-1 + MTF run on state-refs. |
-| `qdf.OptCompression` | `OptBalanced` plus the heavier float codecs: Gorilla XOR for smooth series and ALP for quantized/decimal `[]float64`. Trades encode CPU for smaller wire — pick it for backup / cold storage. |
+| `qdf.OptCompression` | `OptBalanced` plus the heavier wire-size codecs: Gorilla XOR for smooth float series, ALP for quantized/decimal `[]float64`, and a final order-0 rANS entropy pass over the whole body (never larger). Trades encode CPU for smaller wire — pick it for backup / cold storage. |
 | custom mix         | Or-combine individual bits (`OptDense \| OptQPack \| OptShapeIntern …`) when one of the bundles is one click off the desired tradeoff. |
 
 ```go
@@ -297,7 +297,7 @@ emission order. Use `OptSpeed` if you hash or sign the wire.
 | ------ | ----------- |
 | `OptSpeed`       | `0` — Fast mode, no codecs. |
 | `OptBalanced`    | `OptDense \| OptQPack \| OptShapeIntern \| OptPairPred \| OptMTF`. |
-| `OptCompression` | Alias for `OptBalanced` today; reserved for future heavy-CPU codecs (rANS, dictionary preloading). |
+| `OptCompression` | `OptBalanced` + Gorilla XOR + ALP decimal floats + an order-0 rANS entropy pass (never larger). Trades CPU for wire size; for backup / cold storage. |
 
 `Options` is a `uint32` carried by value, so `Marshal` and
 `AppendMarshal` add **zero per-call allocations** over the pool /
