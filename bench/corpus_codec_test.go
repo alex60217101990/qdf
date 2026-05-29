@@ -232,6 +232,29 @@ func mkMetricQuantColumn(n int) metricQuantColumn {
 	return metricQuantColumn{Name: "billing.amount.usd", Values: v}
 }
 
+// latencySpikesColumn is the shape PFOR was built for: a latency column of
+// mostly sub-millisecond values (microseconds) with a rare ~1% tail of large
+// spikes (slow requests, GC pauses, lock contention). The spikes force plain
+// FOR to a wide bit count for every slot; PFOR packs the common case narrow
+// and patches the few outliers from an exception list.
+type latencySpikesColumn struct {
+	Name   string   `qdf:"name"   json:"name"   msgpack:"name"`
+	Values []uint64 `qdf:"values" json:"values" msgpack:"values"`
+}
+
+func mkLatencySpikesColumn(n int) latencySpikesColumn {
+	rnd := rand.New(rand.NewSource(909))
+	v := make([]uint64, n)
+	for i := range v {
+		if rnd.Intn(1000) < 10 { // ~1% spikes
+			v[i] = 50_000 + uint64(rnd.Intn(950_000)) // 50ms..1s in us
+		} else {
+			v[i] = uint64(rnd.Intn(500)) // sub-millisecond
+		}
+	}
+	return latencySpikesColumn{Name: "http.request.latency.us", Values: v}
+}
+
 // TestCorpusCodec_Sizes prints a wire-size table covering the new
 // corpus across OptSpeed / OptBalanced / OptCompression. Run with
 // `go test -C bench -run TestCorpusCodec_Sizes -v` and copy the
@@ -249,6 +272,7 @@ func TestCorpusCodec_Sizes(t *testing.T) {
 		{"metric_quant_1024", mkMetricQuantColumn(1024)},
 		{"status_1024", mkStatusBatch(1024)},
 		{"spread_enum_1024", mkSpreadEnumColumn(1024)},
+		{"latency_spikes_1024", mkLatencySpikesColumn(1024)},
 		{"logentries_1024", logEntriesBatch(1024)},
 		{"events_1024", eventsBatch(1024)},
 	}
@@ -290,6 +314,31 @@ func TestALPCorpusSizes(t *testing.T) {
 	// stays <= Balanced (ALP either wins or is not chosen).
 	if len(sComp) > len(sBal) {
 		t.Errorf("smooth: OptCompression (%d B) regressed past OptBalanced (%d B)", len(sComp), len(sBal))
+	}
+}
+
+// TestPForCorpusSize asserts PFOR crushes the outlier-heavy latency column.
+// A 1024-sample column whose common case is sub-millisecond but whose 1% tail
+// spikes to ~1s forces plain FOR to ~20 bits/value (raw ≈ 8 KB, FOR ≈ 2.5 KB).
+// PFOR packs the common case at ~9 bits and patches the spikes, landing well
+// under the FOR size.
+func TestPForCorpusSize(t *testing.T) {
+	col := mkLatencySpikesColumn(1024)
+	qBal, _ := qdf.Marshal(col, qdf.OptBalanced)
+	// FOR would need ~20 bits * 1024 / 8 ≈ 2560 B for the body alone; PFOR
+	// must land comfortably below that (it measured ≈ 1.2 KB).
+	if len(qBal) > 1800 {
+		t.Errorf("latency_spikes: OptBalanced size %d B larger than expected (PFOR likely not chosen)", len(qBal))
+	}
+	// Round-trips.
+	var got latencySpikesColumn
+	if err := qdf.Unmarshal(qBal, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for i := range col.Values {
+		if got.Values[i] != col.Values[i] {
+			t.Fatalf("round-trip mismatch at %d", i)
+		}
 	}
 }
 

@@ -231,3 +231,50 @@ func TestPFor_PickerChoosesByData(t *testing.T) {
 		}
 	}
 }
+
+// TestPFor_CorpusGate is the measure-first gate: on a realistic latency column
+// (microsecond latencies with ~1% large spikes) PFOR must beat plain FOR by a
+// meaningful margin, and the codec must round-trip. The never-worse picker
+// guarantees no other workload regresses; this asserts the win actually exists.
+func TestPFor_CorpusGate(t *testing.T) {
+	r := rand.New(rand.NewSource(99))
+	const n = 1024
+	s := make([]uint64, n)
+	for i := range s {
+		if r.Intn(1000) < 10 { // ~1% spikes
+			s[i] = 50_000 + uint64(r.Intn(950_000)) // 50ms..1s spike (in us)
+		} else {
+			s[i] = uint64(r.Intn(500)) // sub-millisecond latency
+		}
+	}
+	mn, mx := minMaxU64(s)
+	forBits := bitsForDelta(mx - mn)
+	forSize := qpackForSizeUnsigned(n, forBits, mn)
+	b, pforCost, ok := pforPlanUnsigned(s, mn, forBits)
+	if !ok {
+		t.Fatalf("PFOR not applicable (forBits=%d)", forBits)
+	}
+	t.Logf("latency_spikes_1024: FOR=%d B (bits=%d), PFOR=%d B (bits=%d) -> %.1f%% smaller",
+		forSize, forBits, pforCost, b, 100*(1-float64(pforCost)/float64(forSize)))
+	if pforCost >= forSize*9/10 {
+		t.Fatalf("PFOR not >=10%% smaller than FOR: PFOR=%d FOR=%d", pforCost, forSize)
+	}
+	// Round-trip the actual encoded payload.
+	var e Encoder
+	e.writePackedPForUint64Slice(s, mn, b)
+	var d Decoder
+	d.buf = e.buf
+	if err := d.readHeader(); err != nil {
+		t.Fatal(err)
+	}
+	d.i++ // tag
+	got, err := d.readPackedPForUint64Slice()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range s {
+		if got[i] != s[i] {
+			t.Fatalf("round-trip mismatch at %d", i)
+		}
+	}
+}
