@@ -50,7 +50,7 @@ func qpackRawWidthBytes(kind byte) int {
 // pickU64Codec analyses a []uint64 and decides which QPack codec yields
 // the smallest wire form. Cost of the scan is O(n) (min/max + delta
 // stats + RLE probe), which is dominated by the encode itself.
-func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits int) {
+func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits int, pforBits int) {
 	n := len(s)
 	codec = qpackRaw
 	if n == 0 {
@@ -117,9 +117,17 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 		if count, ok := probeDistinctU64(s, &table); ok && count > 0 {
 			c := qpackDictSizeU64(table[:count], n)
 			if c < bestCost {
+				bestCost = c
 				codec = qpackDict
 			}
 		}
+	}
+	// PFOR: wins on outlier-heavy slices where plain FOR is forced wide by a
+	// few large values. Conservative cost estimate (maxDelta upper bound) keeps
+	// it never-worse: chosen only when strictly smaller than every other codec.
+	if pb, pc, okp := pforPlanUnsigned(s, mn, forBits); okp && pc < bestCost {
+		codec = qpackPFor
+		pforBits = pb
 	}
 	return
 }
@@ -168,7 +176,7 @@ func qpackRLESizeI64(s []int64, n int) int {
 	return hdr + body
 }
 
-func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits int) {
+func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits int, pforBits int) {
 	n := len(s)
 	codec = qpackRaw
 	if n == 0 {
@@ -226,9 +234,14 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 		if count, ok := probeDistinctI64(s, &table); ok && count > 0 {
 			c := qpackDictSizeI64(table[:count], n)
 			if c < bestCost {
+				bestCost = c
 				codec = qpackDict
 			}
 		}
+	}
+	if pb, pc, okp := pforPlanSigned(s, mn, forBits); okp && pc < bestCost {
+		codec = qpackPFor
+		pforBits = pb
 	}
 	return
 }

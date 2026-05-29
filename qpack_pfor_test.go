@@ -41,7 +41,7 @@ func pforTestSlicesI64() [][]int64 {
 		return s
 	}
 	return [][]int64{
-		mk(100, -1000, 1, 1<<40),    // negative min, rare huge spikes
+		mk(100, -1000, 1, 1<<40),     // negative min, rare huge spikes
 		mk(1000, -50, 3, -(1 << 20)), // 3% negative spikes
 		mk(257, 7, 0, 0),             // no spikes
 		mk(512, -(1 << 30), 2, 1<<45),
@@ -161,4 +161,73 @@ func FuzzPForRoundTrip(f *testing.F) {
 			}
 		}
 	})
+}
+
+type pforProbe struct {
+	V []uint64
+}
+
+// containsTagKind reports whether b carries an integer-slice payload framed by
+// the two-byte structural header {tag, kind}. A bare byte-scan would yield
+// false positives against arbitrary data bytes.
+func containsTagKind(b []byte, tag, kind byte) bool {
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] == tag && b[i+1] == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPFor_PickerChoosesByData(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+	// Outlier-heavy: mostly tiny values, ~1% huge spikes -> plain FOR forced wide.
+	spikes := make([]uint64, 1024)
+	for i := range spikes {
+		if r.Intn(100) < 1 {
+			spikes[i] = 1<<40 + uint64(r.Intn(1000))
+		} else {
+			spikes[i] = uint64(r.Intn(16))
+		}
+	}
+	// Clean: uniform small values -> FOR already optimal, PFOR must not fire.
+	clean := make([]uint64, 1024)
+	for i := range clean {
+		clean[i] = 1000 + uint64(r.Intn(16))
+	}
+
+	// Inspect the raw wire; exclude rANS (it wraps the body and hides the tag).
+	opts := OptBalanced &^ OptRANS
+	encSpikes, err := Marshal(pforProbe{V: spikes}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encClean, err := Marshal(pforProbe{V: clean}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !containsTagKind(encSpikes, tagPackPFor, qpackKindUint64) {
+		t.Errorf("outlier-heavy data: expected PFOR tag on wire, not found")
+	}
+	if containsTagKind(encClean, tagPackPFor, qpackKindUint64) {
+		t.Errorf("clean data: PFOR should lose to FOR, but PFOR tag present")
+	}
+
+	// Round-trips regardless of codec choice.
+	for name, enc := range map[string][]byte{"spikes": encSpikes, "clean": encClean} {
+		var got pforProbe
+		if err := Unmarshal(enc, &got); err != nil {
+			t.Fatalf("%s: unmarshal: %v", name, err)
+		}
+	}
+	var gotS pforProbe
+	if err := Unmarshal(encSpikes, &gotS); err != nil {
+		t.Fatal(err)
+	}
+	for i := range spikes {
+		if gotS.V[i] != spikes[i] {
+			t.Fatalf("spikes round-trip mismatch at %d: %d != %d", i, gotS.V[i], spikes[i])
+		}
+	}
 }

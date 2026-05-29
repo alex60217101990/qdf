@@ -1,6 +1,9 @@
 package qdf
 
-import "math/bits"
+import (
+	"math/bits"
+	"slices"
+)
 
 // Patched Frame-of-Reference. Packs (v-min) at a reduced width b chosen so
 // that the few values that don't fit (outliers) are cheaper to store in an
@@ -51,7 +54,8 @@ func (e *Encoder) writePackedPForUint64Slice(s []uint64, mn uint64, b int) {
 	n := len(s)
 	mask := uint64(1)<<uint(b) - 1
 	bodyBytes := (n*b + 7) >> 3
-	out := append(e.buf, tagPackPFor, qpackKindUint64)
+	out := slices.Grow(e.buf, 3+10+10+bodyBytes)
+	out = append(out, tagPackPFor, qpackKindUint64)
 	out = appendUvarint(out, uint64(n))
 	out = append(out, byte(b))
 	out = appendUvarint(out, mn)
@@ -137,7 +141,8 @@ func (e *Encoder) writePackedPForInt64Slice(s []int64, mn int64, b int) {
 	mnU := uint64(mn)
 	mask := uint64(1)<<uint(b) - 1
 	bodyBytes := (n*b + 7) >> 3
-	out := append(e.buf, tagPackPFor, qpackKindInt64)
+	out := slices.Grow(e.buf, 3+10+10+bodyBytes)
+	out = append(out, tagPackPFor, qpackKindInt64)
 	out = appendUvarint(out, uint64(n))
 	out = append(out, byte(b))
 	out = appendUvarint(out, zigzagEncode64(mn))

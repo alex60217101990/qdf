@@ -89,7 +89,7 @@ func TestRLE_PickerHitsHighRepeat(t *testing.T) {
 	for i := 96; i < 128; i++ {
 		u[i] = 404
 	}
-	if got, _, _, _, _, _ := pickU64Codec(u); got != qpackRLE {
+	if got, _, _, _, _, _, _ := pickU64Codec(u); got != qpackRLE {
 		t.Fatalf("u64 picker: got codec %d, want qpackRLE (%d)", got, qpackRLE)
 	}
 
@@ -106,7 +106,7 @@ func TestRLE_PickerHitsHighRepeat(t *testing.T) {
 	for i := 96; i < 128; i++ {
 		s[i] = -2
 	}
-	if got, _, _, _, _, _ := pickI64Codec(s); got != qpackRLE {
+	if got, _, _, _, _, _, _ := pickI64Codec(s); got != qpackRLE {
 		t.Fatalf("i64 picker: got codec %d, want qpackRLE (%d)", got, qpackRLE)
 	}
 }
@@ -122,7 +122,7 @@ func TestRLE_PickerSkipsHighEntropy(t *testing.T) {
 	for i := range u {
 		u[i] = uint64(i*7919 + 1)
 	}
-	got, _, _, _, _, _ := pickU64Codec(u)
+	got, _, _, _, _, _, _ := pickU64Codec(u)
 	if got == qpackRLE {
 		t.Fatalf("u64 picker: returned qpackRLE on high-entropy input")
 	}
