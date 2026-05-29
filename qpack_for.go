@@ -224,12 +224,28 @@ func bitPackChunkInto(out []byte, vals []uint64, bitsPer int, elemOff int) {
 	// store with no cross-byte accumulator. These dedicated packers mirror
 	// the byte-aligned unpack fast paths and get a SIMD variant under
 	// qdf_simd.
+	// elemOff is always a multiple of the 64-element chunk size, so bitOff
+	// is byte-aligned for every width below (64*b is a multiple of 8). The
+	// dedicated packers write whole-byte chunks with a SIMD variant under
+	// qdf_simd; 10/12/14/20 use VPSLLVQ + lane-OR, 8/16/32 use VPSHUFB.
 	switch bitsPer {
 	case 8:
 		packBits8(out[bitOff>>3:], vals)
 		return
+	case 10:
+		packBits10(out[bitOff>>3:], vals)
+		return
+	case 12:
+		packBits12(out[bitOff>>3:], vals)
+		return
+	case 14:
+		packBits14(out[bitOff>>3:], vals)
+		return
 	case 16:
 		packBits16(out[bitOff>>3:], vals)
+		return
+	case 20:
+		packBits20(out[bitOff>>3:], vals)
 		return
 	case 32:
 		packBits32(out[bitOff>>3:], vals)

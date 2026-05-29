@@ -694,7 +694,7 @@ QPack codecs, and a 128-bit sliding-window bit-unpacker for FOR / Delta+FOR.
 | Tag             | Effect                                                                                                  | Build prerequisite |
 | --------------- | ------------------------------------------------------------------------------------------------------- | ------------------ |
 | `qdf_reflect2`  | Swap `reflect.MakeSlice` / `MakeMapWithSize` for `modern-go/reflect2` unsafe equivalents. Smaller decode allocations on map / slice heavy workloads. | none — pure Go     |
-| `qdf_simd`      | AVX2 fast paths for the QPack integer/bool codecs: decode at bits ∈ {8,16,32} (`VPMOVZX`) and every width 1–28 (`VPBROADCASTQ`+`VPSRLVQ`), encode at {8,16,32} (`VPSHUFB`), `[]bool` pack. ~3-11× over the pure-Go path on those widths. Output byte-identical to scalar. Runtime CPUID gate via `golang.org/x/sys/cpu`; older amd64 without AVX2 falls back transparently; non-amd64 targets compile a stub. See `docs/USAGE.md` for when to use it. | amd64; AVX2 detected at run time |
+| `qdf_simd`      | AVX2 fast paths for the QPack integer/bool codecs: decode at bits ∈ {8,16,32} (`VPMOVZX`) and every width 1–28 (`VPBROADCASTQ`+`VPSRLVQ`), encode at {8,16,32} (`VPSHUFB`) and {10,12,14,20} (`VPSLLVQ`+lane-OR), `[]bool` pack. ~3-11× over the pure-Go path on those widths. Output byte-identical to scalar. Runtime CPUID gate via `golang.org/x/sys/cpu`; older amd64 without AVX2 falls back transparently; non-amd64 targets compile a stub. See `docs/USAGE.md` for when to use it. | amd64; AVX2 detected at run time |
 
 ```bash
 go build -tags qdf_reflect2 ./...

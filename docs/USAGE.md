@@ -257,6 +257,7 @@ Only the QPack codecs that pack fixed-width integers and booleans:
 | Integer **decode** (FOR) | 1–14 (4 values/iter, `VPSRLVQ`) | ~7–11× |
 | Integer **decode** (FOR) | 15–28 (2 values/iter, `VPSRLVQ`) | ~5–7× |
 | Integer **encode** (FOR) | 8, 16, 32 (`VPSHUFB`) | ~2–5× |
+| Integer **encode** (FOR) | 10, 12, 14, 20 (`VPSLLVQ` + lane-OR) | ~4–5.5× |
 | `[]bool` pack | — | large |
 
 Decode is the most broadly accelerated: every bit width from 1 to 28 (plus
