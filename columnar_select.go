@@ -1,5 +1,7 @@
 package qdf
 
+import "slices"
+
 // wantedColumns maps each WIRE column index to the target plan column to
 // decode it into, or nil to skip. Matched by field name. Wire columns whose
 // name is absent from the target are skipped; target fields absent from the
@@ -37,10 +39,5 @@ func (d *Decoder) wantField(name string) bool {
 	if d.selectFields == nil {
 		return true
 	}
-	for _, f := range d.selectFields {
-		if f == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(d.selectFields, name)
 }
