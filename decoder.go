@@ -37,6 +37,13 @@ type Decoder struct {
 	// after the shape declaration; decodeColumnar / decodeColumnarAny consume
 	// and validate it. Set fresh by readHeader on every decode.
 	colIndex bool
+
+	// selectFields, when non-nil, restricts the columnar map (any) decode to
+	// the named columns: unrequested columns are skipped via the column-length
+	// index when present, or simply not stored when it is absent. Set by
+	// UnmarshalColumns for the duration of one decode; must be cleared on
+	// reset / return-to-pool / SetInput so it never leaks across decodes.
+	selectFields []string
 }
 
 // colLenOK reports whether a slice length is acceptable in the current
@@ -106,6 +113,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.headerRead = false
 	d.mode = Fast
 	d.colIndex = false
+	d.selectFields = nil
 	if d.state != nil {
 		d.state.reset()
 	}

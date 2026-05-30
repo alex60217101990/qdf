@@ -333,16 +333,25 @@ func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
 // reads any output produced by Marshal regardless of the encode-side
 // option bits.
 func Unmarshal(data []byte, out any) error {
+	return unmarshal(data, out, nil)
+}
+
+// unmarshal is the shared pooled-decoder dispatch behind Unmarshal and
+// UnmarshalColumns. When fields is non-nil it restricts the columnar map
+// (any) decode to those columns (see Decoder.selectFields).
+func unmarshal(data []byte, out any, fields []string) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data
 	dec.i = 0
 	dec.headerRead = false
 	dec.mode = Fast
+	dec.selectFields = fields
 	if dec.state != nil {
 		dec.state.reset()
 	}
 	err := decodeReflect(dec, out)
 	dec.buf = nil
+	dec.selectFields = nil
 	decPool.Put(dec)
 	return err
 }

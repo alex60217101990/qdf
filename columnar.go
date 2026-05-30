@@ -763,12 +763,12 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			return nil, ErrUnknownStateID
 		}
 	}
+	var colLens []uint32
 	if d.colIndex {
 		k := len(sh.kinds)
 		if d.i+4*k > len(d.buf) {
 			return nil, ErrShortBuffer
 		}
-		var colLens []uint32
 		if cap(d.state.colLenScratch) >= k {
 			colLens = d.state.colLenScratch[:k]
 		} else {
@@ -784,7 +784,6 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 		if sum > uint64(len(d.buf)-d.i) {
 			return nil, ErrShortBuffer
 		}
-		_ = colLens // not used to skip yet (later task); index is consumed
 	}
 
 	out := make([]any, n)
@@ -793,13 +792,30 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 	}
 	for c := range sh.kinds {
 		name := sh.names[c]
+		// When a field filter is active, skip unrequested columns. With the
+		// column-length index present we advance past the whole column body
+		// without decoding (the perf path); without it we still must decode to
+		// stay in sync, but the value is simply not stored below.
+		if !d.wantField(name) && colLens != nil {
+			if d.i+int(colLens[c]) > len(d.buf) {
+				return nil, ErrShortBuffer
+			}
+			d.i += int(colLens[c])
+			continue
+		}
+		// store is false only on the no-index skip path: the column body still
+		// has to be decoded to keep the cursor in sync, but its values are
+		// dropped rather than boxed into the row maps.
+		store := d.wantField(name)
 		if sh.kinds[c].isNullable() {
 			vals, err := d.decodeNullableColumnAny(sh.kinds[c], n)
 			if err != nil {
 				return nil, err
 			}
-			for i := range n {
-				out[i].(map[string]any)[name] = vals[i]
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = vals[i]
+				}
 			}
 			continue
 		}
@@ -812,8 +828,10 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			if len(s) != n {
 				return nil, ErrTypeMismatch
 			}
-			for i := range n {
-				out[i].(map[string]any)[name] = s[i]
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = s[i]
+				}
 			}
 		case colKindUint:
 			var s []uint64
@@ -823,8 +841,10 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			if len(s) != n {
 				return nil, ErrTypeMismatch
 			}
-			for i := range n {
-				out[i].(map[string]any)[name] = s[i]
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = s[i]
+				}
 			}
 		case colKindFloat:
 			var s []float64
@@ -834,8 +854,10 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			if len(s) != n {
 				return nil, ErrTypeMismatch
 			}
-			for i := range n {
-				out[i].(map[string]any)[name] = s[i]
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = s[i]
+				}
 			}
 		case colKindBool:
 			var s []bool
@@ -845,8 +867,10 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			if len(s) != n {
 				return nil, ErrTypeMismatch
 			}
-			for i := range n {
-				out[i].(map[string]any)[name] = s[i]
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = s[i]
+				}
 			}
 		case colKindString:
 			if d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
@@ -854,8 +878,10 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 				if err != nil {
 					return nil, err
 				}
-				for i := range n {
-					out[i].(map[string]any)[name] = table[idx[i]]
+				if store {
+					for i := range n {
+						out[i].(map[string]any)[name] = table[idx[i]]
+					}
 				}
 				break
 			}
@@ -864,7 +890,9 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 				if err != nil {
 					return nil, err
 				}
-				out[i].(map[string]any)[name] = string(sb)
+				if store {
+					out[i].(map[string]any)[name] = string(sb)
+				}
 			}
 		default:
 			return nil, ErrBadTag

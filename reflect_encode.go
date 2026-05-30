@@ -230,10 +230,32 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 }
 
 func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*Decoder, unsafe.Pointer) error {
+	// elemDynamic is true when the slice element is map[string]any or any, so a
+	// columnar (tagColStruct) payload can be decoded dynamically into row maps
+	// via decodeColumnarAny even though the static element type carries no
+	// columnarPlan. This is the path UnmarshalColumns into *[]map[string]any
+	// (or *[]any) takes.
+	elemType := t.Elem()
+	elemDynamic := elemType == reflect.TypeFor[map[string]any]() || elemType.Kind() == reflect.Interface
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if colPlan != nil {
 			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
 				return decodeColumnar(d, t, colPlan, p)
+			}
+		}
+		if elemDynamic {
+			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
+				rows, err := decodeColumnarAny(d)
+				if err != nil {
+					return err
+				}
+				src := rows.([]any)
+				reflectutil.MakeSlice(t, len(src), p)
+				base := reflectutil.SliceData(t, p)
+				for i, row := range src {
+					reflect.NewAt(elemType, unsafe.Add(base, uintptr(i)*stride)).Elem().Set(reflect.ValueOf(row))
+				}
+				return nil
 			}
 		}
 		n, err := d.ReadArrayHeader()
