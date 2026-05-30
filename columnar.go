@@ -789,7 +789,7 @@ func (cv *colVals) anyAt(i int) any {
 		return cv.b[i]
 	case colKindString:
 		if cv.bs != nil {
-			return append([]byte(nil), cv.bs[i]...)
+			return string(cv.bs[i])
 		}
 		return cv.s[i]
 	}
@@ -805,6 +805,83 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 func (cv *colVals) scatterNullableRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
 }
 
+// runQueryColumns resolves d.query's predicates against the shape, then makes a
+// single forward pass over the wire columns: predicate and projected columns are
+// decoded into retained colVals (predicates evaluated into masks), and the rest
+// are skipped (via the column-length index when present, else decode-and-discard).
+// It ANDs the predicate masks and returns the retained column values (indexed by
+// wire column, nil where not retained) and the surviving row indices.
+//
+// isProj reports whether wire column c should be retained for the caller to
+// materialise. isByte is forwarded to decodeColumnVals for column c (the typed
+// path passes the target field's isByte; the map path passes false).
+func (d *Decoder) runQueryColumns(
+	sh *decColShape, colLens []uint32, n int,
+	isProj func(c int) bool, isByte func(c int) bool,
+) (retained []*colVals, matched []int, err error) {
+	predOf := make([]*predTerm, len(sh.kinds))
+	for _, term := range d.query.preds {
+		wi := -1
+		for c, name := range sh.names {
+			if name == term.field {
+				wi = c
+				break
+			}
+		}
+		if wi < 0 {
+			return nil, nil, &QueryError{Op: "predicate pushdown", Field: term.field, Err: ErrFieldNotFound}
+		}
+		if sh.kinds[wi].base() != term.want {
+			return nil, nil, &QueryError{Op: "predicate pushdown", Field: term.field, Want: term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
+		}
+		predOf[wi] = term
+	}
+
+	retained = make([]*colVals, len(sh.kinds))
+	masks := make([][]uint64, 0, len(d.query.preds))
+	for c := range sh.kinds {
+		proj := isProj(c)
+		if !proj && predOf[c] == nil {
+			if colLens != nil {
+				if d.i+int(colLens[c]) > len(d.buf) {
+					return nil, nil, ErrShortBuffer
+				}
+				d.i += int(colLens[c])
+			} else if e := d.skipColumnValue(sh.kinds[c], n); e != nil {
+				return nil, nil, e
+			}
+			continue
+		}
+		cv, e := d.decodeColumnVals(sh.kinds[c], n, isByte(c))
+		if e != nil {
+			return nil, nil, e
+		}
+		if proj {
+			retained[c] = &cv
+		}
+		if predOf[c] != nil {
+			m := newBitset(n)
+			cv.eval(predOf[c], n, m)
+			masks = append(masks, m)
+		}
+	}
+
+	var combined []uint64
+	if len(masks) == 0 {
+		combined = newBitset(n)
+		for i := range n {
+			setBit(combined, i)
+		}
+	} else {
+		combined = masks[0]
+		for _, m := range masks[1:] {
+			bitsetAnd(combined, m)
+		}
+	}
+	matched = matchedIndices(combined, n, nil)
+	return retained, matched, nil
+}
+
 // decodeColumnarQuery decodes a columnar struct slice applying d.query: it runs
 // the AND of the plan's predicates to select rows, then materialises only the
 // matched rows of the projected columns into out (*[]Struct). Filter columns
@@ -818,25 +895,6 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 	d.colMaxLen = n
 	defer func() { d.colMaxLen = 0 }()
 
-	// Resolve predicates to wire-column indices and validate kinds.
-	predOf := make([]*predTerm, len(sh.kinds))
-	for _, term := range d.query.preds {
-		wi := -1
-		for c, name := range sh.names {
-			if name == term.field {
-				wi = c
-				break
-			}
-		}
-		if wi < 0 {
-			return &QueryError{Op: "predicate pushdown", Field: term.field, Err: ErrFieldNotFound}
-		}
-		if sh.kinds[wi].base() != term.want {
-			return &QueryError{Op: "predicate pushdown", Field: term.field, Want: term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
-		}
-		predOf[wi] = term
-	}
-
 	// Projected output columns: wire index -> target plan column (or nil).
 	want := wantedColumns(plan, sh.names)
 	if d.query.selectFields != nil {
@@ -847,56 +905,13 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 		}
 	}
 
-	// One forward pass: decode predicate + projected columns into retained
-	// colVals; skip the rest (seek via index, else decode-and-discard).
-	retained := make([]*colVals, len(sh.kinds))
-	masks := make([][]uint64, 0, len(d.query.preds))
-	for c := range sh.kinds {
-		isPred := predOf[c] != nil
-		isProj := want[c] != nil
-		if !isPred && !isProj {
-			if colLens != nil {
-				if d.i+int(colLens[c]) > len(d.buf) {
-					return ErrShortBuffer
-				}
-				d.i += int(colLens[c])
-			} else if err := d.skipColumnValue(sh.kinds[c], n); err != nil {
-				return err
-			}
-			continue
-		}
-		isByte := isProj && want[c].isByte
-		cv, err := d.decodeColumnVals(sh.kinds[c], n, isByte)
-		if err != nil {
-			return err
-		}
-		if isProj {
-			if sh.kinds[c].base() != want[c].kind.base() {
-				return ErrTypeMismatch
-			}
-			retained[c] = &cv
-		}
-		if isPred {
-			m := newBitset(n)
-			cv.eval(predOf[c], n, m)
-			masks = append(masks, m)
-		}
+	retained, matched, err := d.runQueryColumns(sh, colLens, n,
+		func(c int) bool { return want[c] != nil },
+		func(c int) bool { return want[c] != nil && want[c].isByte },
+	)
+	if err != nil {
+		return err
 	}
-
-	// AND all predicate masks. No predicates => all rows match.
-	var combined []uint64
-	if len(masks) == 0 {
-		combined = newBitset(n)
-		for i := range n {
-			setBit(combined, i)
-		}
-	} else {
-		combined = masks[0]
-		for _, m := range masks[1:] {
-			bitsetAnd(combined, m)
-		}
-	}
-	matched := matchedIndices(combined, n, nil)
 
 	// Allocate the compacted output slice and scatter matched rows.
 	reflectutil.MakeSlice(t, len(matched), p)
@@ -905,6 +920,9 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 		cv := retained[c]
 		if cv == nil || want[c] == nil {
 			continue
+		}
+		if sh.kinds[c].base() != want[c].kind.base() {
+			return ErrTypeMismatch
 		}
 		for dst, src := range matched {
 			cv.scatterRow(base, plan, want[c], src, dst)
@@ -929,75 +947,19 @@ func decodeColumnarQueryAny(d *Decoder) (any, error) {
 	d.colMaxLen = n
 	defer func() { d.colMaxLen = 0 }()
 
-	// Resolve predicates to wire-column indices and validate kinds.
-	predOf := make([]*predTerm, len(sh.kinds))
-	for _, term := range d.query.preds {
-		wi := -1
-		for c, name := range sh.names {
-			if name == term.field {
-				wi = c
-				break
-			}
-		}
-		if wi < 0 {
-			return nil, &QueryError{Op: "predicate pushdown", Field: term.field, Err: ErrFieldNotFound}
-		}
-		if sh.kinds[wi].base() != term.want {
-			return nil, &QueryError{Op: "predicate pushdown", Field: term.field, Want: term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
-		}
-		predOf[wi] = term
-	}
-
 	// Projection: selectFields, or all columns when none given.
 	projected := make([]bool, len(sh.kinds))
 	for c, name := range sh.names {
 		projected[c] = d.query.selectFields == nil || sliceContains(d.query.selectFields, name)
 	}
 
-	// One forward pass: decode predicate + projected columns into retained
-	// colVals; skip the rest (seek via index, else decode-and-discard).
-	retained := make([]*colVals, len(sh.kinds))
-	masks := make([][]uint64, 0, len(d.query.preds))
-	for c := range sh.kinds {
-		if !projected[c] && predOf[c] == nil {
-			if colLens != nil {
-				if d.i+int(colLens[c]) > len(d.buf) {
-					return nil, ErrShortBuffer
-				}
-				d.i += int(colLens[c])
-			} else if err := d.skipColumnValue(sh.kinds[c], n); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		cv, err := d.decodeColumnVals(sh.kinds[c], n, false)
-		if err != nil {
-			return nil, err
-		}
-		if projected[c] {
-			retained[c] = &cv
-		}
-		if predOf[c] != nil {
-			m := newBitset(n)
-			cv.eval(predOf[c], n, m)
-			masks = append(masks, m)
-		}
+	retained, matched, err := d.runQueryColumns(sh, colLens, n,
+		func(c int) bool { return projected[c] },
+		func(c int) bool { return false },
+	)
+	if err != nil {
+		return nil, err
 	}
-
-	// AND all predicate masks. No predicates => all rows match.
-	var combined []uint64
-	if len(masks) == 0 {
-		combined = newBitset(n)
-		for i := range n {
-			setBit(combined, i)
-		}
-	} else {
-		combined = masks[0]
-		for _, m := range masks[1:] {
-			bitsetAnd(combined, m)
-		}
-	}
-	matched := matchedIndices(combined, n, nil)
 
 	out := make([]any, len(matched))
 	for dst, src := range matched {
