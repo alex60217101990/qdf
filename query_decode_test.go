@@ -176,3 +176,35 @@ func TestQuery_NoIndexSkipsNonProjectedColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestQuery_MapOutput(t *testing.T) {
+	rows := mkQRows(200)
+	enc, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var out []map[string]any
+	err := Unmarshal(enc, &out,
+		Where("level", func(s string) bool { return s == "ERROR" }),
+		Select("ts", "level"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []qrow
+	for _, r := range rows {
+		if r.Level == "ERROR" {
+			want = append(want, r)
+		}
+	}
+	if len(out) != len(want) {
+		t.Fatalf("len %d != %d", len(out), len(want))
+	}
+	for i := range want {
+		if out[i]["level"].(string) != "ERROR" {
+			t.Fatalf("row %d level = %v", i, out[i]["level"])
+		}
+		if _, hasCode := out[i]["code"]; hasCode {
+			t.Fatalf("row %d: code should be projected out", i)
+		}
+		if out[i]["ts"].(int64) != want[i].TS {
+			t.Fatalf("row %d ts mismatch", i)
+		}
+	}
+}

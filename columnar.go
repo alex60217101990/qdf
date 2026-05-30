@@ -771,6 +771,31 @@ func (cv *colVals) scatterRow(base unsafe.Pointer, plan *columnarPlan, col *colC
 	}
 }
 
+// anyAt returns cv's value at row i as an any, mirroring decodeColumnarAny's
+// per-kind boxing (int64/uint64/float64/bool, string for string-kind). A
+// nullable nil row returns a nil any.
+func (cv *colVals) anyAt(i int) any {
+	if cv.present != nil && !getBit(cv.present, i) {
+		return nil
+	}
+	switch cv.kind.base() {
+	case colKindInt:
+		return cv.i64[i]
+	case colKindUint:
+		return cv.u64[i]
+	case colKindFloat:
+		return cv.f64[i]
+	case colKindBool:
+		return cv.b[i]
+	case colKindString:
+		if cv.bs != nil {
+			return append([]byte(nil), cv.bs[i]...)
+		}
+		return cv.s[i]
+	}
+	return nil
+}
+
 // TODO(task7): real implementation in nullable_col.go.
 func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error) {
 	return colVals{}, ErrUnsupported
@@ -886,6 +911,107 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 		}
 	}
 	return nil
+}
+
+// decodeColumnarQueryAny is the *[]map[string]any (or *[]any) form of predicate
+// pushdown. It runs the AND of the plan's predicates to select rows, then
+// returns one map[string]any per matched row containing only the projected
+// columns (Select fields, or all columns when no Select was given). Filter
+// columns need not be projected. The result is a []any of map[string]any so the
+// dynamic slice routing can box it like decodeColumnarAny's. Boxing into any is
+// intrinsic to the map form; predicate evaluation stays unboxed.
+func decodeColumnarQueryAny(d *Decoder) (any, error) {
+	cs, err := d.readColShape(maxColumnarAnyElems)
+	if err != nil {
+		return nil, err
+	}
+	n, sh, colLens := cs.n, cs.sh, cs.colLens
+	d.colMaxLen = n
+	defer func() { d.colMaxLen = 0 }()
+
+	// Resolve predicates to wire-column indices and validate kinds.
+	predOf := make([]*predTerm, len(sh.kinds))
+	for _, term := range d.query.preds {
+		wi := -1
+		for c, name := range sh.names {
+			if name == term.field {
+				wi = c
+				break
+			}
+		}
+		if wi < 0 {
+			return nil, &QueryError{Op: "predicate pushdown", Field: term.field, Err: ErrFieldNotFound}
+		}
+		if sh.kinds[wi].base() != term.want {
+			return nil, &QueryError{Op: "predicate pushdown", Field: term.field, Want: term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
+		}
+		predOf[wi] = term
+	}
+
+	// Projection: selectFields, or all columns when none given.
+	projected := make([]bool, len(sh.kinds))
+	for c, name := range sh.names {
+		projected[c] = d.query.selectFields == nil || sliceContains(d.query.selectFields, name)
+	}
+
+	// One forward pass: decode predicate + projected columns into retained
+	// colVals; skip the rest (seek via index, else decode-and-discard).
+	retained := make([]*colVals, len(sh.kinds))
+	masks := make([][]uint64, 0, len(d.query.preds))
+	for c := range sh.kinds {
+		if !projected[c] && predOf[c] == nil {
+			if colLens != nil {
+				if d.i+int(colLens[c]) > len(d.buf) {
+					return nil, ErrShortBuffer
+				}
+				d.i += int(colLens[c])
+			} else if err := d.skipColumnValue(sh.kinds[c], n); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		cv, err := d.decodeColumnVals(sh.kinds[c], n, false)
+		if err != nil {
+			return nil, err
+		}
+		if projected[c] {
+			retained[c] = &cv
+		}
+		if predOf[c] != nil {
+			m := newBitset(n)
+			cv.eval(predOf[c], n, m)
+			masks = append(masks, m)
+		}
+	}
+
+	// AND all predicate masks. No predicates => all rows match.
+	var combined []uint64
+	if len(masks) == 0 {
+		combined = newBitset(n)
+		for i := range n {
+			setBit(combined, i)
+		}
+	} else {
+		combined = masks[0]
+		for _, m := range masks[1:] {
+			bitsetAnd(combined, m)
+		}
+	}
+	matched := matchedIndices(combined, n, nil)
+
+	out := make([]any, len(matched))
+	for dst, src := range matched {
+		row := make(map[string]any, len(sh.kinds))
+		for c := range sh.kinds {
+			cv := retained[c]
+			if cv == nil {
+				continue
+			}
+			row[sh.names[c]] = cv.anyAt(src)
+		}
+		out[dst] = row
+	}
+	return out, nil
 }
 
 func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
