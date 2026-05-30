@@ -342,6 +342,9 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 
 	idxAt := -1
 	if e.colIndex {
+		// Backpatch the header flag now that an index is actually emitted, so
+		// OptColumnIndex on a non-columnar payload stays a no-op.
+		e.buf[e.headerFlagAt] |= FlagColIndex
 		idxAt = len(e.buf)
 		e.buf = append(e.buf, make([]byte, 4*len(plan.cols))...)
 	}
