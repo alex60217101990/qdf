@@ -55,6 +55,24 @@
 // large dataset, split it into independent shards and Marshal each
 // separately.
 //
+// # Selective decode
+//
+// Under OptColumnIndex a columnar []struct payload carries a fixed-width
+// uint32 column-length index, written after the shape declaration and before
+// the column bodies (~4 bytes per column). A reader wanting only some columns
+// then advances past the rest using the index instead of decoding them, so
+// the cost becomes O(columns you read), not O(all columns). Two entry points:
+// decode into a subset struct whose fields are a subset of the wire (matched
+// by qdf tag / field name) with plain Unmarshal — wire columns absent from the
+// target are skipped, target fields absent from the wire are left zero — or
+// name the columns explicitly with UnmarshalColumns (also drives the dynamic
+// *[]map[string]any form). The option is a true no-op on non-columnar
+// payloads: the flag is backpatched only when the index is actually emitted,
+// so the default columnar wire stays byte-identical when it is off. Without
+// the index a subset decode still returns correct results by decoding and
+// discarding unwanted columns. The index is a single-message feature and is
+// not emitted in streaming mode.
+//
 // See docs/USAGE.md in the repository for a fuller guide.
 //
 // # Public API surface
@@ -69,6 +87,10 @@
 //	func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error)
 //	func Unmarshal(data []byte, out any) error
 //	type Options uint32   // bit-mask of OptDense, OptQPack, OptMTF, …
+//
+// Selective columnar decode (file: columnar_select.go):
+//
+//	func UnmarshalColumns(data []byte, out any, fields ...string) error
 //
 // Typed convenience wrappers — generic, zero-extra-reflection (file:
 // qdf_generic.go):
