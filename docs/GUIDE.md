@@ -709,6 +709,50 @@ Measured ~11× smaller than `OptSpeed` on a numeric-heavy event-batch
 fixture. The columnar path subsumes the older column-conditional
 repeat codec, which has been removed.
 
+#### Column-length index + selective decode (`OptColumnIndex`, `FlagColIndex`)
+
+The columnar layout above writes K column bodies back-to-back, so a reader
+that wants only some of them still has to walk every column to find the next.
+`OptColumnIndex` removes that: it writes a **fixed-width column-length index**
+— K little-endian `uint32` entries, one per column, each the byte length of
+the corresponding column body — **right after the shape declaration and
+before the first column body**. With the index in hand the decoder skips a
+column it does not need by a single `d.i += colLen` advance instead of
+decoding it; cost becomes *O(columns read)*, not *O(all columns)*. The index
+costs ~4 B per column on the wire.
+
+The flag lives in the 4th header bit (`FlagColIndex`). Crucially it is
+**backpatched onto the header only when the index is actually emitted** —
+i.e. only when the payload really is transposed into `tagColStruct`. So
+`OptColumnIndex` on a non-columnar payload is a true no-op, and the default
+columnar wire (option off) stays **byte-identical**; the default non-indexed
+decode path has no regression.
+
+Two decode entry points consume it, both name-matched and wire-ordered:
+
+- **Typed subset, no new API.** `Unmarshal` of a buffer encoded from `[]Full`
+  into a `[]Subset` whose fields are a subset (matched by `qdf` tag / field
+  name) decodes only the matching columns. Wire columns absent from the
+  target are skipped via the index; target fields absent from the wire are
+  left zero.
+- **Explicit `UnmarshalColumns(data, out, fields...)`.** Names the wire
+  columns to keep; also drives the dynamic `*[]map[string]any` form (only the
+  named keys are populated). With no `fields` it behaves like `Unmarshal`.
+
+**Fallback without the index:** if the producer did not opt in, selective
+decode still returns correct results by **decoding and discarding** the
+unwanted columns — correct, just not fast.
+
+**Streaming strips it:** the column index is a single-message feature. It
+backpatches the header flag at a fixed offset, which a stream's shared/reused
+buffer invalidates after the first `Flush`, so `NewStreamEncoderWith` forces
+`colIndex = false` — exactly like the whole-body rANS pass.
+
+The element-addressable angle is what makes the skip cheap: because each
+column body is a single self-contained codec payload (FOR / bitpack / dict),
+skipping it is a direct offset add over a contiguous region rather than a
+per-element decode-and-discard walk.
+
 ### rANS entropy pass (`OptRANS`, `FlagRANS`)
 
 Under `OptCompression` the encoder runs one more pass after the body is

@@ -72,6 +72,7 @@ If you said *yes* to all three you've assembled `OptBalanced`.
 | `OptPairPred`    | `0xEA`   | Conditional pairs (`country` → `city`, `svc` → `host`). | Random / uncorrelated state. | `OptDense`    |
 | `OptMTF`         | `0xE9`   | Hot subset reuse on a >128-entry intern table.          | Small intern tables.         | `OptDense`    |
 | `OptGorillaFloat`| `0xE7`   | Smooth float time-series. ~70 % wire reduction.         | Random / unrelated floats; latency-sensitive paths (10× CPU/slice). | `OptQPack`    |
+| `OptColumnIndex` | `0xEF`   | Wide columnar `[]struct` batches read column-subset.    | Consumers that read all columns; non-columnar payloads. | `OptBalanced` |
 
 Dependent bits set without their parent are no-ops — the gating code
 ignores them. Reserved bits (6..31) are reserved; never use them.
@@ -235,6 +236,33 @@ float body from 8398 B (raw-LE under `OptQPack`) to 2307 B (Gorilla
 XOR), a 72.5 % drop. Encode/decode go from ~4.2 µs to ~41 µs — fine
 when the series is being archived once and queried over its lifetime,
 not for the hot ingest path.
+
+### Wide columnar batch, consumers read a column subset
+
+A `[]SomeStruct` with many fields (16-field event rows, wide metric
+records) where the readers usually project a handful of columns — a
+dashboard reads `ts` + `level`, a billing job reads `amount` only.
+
+**Recipe:** `qdf.OptBalanced | qdf.OptColumnIndex` on the producer, then
+read a subset with a typed subset struct (`Unmarshal`) or named columns
+(`UnmarshalColumns`).
+
+```go
+b, _ := qdf.Marshal(events, qdf.OptBalanced|qdf.OptColumnIndex)
+
+var rows []map[string]any
+_ = qdf.UnmarshalColumns(b, &rows, "ts", "level") // skips the other 14
+```
+
+Use it when consumers read a subset of columns from wide columnar
+batches: the index makes a skip a direct offset add, so decoding a
+3-field subset of a 16-field batch is ≈6.9× faster and ≈33× fewer
+allocs than decoding the whole struct. The cost is ~4 B per column on
+the wire. **No benefit** if every consumer reads all columns or the
+payload is not columnar — leave the bit off and the wire is byte-
+identical to plain `OptBalanced`. (Without the index, subset decode
+still works correctly; it just decodes-and-discards the rest.) Not
+emitted in streaming mode.
 
 ### What about streaming?
 

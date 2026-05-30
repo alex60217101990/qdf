@@ -294,6 +294,7 @@ emission order. Use `OptSpeed` if you hash or sign the wire.
 | `OptShapeIntern`  | `tagMapShape` for struct emissions (declare once, reuse by id). |
 | `OptPairPred`     | Markov-1 successor predictor (`tagStatePair`, `0xEA`). |
 | `OptMTF`          | Move-to-Front rank coding on state-refs (`tagStateMTF`, `0xE9`). |
+| `OptColumnIndex`  | Column-length index on columnar `[]struct` for selective decode (opt-in, ~4 B/column; default wire unchanged when off). |
 
 | Bundle | Composition |
 | ------ | ----------- |
@@ -435,6 +436,55 @@ for {
 Dense streams preserve the intern table across messages — the second
 occurrence of `"region":"eu-west-1"` in the batch is a 2-byte reference
 rather than a 13-byte string.
+
+### Selective columnar decode (`OptColumnIndex`)
+
+qdf transposes a slice of flat structs into a columnar container and
+compresses it column-by-column. With `OptColumnIndex` the producer writes a
+fixed-width column-length index (one `uint32` per column, ~4 B each) after the
+shape declaration. A consumer that only needs some columns then **advances
+past the rest using the index instead of decoding them** — cost becomes
+*O(columns you read)*, not *O(all columns)*.
+
+Two ways to read a subset:
+
+```go
+// Producer opts in to the index.
+buf, _ := qdf.Marshal(events, qdf.OptBalanced|qdf.OptColumnIndex)
+
+// 1) Typed subset — no new API. Decode into a struct whose fields are a
+//    subset of the wire (matched by qdf tag / field name). Wire columns
+//    absent from the target are skipped; target fields absent from the
+//    wire are left zero.
+type Subset struct {
+    Level   string `qdf:"level"`
+    Service string `qdf:"service"`
+}
+var sub []Subset
+_ = qdf.Unmarshal(buf, &sub)
+
+// 2) Explicit column names — drives a typed subset or the dynamic
+//    *[]map[string]any form. With no fields it behaves like Unmarshal.
+var rows []map[string]any
+_ = qdf.UnmarshalColumns(buf, &rows, "level", "service")
+```
+
+Decoding a 3-field subset of a 16-field columnar batch (i7-9750H):
+
+| | ns/op | allocs/op |
+| --- | ---: | ---: |
+| full (16 fields) | 126,150 | 1065 |
+| subset (3 fields) | 18,365 | 32 |
+
+≈ **6.9× faster, ≈33× fewer allocs** — it decodes 3 columns and skips 13.
+
+Notes: the option only affects payloads the encoder transposes into the
+columnar container; the flag is backpatched **only when the index is actually
+emitted**, so the default columnar wire stays **byte-identical** when the
+option is off (and the default non-indexed decode path has no regression).
+Without the index a subset decode still returns correct results by decoding
+and discarding unwanted columns — correct, just not fast. The index is a
+single-message feature and is **not emitted in streaming mode**.
 
 ### Zero-extra-copy encode
 

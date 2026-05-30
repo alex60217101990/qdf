@@ -180,6 +180,56 @@ latencies) that sit on a fixed grid Gorilla cannot exploit.
 
 ---
 
+## Selective columnar decode (`OptColumnIndex`)
+
+When a `[]SomeStruct` is transposed into the columnar container, you can
+read **only the columns you need** without decoding the rest. Set
+`OptColumnIndex` on the producer and the payload carries a fixed-width
+`uint32` column-length index (one entry per column, ~4 B each) written
+after the shape declaration. A consumer reading a subset then advances past
+the unwanted columns using the index, so the cost is *O(columns you read)*
+rather than *O(all columns)*.
+
+There are two ways to read a subset. Both work on the same wire:
+
+```go
+// Producer opts in. The default columnar wire is byte-identical without
+// this bit — the index is only written (and its header flag set) when the
+// payload is actually columnar.
+buf, _ := qdf.Marshal(events, qdf.OptBalanced|qdf.OptColumnIndex)
+
+// 1) Typed subset — no extra API. Decode into a struct whose fields are a
+//    subset of the wire, matched by qdf tag / field name. Wire columns
+//    absent from the target are skipped; target fields absent from the
+//    wire are left zero.
+type Subset struct {
+    Level   string `qdf:"level"`
+    Service string `qdf:"service"`
+}
+var sub []Subset
+_ = qdf.Unmarshal(buf, &sub)
+
+// 2) Name the columns explicitly. Drives a typed subset or the dynamic
+//    *[]map[string]any form (only the named keys are populated). With no
+//    fields it behaves like Unmarshal.
+var rows []map[string]any
+_ = qdf.UnmarshalColumns(buf, &rows, "level", "service")
+```
+
+**When it helps:** wide columnar batches where consumers read a few columns
+(e.g. scan only `ts` + `level` out of a 16-field event row). On a 16-field
+batch decoding a 3-field subset is ≈6.9× faster and uses ≈33× fewer allocs
+than decoding the whole struct.
+
+**When it doesn't:** if every consumer reads all columns, or the payload is
+not columnar, the ~4 B/column index is dead weight — leave the bit off.
+Selective decode still works **without** the index (the producer did not opt
+in): it returns correct results by decoding and discarding the unwanted
+columns, just not faster. The index is a single-message feature and is **not
+emitted in streaming mode**.
+
+---
+
 ## The `qdf:"name"` struct tag
 
 qdf reads `qdf:"name"` struct tags to determine the wire field name.
