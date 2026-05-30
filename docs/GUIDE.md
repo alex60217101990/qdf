@@ -680,14 +680,15 @@ the slice:
 - The remaining string/`[]byte` per-value emissions go through the
   normal intern path; repeated values collapse to state-refs.
 - An optional (`*T`) field whose `T` is a scalar (`int*`/`uint*`/
-  `float*`/`bool`) becomes a **nullable column** instead of forcing the
-  whole struct to row-major: a presence bitmap (1 bit per row, LSB-first)
-  followed by a dense column of only the present values, fed through the
-  base type's normal codec. Nullability rides in the shape's kind byte
+  `float*`/`bool`) or a `string` becomes a **nullable column** instead of
+  forcing the whole struct to row-major: a presence bitmap (1 bit per row,
+  LSB-first) followed by a dense column of only the present values, fed
+  through the base type's normal codec (the string dictionary applies to a
+  nullable string column too). Nullability rides in the shape's kind byte
   (`colKindNullable`, the high bit) — no extra wire tag — so the decoder
   rebuilds the nils from the mask. A single optional field used to defeat
-  columnar for the entire struct; this keeps the win. Nullable string
-  columns currently fall back to row-major.
+  columnar for the entire struct; this keeps the win. (`*[]byte` still
+  falls back to row-major.)
 
 The wire layout is `0xEF, varuint(M), varuint(shapeID)` followed by K
 column payloads in declaration order. `shapeID == 0` declares a new

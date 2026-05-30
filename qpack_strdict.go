@@ -121,6 +121,30 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	return true
 }
 
+// readStringColumn decodes a string column of n values written by
+// writeStringColumn: a tagColStrDict dictionary block, or n per-value strings.
+func (d *Decoder) readStringColumn(n int) ([]string, error) {
+	out := make([]string, n)
+	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
+		table, idx, err := d.readStringColumnDict(n)
+		if err != nil {
+			return nil, err
+		}
+		for i := range n {
+			out[i] = table[idx[i]]
+		}
+		return out, nil
+	}
+	for i := range n {
+		sb, err := d.readStringBytes()
+		if err != nil {
+			return nil, err
+		}
+		out[i] = string(sb) // owned copy
+	}
+	return out, nil
+}
+
 // readStringColumnDict decodes a tagColStrDict block (tag at d.i) into a
 // distinct table and a per-row index slice of length n. Each row's string
 // is table[idx[i]]; the distinct strings are allocated once and shared by

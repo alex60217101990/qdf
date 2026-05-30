@@ -110,9 +110,9 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 			return nil
 		}
 		if nullable {
-			// v1: only scalar/bool pointers (*int*, *uint*, *float*, *bool).
-			// Nullable string/[]byte columns fall back to row-major for now.
-			if isByte || ck == colKindString {
+			// Nullable scalar/bool/string pointers are columnar; nullable
+			// []byte still falls back to row-major.
+			if isByte { // nullable []byte still unsupported; nullable string now allowed
 				return nil
 			}
 			ck |= colKindNullable

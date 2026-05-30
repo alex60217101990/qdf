@@ -161,6 +161,19 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		st.colScratchBool = s
 		e.buf = append(e.buf, mask...)
 		return encodeSliceBool(e, unsafe.Pointer(&s))
+	case colKindString:
+		s := st.colScratchStr[:0]
+		for i := range n {
+			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
+			if pp != nil {
+				mask[i>>3] |= 1 << uint(i&7)
+				s = append(s, *(*string)(pp))
+			}
+		}
+		st.colScratchStr = s
+		e.buf = append(e.buf, mask...)
+		e.writeStringColumn(s)
+		return nil
 	}
 	return ErrBadTag
 }
@@ -243,6 +256,23 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 			return ErrTypeMismatch
 		}
 		set(func(ea unsafe.Pointer, k int) { *(*bool)(ea) = s[k] })
+	case colKindString:
+		strs, err := d.readStringColumn(present)
+		if err != nil {
+			return err
+		}
+		k := 0
+		for i := range n {
+			fp := unsafe.Add(base, uintptr(i)*stride+off)
+			if mask[i>>3]&(1<<uint(i&7)) != 0 {
+				*(*unsafe.Pointer)(fp) = unsafe.Pointer(&strs[k])
+				k++
+			} else {
+				*(*unsafe.Pointer)(fp) = nil
+			}
+		}
+		runtime.KeepAlive(strs)
+		return nil
 	default:
 		return ErrBadTag
 	}
@@ -304,6 +334,12 @@ func (d *Decoder) decodeNullableColumnAny(kind colKind, n int) ([]any, error) {
 			return nil, ErrTypeMismatch
 		}
 		scatter(func(i, k int) { out[i] = s[k] })
+	case colKindString:
+		strs, err := d.readStringColumn(present)
+		if err != nil {
+			return nil, err
+		}
+		scatter(func(i, k int) { out[i] = strs[k] })
 	default:
 		return nil, ErrBadTag
 	}
