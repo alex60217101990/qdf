@@ -24,6 +24,20 @@ type Decoder struct {
 	keyCache intern.Cache
 
 	headerRead bool
+
+	// colMaxLen bounds a slice codec's claimed element count while decoding
+	// a columnar column, where every column must hold exactly the struct
+	// count M. 0 means unbounded (standalone slice decode). It blocks a
+	// hostile column whose constant/zero-width codec claims a huge n from a
+	// tiny body before the per-element allocation.
+	colMaxLen int
+}
+
+// colLenOK reports whether a slice length is acceptable in the current
+// decode context. Outside a columnar column (colMaxLen == 0) any length is
+// allowed; the row-major and standalone paths bound length by the buffer.
+func (d *Decoder) colLenOK(n uint64) bool {
+	return d.colMaxLen == 0 || n <= uint64(d.colMaxLen)
 }
 
 // InternKey returns a string equal to b, sharing storage with prior

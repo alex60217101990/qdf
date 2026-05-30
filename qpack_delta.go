@@ -205,6 +205,9 @@ func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsign
 		return 0, 0, 0, 0, 0, nil, ErrInvalidLength
 	}
 	d.i += nr
+	if !d.colLenOK(n64) {
+		return 0, 0, 0, 0, 0, nil, ErrInvalidLength
+	}
 	if n64 < 2 {
 		return bitsPer, unsignedFirst, signedFirst, minDelta, int(n64), nil, nil
 	}

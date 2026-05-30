@@ -191,6 +191,9 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 		return nil, ErrInvalidLength
 	}
 	d.i += nr
+	if !d.colLenOK(n64) {
+		return nil, ErrInvalidLength
+	}
 	if d.i >= len(d.buf) {
 		return nil, ErrShortBuffer
 	}
@@ -272,6 +275,9 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) {
 		return nil, ErrInvalidLength
 	}
 	d.i += nr
+	if !d.colLenOK(n64) {
+		return nil, ErrInvalidLength
+	}
 	if d.i >= len(d.buf) {
 		return nil, ErrShortBuffer
 	}
