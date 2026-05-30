@@ -38,6 +38,40 @@ func ExampleOptions() {
 	// OptBalanced  wire=161 bytes
 }
 
+// ExampleOptions_columnarStringDict shows the per-column string dictionary
+// that fires automatically under OptBalanced for a slice of structs whose
+// string fields are enum-like — a small set of distinct values scattered
+// across rows. The distinct strings are stored once and each row keeps a
+// few-bit index, so the wire is far smaller than one interned reference per
+// value. It is gated never-worse: run-heavy or high-cardinality columns keep
+// the per-value path, and the choice is invisible to the decoder.
+func ExampleOptions_columnarStringDict() {
+	type LogRow struct {
+		TS      int64  `qdf:"ts"`      // sequential — Delta+FOR makes columnar win
+		Level   string `qdf:"level"`   // enum — string dictionary
+		Service string `qdf:"service"` // enum — string dictionary
+	}
+	levels := []string{"INFO", "WARN", "ERROR"}
+	services := []string{"api", "auth", "billing"}
+	in := make([]LogRow, 300)
+	for i := range in {
+		in[i] = LogRow{
+			TS:      int64(1700000000 + i),
+			Level:   levels[i%len(levels)],
+			Service: services[(i*7)%len(services)],
+		}
+	}
+
+	buf, _ := qdf.Marshal(in, qdf.OptBalanced)
+
+	var out []LogRow
+	_ = qdf.Unmarshal(buf, &out)
+	fmt.Printf("rows=%d wire=%d bytes roundtrip=%v\n", len(in), len(buf), out[0] == in[0] && out[299] == in[299])
+
+	// Output:
+	// rows=300 wire=234 bytes roundtrip=true
+}
+
 // ExampleOptions_streamingDictShared shows the headline Dense-mode
 // win: across many calls of a StreamEncoder the intern table /
 // shape table / predictors all survive, so the second record
