@@ -162,6 +162,9 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) {
 		return nil, ErrInvalidLength
 	}
 	d.i += nr
+	if !d.colLenOK(n64) {
+		return nil, ErrInvalidLength
+	}
 	n := int(n64)
 	out := make([]uint64, n)
 	if bitsPer == 0 {
@@ -210,6 +213,9 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) {
 		return nil, ErrInvalidLength
 	}
 	d.i += nr
+	if !d.colLenOK(n64) {
+		return nil, ErrInvalidLength
+	}
 	n := int(n64)
 	out := make([]int64, n)
 	if bitsPer == 0 {

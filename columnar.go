@@ -18,16 +18,33 @@ const (
 	colKindFloat                 // float32, float64 → []float64 column
 	colKindBool                  // bool → []bool column
 	colKindString                // string, []byte → consecutive WriteString
+
+	// colKindNullable is OR'd onto a base kind in the columnar shape's kind
+	// byte to mark an optional (pointer-to-scalar/string) column: a `*T`
+	// field. The column is stored as a presence bitmap (1 bit per row) plus
+	// a dense column of only the present values, encoded with the base
+	// kind's normal codec. Nullability is a static property of the field
+	// type, so it travels in the shape declaration — no separate wire tag.
+	colKindNullable colKind = 0x80
 )
+
+// base returns the kind without the nullable flag.
+func (k colKind) base() colKind { return k &^ colKindNullable }
+
+// isNullable reports whether the column is an optional (pointer) column.
+func (k colKind) isNullable() bool { return k&colKindNullable != 0 }
 
 // colColumn is one field's columnar descriptor: where it lives in each struct
 // element and how to (de)serialize the column.
 type colColumn struct {
 	name   string
 	offset uintptr
-	kind   colKind
+	kind   colKind // base kind, OR'd with colKindNullable for *T columns
 	width  uintptr // element width in bytes for the scalar load/store
 	isByte bool    // true for []byte string columns (vs string)
+	// elemType is the pointed-to type for a nullable (*T) column, used to
+	// allocate the present values on decode. nil for non-nullable columns.
+	elemType reflect.Type
 }
 
 // columnarPlan is cached on the slice element's typeDesc. nil means the
@@ -49,6 +66,12 @@ const columnarMinElems = 16
 // (callers with more rows should shard or stream).
 const maxColumnarElems = 1 << 24
 
+// maxColumnarAnyElems caps the row count for the reflective map[string]any
+// decode, which allocates one map per row up front (much heavier than the
+// typed struct path's single backing slice). Kept well above any realistic
+// ad-hoc decode; callers with more rows should decode into a typed struct.
+const maxColumnarAnyElems = 1 << 16
+
 // checkColumnarN validates a tagColStruct struct count. Unlike row-major
 // slices, a columnar count is not byte-bounded (compressed columns), so it is
 // checked against a fixed ceiling rather than the remaining buffer length.
@@ -69,11 +92,32 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 	cols := make([]colColumn, 0, len(td.fields))
 	for i := range td.fields {
 		f := &td.fields[i]
-		ck, w, isByte, ok := classifyColKind(f.desc)
+		fd := f.desc
+		// An optional (*T) field becomes a nullable column: classify the
+		// pointed-to type and remember its reflect.Type for decode allocation.
+		var elemType reflect.Type
+		nullable := false
+		if fd.kind == reflect.Pointer {
+			if fd.elem == nil {
+				return nil
+			}
+			nullable = true
+			elemType = fd.rType.Elem()
+			fd = fd.elem
+		}
+		ck, w, isByte, ok := classifyColKind(fd)
 		if !ok {
 			return nil
 		}
-		cols = append(cols, colColumn{name: f.name, offset: f.offset, kind: ck, width: w, isByte: isByte})
+		if nullable {
+			// v1: only scalar/bool pointers (*int*, *uint*, *float*, *bool).
+			// Nullable string/[]byte columns fall back to row-major for now.
+			if isByte || ck == colKindString {
+				return nil
+			}
+			ck |= colKindNullable
+		}
+		cols = append(cols, colColumn{name: f.name, offset: f.offset, kind: ck, width: w, isByte: isByte, elemType: elemType})
 	}
 	return &columnarPlan{cols: cols, stride: td.rType.Size()}
 }
@@ -195,6 +239,34 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 				prev = s
 				first = false
 			}
+		default:
+			if !col.kind.isNullable() {
+				continue // unknown kind contributes nothing
+			}
+			// Nullable column. Row-major spends ~1 tag byte per row (tagNil for
+			// absent, a value tag for present) plus the present value bytes;
+			// columnar spends a presence bitmap plus a dense column no larger
+			// than those value bytes (FOR-packing only shrinks it further), so
+			// the mask-vs-byte-per-row difference is the conservative win.
+			valBytes := 0
+			for i := range sample {
+				pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*plan.stride+col.offset))
+				if pp == nil {
+					continue
+				}
+				switch col.kind.base() {
+				case colKindInt:
+					valBytes += uvarintLen(zigzagEncode64(loadI64At(pp, col.width)))
+				case colKindUint:
+					valBytes += uvarintLen(loadU64At(pp, col.width))
+				case colKindFloat:
+					valBytes += 8
+				case colKindBool:
+					valBytes++
+				}
+			}
+			rowBytes += sample + valBytes
+			colBytes += (sample+7)/8 + valBytes
 		}
 	}
 	if rowBytes == 0 {
@@ -228,6 +300,12 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 
 	for c := range plan.cols {
 		col := &plan.cols[c]
+		if col.kind.isNullable() {
+			if err := e.encodeNullableColumn(base, plan, col, n); err != nil {
+				return err
+			}
+			continue
+		}
 		switch col.kind {
 		case colKindInt:
 			s := st.colScratchI64[:0]
@@ -279,12 +357,7 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 				s = append(s, loadStringField(base, plan.stride, col, i))
 			}
 			st.colScratchStr = s
-			if e.tryWriteStringColumnDict(s) {
-				break // dict form emitted; never-worse gate already passed
-			}
-			for _, v := range s {
-				e.WriteString(v)
-			}
+			e.writeStringColumn(s)
 		}
 	}
 	return nil
@@ -349,6 +422,10 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 	if err := checkColumnarN(n); err != nil {
 		return err
 	}
+	// Every column holds exactly n elements; bound each column codec's
+	// claimed length so a constant/zero-width codec cannot allocate past n.
+	d.colMaxLen = n
+	defer func() { d.colMaxLen = 0 }()
 	if d.state == nil {
 		d.state = newDecState()
 	}
@@ -398,6 +475,12 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 		col := &plan.cols[c]
 		if c >= len(sh.kinds) || sh.kinds[c] != col.kind {
 			return ErrTypeMismatch
+		}
+		if col.kind.isNullable() {
+			if err := d.decodeNullableColumn(base, plan, col, n); err != nil {
+				return err
+			}
+			continue
 		}
 		switch col.kind {
 		case colKindInt:
@@ -528,6 +611,16 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 	if err := checkColumnarN(n); err != nil {
 		return nil, err
 	}
+	// The map-per-row reflection decode allocates n maps up front, far heavier
+	// than the struct path's single backing slice, so it gets a tighter
+	// element ceiling. A constant column can claim a huge n from a tiny body;
+	// without this a small hostile input would drive a multi-gigabyte map
+	// allocation. Callers decoding millions of rows should use a typed struct.
+	if n > maxColumnarAnyElems {
+		return nil, ErrInvalidLength
+	}
+	d.colMaxLen = n
+	defer func() { d.colMaxLen = 0 }()
 	if d.state == nil {
 		d.state = newDecState()
 	}
@@ -574,6 +667,16 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 	}
 	for c := range sh.kinds {
 		name := sh.names[c]
+		if sh.kinds[c].isNullable() {
+			vals, err := d.decodeNullableColumnAny(sh.kinds[c], n)
+			if err != nil {
+				return nil, err
+			}
+			for i := range n {
+				out[i].(map[string]any)[name] = vals[i]
+			}
+			continue
+		}
 		switch sh.kinds[c] {
 		case colKindInt:
 			var s []int64

@@ -182,6 +182,9 @@ func (d *Decoder) readPackedForHeader(expectKind byte) (bitsPer int, unsignedMin
 		return 0, 0, 0, 0, nil, ErrInvalidLength
 	}
 	d.i += nr
+	if !d.colLenOK(n64) {
+		return 0, 0, 0, 0, nil, ErrInvalidLength
+	}
 	// Validate body size in uint64 BEFORE the signed cast. A hostile
 	// varuint with n64 > MaxInt would otherwise wrap int(n64) to
 	// negative and the bounds check in the original form
