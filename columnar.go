@@ -796,15 +796,6 @@ func (cv *colVals) anyAt(i int) any {
 	return nil
 }
 
-// TODO(task7): real implementation in nullable_col.go.
-func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error) {
-	return colVals{}, ErrUnsupported
-}
-
-// TODO(task7): real implementation in nullable_col.go.
-func (cv *colVals) scatterNullableRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
-}
-
 // runQueryColumns resolves d.query's predicates against the shape, then makes a
 // single forward pass over the wire columns: predicate and projected columns are
 // decoded into retained colVals (predicates evaluated into masks), and the rest

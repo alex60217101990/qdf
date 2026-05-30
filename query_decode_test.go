@@ -208,3 +208,107 @@ func TestQuery_MapOutput(t *testing.T) {
 		}
 	}
 }
+
+type qrowOpt struct {
+	ID    int64  `qdf:"id"`
+	Score *int64 `qdf:"score"` // nullable column
+	Level string `qdf:"level"`
+}
+
+func mkQRowsOpt(n int) []qrowOpt {
+	out := make([]qrowOpt, n)
+	for i := range out {
+		out[i].ID = int64(i)
+		out[i].Level = []string{"INFO", "ERROR"}[i%2]
+		if i%3 != 0 { // some rows nil
+			v := int64(i * 10)
+			out[i].Score = &v
+		}
+	}
+	return out
+}
+
+func TestQuery_NullableColumnNilExcluded(t *testing.T) {
+	rows := mkQRowsOpt(120)
+	enc, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var got []qrowOpt
+	// Predicate on the nullable Score column: only present, >100 match.
+	if err := Unmarshal(enc, &got, Where("score", func(v int64) bool { return v > 100 })); err != nil {
+		t.Fatal(err)
+	}
+	var want []qrowOpt
+	for _, r := range rows {
+		if r.Score != nil && *r.Score > 100 {
+			want = append(want, r)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len %d != %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].ID != want[i].ID || got[i].Level != want[i].Level {
+			t.Fatalf("row %d scalar mismatch", i)
+		}
+		if (got[i].Score == nil) != (want[i].Score == nil) {
+			t.Fatalf("row %d nil-ness mismatch", i)
+		}
+		if got[i].Score != nil && *got[i].Score != *want[i].Score {
+			t.Fatalf("row %d score %d != %d", i, *got[i].Score, *want[i].Score)
+		}
+	}
+}
+
+func TestQuery_NullableProjectedNotFiltered(t *testing.T) {
+	// Nullable column is projected (in output) but not a predicate; filter on Level.
+	rows := mkQRowsOpt(90)
+	enc, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var got []qrowOpt
+	if err := Unmarshal(enc, &got, Where("level", func(s string) bool { return s == "ERROR" })); err != nil {
+		t.Fatal(err)
+	}
+	var want []qrowOpt
+	for _, r := range rows {
+		if r.Level == "ERROR" {
+			want = append(want, r)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len %d != %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].ID != want[i].ID || got[i].Level != want[i].Level {
+			t.Fatalf("row %d scalar mismatch", i)
+		}
+		if (got[i].Score == nil) != (want[i].Score == nil) {
+			t.Fatalf("row %d nil-ness mismatch: got %v want %v", i, got[i].Score, want[i].Score)
+		}
+		if got[i].Score != nil && *got[i].Score != *want[i].Score {
+			t.Fatalf("row %d score mismatch", i)
+		}
+	}
+}
+
+func TestQuery_TypeMismatch(t *testing.T) {
+	rows := mkQRows(50)
+	enc, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var got []qrow
+	// level is a string column; an int predicate must be a typed error.
+	err := Unmarshal(enc, &got, Where("level", func(v int) bool { return v > 0 }))
+	if !errors.Is(err, ErrTypeMismatch) {
+		t.Fatalf("err = %v, want wraps ErrTypeMismatch", err)
+	}
+	var qe *QueryError
+	if !errors.As(err, &qe) || qe.Field != "level" {
+		t.Fatalf("errors.As gave %+v", qe)
+	}
+}
+
+func TestQuery_FieldNotFound(t *testing.T) {
+	rows := mkQRows(50)
+	enc, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var got []qrow
+	err := Unmarshal(enc, &got, Where("nonesuch", func(v int) bool { return true }))
+	if !errors.Is(err, ErrFieldNotFound) {
+		t.Fatalf("err = %v, want wraps ErrFieldNotFound", err)
+	}
+}
