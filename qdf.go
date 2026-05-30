@@ -37,6 +37,8 @@
 // and compressed column-by-column automatically — numeric columns get the
 // integer codecs, an enum-like string column is dictionary-coded (distinct
 // table + a bit-packed index per row) when that beats per-value interning,
+// an optional (*T scalar) field becomes a presence bitmap plus a dense
+// present-only column instead of forcing the struct back to row-major,
 // other repeated string columns collapse — with no flag, and a per-array
 // probe falls back to the plain row encoding when columnar would not help. The float codecs that trade encode CPU for size live behind
 // OptCompression: Gorilla XOR on smooth series, ALP on quantized/decimal

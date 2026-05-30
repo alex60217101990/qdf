@@ -155,6 +155,7 @@ time. You do not need to hint it — just set the bit.
 | Arrays of identical struct type | Shape interning | `OptBalanced` |
 | Predictable field transitions (e.g. service→region) | Markov-1 pair predictor | `OptBalanced` |
 | Enum-like string column in a `[]SomeStruct` (log level, service, region, status) | Per-column string dictionary (distinct table + bit-packed index/row) | `OptBalanced` (columnar) |
+| Optional (`*int`/`*float`/`*bool`…) field in a `[]SomeStruct` | Nullable column: 1-bit-per-row presence bitmap + dense present-only column. Keeps columnar instead of falling back to row-major. | `OptBalanced` (columnar) |
 | `[]SomeStruct` where fields are int/uint/float/bool/string/[]byte | Columnar transpose: numeric fields get FOR/delta/RLE/dict, enum-like string columns get a per-column dictionary, other repeated string fields collapse via intern. Automatic — no flag. The encoder probes each array and falls back to row-major when columnar would not win. | `OptBalanced` (Dense + ShapeIntern) |
 
 The encoder probes a slice's structure before committing. For
