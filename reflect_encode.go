@@ -240,7 +240,9 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if colPlan != nil {
 			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
-				// TODO(task5): route to decodeColumnarQuery when d.query != nil.
+				if d.query != nil {
+					return decodeColumnarQuery(d, t, colPlan, p)
+				}
 				return decodeColumnar(d, t, colPlan, p)
 			}
 		}
