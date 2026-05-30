@@ -189,7 +189,11 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 		switch col.kind {
 		case colKindInt, colKindUint:
 			var mn, mx uint64 = ^uint64(0), 0
-			distinct := map[uint64]struct{}{}
+			// Distinct values bounded to 17 (cardinality > 16 disables the dict
+			// estimate) tracked in a stack array with a linear scan — no map
+			// allocation per probed column.
+			var seen [17]uint64
+			ndistinct := 0
 			for i := range sample {
 				v := loadScalarU64(base, plan.stride, col, i)
 				if v < mn {
@@ -198,8 +202,18 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 				if v > mx {
 					mx = v
 				}
-				if len(distinct) <= 16 {
-					distinct[v] = struct{}{}
+				if ndistinct <= 16 {
+					found := false
+					for j := 0; j < ndistinct; j++ {
+						if seen[j] == v {
+							found = true
+							break
+						}
+					}
+					if !found {
+						seen[ndistinct] = v
+						ndistinct++
+					}
 				}
 				rowBytes += uvarintLen(v) // row-major: one varint per value
 			}
@@ -211,12 +225,12 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 			}
 			forEst := 3 + (bits*sample+7)/8
 			dictEst := 1 << 30
-			if len(distinct) <= 16 {
+			if ndistinct <= 16 {
 				idxBits := 0
-				for (1 << idxBits) < len(distinct) {
+				for (1 << idxBits) < ndistinct {
 					idxBits++
 				}
-				dictEst = 3 + len(distinct)*8 + (idxBits*sample+7)/8
+				dictEst = 3 + ndistinct*8 + (idxBits*sample+7)/8
 			}
 			colBytes += min(forEst, dictEst)
 		case colKindFloat:
@@ -226,19 +240,46 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 			rowBytes += sample
 			colBytes += (sample + 7) / 8
 		case colKindString:
+			// Estimate the column two ways over the sample and keep the
+			// cheaper, mirroring the encoder: per-value (with consecutive-repeat
+			// collapse) OR a string dictionary (distinct table + ceil(log2
+			// distinct) bits/row). Without the dictionary term the probe would
+			// decline columnar for a low-cardinality string column that never
+			// repeats consecutively, even though the dictionary crushes it.
+			//
+			// Distinct values are tracked in a stack array with a linear scan,
+			// not a map: the sample is <= columnarProbeSample, so the set is
+			// tiny and a map would heap-allocate buckets on every probed column.
+			var seen [columnarProbeSample]string
+			nseen := 0
+			var tableBytes, perValue int
 			prev := ""
 			first := true
 			for i := range sample {
 				s := loadStringField(base, plan.stride, col, i)
+				fresh := true
+				for j := 0; j < nseen; j++ {
+					if seen[j] == s {
+						fresh = false
+						break
+					}
+				}
+				if fresh && nseen < len(seen) {
+					seen[nseen] = s
+					nseen++
+					tableBytes += 2 + len(s)
+				}
 				if !first && s == prev {
-					colBytes += 1 // tagStateRepeat
+					perValue += 1 // tagStateRepeat
 				} else {
-					colBytes += 2 + len(s)
+					perValue += 2 + len(s)
 				}
 				rowBytes += 2 + len(s)
 				prev = s
 				first = false
 			}
+			dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
+			colBytes += min(perValue, dictBytes)
 		default:
 			if !col.kind.isNullable() {
 				continue // unknown kind contributes nothing
