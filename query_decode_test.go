@@ -334,3 +334,32 @@ func TestQuery_MalformedNoPanic(t *testing.T) {
 		}()
 	}
 }
+
+// TestQuery_NullableMalformedNoPanic byte-flips every position of a payload with
+// a nullable (*int64) column and confirms the nullable query paths
+// (decodeNullableColumnVals via runQueryColumns, struct and map output) bound
+// every buffer index rather than panicking on hostile input.
+func TestQuery_NullableMalformedNoPanic(t *testing.T) {
+	rows := mkQRowsOpt(40)
+	for _, opt := range []Options{OptBalanced, OptBalanced | OptColumnIndex} {
+		enc, _ := Marshal(rows, opt)
+		for i := range enc {
+			m := append([]byte(nil), enc...)
+			m[i] ^= 0xFF
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Fatalf("panic on corrupted byte %d (opt %d): %v", i, opt, r)
+					}
+				}()
+				var got []qrowOpt
+				_ = Unmarshal(m, &got,
+					Where("score", func(v int64) bool { return v > 100 }),
+					Where("level", func(s string) bool { return s == "ERROR" }))
+				var mp []map[string]any
+				_ = Unmarshal(m, &mp,
+					Where("score", func(v int64) bool { return v > 50 }), Select("id", "score"))
+			}()
+		}
+	}
+}
