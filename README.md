@@ -3,7 +3,7 @@
 [![ci](https://github.com/alex60217101990/qdf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/alex60217101990/qdf/actions/workflows/ci.yml)
 [![codeql](https://github.com/alex60217101990/qdf/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/alex60217101990/qdf/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/alex60217101990/qdf/branch/main/graph/badge.svg)](https://codecov.io/gh/alex60217101990/qdf)
-[![benchmarks](https://img.shields.io/badge/benchmarks-dashboard-blue)](https://alex60217101990.github.io/qdf/)
+[![benchmarks](https://img.shields.io/badge/benchmarks-live%20dashboard-blue)](https://alex60217101990.github.io/qdf/dev/bench/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/alex60217101990/qdf.svg)](https://pkg.go.dev/github.com/alex60217101990/qdf)
 [![Go Report Card](https://goreportcard.com/badge/github.com/alex60217101990/qdf)](https://goreportcard.com/report/github.com/alex60217101990/qdf)
 ![Go](https://img.shields.io/badge/go-1.26-blue?logo=go)
@@ -481,10 +481,22 @@ on decode.
 
 ## Benchmarks
 
-Darwin amd64 / Intel i7-9750H @ 2.6 GHz, Go 1.26.0, `-benchtime=2s`,
-`-race` cross-check. Full numbers, realistic / unique-data scenarios,
-memory tables and reproduction commands are in
-[`docs/BENCH.md`](docs/BENCH.md).
+📈 **Live trend dashboard: <https://alex60217101990.github.io/qdf/dev/bench/>**
+
+Every push to `main` re-runs the benchmark suite in CI and appends the
+result to that dashboard — one chart per benchmark, `ns/op` (and where
+shown `B/op` / `allocs/op`) over the commit timeline. A curve trending
+**down** is a speed/size win; a **sustained** step up is a regression (a
+lone spike is shared-runner noise — read the trend, not single points).
+See [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) for how to read the graphs.
+Wire-size numbers (`TestCorpusCodec_Sizes`) are deterministic, so changes
+there are real.
+
+The tables below are a point-in-time snapshot — Darwin amd64 / Intel
+i7-9750H @ 2.6 GHz, Go 1.26.0, `-benchtime=2s`, `-race` cross-check. Full
+numbers, realistic / unique-data scenarios, memory tables and reproduction
+commands are in [`docs/BENCH.md`](docs/BENCH.md); the live dashboard above
+has the current numbers.
 
 > **May 2026 perf series** (commits `ada9fd7`, `2ea3b48`, `02d6aac`,
 > `7090e25`, `c0517e8`, `95d3c21`, `001864b`) rebuilt the encode +
