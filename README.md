@@ -57,7 +57,7 @@ the practical subset of that idea:
 | ------------------------ | ---------------------------- |
 | **State set** — the discrete values a position can take. | The Dense-mode intern table. The first occurrence of a string or `[]byte` value writes it in full and assigns it a stable ID. |
 | **Wavefunction collapse** — a single observation picks one state. | Every subsequent occurrence emits a `state_ref` tag plus a varint ID. Decoding "collapses" the reference back to its stored value. |
-| **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Numeric and bool slices use QPack codecs (FOR, Delta+FOR, RLE, dictionary, Gorilla XOR, ALP decimal, raw-LE bulk) that auto-select the smallest predicted form per slice; slices of homogeneous structs transpose to per-column codecs. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
+| **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Numeric and bool slices use QPack codecs (FOR, Delta+FOR, RLE, dictionary, Gorilla XOR, ALP decimal, raw-LE bulk) that auto-select the smallest predicted form per slice; slices of homogeneous structs transpose to per-column codecs, and an enum-like string column is dictionary-coded (distinct table + bit-packed index per row) when that beats per-value interning. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
 | **Probabilistic / residual coding** — predict, then store only the deviation. | QPack's Delta+FOR codec is exactly this for monotonic integer sequences: encode the first value plus the bit-packed residual against a `aᵢ = aᵢ₋₁ + minΔ` predictor. Gorilla does the same for floats by XOR-ing each sample against the previous one and storing the differing bits only. |
 | **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Three stacked predictors on the Dense state stream. **Markov-0** (`tagStateRepeat`, `0xE8`) collapses an immediate repeat of the previously emitted state-ref to a single byte. **MTF rank** (`tagStateMTF`, `0xE9`) encodes the LRU rank of the touched ID when that varuint is shorter than the raw id. **Markov-1 pair** (`tagStatePair`, `0xEA`) keeps the last 4 successors observed after each prev ID and encodes a hit as `0xEA + 1-byte rank` — wins when the prev → curr transition is predictable and the raw id needs a multi-byte varuint. The encoder picks the shortest of the four variants per emission, so the wire is never larger than the plain `tagStateRef` encoding. A full conditional-probability table beyond order-1 stays in the reserved `0xEB / 0xED..0xEF` block. |
 | **Shape interning** — repeated structure means the *layout* itself is information. | Dense mode emits structs (and `map[string]any` of stable shape via the reflect-struct path) through `tagMapShape` (`0xEC`). First occurrence declares the shape inline: `0xEC, 0, varuint(N), N × key`. Subsequent occurrences of the same shape emit `0xEC + varuint(shapeID) + N × value` — keys are *not* re-emitted. Per-record saving on an array of identical-shape structs is `N × 2` bytes for the elided state-refs plus the map header. The shape table is per-stream, addressed by `*typeDesc` on the encoder and by sequential ID on the wire. Shapes never collide across types because the encoder keys the binding on the descriptor pointer. |
@@ -152,11 +152,12 @@ Tag space is msgpack-inspired with a few additions:
 | `0xEF`               | QPack: columnar `[]struct` container          |
 | `0xF0..0xF3`         | ext / timestamp                               |
 | `0xF4`               | QPack: ALP decimal-coded `[]float64` slice    |
-| `0xF5..0xFF`         | reserved (rANS, n-gram graph, future)         |
+| `0xF5`               | QPack: dictionary-coded string column          |
+| `0xF6..0xFF`         | reserved (rANS, n-gram graph, future)         |
 
 The 5th header byte holds two flag bits: `FlagDense` (`0x01`) for the
 intern dialect, and `FlagQPack` (`0x02`) as an early hint that the body
-may carry codec tags from the QPack codec range (`0xE3..0xEF`, `0xF4`). A reader that does
+may carry codec tags from the QPack codec range (`0xE3..0xEF`, `0xF4..0xF5`). A reader that does
 not implement the QPack tags fails with `ErrBadTag` on first contact;
 it never decodes a packed payload as scalar by accident.
 

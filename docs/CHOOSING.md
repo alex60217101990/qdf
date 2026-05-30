@@ -31,7 +31,10 @@ live small (archives, cold storage, paginated history) wants
 bit differs.
 
 Arrays of flat homogeneous structs are compressed columnar automatically
-under `OptBalanced` and above — no flag needed.
+under `OptBalanced` and above — no flag needed. Within that path, enum-like
+string columns (log level, service, region, status) are dictionary-coded
+(distinct table + a bit-packed index per row) when that beats per-value
+interning, which is a large win on wide low-cardinality dimension columns.
 
 ---
 

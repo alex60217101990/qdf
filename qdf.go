@@ -35,9 +35,10 @@
 // dictionary coding; bool slices bit-pack; repeated strings are interned
 // and back-referenced. A slice of homogeneous flat structs is transposed
 // and compressed column-by-column automatically — numeric columns get the
-// integer codecs, repeated string columns collapse — with no flag, and a
-// per-array probe falls back to the plain row encoding when columnar would
-// not help. The float codecs that trade encode CPU for size live behind
+// integer codecs, an enum-like string column is dictionary-coded (distinct
+// table + a bit-packed index per row) when that beats per-value interning,
+// other repeated string columns collapse — with no flag, and a per-array
+// probe falls back to the plain row encoding when columnar would not help. The float codecs that trade encode CPU for size live behind
 // OptCompression: Gorilla XOR on smooth series, ALP on quantized/decimal
 // float64 grids (quantized telemetry, prices, latencies).
 //
