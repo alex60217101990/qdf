@@ -91,6 +91,32 @@ func TestSelect_FallbackNoIndex(t *testing.T) {
 	}
 }
 
+func TestSelect_MalformedIndexNoPanic(t *testing.T) {
+	rows := mkSelFull(64)
+	enc, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Flip every byte; selective AND full decode must never panic/hang.
+	for i := 0; i < len(enc); i++ {
+		m := append([]byte(nil), enc...)
+		m[i] ^= 0xFF
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic on corrupted byte %d: %v", i, r)
+				}
+			}()
+			var s []selSubset
+			_ = Unmarshal(m, &s)
+			var f []selFull
+			_ = Unmarshal(m, &f)
+			var mp []map[string]any
+			_ = UnmarshalColumns(m, &mp, "b", "d")
+		}()
+	}
+}
+
 func TestSelect_UnmarshalColumnsMap(t *testing.T) {
 	rows := mkSelFull(300)
 	enc, err := Marshal(rows, OptBalanced|OptColumnIndex)
