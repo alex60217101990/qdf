@@ -230,6 +230,30 @@ emitted in streaming mode**.
 
 ---
 
+## Predicate pushdown (`Where` / `Select`)
+
+Selective decode skips columns you don't read; **predicate pushdown** also
+skips *rows* you don't want, filtering and projecting a columnar `[]struct`
+in a single pass. Pass trailing `QueryOption`s to `Unmarshal`:
+
+```go
+buf, _ := qdf.Marshal(events, qdf.OptBalanced|qdf.OptColumnIndex)
+
+var hot []map[string]any
+_ = qdf.Unmarshal(buf, &hot,
+    qdf.Where("level", func(s string) bool { return s == "ERROR" }),
+    qdf.Where("code", func(c int32) bool { return c >= 500 }),
+    qdf.Select("ts", "code"))
+```
+
+This is qdf's headline capability — no other Go serializer reads back a
+filtered, projected subset of a batch without decoding the whole thing. The
+full guide (rationale vs. competitors, API, nullable/error semantics,
+internals, and a step-by-step tutorial) is in
+**[PREDICATE-PUSHDOWN.md](PREDICATE-PUSHDOWN.md)**.
+
+---
+
 ## The `qdf:"name"` struct tag
 
 qdf reads `qdf:"name"` struct tags to determine the wire field name.

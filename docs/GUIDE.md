@@ -753,6 +753,31 @@ column body is a single self-contained codec payload (FOR / bitpack / dict),
 skipping it is a direct offset add over a contiguous region rather than a
 per-element decode-and-discard walk.
 
+#### Predicate pushdown (`Where` / `Select`)
+
+Selective decode skips columns; **predicate pushdown** also skips rows, reusing
+the same `tagColStruct` layout (plus the index above). `Unmarshal` takes
+trailing `QueryOption`s — `Where(field, pred)` and `Select(fields...)` (see
+`query.go`). The decode is whole-column, not element-addressable:
+
+1. For each `Where` field, **decode the whole predicate column** (the index
+   lets the decoder seek straight to that column body; without it, it
+   decode-and-discards the columns in front of it).
+2. **Evaluate the predicate into a row bitmask** — typed `func(T) bool` over
+   the column's element kind, a direct call with no per-value boxing.
+3. **AND the per-predicate masks** (multi-`Where` is conjunctive).
+4. **Compact**: walk the surviving set-bits once and copy only those rows of
+   each projected column into the output. Wire order is preserved.
+
+A **nullable column**'s `nil` rows are cleared in the mask before the AND, so
+`nil` never matches. The seek is **column-granular, not element-granular** —
+each column body is one codec payload (FOR / bitpack / dict) with no per-row
+offsets, so a finer element-addressable seek (decoding only rows that survived
+earlier predicates) is **deferred** (future work). Pushdown fires only on
+`tagColStruct`; a non-columnar payload returns `ErrUnsupported` (as a
+`*QueryError`). User-facing rationale, full API, and a tutorial live in
+[`PREDICATE-PUSHDOWN.md`](PREDICATE-PUSHDOWN.md).
+
 ### rANS entropy pass (`OptRANS`, `FlagRANS`)
 
 Under `OptCompression` the encoder runs one more pass after the body is

@@ -312,3 +312,25 @@ func TestQuery_FieldNotFound(t *testing.T) {
 		t.Fatalf("err = %v, want wraps ErrFieldNotFound", err)
 	}
 }
+
+func TestQuery_MalformedNoPanic(t *testing.T) {
+	rows := mkQRows(40)
+	enc, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	for i := range enc {
+		m := append([]byte(nil), enc...)
+		m[i] ^= 0xFF
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic on corrupted byte %d: %v", i, r)
+				}
+			}()
+			var got []qrow
+			_ = Unmarshal(m, &got,
+				Where("level", func(s string) bool { return s == "ERROR" }),
+				Where("code", func(c int32) bool { return c >= 400 }))
+			var mp []map[string]any
+			_ = Unmarshal(m, &mp, Where("level", func(s string) bool { return s == "INFO" }), Select("ts"))
+		}()
+	}
+}
