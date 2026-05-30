@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 )
 
@@ -10,12 +11,23 @@ type selFull struct {
 	B string `qdf:"b"`
 	C int32  `qdf:"c"`
 	D bool   `qdf:"d"`
+	// E is a high-cardinality (distinct-per-row) string column. The subset
+	// type below excludes it, so a subset decode skips a column that would
+	// otherwise allocate a string per row — making the alloc saving robust
+	// (numeric columns alone decode into reused scratch buffers => no saving).
+	E string `qdf:"e"`
 }
 
 func mkSelFull(n int) []selFull {
 	out := make([]selFull, n)
 	for i := range out {
-		out[i] = selFull{A: int64(i), B: []string{"x", "y", "z"}[i%3], C: int32(i % 7), D: i%2 == 0}
+		out[i] = selFull{
+			A: int64(i),
+			B: []string{"x", "y", "z"}[i%3],
+			C: int32(i % 7),
+			D: i%2 == 0,
+			E: "evt-" + strconv.Itoa(i),
+		}
 	}
 	return out
 }
