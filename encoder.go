@@ -95,9 +95,14 @@ type Encoder struct {
 
 	// colIndex makes encodeColumnar emit a fixed-width uint32 column-length
 	// table after the shape declaration and before the column bodies, and
-	// sets FlagColIndex on the header. Set from OptColumnIndex. Lets a reader
-	// skip columns without decoding them.
+	// backpatch FlagColIndex onto the header. Set from OptColumnIndex. Lets a
+	// reader skip columns without decoding them.
 	colIndex bool
+
+	// headerFlagAt is the byte offset of the header flag byte in e.buf,
+	// recorded by writeHeader so encodeColumnar can backpatch FlagColIndex
+	// only when it actually emits a column index.
+	headerFlagAt int
 
 	// depth tracks nested pointer/struct traversal. Pointer cycles do
 	// not crash the process; encodePtr increments depth on entry and
@@ -349,9 +354,10 @@ func (e *Encoder) writeHeader() {
 	if e.qpack {
 		flag |= FlagQPack
 	}
-	if e.colIndex {
-		flag |= FlagColIndex
-	}
+	// FlagColIndex is NOT set here: encodeColumnar backpatches it only when it
+	// actually emits a column index, so OptColumnIndex on a non-columnar
+	// payload stays a true no-op (header byte unchanged).
+	e.headerFlagAt = len(e.buf) + 4
 	e.buf = append(e.buf, Magic0, Magic1, Magic2, Version1, flag)
 	e.headerOut = true
 }
