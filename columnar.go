@@ -567,9 +567,13 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 				d.i += int(colLens[c])
 				continue
 			}
-			// no index: decode-and-discard fallback (implemented in a later
-			// task). For now return ErrBadTag — the test always uses the index.
-			return ErrBadTag
+			// No index: there is no column-length to seek past, so we must fully
+			// decode the column body to keep the cursor in sync — its values are
+			// simply discarded rather than scattered into the struct slice.
+			if err := d.skipColumnValue(sh.kinds[c], n); err != nil {
+				return err
+			}
+			continue
 		}
 		if sh.kinds[c] != col.kind {
 			return ErrTypeMismatch
@@ -659,6 +663,45 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 		}
 	}
 	return nil
+}
+
+// skipColumnValue fully decodes a column body of the given kind but discards
+// the result. It is the slow correctness fallback for selective decode when the
+// producer did not emit a column-length index: with no length to seek past, the
+// cursor can only be advanced by actually decoding the body. It mirrors the
+// cursor-advancing half of decodeColumnInto without the store/scatter step.
+func (d *Decoder) skipColumnValue(kind colKind, n int) error {
+	if kind.isNullable() {
+		_, err := d.decodeNullableColumnAny(kind, n)
+		return err
+	}
+	switch kind {
+	case colKindInt:
+		var s []int64
+		return decodeSliceInt64(d, unsafe.Pointer(&s))
+	case colKindUint:
+		var s []uint64
+		return decodeSliceUint64(d, unsafe.Pointer(&s))
+	case colKindFloat:
+		var s []float64
+		return decodeSliceFloat64(d, unsafe.Pointer(&s))
+	case colKindBool:
+		var s []bool
+		return decodeSliceBool(d, unsafe.Pointer(&s))
+	case colKindString:
+		if d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
+			_, _, err := d.readStringColumnDict(n)
+			return err
+		}
+		for range n {
+			if _, err := d.readStringBytes(); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return ErrBadTag
+	}
 }
 
 //go:nosplit
