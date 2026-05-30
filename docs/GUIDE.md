@@ -656,10 +656,13 @@ one generates per-user-type marshalers in the user's package.
 When the encoder sees a `[]SomeStruct` under `OptBalanced`
 (Dense + ShapeIntern), it checks whether the element type is a flat,
 homogeneous struct — fields of kind `int*`, `uint*`, `float*`, `bool`,
-`string`, or `[]byte`, no custom marshalers, no nested structs. If it
-is, a per-array probe samples up to 16 elements and estimates the
-columnar wire size vs row-major. On a commit the encoder transposes
-the slice:
+`string`, `[]byte`, or an optional pointer to a scalar/string (`*int`,
+`*string`, …), no custom marshalers, no nested structs. If it is, a
+per-array probe samples up to 32 elements and estimates the columnar
+wire size vs row-major — pricing each string column with the dictionary
+(distinct table + bit-packed index), so a struct of nothing but
+low-cardinality string columns still commits to columnar. On a commit
+the encoder transposes the slice:
 
 - Numeric (`int*`/`uint*`) and bool columns are gathered into a
   scratch slice and passed through the existing QPack codec selector
