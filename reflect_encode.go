@@ -248,7 +248,13 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 		}
 		if elemDynamic {
 			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
-				rows, err := decodeColumnarAny(d)
+				var rows any
+				var err error
+				if d.query != nil {
+					rows, err = decodeColumnarQueryAny(d)
+				} else {
+					rows, err = decodeColumnarAny(d)
+				}
 				if err != nil {
 					return err
 				}
