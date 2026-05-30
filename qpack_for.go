@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"slices"
+	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
 )
@@ -232,11 +233,15 @@ func (d *Decoder) readPackedForInt64Slice() ([]int64, error) {
 		}
 		return out, nil
 	}
-	tmp := make([]uint64, n)
-	bitpack.Unpack(tmp, body, bitsPer)
-	mnU := uint64(mn)
-	for i, v := range tmp {
-		out[i] = int64(v + mnU)
+	// int64 and uint64 share a layout, so decode straight into out viewed
+	// as []uint64 and add the reference in place — no separate scratch
+	// buffer or copy pass (mirrors the unsigned reader above).
+	u := unsafe.Slice((*uint64)(unsafe.Pointer(unsafe.SliceData(out))), n)
+	bitpack.Unpack(u, body, bitsPer)
+	if mnU := uint64(mn); mnU != 0 {
+		for i := range u {
+			u[i] += mnU
+		}
 	}
 	return out, nil
 }
