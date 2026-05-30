@@ -280,6 +280,144 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	return nil
 }
 
+// decodeNullableColumnVals decodes an optional (*T) column like
+// decodeNullableColumn (presence mask via readNullableMask, then a dense
+// present-only base-kind column), retaining the values expanded to length n
+// with cv.present marking the non-nil rows, for later filter + compact.
+func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error) {
+	var cv colVals
+	cv.kind = kind
+	mask, present, err := d.readNullableMask(n)
+	if err != nil {
+		return cv, err
+	}
+	pres := newBitset(n)
+	for i := range n {
+		if mask[i>>3]&(1<<uint(i&7)) != 0 {
+			setBit(pres, i)
+		}
+	}
+	cv.present = pres
+
+	switch kind.base() {
+	case colKindInt:
+		var s []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != present {
+			return cv, ErrTypeMismatch
+		}
+		full := make([]int64, n)
+		k := 0
+		for i := range n {
+			if getBit(pres, i) {
+				full[i] = s[k]
+				k++
+			}
+		}
+		cv.i64 = full
+	case colKindUint:
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != present {
+			return cv, ErrTypeMismatch
+		}
+		full := make([]uint64, n)
+		k := 0
+		for i := range n {
+			if getBit(pres, i) {
+				full[i] = s[k]
+				k++
+			}
+		}
+		cv.u64 = full
+	case colKindFloat:
+		var s []float64
+		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != present {
+			return cv, ErrTypeMismatch
+		}
+		full := make([]float64, n)
+		k := 0
+		for i := range n {
+			if getBit(pres, i) {
+				full[i] = s[k]
+				k++
+			}
+		}
+		cv.f64 = full
+	case colKindBool:
+		var s []bool
+		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != present {
+			return cv, ErrTypeMismatch
+		}
+		full := make([]bool, n)
+		k := 0
+		for i := range n {
+			if getBit(pres, i) {
+				full[i] = s[k]
+				k++
+			}
+		}
+		cv.b = full
+	case colKindString:
+		strs, err := d.readStringColumn(present)
+		if err != nil {
+			return cv, err
+		}
+		if len(strs) != present {
+			return cv, ErrTypeMismatch
+		}
+		full := make([]string, n)
+		k := 0
+		for i := range n {
+			if getBit(pres, i) {
+				full[i] = strs[k]
+				k++
+			}
+		}
+		cv.s = full
+	default:
+		return cv, ErrBadTag
+	}
+	return cv, nil
+}
+
+// scatterNullableRow writes cv's optional value at source row src into the *T
+// field at compacted row dst: a present value allocates a T (via col.elemType)
+// and points the field at it; an absent value leaves the pointer nil.
+func (cv *colVals) scatterNullableRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
+	fp := unsafe.Add(base, uintptr(dst)*plan.stride+col.offset)
+	if !getBit(cv.present, src) {
+		*(*unsafe.Pointer)(fp) = nil
+		return
+	}
+	ev := reflect.New(col.elemType) // *T
+	ea := ev.UnsafePointer()
+	switch cv.kind.base() {
+	case colKindInt:
+		storeI64At(ea, col.width, cv.i64[src])
+	case colKindUint:
+		storeU64At(ea, col.width, cv.u64[src])
+	case colKindFloat:
+		storeF64At(ea, col.width, cv.f64[src])
+	case colKindBool:
+		*(*bool)(ea) = cv.b[src]
+	case colKindString:
+		*(*string)(ea) = cv.s[src]
+	}
+	*(*unsafe.Pointer)(fp) = ea
+	runtime.KeepAlive(ev)
+}
+
 // decodeNullableColumnAny reads the mask + dense column and returns one boxed
 // value per row (nil for absent), for the map[string]any decode path.
 func (d *Decoder) decodeNullableColumnAny(kind colKind, n int) ([]any, error) {
