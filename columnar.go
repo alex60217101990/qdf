@@ -267,13 +267,23 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 				return err
 			}
 		case colKindString:
-			for i := range n {
-				if col.isByte {
+			if col.isByte {
+				for i := range n {
 					p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
 					e.WriteBytes(*(*[]byte)(p))
-				} else {
-					e.WriteString(loadStringField(base, plan.stride, col, i))
 				}
+				break
+			}
+			s := st.colScratchStr[:0]
+			for i := range n {
+				s = append(s, loadStringField(base, plan.stride, col, i))
+			}
+			st.colScratchStr = s
+			if e.tryWriteStringColumnDict(s) {
+				break // dict form emitted; never-worse gate already passed
+			}
+			for _, v := range s {
+				e.WriteString(v)
 			}
 		}
 	}
@@ -435,6 +445,17 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 				*(*bool)(unsafe.Add(base, uintptr(i)*plan.stride+col.offset)) = s[i]
 			}
 		case colKindString:
+			if !col.isByte && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
+				table, idx, err := d.readStringColumnDict(n)
+				if err != nil {
+					return err
+				}
+				for i := range n {
+					dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+					*(*string)(dp) = table[idx[i]]
+				}
+				break
+			}
 			for i := range n {
 				sb, err := d.readStringBytes()
 				if err != nil {
@@ -599,6 +620,16 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 				out[i].(map[string]any)[name] = s[i]
 			}
 		case colKindString:
+			if d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
+				table, idx, err := d.readStringColumnDict(n)
+				if err != nil {
+					return nil, err
+				}
+				for i := range n {
+					out[i].(map[string]any)[name] = table[idx[i]]
+				}
+				break
+			}
 			for i := range n {
 				sb, err := d.readStringBytes()
 				if err != nil {

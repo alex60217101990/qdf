@@ -176,6 +176,16 @@ const (
 	// Chosen by the float64 picker only when strictly smaller than raw
 	// and the Gorilla projection, so it never grows the wire.
 	tagPackALP = 0xF4
+
+	// Dictionary-coded string column inside a tagColStruct payload. Emitted
+	// as the first byte where a string column's M values would otherwise be
+	// written consecutively, so it is self-describing: a decoder peeks the
+	// byte and either takes this path or reads M per-value strings. Wire:
+	//   0xF5, varuint(d), d×(varuint(len), len bytes),  // distinct table
+	//   varuint(M), ceil(M*ceil(log2 d)/8) LSB-first index body (absent
+	//   when d==1). Chosen by the column emitter only when the bitpacked
+	//   index body beats the per-value run cost, so it never grows the wire.
+	tagColStrDict = 0xF5
 )
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
