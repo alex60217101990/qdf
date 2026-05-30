@@ -35,6 +35,29 @@ func (k colKind) base() colKind { return k &^ colKindNullable }
 // isNullable reports whether the column is an optional (pointer) column.
 func (k colKind) isNullable() bool { return k&colKindNullable != 0 }
 
+// String returns a human-readable name for the kind, used in error messages.
+func (k colKind) String() string {
+	n := ""
+	switch k.base() {
+	case colKindInt:
+		n = "int"
+	case colKindUint:
+		n = "uint"
+	case colKindFloat:
+		n = "float"
+	case colKindBool:
+		n = "bool"
+	case colKindString:
+		n = "string"
+	default:
+		n = "unknown"
+	}
+	if k.isNullable() {
+		n = "*" + n
+	}
+	return n
+}
+
 // colColumn is one field's columnar descriptor: where it lives in each struct
 // element and how to (de)serialize the column.
 type colColumn struct {
