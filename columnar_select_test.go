@@ -77,6 +77,20 @@ func TestSelect_TypedSubsetSkips(t *testing.T) {
 	}
 }
 
+func TestSelect_FallbackNoIndex(t *testing.T) {
+	rows := mkSelFull(200)
+	enc, _ := Marshal(rows, OptBalanced) // NO OptColumnIndex
+	var got []selSubset
+	if err := Unmarshal(enc, &got); err != nil {
+		t.Fatal(err)
+	}
+	for i := range rows {
+		if got[i].B != rows[i].B || got[i].D != rows[i].D {
+			t.Fatalf("row %d fallback mismatch: %+v", i, got[i])
+		}
+	}
+}
+
 func TestSelect_UnmarshalColumnsMap(t *testing.T) {
 	rows := mkSelFull(300)
 	enc, err := Marshal(rows, OptBalanced|OptColumnIndex)
