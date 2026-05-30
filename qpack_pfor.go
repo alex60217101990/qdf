@@ -3,6 +3,7 @@ package qdf
 import (
 	"math/bits"
 	"slices"
+	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
 )
@@ -213,14 +214,19 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 	if d.i+bodyBytes > len(d.buf) {
 		return nil, ErrShortBuffer
 	}
-	tmp := make([]uint64, n)
+	out := make([]int64, n)
+	// Decode straight into out viewed as []uint64 and add the reference in
+	// place — no separate scratch buffer or copy pass (mirrors the unsigned
+	// reader). The exception loop below overwrites individual slots.
+	u := unsafe.Slice((*uint64)(unsafe.Pointer(unsafe.SliceData(out))), n)
 	if b > 0 {
-		bitpack.Unpack(tmp, d.buf[d.i:d.i+bodyBytes], b)
+		bitpack.Unpack(u, d.buf[d.i:d.i+bodyBytes], b)
 	}
 	d.i += bodyBytes
-	out := make([]int64, n)
-	for k := range out {
-		out[k] = int64(mnU + tmp[k])
+	if mnU != 0 {
+		for k := range u {
+			u[k] += mnU
+		}
 	}
 	excN64, nr := readUvarint(d.buf[d.i:])
 	if nr <= 0 {
