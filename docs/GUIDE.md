@@ -189,9 +189,10 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xF0..0xF2  tagExt8/16/32         user-extension envelope
 0xF3        tagTimestamp          int64 ns since unix epoch
 0xF4  tagPackALP        (QPack)   ALP decimal-coded []float64 slice
+0xF5  tagColStrDict     (QPack)   dictionary-coded string column (inside columnar)
 ```
 
-Tags 0xF5..0xFF are reserved.
+Tags 0xF6..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
@@ -554,6 +555,7 @@ slice; the decoder reads the picked tag.
 0xEB  tagPackRLE       []intN       Run-length encoded (value, runLen) pairs
 0xED  tagPackDict      []intN       Dictionary-coded; ≤16 distinct values
 0xEE  tagPackPFor      []intN       Patched FOR: narrow body + outlier exceptions
+0xF5  tagColStrDict    []string col Dictionary-coded string column (distinct table + bit-packed index/row)
 ```
 
 Selection logic:
@@ -665,9 +667,18 @@ the slice:
   slice is encoded as a single QPack payload.
 - Float columns are emitted as raw-LE slices (Gorilla is opt-in via
   `OptGorillaFloat`).
-- String and `[]byte` columns are emitted as M consecutive inline
-  string/bytes values through the normal intern path; repeated values
-  collapse to state-refs.
+- String columns try a per-column dictionary first (`tagColStrDict`,
+  0xF5): the distinct values are written once and each row stores a
+  `ceil(log2 distinct)`-bit index (via the bitpack layer). It is emitted
+  as the column's first byte, so it is self-describing — the decoder
+  peeks the byte and either reads the dictionary or falls back to M
+  per-value strings. The dictionary is chosen only when its index body
+  beats the per-value run cost (one byte per run boundary), so scattered
+  enum-like columns (log level, service, region, status) win while
+  run-heavy or high-cardinality columns keep the per-value path. `[]byte`
+  columns are always emitted as M consecutive inline values.
+- The remaining string/`[]byte` per-value emissions go through the
+  normal intern path; repeated values collapse to state-refs.
 
 The wire layout is `0xEF, varuint(M), varuint(shapeID)` followed by K
 column payloads in declaration order. `shapeID == 0` declares a new

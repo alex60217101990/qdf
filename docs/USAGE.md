@@ -154,7 +154,8 @@ time. You do not need to hint it — just set the bit.
 | Repeated strings / `[]byte` across messages | Intern table + state-ref | `OptDense` |
 | Arrays of identical struct type | Shape interning | `OptBalanced` |
 | Predictable field transitions (e.g. service→region) | Markov-1 pair predictor | `OptBalanced` |
-| `[]SomeStruct` where fields are int/uint/float/bool/string/[]byte | Columnar transpose: numeric fields get FOR/delta/RLE/dict, repeated string fields collapse via intern. Automatic — no flag. The encoder probes each array and falls back to row-major when columnar would not win. | `OptBalanced` (Dense + ShapeIntern) |
+| Enum-like string column in a `[]SomeStruct` (log level, service, region, status) | Per-column string dictionary (distinct table + bit-packed index/row) | `OptBalanced` (columnar) |
+| `[]SomeStruct` where fields are int/uint/float/bool/string/[]byte | Columnar transpose: numeric fields get FOR/delta/RLE/dict, enum-like string columns get a per-column dictionary, other repeated string fields collapse via intern. Automatic — no flag. The encoder probes each array and falls back to row-major when columnar would not win. | `OptBalanced` (Dense + ShapeIntern) |
 
 The encoder probes a slice's structure before committing. For
 integer slices it evaluates FOR, Delta+FOR, RLE, dict, and Patched FOR

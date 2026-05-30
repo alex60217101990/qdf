@@ -14,7 +14,9 @@ Operating modes compared:
   `OptCompression`). Auto-selects the smallest predicted form per
   slice.
 - **qdf_dense** — qdf_qpack + inline state-table interning for
-  repeating strings (logs, columnar telemetry).
+  repeating strings (logs, columnar telemetry). Enum-like string columns
+  in a struct array are dictionary-coded (distinct table + bit-packed
+  index per row) when that beats per-value interning.
 - **qdf_codegen** — code-generated `MarshalQDF`/`UnmarshalQDF` from
   `cmd/qdfgen` (no runtime reflection).
 - **qdf_fast + qdf_reflect2** (opt-in build tag) — swap
