@@ -40,3 +40,39 @@ func TestSelect_IndexFullRoundTrip(t *testing.T) {
 		t.Fatalf("indexed wire %d should be larger than plain %d (carries the index)", len(enc), len(plain))
 	}
 }
+
+type selSubset struct {
+	B string `qdf:"b"`
+	D bool   `qdf:"d"`
+}
+
+func TestSelect_TypedSubsetSkips(t *testing.T) {
+	rows := mkSelFull(500)
+	enc, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []selSubset
+	if err := Unmarshal(enc, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(rows) {
+		t.Fatalf("len %d != %d", len(got), len(rows))
+	}
+	for i := range rows {
+		if got[i].B != rows[i].B || got[i].D != rows[i].D {
+			t.Fatalf("row %d: %+v vs full %+v", i, got[i], rows[i])
+		}
+	}
+	full := testing.AllocsPerRun(20, func() {
+		var f []selFull
+		_ = Unmarshal(enc, &f)
+	})
+	sub := testing.AllocsPerRun(20, func() {
+		var s []selSubset
+		_ = Unmarshal(enc, &s)
+	})
+	if sub >= full {
+		t.Fatalf("subset decode allocs %.0f not below full %.0f (columns not skipped)", sub, full)
+	}
+}
