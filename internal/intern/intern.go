@@ -52,10 +52,3 @@ func (c *Cache) Make(b []byte) string {
 	c.slots[slot] = s
 	return s
 }
-
-// Reset clears the cache. The backing array is retained.
-func (c *Cache) Reset() {
-	for i := range c.slots {
-		c.slots[i] = ""
-	}
-}
