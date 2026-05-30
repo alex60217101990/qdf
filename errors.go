@@ -1,6 +1,9 @@
 package qdf
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrShortBuffer    = errors.New("qdf: short buffer")
@@ -12,4 +15,31 @@ var (
 	ErrUnknownStateID = errors.New("qdf: unknown state-table id")
 	ErrUnsupported    = errors.New("qdf: unsupported type")
 	ErrCycleDetected  = errors.New("qdf: pointer cycle detected (max depth exceeded)")
+	ErrFieldNotFound  = errors.New("qdf: query predicate field not found")
 )
+
+// QueryError describes why a filtering/projecting decode (Unmarshal with
+// QueryOptions) could not proceed. It wraps one of ErrUnsupported,
+// ErrTypeMismatch, or ErrFieldNotFound, so callers can categorise the failure
+// with errors.Is and read the specifics with errors.As.
+type QueryError struct {
+	Op    string  // e.g. "predicate pushdown"
+	Field string  // filter/projection field involved, if any
+	Want  colKind // kind implied by the predicate's T (kind mismatches)
+	Got   colKind // kind found on the wire (kind mismatches)
+	Err   error   // wrapped sentinel
+}
+
+func (e *QueryError) Error() string {
+	switch {
+	case e.Field != "" && errors.Is(e.Err, ErrTypeMismatch):
+		return fmt.Sprintf("qdf: %s: field %q kind %s does not match wire kind %s: %v",
+			e.Op, e.Field, e.Want, e.Got, e.Err)
+	case e.Field != "":
+		return fmt.Sprintf("qdf: %s: field %q: %v", e.Op, e.Field, e.Err)
+	default:
+		return fmt.Sprintf("qdf: %s: %v", e.Op, e.Err)
+	}
+}
+
+func (e *QueryError) Unwrap() error { return e.Err }
