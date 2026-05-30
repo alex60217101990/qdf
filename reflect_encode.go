@@ -240,6 +240,7 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if colPlan != nil {
 			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
+				// TODO(task5): route to decodeColumnarQuery when d.query != nil.
 				return decodeColumnar(d, t, colPlan, p)
 			}
 		}
@@ -257,6 +258,11 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 				}
 				return nil
 			}
+		}
+		// A query requires a columnar payload (tagColStruct, handled above).
+		// Any non-columnar slice shape that reaches here cannot be filtered.
+		if d.query != nil {
+			return &QueryError{Op: "predicate pushdown", Err: ErrUnsupported}
 		}
 		n, err := d.ReadArrayHeader()
 		if err != nil {
@@ -963,6 +969,13 @@ func decodeReflect(d *Decoder, out any) error {
 		return ErrTypeMismatch
 	}
 	t := rv.Type().Elem()
+	// A query (predicate pushdown / projection) is only meaningful for a
+	// columnar slice payload. A non-slice target (single struct, scalar, map)
+	// can never be columnar, so reject it before decoding. Non-columnar slice
+	// shapes are caught inside the slice decoder (it sees the wire tag).
+	if d.query != nil && t.Kind() != reflect.Slice {
+		return &QueryError{Op: "predicate pushdown", Err: ErrUnsupported}
+	}
 	td, err := descOf(t)
 	if err != nil {
 		return err

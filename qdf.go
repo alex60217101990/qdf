@@ -354,8 +354,42 @@ func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
 // The wire dialect is detected from the header — the same Unmarshal
 // reads any output produced by Marshal regardless of the encode-side
 // option bits.
-func Unmarshal(data []byte, out any) error {
-	return unmarshal(data, out, nil)
+//
+// The optional QueryOptions (Where / Select) turn the call into a
+// filtering/projecting columnar decode: predicates are AND-ed and the
+// named columns projected. They apply only to a columnar []struct,
+// []map[string]any or []any payload; on any other shape a query call
+// returns a *QueryError wrapping ErrUnsupported. With no options the
+// behavior is exactly the plain decode above.
+func Unmarshal(data []byte, out any, opts ...QueryOption) error {
+	if len(opts) == 0 {
+		return unmarshal(data, out, nil)
+	}
+	return unmarshalQuery(data, out, buildQueryPlan(opts))
+}
+
+// unmarshalQuery is the pooled-decoder dispatch for a filtering/projecting
+// decode. The plan's selectFields double as the column projection for the map
+// (any) path, reusing the v1 selectFields mechanism.
+func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
+	dec := decPool.Get().(*Decoder)
+	dec.buf = data
+	dec.i = 0
+	dec.headerRead = false
+	dec.mode = Fast
+	// colIndex is set fresh by readHeader; reset defensively so a pooled decoder never carries a stale flag.
+	dec.colIndex = false
+	dec.selectFields = qp.selectFields
+	dec.query = qp
+	if dec.state != nil {
+		dec.state.reset()
+	}
+	err := decodeReflect(dec, out)
+	dec.buf = nil
+	dec.selectFields = nil
+	dec.query = nil
+	decPool.Put(dec)
+	return err
 }
 
 // unmarshal is the shared pooled-decoder dispatch behind Unmarshal and
@@ -367,6 +401,7 @@ func unmarshal(data []byte, out any, fields []string) error {
 	dec.i = 0
 	dec.headerRead = false
 	dec.mode = Fast
+	dec.colIndex = false
 	dec.selectFields = fields
 	if dec.state != nil {
 		dec.state.reset()

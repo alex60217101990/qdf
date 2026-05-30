@@ -44,6 +44,11 @@ type Decoder struct {
 	// UnmarshalColumns for the duration of one decode; must be cleared on
 	// reset / return-to-pool / SetInput so it never leaks across decodes.
 	selectFields []string
+
+	// query, when non-nil, makes a columnar decode filter rows by the plan's
+	// predicates (AND) and project the plan's columns. Set by Unmarshal when
+	// QueryOptions are passed; cleared on reset / SetInput so it never leaks.
+	query *queryPlan
 }
 
 // colLenOK reports whether a slice length is acceptable in the current
@@ -114,6 +119,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.mode = Fast
 	d.colIndex = false
 	d.selectFields = nil
+	d.query = nil
 	if d.state != nil {
 		d.state.reset()
 	}
