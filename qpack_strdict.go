@@ -78,6 +78,15 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	e.state.colScratchU64 = idx
 
 	d := len(table)
+	if d < 2 {
+		// A single distinct value never beats the per-value path (one interned
+		// string + a state-repeat run). The gate below would reject it anyway,
+		// but make the invariant explicit: the decoder relies on count >= 2 (so
+		// bits >= 1, so a non-empty index body) to keep the row count bounded by
+		// the buffer. A count==1 dict would carry no body and let a tiny input
+		// claim a huge n.
+		return false
+	}
 	bits := bitsForDistinct(d)
 	bodyBytes := (n*bits + 7) >> 3
 	// Never-worse gate. The distinct table bytes are paid by both forms (the
@@ -124,7 +133,13 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 		return nil, nil, ErrInvalidLength
 	}
 	d.i += nr
-	if c64 == 0 || c64 > qpackStrDictMaxDistinct {
+	if c64 < 2 || c64 > qpackStrDictMaxDistinct {
+		// The encoder never emits a single-distinct (count==1) dictionary —
+		// per-value wins, so the never-worse gate rejects it. Requiring
+		// count >= 2 here is therefore lossless for valid streams and, crucially,
+		// guarantees bits >= 1 so the index body is non-empty and the row count n
+		// is bounded by the remaining buffer below. A count==1 dict would carry
+		// no body and let a tiny hostile input drive a huge n / allocation.
 		return nil, nil, ErrBadTag
 	}
 	count := int(c64)
@@ -150,11 +165,10 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 	if int(n64) != n {
 		return nil, nil, ErrTypeMismatch
 	}
-	idx = make([]uint32, n)
+	// count >= 2 ⇒ bits >= 1 ⇒ the index body is non-empty, so this check
+	// bounds n by the remaining buffer BEFORE any n-sized allocation; a tiny
+	// input can no longer drive a large idx/tmp/output slice.
 	bits := bitsForDistinct(count)
-	if bits == 0 {
-		return table, idx, nil // single distinct value → all indices 0
-	}
 	rem := uint64(len(d.buf) - d.i)
 	if n64 > rem*8/uint64(bits) {
 		return nil, nil, ErrShortBuffer
@@ -162,6 +176,7 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 	bodyBytes := (n*bits + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
+	idx = make([]uint32, n)
 	tmp := make([]uint64, n)
 	bitpack.Unpack(tmp, body, bits)
 	for i, v := range tmp {

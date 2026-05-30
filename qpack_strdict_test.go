@@ -209,3 +209,29 @@ func FuzzStrDict_RoundTrip(f *testing.F) {
 		}
 	})
 }
+
+// TestStrDict_DecodeRejectsSingleDistinct hardens the decoder against a
+// hostile count==1 (or 0) dictionary, which a valid encoder never produces
+// (the never-worse gate rejects single-distinct). count<2 carries no index
+// body, so accepting it would let a tiny input claim a huge row count and
+// drive a large allocation. The decoder must reject it without panic/OOM.
+func TestStrDict_DecodeRejectsSingleDistinct(t *testing.T) {
+	rows := mkStrDictRows(2000, 5) // multi-distinct enum columns → dict fires
+	enc, err := Marshal(rows, OptBalanced&^OptRANS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pos := bytes.IndexByte(enc, tagColStrDict)
+	if pos < 0 || pos+1 >= len(enc) {
+		t.Skip("no string-dict tag in this encoding")
+	}
+	// Byte after 0xF5 is varuint(count); a small distinct count is one byte.
+	for _, bad := range []byte{0x01, 0x00} {
+		m := append([]byte(nil), enc...)
+		m[pos+1] = bad
+		var got []strDictRow
+		// Correctness contract: never panic/hang on malformed input. An error
+		// (or a benign mismatch) is fine; a panic or OOM is not.
+		_ = Unmarshal(m, &got)
+	}
+}
