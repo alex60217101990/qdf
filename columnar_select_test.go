@@ -1,6 +1,9 @@
 package qdf
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 type selFull struct {
 	A int64  `qdf:"a"`
@@ -136,6 +139,36 @@ func TestSelect_UnmarshalColumnsMap(t *testing.T) {
 		}
 		if _, present := out[i]["a"]; present {
 			t.Fatalf("row %d: column a should have been skipped", i)
+		}
+	}
+}
+
+func TestSelect_StreamEncoderNoCorruption(t *testing.T) {
+	var buf bytes.Buffer
+	se := NewStreamEncoderWith(&buf, OptBalanced|OptColumnIndex)
+	b1, b2 := mkSelFull(50), mkSelFull(60)
+	for _, b := range [][]selFull{b1, b2} {
+		if err := se.Encode(b); err != nil {
+			t.Fatal(err)
+		}
+		if err := se.Flush(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sd := NewStreamDecoder(&buf)
+	var g1, g2 []selFull
+	if err := sd.Decode(&g1); err != nil {
+		t.Fatalf("decode 1: %v", err)
+	}
+	if err := sd.Decode(&g2); err != nil {
+		t.Fatalf("decode 2 (stream corruption): %v", err)
+	}
+	if len(g1) != len(b1) || len(g2) != len(b2) {
+		t.Fatalf("lens %d/%d vs %d/%d", len(g1), len(g2), len(b1), len(b2))
+	}
+	for i := range b2 {
+		if g2[i] != b2[i] {
+			t.Fatalf("b2 row %d corrupted: %+v != %+v", i, g2[i], b2[i])
 		}
 	}
 }

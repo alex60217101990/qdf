@@ -34,6 +34,11 @@ func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder {
 	buf := bufpool.Get(4096)
 	enc := &Encoder{buf: (*buf)[:0], minIntern: 4, maxStateEntries: 1 << 16, maxDepth: DefaultMaxDepth}
 	enc.applyOpts(opts)
+	// The column index is a single-message feature: it backpatches the header
+	// flag at a fixed offset, which a stream's shared/reused buffer invalidates
+	// after the first Flush. Like the whole-body rANS pass, it is not emitted in
+	// streaming mode.
+	enc.colIndex = false
 	if opts.Has(OptDense) {
 		enc.state = newEncState()
 	}
