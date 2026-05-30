@@ -1,5 +1,11 @@
 # QDF Benchmark Results
 
+> **The numbers below are a point-in-time snapshot.** For the
+> continuously-updated results (re-run on every push to `main`) see the
+> **live dashboard: <https://alex60217101990.github.io/qdf/dev/bench/>** —
+> read [`BENCHMARKS.md`](BENCHMARKS.md) for how to read the trend graphs
+> and tell a real change from shared-runner noise.
+
 Measured on Darwin amd64 / Intel i7-9750H @ 2.6 GHz. Go 1.26.0.
 `go test -bench=. -benchmem -benchtime=2s` in `bench/`.
 
