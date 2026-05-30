@@ -1,6 +1,6 @@
 //go:build (!amd64 && !arm64) || !qdf_simd
 
-package qdf
+package bitpack
 
 import "encoding/binary"
 
@@ -48,10 +48,10 @@ func packBits32(out []byte, vals []uint64) {
 }
 
 // packBits10/12/14/20 fallbacks: scalar accumulator packer.
-func packBits10(out []byte, vals []uint64) { bitPackU64LE(out, vals, 10) }
-func packBits12(out []byte, vals []uint64) { bitPackU64LE(out, vals, 12) }
-func packBits14(out []byte, vals []uint64) { bitPackU64LE(out, vals, 14) }
-func packBits20(out []byte, vals []uint64) { bitPackU64LE(out, vals, 20) }
+func packBits10(out []byte, vals []uint64) { Pack(out, vals, 10) }
+func packBits12(out []byte, vals []uint64) { Pack(out, vals, 12) }
+func packBits14(out []byte, vals []uint64) { Pack(out, vals, 14) }
+func packBits20(out []byte, vals []uint64) { Pack(out, vals, 20) }
 
 // unpackBitsVar / unpackBitsVarWide fallbacks: scalar sliding window.
 func unpackBitsVar(out []uint64, in []byte, bitsPer int) {
@@ -68,8 +68,8 @@ func unpackBits12(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 12) }
 func unpackBits14(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 14) }
 func unpackBits20(out []uint64, in []byte) { bitUnpackU64LEFast(out, in, 20) }
 
-// packBoolsBitsLSB fallback: plain scalar bit-by-bit pack.
-func packBoolsBitsLSB(dst []byte, src []bool, n int) {
+// PackBoolsLSB fallback: plain scalar bit-by-bit pack.
+func PackBoolsLSB(dst []byte, src []bool, n int) {
 	for i := range n {
 		if src[i] {
 			dst[i>>3] |= 1 << uint(i&7)

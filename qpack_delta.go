@@ -1,6 +1,10 @@
 package qdf
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
+)
 
 // Delta + FOR codec for integer slices.
 //
@@ -45,7 +49,7 @@ func computeDeltaStatsU64(s []uint64) (first uint64, minDelta int64, bitsPer int
 		}
 		prev = s[i]
 	}
-	bitsPer = bitsForDelta(uint64(maxD) - uint64(minD))
+	bitsPer = bitpack.BitsForDelta(uint64(maxD) - uint64(minD))
 	return first, minD, bitsPer
 }
 
@@ -70,7 +74,7 @@ func computeDeltaStatsI64(s []int64) (first int64, minDelta int64, bitsPer int) 
 		}
 		prev = s[i]
 	}
-	bitsPer = bitsForDelta(uint64(maxD) - uint64(minD))
+	bitsPer = bitpack.BitsForDelta(uint64(maxD) - uint64(minD))
 	return first, minD, bitsPer
 }
 
@@ -113,7 +117,7 @@ func (e *Encoder) writePackedDeltaForUint64Slice(s []uint64, first uint64, minDe
 			prev = s[j]
 			k++
 		}
-		bitPackChunkInto(body, chunk[:k], bitsPer, wrote)
+		bitpack.PackChunk(body, chunk[:k], bitsPer, wrote)
 		wrote += k
 	}
 	e.buf = out
@@ -155,7 +159,7 @@ func (e *Encoder) writePackedDeltaForInt64Slice(s []int64, first int64, minDelta
 			prev = s[j]
 			k++
 		}
-		bitPackChunkInto(body, chunk[:k], bitsPer, wrote)
+		bitpack.PackChunk(body, chunk[:k], bitsPer, wrote)
 		wrote += k
 	}
 	e.buf = out
@@ -241,7 +245,7 @@ func (d *Decoder) readPackedDeltaForUint64Slice() ([]uint64, error) {
 		return out, nil
 	}
 	tmp := make([]uint64, n-1)
-	bitUnpackU64LE(tmp, body, bitsPer)
+	bitpack.Unpack(tmp, body, bitsPer)
 	minU := uint64(minDelta)
 	v := first
 	for i, d := range tmp {
@@ -273,7 +277,7 @@ func (d *Decoder) readPackedDeltaForInt64Slice() ([]int64, error) {
 		return out, nil
 	}
 	tmp := make([]uint64, n-1)
-	bitUnpackU64LE(tmp, body, bitsPer)
+	bitpack.Unpack(tmp, body, bitsPer)
 	minU := uint64(minDelta)
 	v := uint64(first)
 	for i, d := range tmp {

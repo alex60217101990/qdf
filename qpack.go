@@ -6,6 +6,7 @@ import (
 	"slices"
 	"unsafe"
 
+	"github.com/alex60217101990/qdf/internal/bitpack"
 	"github.com/alex60217101990/qdf/internal/endian"
 )
 
@@ -61,7 +62,7 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 
 	var mx uint64
 	mn, mx = minMaxU64(s)
-	forBits = bitsForDelta(mx - mn)
+	forBits = bitpack.BitsForDelta(mx - mn)
 	bestCost := rawCost
 	if forBits <= qpackForMaxBits {
 		c := qpackForSizeUnsigned(n, forBits, mn)
@@ -186,7 +187,7 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 
 	var mx int64
 	mn, mx = minMaxI64(s)
-	forBits = bitsForDelta(uint64(mx) - uint64(mn))
+	forBits = bitpack.BitsForDelta(uint64(mx) - uint64(mn))
 	bestCost := rawCost
 	if forBits <= qpackForMaxBits {
 		c := qpackForSizeSigned(n, forBits, mn)
@@ -437,10 +438,10 @@ func (e *Encoder) writePackedBool(s []bool) {
 	out = out[:start+nBytes]
 	body := out[start : start+nBytes]
 	clear(body)
-	// packBoolsBitsLSB dispatches to AVX2 (VPSLLW + VPMOVMSKB, 32
+	// bitpack.PackBoolsLSB dispatches to AVX2 (VPSLLW + VPMOVMSKB, 32
 	// bools per iteration) under qdf_simd on amd64; everything else
 	// falls back to a scalar bit-by-bit pack.
-	packBoolsBitsLSB(body, s, n)
+	bitpack.PackBoolsLSB(body, s, n)
 	e.buf = out
 }
 

@@ -1,6 +1,6 @@
 //go:build arm64 && qdf_simd
 
-package qdf
+package bitpack
 
 import "encoding/binary"
 
@@ -129,12 +129,12 @@ func packBits32(out []byte, vals []uint64) {
 	}
 }
 
-func packBits10(out []byte, vals []uint64) { bitPackU64LE(out, vals, 10) }
-func packBits12(out []byte, vals []uint64) { bitPackU64LE(out, vals, 12) }
-func packBits14(out []byte, vals []uint64) { bitPackU64LE(out, vals, 14) }
-func packBits20(out []byte, vals []uint64) { bitPackU64LE(out, vals, 20) }
+func packBits10(out []byte, vals []uint64) { Pack(out, vals, 10) }
+func packBits12(out []byte, vals []uint64) { Pack(out, vals, 12) }
+func packBits14(out []byte, vals []uint64) { Pack(out, vals, 14) }
+func packBits20(out []byte, vals []uint64) { Pack(out, vals, 20) }
 
-func packBoolsBitsLSB(dst []byte, src []bool, n int) {
+func PackBoolsLSB(dst []byte, src []bool, n int) {
 	for i := range n {
 		if src[i] {
 			dst[i>>3] |= 1 << uint(i&7)

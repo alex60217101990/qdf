@@ -1,8 +1,8 @@
-package qdf
+package bitpack
 
 import "testing"
 
-// Decode-side SIMD headroom probe. bitUnpackU64LE dispatches to the
+// Decode-side SIMD headroom probe. Unpack dispatches to the
 // VPMOVZX asm under qdf_simd for byte-aligned widths and to the scalar
 // 128-bit sliding window for the rest. Comparing the same benchmark
 // across default and qdf_simd builds shows how much the simple byte-
@@ -19,11 +19,11 @@ func benchUnpack(b *testing.B, bitsPer int) {
 		vals[i] = uint64(i*2654435761+11) & mask
 	}
 	body := make([]byte, (unpackBenchN*bitsPer+7)/8)
-	bitPackU64LE(body, vals, bitsPer)
+	Pack(body, vals, bitsPer)
 	out := make([]uint64, unpackBenchN)
 	b.SetBytes(int64(unpackBenchN * 8))
 	for b.Loop() {
-		bitUnpackU64LE(out, body, bitsPer)
+		Unpack(out, body, bitsPer)
 	}
 }
 
@@ -45,7 +45,7 @@ func benchUnpackVar(b *testing.B, bitsPer int) {
 		vals[i] = uint64(i*2654435761+11) & mask
 	}
 	body := make([]byte, (unpackBenchN*bitsPer+7)/8)
-	bitPackU64LE(body, vals, bitsPer)
+	Pack(body, vals, bitsPer)
 	out := make([]uint64, unpackBenchN)
 	b.SetBytes(int64(unpackBenchN * 8))
 	for b.Loop() {
@@ -64,7 +64,7 @@ func benchUnpackWide(b *testing.B, bitsPer int) {
 		vals[i] = uint64(i*2654435761+11) & mask
 	}
 	body := make([]byte, (unpackBenchN*bitsPer+7)/8)
-	bitPackU64LE(body, vals, bitsPer)
+	Pack(body, vals, bitsPer)
 	out := make([]uint64, unpackBenchN)
 	b.SetBytes(int64(unpackBenchN * 8))
 	for b.Loop() {
@@ -78,14 +78,14 @@ func BenchmarkUnpackWide28(b *testing.B) { benchUnpackWide(b, 28) }
 
 // BenchmarkUnpack12Direct exercises unpackBits12 (the VPSRLVQ path under
 // qdf_simd, scalar otherwise) directly, isolating the width-12 codec from
-// the bitUnpackU64LE dispatch.
+// the Unpack dispatch.
 func BenchmarkUnpack12Direct(b *testing.B) {
 	vals := make([]uint64, unpackBenchN)
 	for i := range vals {
 		vals[i] = uint64(i*2654435761+11) & 0xFFF
 	}
 	body := make([]byte, (unpackBenchN*12+7)/8)
-	bitPackU64LE(body, vals, 12)
+	Pack(body, vals, 12)
 	out := make([]uint64, unpackBenchN)
 	b.SetBytes(int64(unpackBenchN * 8))
 	for b.Loop() {

@@ -1,8 +1,8 @@
-package qdf
+package bitpack
 
 import "encoding/binary"
 
-// bitUnpackU64LEFast is a wider-window replacement for bitUnpackU64LE.
+// bitUnpackU64LEFast is a wider-window replacement for Unpack.
 // It carries a 128-bit sliding window (hi||lo) and refills it with a
 // single 64-bit little-endian load from the input rather than one byte
 // at a time. For bitsPer in [1, 56] the inner loop reduces to:
@@ -15,7 +15,7 @@ import "encoding/binary"
 // the hot iterations.
 //
 // Bit layout is unchanged: LSB-first within each byte. Output of
-// bitPackU64LE is consumed by this function bit-for-bit.
+// Pack is consumed by this function bit-for-bit.
 func bitUnpackU64LEFast(out []uint64, in []byte, bitsPer int) {
 	if bitsPer == 0 {
 		clear(out)

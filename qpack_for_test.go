@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
 )
 
 func TestBitPackUnpackRoundTrip(t *testing.T) {
@@ -18,9 +20,9 @@ func TestBitPackUnpackRoundTrip(t *testing.T) {
 				vals[i] = rng.Uint64() & mask
 			}
 			body := make([]byte, (n*bitsPer+7)>>3)
-			bitPackU64LE(body, vals, bitsPer)
+			bitpack.Pack(body, vals, bitsPer)
 			out := make([]uint64, n)
-			bitUnpackU64LE(out, body, bitsPer)
+			bitpack.Unpack(out, body, bitsPer)
 			if !reflect.DeepEqual(vals, out) {
 				t.Fatalf("bits=%d n=%d mismatch\n want=%v\n got=%v", bitsPer, n, vals[:min(8, n)], out[:min(8, n)])
 			}
@@ -43,7 +45,7 @@ func TestForUint64_RoundTrip(t *testing.T) {
 		if len(in) > 0 {
 			mn, mx = minMaxU64(in)
 		}
-		bitsPer := bitsForDelta(mx - mn)
+		bitsPer := bitpack.BitsForDelta(mx - mn)
 		if bitsPer > qpackForMaxBits {
 			continue
 		}
@@ -83,7 +85,7 @@ func TestForInt64_RoundTrip(t *testing.T) {
 	for _, in := range cases {
 		mn, mx := minMaxI64(in)
 		delta := uint64(mx) - uint64(mn)
-		bitsPer := bitsForDelta(delta)
+		bitsPer := bitpack.BitsForDelta(delta)
 		if bitsPer > qpackForMaxBits {
 			continue
 		}
@@ -109,7 +111,7 @@ func TestForUint64_SkipIntegration(t *testing.T) {
 	in := []uint64{100, 101, 102, 103, 104, 105, 106}
 	mn, mx := minMaxU64(in)
 	enc := NewEncoder(Fast)
-	enc.writePackedForUint64Slice(in, mn, bitsForDelta(mx-mn))
+	enc.writePackedForUint64Slice(in, mn, bitpack.BitsForDelta(mx-mn))
 	enc.WriteInt(7)
 	dec := NewDecoderOnBuf(enc.buf)
 	if err := dec.Skip(); err != nil {
@@ -128,7 +130,7 @@ func TestForSizeBetter(t *testing.T) {
 		in[i] = 1_000_000 + uint64(i&0xFFF)
 	}
 	mn, mx := minMaxU64(in)
-	bitsPer := bitsForDelta(mx - mn)
+	bitsPer := bitpack.BitsForDelta(mx - mn)
 	if bitsPer > 16 {
 		t.Fatalf("unexpected bits=%d", bitsPer)
 	}
@@ -173,7 +175,7 @@ func BenchmarkQPackFor_Uint64(b *testing.B) {
 	} {
 		in := makeClusteredU64(cfg.n, cfg.base, cfg.span)
 		mn, mx := minMaxU64(in)
-		bp := bitsForDelta(mx - mn)
+		bp := bitpack.BitsForDelta(mx - mn)
 		tag := strconv.Itoa(cfg.n) + "/" + strconv.Itoa(bp) + "b"
 		b.Run("encode/raw/"+tag, func(b *testing.B) {
 			enc := NewEncoder(Fast)

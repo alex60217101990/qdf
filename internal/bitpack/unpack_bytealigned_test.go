@@ -1,4 +1,4 @@
-package qdf
+package bitpack
 
 import "testing"
 
@@ -16,12 +16,12 @@ func TestUnpackByteAligned_MatchesReference(t *testing.T) {
 				vals[i] = uint64(i*2654435761+11) & mask
 			}
 			body := make([]byte, (n*b+7)/8)
-			bitPackU64LE(body, vals, b)
+			Pack(body, vals, b)
 
 			want := make([]uint64, n)
-			bitUnpackU64LEScalar(want, body, b)
+			UnpackScalar(want, body, b)
 			got := make([]uint64, n)
-			bitUnpackU64LE(got, body, b) // dispatches to the SIMD widen path
+			Unpack(got, body, b) // dispatches to the SIMD widen path
 			for i := range want {
 				if got[i] != want[i] {
 					t.Fatalf("b=%d n=%d i=%d: got %d want %d", b, n, i, got[i], want[i])

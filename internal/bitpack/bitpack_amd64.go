@@ -1,6 +1,6 @@
 //go:build amd64 && qdf_simd
 
-package qdf
+package bitpack
 
 import (
 	"encoding/binary"
@@ -52,7 +52,7 @@ func packBits10(out []byte, vals []uint64) {
 		}
 	}
 	if done := 4 * groups; done < n {
-		bitPackU64LE(out[5*groups:], vals[done:], 10)
+		Pack(out[5*groups:], vals[done:], 10)
 	}
 }
 
@@ -67,7 +67,7 @@ func packBits14(out []byte, vals []uint64) {
 		}
 	}
 	if done := 4 * groups; done < n {
-		bitPackU64LE(out[7*groups:], vals[done:], 14)
+		Pack(out[7*groups:], vals[done:], 14)
 	}
 }
 
@@ -82,7 +82,7 @@ func packBits20(out []byte, vals []uint64) {
 		}
 	}
 	if done := 2 * pairs; done < n {
-		bitPackU64LE(out[5*pairs:], vals[done:], 20)
+		Pack(out[5*pairs:], vals[done:], 20)
 	}
 }
 
@@ -99,7 +99,7 @@ func packBits12(out []byte, vals []uint64) {
 		}
 	}
 	if done := 4 * groups; done < n {
-		bitPackU64LE(out[6*groups:], vals[done:], 12)
+		Pack(out[6*groups:], vals[done:], 12)
 	}
 }
 
@@ -344,12 +344,12 @@ func packBits32(out []byte, vals []uint64) {
 	}
 }
 
-// packBoolsBitsLSB writes n booleans from src as ceil(n/8) bytes into
+// PackBoolsLSB writes n booleans from src as ceil(n/8) bytes into
 // dst, LSB-first (bool i -> bit (i%8) of dst[i/8]). dst must have
 // length ceil(n/8) and be cleared. With qdf_simd and AVX2, blocks of
 // 32 go through a Plan9-asm path that uses VPSLLW + VPMOVMSKB to pack
 // 32 bools per iteration; the tail (n%32) uses a scalar loop.
-func packBoolsBitsLSB(dst []byte, src []bool, n int) {
+func PackBoolsLSB(dst []byte, src []bool, n int) {
 	off := 0
 	if hasAVX2 && n >= 32 {
 		blocks := n >> 5

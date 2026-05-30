@@ -3,6 +3,8 @@ package qdf
 import (
 	"math/bits"
 	"slices"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
 )
 
 // Patched Frame-of-Reference. Packs (v-min) at a reduced width b chosen so
@@ -68,7 +70,7 @@ func (e *Encoder) writePackedPForUint64Slice(s []uint64, mn uint64, b int) {
 		for j, v := range s[i:end] {
 			chunk[j] = (v - mn) & mask
 		}
-		bitPackChunkInto(body, chunk[:end-i], b, i)
+		bitpack.PackChunk(body, chunk[:end-i], b, i)
 	}
 	excN := 0
 	for _, v := range s {
@@ -155,7 +157,7 @@ func (e *Encoder) writePackedPForInt64Slice(s []int64, mn int64, b int) {
 		for j, v := range s[i:end] {
 			chunk[j] = (uint64(v) - mnU) & mask
 		}
-		bitPackChunkInto(body, chunk[:end-i], b, i)
+		bitpack.PackChunk(body, chunk[:end-i], b, i)
 	}
 	excN := 0
 	for _, v := range s {
@@ -213,7 +215,7 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 	}
 	tmp := make([]uint64, n)
 	if b > 0 {
-		bitUnpackU64LE(tmp, d.buf[d.i:d.i+bodyBytes], b)
+		bitpack.Unpack(tmp, d.buf[d.i:d.i+bodyBytes], b)
 	}
 	d.i += bodyBytes
 	out := make([]int64, n)
@@ -290,7 +292,7 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) {
 	d.i += bodyBytes
 	out := make([]uint64, n)
 	if b > 0 {
-		bitUnpackU64LE(out, body, b)
+		bitpack.Unpack(out, body, b)
 	}
 	if mn != 0 {
 		for k := range out {

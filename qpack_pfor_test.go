@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"testing"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
 )
 
 func pforTestSlicesU64() [][]uint64 {
@@ -51,7 +53,7 @@ func pforTestSlicesI64() [][]int64 {
 func TestPFor_RoundTripI64(t *testing.T) {
 	for ci, s := range pforTestSlicesI64() {
 		mn, mx := minMaxI64(s)
-		forBits := bitsForDelta(uint64(mx) - uint64(mn))
+		forBits := bitpack.BitsForDelta(uint64(mx) - uint64(mn))
 		b, _, ok := pforPlanSigned(s, mn, forBits)
 		if !ok {
 			continue
@@ -89,7 +91,7 @@ func TestPFor_RoundTripU64(t *testing.T) {
 			continue
 		}
 		mn, mx := minMaxU64(s)
-		forBits := bitsForDelta(mx - mn)
+		forBits := bitpack.BitsForDelta(mx - mn)
 		b, _, ok := pforPlanUnsigned(s, mn, forBits)
 		if !ok {
 			continue // PFOR not applicable for this slice
@@ -134,7 +136,7 @@ func FuzzPForRoundTrip(f *testing.F) {
 			s[i] = binary.LittleEndian.Uint64(raw[i*8:])
 		}
 		mn, mx := minMaxU64(s)
-		forBits := bitsForDelta(mx - mn)
+		forBits := bitpack.BitsForDelta(mx - mn)
 		b, _, ok := pforPlanUnsigned(s, mn, forBits)
 		if !ok {
 			return
@@ -248,7 +250,7 @@ func TestPFor_CorpusGate(t *testing.T) {
 		}
 	}
 	mn, mx := minMaxU64(s)
-	forBits := bitsForDelta(mx - mn)
+	forBits := bitpack.BitsForDelta(mx - mn)
 	forSize := qpackForSizeUnsigned(n, forBits, mn)
 	b, pforCost, ok := pforPlanUnsigned(s, mn, forBits)
 	if !ok {

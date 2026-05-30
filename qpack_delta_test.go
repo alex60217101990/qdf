@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
 )
 
 func TestDeltaForUint64_RoundTrip(t *testing.T) {
@@ -105,7 +107,7 @@ func TestDeltaForSizeBetter(t *testing.T) {
 	encDelta.writePackedDeltaForUint64Slice(in, first, minD, bp)
 	encFor := NewEncoder(Fast)
 	mnFor, mxFor := minMaxU64(in)
-	encFor.writePackedForUint64Slice(in, mnFor, bitsForDelta(mxFor-mnFor))
+	encFor.writePackedForUint64Slice(in, mnFor, bitpack.BitsForDelta(mxFor-mnFor))
 	encRaw := NewEncoder(Fast)
 	encRaw.SetQPack(true)
 	encRaw.writePackedUint64Slice(in)
@@ -150,7 +152,7 @@ func BenchmarkQPackDelta_Uint64(b *testing.B) {
 
 		mn, mx := minMaxU64(in)
 		encFor := NewEncoder(Fast)
-		encFor.writePackedForUint64Slice(in, mn, bitsForDelta(mx-mn))
+		encFor.writePackedForUint64Slice(in, mn, bitpack.BitsForDelta(mx-mn))
 
 		encDelta := NewEncoder(Fast)
 		encDelta.writePackedDeltaForUint64Slice(in, in[0], mnD, bp)

@@ -1,4 +1,4 @@
-package qdf
+package bitpack
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ func BenchmarkPack8_Accumulator(b *testing.B) {
 	out := make([]byte, 1024)
 	b.SetBytes(1024)
 	for b.Loop() {
-		bitPackU64LE(out, vals, 8)
+		Pack(out, vals, 8)
 	}
 }
 
@@ -38,7 +38,7 @@ func BenchmarkPack16_Accumulator(b *testing.B) {
 	out := make([]byte, 1024*2)
 	b.SetBytes(1024 * 2)
 	for b.Loop() {
-		bitPackU64LE(out, vals, 16)
+		Pack(out, vals, 16)
 	}
 }
 
@@ -56,7 +56,7 @@ func BenchmarkPack32_Accumulator(b *testing.B) {
 	out := make([]byte, 1024*4)
 	b.SetBytes(1024 * 4)
 	for b.Loop() {
-		bitPackU64LE(out, vals, 32)
+		Pack(out, vals, 32)
 	}
 }
 
@@ -73,7 +73,7 @@ func BenchmarkPack32_Fast(b *testing.B) {
 // the source of truth the byte-aligned fast paths must match byte-for-byte.
 func packReference(vals []uint64, bitsPer int) []byte {
 	out := make([]byte, (len(vals)*bitsPer+7)/8)
-	bitPackU64LE(out, vals, bitsPer)
+	Pack(out, vals, bitsPer)
 	return out
 }
 
