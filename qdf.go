@@ -198,7 +198,14 @@ const (
 	// buffer larger. Whole-buffer, so the streaming encoder ignores it.
 	OptRANS
 
-	// Bits 7..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptColumnIndex makes a columnar []struct payload carry a column-length
+	// index so readers can decode a subset of columns without decoding the
+	// rest. Opt-in, ~4 bytes per column. Only affects payloads the encoder
+	// transposes into the columnar container (tagColStruct); has no effect on
+	// other shapes. Sets FlagColIndex on the header.
+	OptColumnIndex
+
+	// Bits 8..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.

@@ -664,6 +664,10 @@ type decState struct {
 	colScratchU64  []uint64
 	colScratchF64  []float64
 	colScratchBool []bool
+
+	// colLenScratch is reused storage for the column-length index parsed from
+	// a FlagColIndex columnar payload (one uint32 byte-length per column).
+	colLenScratch []uint32
 }
 
 func newDecState() *decState {

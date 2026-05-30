@@ -24,6 +24,16 @@ const (
 	// rANS stream. The decoder reverses it before reading tags. Set only
 	// when the rANS form is strictly smaller than the plain body.
 	FlagRANS byte = 1 << 2
+
+	// FlagColIndex marks a tagColStruct (columnar []struct) payload that
+	// carries a fixed-width column-length table right after the shape
+	// declaration and before the column bodies. The table is K little-endian
+	// uint32 entries (one per column, K = number of columns), each the byte
+	// length of the corresponding column body. It lets a reader skip columns
+	// it does not need without decoding them. Opt-in (~4 bytes per column);
+	// only meaningful when the value is columnar — for any other top-level
+	// shape the bit is set but no index block exists.
+	FlagColIndex byte = 1 << 3
 )
 
 // Tag bytes.

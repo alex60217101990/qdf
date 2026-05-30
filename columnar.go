@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"encoding/binary"
 	"reflect"
 	"unsafe"
 
@@ -339,11 +340,22 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 		st.colShapeDeclare(names, kinds)
 	}
 
+	idxAt := -1
+	if e.colIndex {
+		idxAt = len(e.buf)
+		e.buf = append(e.buf, make([]byte, 4*len(plan.cols))...)
+	}
+	colStart := len(e.buf)
 	for c := range plan.cols {
 		col := &plan.cols[c]
 		if col.kind.isNullable() {
 			if err := e.encodeNullableColumn(base, plan, col, n); err != nil {
 				return err
+			}
+			if e.colIndex {
+				end := len(e.buf)
+				binary.LittleEndian.PutUint32(e.buf[idxAt+4*c:], uint32(end-colStart))
+				colStart = end
 			}
 			continue
 		}
@@ -399,6 +411,11 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 			}
 			st.colScratchStr = s
 			e.writeStringColumn(s)
+		}
+		if e.colIndex {
+			end := len(e.buf)
+			binary.LittleEndian.PutUint32(e.buf[idxAt+4*c:], uint32(end-colStart))
+			colStart = end
 		}
 	}
 	return nil
@@ -507,6 +524,30 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 		if sh == nil {
 			return ErrUnknownStateID
 		}
+	}
+
+	if d.colIndex {
+		k := len(sh.kinds)
+		if d.i+4*k > len(d.buf) {
+			return ErrShortBuffer
+		}
+		var colLens []uint32
+		if cap(d.state.colLenScratch) >= k {
+			colLens = d.state.colLenScratch[:k]
+		} else {
+			colLens = make([]uint32, k)
+		}
+		d.state.colLenScratch = colLens
+		var sum uint64
+		for c := 0; c < k; c++ {
+			colLens[c] = binary.LittleEndian.Uint32(d.buf[d.i+4*c:])
+			sum += uint64(colLens[c])
+		}
+		d.i += 4 * k
+		if sum > uint64(len(d.buf)-d.i) {
+			return ErrShortBuffer
+		}
+		_ = colLens // not used to skip yet (later task); index is consumed
 	}
 
 	reflectutil.MakeSlice(t, n, p)
@@ -702,6 +743,30 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			return nil, ErrUnknownStateID
 		}
 	}
+	if d.colIndex {
+		k := len(sh.kinds)
+		if d.i+4*k > len(d.buf) {
+			return nil, ErrShortBuffer
+		}
+		var colLens []uint32
+		if cap(d.state.colLenScratch) >= k {
+			colLens = d.state.colLenScratch[:k]
+		} else {
+			colLens = make([]uint32, k)
+		}
+		d.state.colLenScratch = colLens
+		var sum uint64
+		for c := 0; c < k; c++ {
+			colLens[c] = binary.LittleEndian.Uint32(d.buf[d.i+4*c:])
+			sum += uint64(colLens[c])
+		}
+		d.i += 4 * k
+		if sum > uint64(len(d.buf)-d.i) {
+			return nil, ErrShortBuffer
+		}
+		_ = colLens // not used to skip yet (later task); index is consumed
+	}
+
 	out := make([]any, n)
 	for i := range out {
 		out[i] = make(map[string]any, len(sh.names))

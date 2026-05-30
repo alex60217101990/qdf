@@ -31,6 +31,12 @@ type Decoder struct {
 	// hostile column whose constant/zero-width codec claims a huge n from a
 	// tiny body before the per-element allocation.
 	colMaxLen int
+
+	// colIndex records whether the header set FlagColIndex. When true a
+	// columnar (tagColStruct) payload carries a column-length index right
+	// after the shape declaration; decodeColumnar / decodeColumnarAny consume
+	// and validate it. Set fresh by readHeader on every decode.
+	colIndex bool
 }
 
 // colLenOK reports whether a slice length is acceptable in the current
@@ -99,6 +105,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.i = 0
 	d.headerRead = false
 	d.mode = Fast
+	d.colIndex = false
 	if d.state != nil {
 		d.state.reset()
 	}
@@ -145,6 +152,7 @@ func (d *Decoder) readHeader() error {
 		return ErrBadVersion
 	}
 	flags := d.buf[d.i+4]
+	d.colIndex = flags&FlagColIndex != 0
 	if flags&FlagDense != 0 {
 		d.mode = Dense
 		if d.state == nil {
