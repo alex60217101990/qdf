@@ -495,85 +495,114 @@ func loadStringField(base unsafe.Pointer, stride uintptr, col *colColumn, i int)
 	return *(*string)(p)
 }
 
-func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
+// colShapeRead is the parsed columnar header: the shape (names+kinds), the row
+// count n, and — when the column-length index is present (d.colIndex) — the
+// per-column byte lengths. It is the common prefix of every columnar decode
+// path (typed struct, dynamic map, and predicate query).
+type colShapeRead struct {
+	sh      *decColShape
+	n       int
+	colLens []uint32 // nil when d.colIndex is false
+}
+
+// readColShape consumes the tagColStruct tag, the row count, the shape
+// (declared inline or by id), and the optional column-length index, validating
+// bounds exactly as decodeColumnar did. On return d.i points at the first
+// column body. maxN bounds the row count (pass 0 for the struct path, which
+// uses only checkColumnarN; pass maxColumnarAnyElems for the map path).
+func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
+	var out colShapeRead
 	d.i++ // consume tagColStruct
 	n64, k := readUvarint(d.buf[d.i:])
 	if k <= 0 {
-		return ErrInvalidLength
+		return out, ErrInvalidLength
 	}
 	d.i += k
 	n := int(n64)
 	if err := checkColumnarN(n); err != nil {
-		return err
+		return out, err
 	}
-	// Every column holds exactly n elements; bound each column codec's
-	// claimed length so a constant/zero-width codec cannot allocate past n.
-	d.colMaxLen = n
-	defer func() { d.colMaxLen = 0 }()
+	if maxN > 0 && n > maxN {
+		return out, ErrInvalidLength
+	}
+	out.n = n
 	if d.state == nil {
 		d.state = newDecState()
 	}
 	idv, k2 := readUvarint(d.buf[d.i:])
 	if k2 <= 0 {
-		return ErrInvalidLength
+		return out, ErrInvalidLength
 	}
 	d.i += k2
-
-	var sh *decColShape
 	if idv == 0 {
 		cnt64, k3 := readUvarint(d.buf[d.i:])
 		if k3 <= 0 {
-			return ErrInvalidLength
+			return out, ErrInvalidLength
 		}
 		d.i += k3
 		cnt := int(cnt64)
 		if err := d.CheckLength(cnt, 1); err != nil {
-			return err
+			return out, err
 		}
 		names := make([]string, cnt)
 		kinds := make([]colKind, cnt)
 		for i := range cnt {
 			s, err := d.readStringBytes()
 			if err != nil {
-				return err
+				return out, err
 			}
 			names[i] = string(s)
 			if d.i >= len(d.buf) {
-				return ErrShortBuffer
+				return out, ErrShortBuffer
 			}
 			kinds[i] = colKind(d.buf[d.i])
 			d.i++
 		}
-		sh = d.state.colShapeDeclareDec(names, kinds)
+		out.sh = d.state.colShapeDeclareDec(names, kinds)
 	} else {
-		sh = d.state.colShapeLookup(uint32(idv))
-		if sh == nil {
-			return ErrUnknownStateID
+		out.sh = d.state.colShapeLookup(uint32(idv))
+		if out.sh == nil {
+			return out, ErrUnknownStateID
 		}
 	}
-
-	var colLens []uint32
 	if d.colIndex {
-		k := len(sh.kinds)
-		if d.i+4*k > len(d.buf) {
-			return ErrShortBuffer
+		kk := len(out.sh.kinds)
+		if d.i+4*kk > len(d.buf) {
+			return out, ErrShortBuffer
 		}
-		if cap(d.state.colLenScratch) >= k {
-			colLens = d.state.colLenScratch[:k]
+		var colLens []uint32
+		if cap(d.state.colLenScratch) >= kk {
+			colLens = d.state.colLenScratch[:kk]
 		} else {
-			colLens = make([]uint32, k)
+			colLens = make([]uint32, kk)
 		}
 		d.state.colLenScratch = colLens
 		var sum uint64
-		for c := range k {
+		for c := range kk {
 			colLens[c] = binary.LittleEndian.Uint32(d.buf[d.i+4*c:])
 			sum += uint64(colLens[c])
 		}
-		d.i += 4 * k
+		d.i += 4 * kk
 		if sum > uint64(len(d.buf)-d.i) {
-			return ErrShortBuffer
+			return out, ErrShortBuffer
 		}
+		out.colLens = colLens
 	}
+	return out, nil
+}
+
+func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
+	cs, err := d.readColShape(0)
+	if err != nil {
+		return err
+	}
+	n := cs.n
+	sh := cs.sh
+	colLens := cs.colLens
+	// Every column holds exactly n elements; bound each column codec's
+	// claimed length so a constant/zero-width codec cannot allocate past n.
+	d.colMaxLen = n
+	defer func() { d.colMaxLen = 0 }()
 
 	reflectutil.MakeSlice(t, n, p)
 	base := reflectutil.SliceData(t, p)
@@ -772,88 +801,20 @@ func storeFloat64(base unsafe.Pointer, stride uintptr, col *colColumn, i int, v 
 // and shape parse exactly; each column is decoded into a temp slice and
 // the per-element value boxed into its row's map.
 func decodeColumnarAny(d *Decoder) (any, error) {
-	d.i++
-	n64, k := readUvarint(d.buf[d.i:])
-	if k <= 0 {
-		return nil, ErrInvalidLength
-	}
-	d.i += k
-	n := int(n64)
-	if err := checkColumnarN(n); err != nil {
-		return nil, err
-	}
 	// The map-per-row reflection decode allocates n maps up front, far heavier
 	// than the struct path's single backing slice, so it gets a tighter
 	// element ceiling. A constant column can claim a huge n from a tiny body;
 	// without this a small hostile input would drive a multi-gigabyte map
 	// allocation. Callers decoding millions of rows should use a typed struct.
-	if n > maxColumnarAnyElems {
-		return nil, ErrInvalidLength
+	cs, err := d.readColShape(maxColumnarAnyElems)
+	if err != nil {
+		return nil, err
 	}
+	n := cs.n
+	sh := cs.sh
+	colLens := cs.colLens
 	d.colMaxLen = n
 	defer func() { d.colMaxLen = 0 }()
-	if d.state == nil {
-		d.state = newDecState()
-	}
-	idv, k2 := readUvarint(d.buf[d.i:])
-	if k2 <= 0 {
-		return nil, ErrInvalidLength
-	}
-	d.i += k2
-	var sh *decColShape
-	if idv == 0 {
-		cnt64, k3 := readUvarint(d.buf[d.i:])
-		if k3 <= 0 {
-			return nil, ErrInvalidLength
-		}
-		d.i += k3
-		cnt := int(cnt64)
-		if err := d.CheckLength(cnt, 1); err != nil {
-			return nil, err
-		}
-		names := make([]string, cnt)
-		kinds := make([]colKind, cnt)
-		for i := range cnt {
-			s, err := d.readStringBytes()
-			if err != nil {
-				return nil, err
-			}
-			names[i] = string(s)
-			if d.i >= len(d.buf) {
-				return nil, ErrShortBuffer
-			}
-			kinds[i] = colKind(d.buf[d.i])
-			d.i++
-		}
-		sh = d.state.colShapeDeclareDec(names, kinds)
-	} else {
-		sh = d.state.colShapeLookup(uint32(idv))
-		if sh == nil {
-			return nil, ErrUnknownStateID
-		}
-	}
-	var colLens []uint32
-	if d.colIndex {
-		k := len(sh.kinds)
-		if d.i+4*k > len(d.buf) {
-			return nil, ErrShortBuffer
-		}
-		if cap(d.state.colLenScratch) >= k {
-			colLens = d.state.colLenScratch[:k]
-		} else {
-			colLens = make([]uint32, k)
-		}
-		d.state.colLenScratch = colLens
-		var sum uint64
-		for c := range k {
-			colLens[c] = binary.LittleEndian.Uint32(d.buf[d.i+4*c:])
-			sum += uint64(colLens[c])
-		}
-		d.i += 4 * k
-		if sum > uint64(len(d.buf)-d.i) {
-			return nil, ErrShortBuffer
-		}
-	}
 
 	out := make([]any, n)
 	for i := range out {
