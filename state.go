@@ -158,6 +158,12 @@ type encState struct {
 	colScratchU64  []uint64
 	colScratchF64  []float64
 	colScratchBool []bool
+	colScratchStr  []string // gathered string column values
+	colDictTable   []string // distinct table for the string-dict codec
+	// strDictMap maps a string column's distinct values to dense indices
+	// while the string-dict codec decides/encodes. Reused (cleared) per
+	// column to avoid a per-column map allocation.
+	strDictMap map[string]uint32
 
 	// arena owns the byte storage that backs every intern key the
 	// encoder allocates — accessed only on intern miss, kept at the
