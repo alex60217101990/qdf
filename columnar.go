@@ -526,12 +526,12 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 		}
 	}
 
+	var colLens []uint32
 	if d.colIndex {
 		k := len(sh.kinds)
 		if d.i+4*k > len(d.buf) {
 			return ErrShortBuffer
 		}
-		var colLens []uint32
 		if cap(d.state.colLenScratch) >= k {
 			colLens = d.state.colLenScratch[:k]
 		} else {
@@ -547,91 +547,111 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 		if sum > uint64(len(d.buf)-d.i) {
 			return ErrShortBuffer
 		}
-		_ = colLens // not used to skip yet (later task); index is consumed
 	}
 
 	reflectutil.MakeSlice(t, n, p)
 	base := reflectutil.SliceData(t, p)
 
-	for c := range plan.cols {
-		col := &plan.cols[c]
-		if c >= len(sh.kinds) || sh.kinds[c] != col.kind {
+	want := wantedColumns(plan, sh.names)
+	for c := range sh.kinds {
+		col := want[c]
+		if col == nil {
+			// unwanted column → skip its body via the index
+			if d.colIndex {
+				if d.i+int(colLens[c]) > len(d.buf) {
+					return ErrShortBuffer
+				}
+				d.i += int(colLens[c])
+				continue
+			}
+			// no index: decode-and-discard fallback (implemented in a later
+			// task). For now return ErrBadTag — the test always uses the index.
+			return ErrBadTag
+		}
+		if sh.kinds[c] != col.kind {
 			return ErrTypeMismatch
 		}
-		if col.kind.isNullable() {
-			if err := d.decodeNullableColumn(base, plan, col, n); err != nil {
-				return err
-			}
-			continue
+		if err := d.decodeColumnInto(base, plan, col, n); err != nil {
+			return err
 		}
-		switch col.kind {
-		case colKindInt:
-			var s []int64
-			if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+	}
+	return nil
+}
+
+// decodeColumnInto decodes a single column body from the wire into the matched
+// target plan column. Behavior is identical to the per-column body of the
+// former positional decode loop.
+func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col *colColumn, n int) error {
+	if col.kind.isNullable() {
+		return d.decodeNullableColumn(base, plan, col, n)
+	}
+	switch col.kind {
+	case colKindInt:
+		var s []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			storeScalarFromI64(base, plan.stride, col, i, s[i])
+		}
+	case colKindUint:
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			storeScalarFromU64(base, plan.stride, col, i, s[i])
+		}
+	case colKindFloat:
+		var s []float64
+		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			storeFloat64(base, plan.stride, col, i, s[i])
+		}
+	case colKindBool:
+		var s []bool
+		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			*(*bool)(unsafe.Add(base, uintptr(i)*plan.stride+col.offset)) = s[i]
+		}
+	case colKindString:
+		if !col.isByte && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
+			table, idx, err := d.readStringColumnDict(n)
+			if err != nil {
 				return err
 			}
-			if len(s) != n {
-				return ErrTypeMismatch
-			}
 			for i := range n {
-				storeScalarFromI64(base, plan.stride, col, i, s[i])
-			}
-		case colKindUint:
-			var s []uint64
-			if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
-				return err
-			}
-			if len(s) != n {
-				return ErrTypeMismatch
-			}
-			for i := range n {
-				storeScalarFromU64(base, plan.stride, col, i, s[i])
-			}
-		case colKindFloat:
-			var s []float64
-			if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
-				return err
-			}
-			if len(s) != n {
-				return ErrTypeMismatch
-			}
-			for i := range n {
-				storeFloat64(base, plan.stride, col, i, s[i])
-			}
-		case colKindBool:
-			var s []bool
-			if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
-				return err
-			}
-			if len(s) != n {
-				return ErrTypeMismatch
-			}
-			for i := range n {
-				*(*bool)(unsafe.Add(base, uintptr(i)*plan.stride+col.offset)) = s[i]
-			}
-		case colKindString:
-			if !col.isByte && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
-				table, idx, err := d.readStringColumnDict(n)
-				if err != nil {
-					return err
-				}
-				for i := range n {
-					dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-					*(*string)(dp) = table[idx[i]]
-				}
-				break
-			}
-			for i := range n {
-				sb, err := d.readStringBytes()
-				if err != nil {
-					return err
-				}
 				dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-				if col.isByte {
-					*(*[]byte)(dp) = append([]byte(nil), sb...)
-				} else {
-					*(*string)(dp) = string(sb)
-				}
+				*(*string)(dp) = table[idx[i]]
+			}
+			break
+		}
+		for i := range n {
+			sb, err := d.readStringBytes()
+			if err != nil {
+				return err
+			}
+			dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+			if col.isByte {
+				*(*[]byte)(dp) = append([]byte(nil), sb...)
+			} else {
+				*(*string)(dp) = string(sb)
 			}
 		}
 	}
