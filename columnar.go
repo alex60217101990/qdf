@@ -542,7 +542,7 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 		}
 		d.state.colLenScratch = colLens
 		var sum uint64
-		for c := 0; c < k; c++ {
+		for c := range k {
 			colLens[c] = binary.LittleEndian.Uint32(d.buf[d.i+4*c:])
 			sum += uint64(colLens[c])
 		}
@@ -822,7 +822,7 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 		}
 		d.state.colLenScratch = colLens
 		var sum uint64
-		for c := 0; c < k; c++ {
+		for c := range k {
 			colLens[c] = binary.LittleEndian.Uint32(d.buf[d.i+4*c:])
 			sum += uint64(colLens[c])
 		}

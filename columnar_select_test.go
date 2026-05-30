@@ -98,7 +98,7 @@ func TestSelect_MalformedIndexNoPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Flip every byte; selective AND full decode must never panic/hang.
-	for i := 0; i < len(enc); i++ {
+	for i := range enc {
 		m := append([]byte(nil), enc...)
 		m[i] ^= 0xFF
 		func() {
