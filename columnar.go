@@ -591,6 +591,303 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
 	return out, nil
 }
 
+// colVals holds one column decoded into its native scratch, retained until the
+// row mask is known so matched rows can be compacted into the output. Exactly
+// one typed slice is populated, matching kind.base(). For a nullable column,
+// present marks which rows carry a value (dense expanded to length n); a row
+// whose present bit is 0 is a nil/zero row.
+type colVals struct {
+	kind    colKind
+	i64     []int64
+	u64     []uint64
+	f64     []float64
+	b       []bool
+	s       []string
+	bs      [][]byte
+	present []uint64 // nullable only; nil otherwise
+}
+
+// decodeColumnVals decodes a column body (length n) of the given kind into a
+// fresh colVals, retaining the decoded slice instead of scattering. isByte
+// selects the []byte representation for a string-kind column.
+func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, error) {
+	var cv colVals
+	cv.kind = kind
+	if kind.isNullable() {
+		return d.decodeNullableColumnVals(kind, n)
+	}
+	switch kind {
+	case colKindInt:
+		var s []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != n {
+			return cv, ErrTypeMismatch
+		}
+		cv.i64 = s
+	case colKindUint:
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != n {
+			return cv, ErrTypeMismatch
+		}
+		cv.u64 = s
+	case colKindFloat:
+		var s []float64
+		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != n {
+			return cv, ErrTypeMismatch
+		}
+		cv.f64 = s
+	case colKindBool:
+		var s []bool
+		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != n {
+			return cv, ErrTypeMismatch
+		}
+		cv.b = s
+	case colKindString:
+		if !isByte && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
+			table, idx, err := d.readStringColumnDict(n)
+			if err != nil {
+				return cv, err
+			}
+			s := make([]string, n)
+			for i := range n {
+				s[i] = table[idx[i]]
+			}
+			cv.s = s
+			break
+		}
+		if isByte {
+			bs := make([][]byte, n)
+			for i := range n {
+				sb, err := d.readStringBytes()
+				if err != nil {
+					return cv, err
+				}
+				bs[i] = append([]byte(nil), sb...)
+			}
+			cv.bs = bs
+			break
+		}
+		s := make([]string, n)
+		for i := range n {
+			sb, err := d.readStringBytes()
+			if err != nil {
+				return cv, err
+			}
+			s[i] = string(sb)
+		}
+		cv.s = s
+	default:
+		return cv, ErrBadTag
+	}
+	return cv, nil
+}
+
+// eval runs term against cv, setting mask bits for matching rows. A nullable
+// row whose present bit is 0 never matches.
+func (cv *colVals) eval(term *predTerm, n int, mask []uint64) {
+	switch term.want {
+	case colKindInt:
+		for i := range n {
+			if cv.present != nil && !getBit(cv.present, i) {
+				continue
+			}
+			if term.pI64(cv.i64[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindUint:
+		for i := range n {
+			if cv.present != nil && !getBit(cv.present, i) {
+				continue
+			}
+			if term.pU64(cv.u64[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindFloat:
+		for i := range n {
+			if cv.present != nil && !getBit(cv.present, i) {
+				continue
+			}
+			if term.pF64(cv.f64[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindBool:
+		for i := range n {
+			if cv.present != nil && !getBit(cv.present, i) {
+				continue
+			}
+			if term.pBool(cv.b[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindString:
+		for i := range n {
+			if cv.present != nil && !getBit(cv.present, i) {
+				continue
+			}
+			if term.pStr(cv.s[i]) {
+				setBit(mask, i)
+			}
+		}
+	}
+}
+
+// scatterRow writes cv's value at source row src into the output struct slice
+// at compacted row dst. Mirrors decodeColumnInto's store half.
+func (cv *colVals) scatterRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
+	if cv.present != nil {
+		cv.scatterNullableRow(base, plan, col, src, dst)
+		return
+	}
+	switch cv.kind {
+	case colKindInt:
+		storeScalarFromI64(base, plan.stride, col, dst, cv.i64[src])
+	case colKindUint:
+		storeScalarFromU64(base, plan.stride, col, dst, cv.u64[src])
+	case colKindFloat:
+		storeFloat64(base, plan.stride, col, dst, cv.f64[src])
+	case colKindBool:
+		*(*bool)(unsafe.Add(base, uintptr(dst)*plan.stride+col.offset)) = cv.b[src]
+	case colKindString:
+		dp := unsafe.Add(base, uintptr(dst)*plan.stride+col.offset)
+		if col.isByte {
+			*(*[]byte)(dp) = append([]byte(nil), cv.bs[src]...)
+		} else {
+			*(*string)(dp) = cv.s[src]
+		}
+	}
+}
+
+// TODO(task7): real implementation in nullable_col.go.
+func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error) {
+	return colVals{}, ErrUnsupported
+}
+
+// TODO(task7): real implementation in nullable_col.go.
+func (cv *colVals) scatterNullableRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
+}
+
+// decodeColumnarQuery decodes a columnar struct slice applying d.query: it runs
+// the AND of the plan's predicates to select rows, then materialises only the
+// matched rows of the projected columns into out (*[]Struct). Filter columns
+// need not be projected. Wire order is preserved.
+func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
+	cs, err := d.readColShape(0)
+	if err != nil {
+		return err
+	}
+	n, sh, colLens := cs.n, cs.sh, cs.colLens
+	d.colMaxLen = n
+	defer func() { d.colMaxLen = 0 }()
+
+	// Resolve predicates to wire-column indices and validate kinds.
+	predOf := make([]*predTerm, len(sh.kinds))
+	for _, term := range d.query.preds {
+		wi := -1
+		for c, name := range sh.names {
+			if name == term.field {
+				wi = c
+				break
+			}
+		}
+		if wi < 0 {
+			return &QueryError{Op: "predicate pushdown", Field: term.field, Err: ErrFieldNotFound}
+		}
+		if sh.kinds[wi].base() != term.want {
+			return &QueryError{Op: "predicate pushdown", Field: term.field, Want: term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
+		}
+		predOf[wi] = term
+	}
+
+	// Projected output columns: wire index -> target plan column (or nil).
+	want := wantedColumns(plan, sh.names)
+	if d.query.selectFields != nil {
+		for c, name := range sh.names {
+			if !sliceContains(d.query.selectFields, name) {
+				want[c] = nil
+			}
+		}
+	}
+
+	// One forward pass: decode predicate + projected columns into retained
+	// colVals; skip the rest (seek via index, else decode-and-discard).
+	retained := make([]*colVals, len(sh.kinds))
+	masks := make([][]uint64, 0, len(d.query.preds))
+	for c := range sh.kinds {
+		isPred := predOf[c] != nil
+		isProj := want[c] != nil
+		if !isPred && !isProj {
+			if colLens != nil {
+				if d.i+int(colLens[c]) > len(d.buf) {
+					return ErrShortBuffer
+				}
+				d.i += int(colLens[c])
+			} else if err := d.skipColumnValue(sh.kinds[c], n); err != nil {
+				return err
+			}
+			continue
+		}
+		isByte := isProj && want[c].isByte
+		cv, err := d.decodeColumnVals(sh.kinds[c], n, isByte)
+		if err != nil {
+			return err
+		}
+		if isProj {
+			if sh.kinds[c].base() != want[c].kind.base() {
+				return ErrTypeMismatch
+			}
+			retained[c] = &cv
+		}
+		if isPred {
+			m := newBitset(n)
+			cv.eval(predOf[c], n, m)
+			masks = append(masks, m)
+		}
+	}
+
+	// AND all predicate masks. No predicates => all rows match.
+	var combined []uint64
+	if len(masks) == 0 {
+		combined = newBitset(n)
+		for i := range n {
+			setBit(combined, i)
+		}
+	} else {
+		combined = masks[0]
+		for _, m := range masks[1:] {
+			bitsetAnd(combined, m)
+		}
+	}
+	matched := matchedIndices(combined, n, nil)
+
+	// Allocate the compacted output slice and scatter matched rows.
+	reflectutil.MakeSlice(t, len(matched), p)
+	base := reflectutil.SliceData(t, p)
+	for c := range sh.kinds {
+		cv := retained[c]
+		if cv == nil || want[c] == nil {
+			continue
+		}
+		for dst, src := range matched {
+			cv.scatterRow(base, plan, want[c], src, dst)
+		}
+	}
+	return nil
+}
+
 func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
 	cs, err := d.readColShape(0)
 	if err != nil {
