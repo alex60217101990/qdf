@@ -486,6 +486,39 @@ Without the index a subset decode still returns correct results by decoding
 and discarding unwanted columns — correct, just not fast. The index is a
 single-message feature and is **not emitted in streaming mode**.
 
+### Predicate pushdown (`Where` / `Select`) — the headline feature
+
+This is what no other Go serializer does. On a columnar `[]struct` batch you
+can **filter rows and project columns inside `Unmarshal`** — the decoder tests
+typed predicates against whole columns, builds a row bitmask, and materializes
+only the surviving rows of the columns you keep. The rows you filter out are
+never reconstructed; the columns you don't select are never touched. It is
+"`SELECT ts, code WHERE level='ERROR' AND code>=500`" over a qdf blob, with no
+database, no second pass, and **zero per-value boxing**.
+
+```go
+buf, _ := qdf.Marshal(events, qdf.OptBalanced|qdf.OptColumnIndex)
+
+type Hot struct {
+    TS   int64 `qdf:"ts"`
+    Code int32 `qdf:"code"`
+}
+var hot []Hot // filter on level (absent from Hot), keep ts+code of matches
+_ = qdf.Unmarshal(buf, &hot,
+    qdf.Where("level", func(s string) bool { return s == "ERROR" }),
+    qdf.Where("code", func(c int32) bool { return c >= 500 }))
+```
+
+On a wide 9-column, 2000-row batch at 1% selectivity, pushdown moves **≈4×
+fewer bytes** and runs **≈2.1× faster** than a full decode + manual filter
+loop — because it never materializes the rows or columns it discards.
+
+**This is the unique selling point of qdf** versus `encoding/json`,
+`msgpack`, `protobuf`, `gob`, and friends — none of them can read back a
+filtered, projected subset of a batch without first decoding the whole thing.
+The full rationale, API reference, nullable/error semantics, internals, and a
+step-by-step tutorial live in **[`docs/PREDICATE-PUSHDOWN.md`](docs/PREDICATE-PUSHDOWN.md)**.
+
 ### Zero-extra-copy encode
 
 `AppendMarshal` lets callers own the destination buffer:

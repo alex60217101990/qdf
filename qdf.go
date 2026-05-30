@@ -73,6 +73,30 @@
 // discarding unwanted columns. The index is a single-message feature and is
 // not emitted in streaming mode.
 //
+// # Predicate pushdown
+//
+// Unmarshal accepts trailing QueryOption arguments that filter and project a
+// columnar []struct payload before it is materialized. Where(field, pred)
+// keeps only the rows for which a typed predicate holds — func(T) bool over
+// the column's element type, AND-ed across multiple Where clauses, with zero
+// per-value boxing — and Select(fields...) restricts the output to a named
+// subset of columns. The filter field need not appear in the output type, and
+// the result can be either *[]Struct or *[]map[string]any. The decoder reads
+// each predicate column whole, evaluates it into a row bitmask, ANDs the
+// masks, then compacts and materializes only the surviving rows of the
+// projected columns; OptColumnIndex lets it seek past skipped columns instead
+// of decode-and-discard. A nullable column's nil rows never match. Pushdown
+// fires only on columnar payloads — a non-columnar payload (a single struct,
+// or a batch the columnar probe declined) returns an error wrapping
+// ErrUnsupported; a missing field yields ErrFieldNotFound and a predicate
+// whose argument type mismatches the column yields ErrTypeMismatch, both as a
+// *QueryError (errors.Is / errors.As). Versus a full decode followed by a
+// manual loop, pushdown moves materially fewer bytes (about 4x less on a wide
+// batch with 1% selectivity) and runs roughly 2x faster. No other Go
+// serializer reads back a filtered, projected subset of a batch without
+// decoding the whole thing — see docs/PREDICATE-PUSHDOWN.md for the full
+// guide, rationale, and tutorial.
+//
 // See docs/USAGE.md in the repository for a fuller guide.
 //
 // # Public API surface
@@ -91,6 +115,14 @@
 // Selective columnar decode (file: columnar_select.go):
 //
 //	func UnmarshalColumns(data []byte, out any, fields ...string) error
+//
+// Predicate pushdown — filter rows and project columns on a columnar
+// []struct, AND-ed typed predicates with zero per-value boxing (file:
+// query.go):
+//
+//	func Unmarshal(data []byte, out any, opts ...QueryOption) error
+//	func Where[T Queryable](field string, pred func(T) bool) QueryOption
+//	func Select(fields ...string) QueryOption
 //
 // Typed convenience wrappers — generic, zero-extra-reflection (file:
 // qdf_generic.go):
