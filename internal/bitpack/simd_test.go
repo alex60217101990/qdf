@@ -1,4 +1,4 @@
-package qdf
+package bitpack
 
 import (
 	"encoding/binary"
@@ -48,9 +48,9 @@ func TestUnpackBits32_RoundTripVsBitPack(t *testing.T) {
 			vals[i] = rng.Uint64() & mask
 		}
 		body := make([]byte, (n*b+7)>>3)
-		bitPackU64LE(body, vals, b)
+		Pack(body, vals, b)
 		out := make([]uint64, n)
-		bitUnpackU64LE(out, body, b)
+		Unpack(out, body, b)
 		if !reflect.DeepEqual(vals, out) {
 			t.Fatalf("n=%d round-trip failed", n)
 		}
@@ -129,7 +129,7 @@ func TestPackBoolsBitsLSB_Parity(t *testing.T) {
 		got := make([]byte, nBytes)
 		want := make([]byte, nBytes)
 		scalar(want, src, n)
-		packBoolsBitsLSB(got, src, n)
+		PackBoolsLSB(got, src, n)
 		if !reflect.DeepEqual(got, want) {
 			for i := range want {
 				if got[i] != want[i] {
@@ -150,9 +150,9 @@ func TestUnpackBits816_RoundTrip(t *testing.T) {
 				vals[i] = rng.Uint64() & mask
 			}
 			body := make([]byte, (n*b+7)>>3)
-			bitPackU64LE(body, vals, b)
+			Pack(body, vals, b)
 			out := make([]uint64, n)
-			bitUnpackU64LE(out, body, b)
+			Unpack(out, body, b)
 			if !reflect.DeepEqual(vals, out) {
 				t.Fatalf("b=%d n=%d mismatch", b, n)
 			}

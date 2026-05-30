@@ -1,4 +1,4 @@
-package qdf
+package bitpack
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ func dispatchPack(out []byte, vals []uint64, bitsPer int) {
 	case 20:
 		packBits20(out, vals)
 	default:
-		bitPackU64LE(out, vals, bitsPer)
+		Pack(out, vals, bitsPer)
 	}
 }
 
@@ -35,7 +35,7 @@ func TestPackVarWidth_MatchesReference(t *testing.T) {
 			got := make([]byte, (n*b+7)/8)
 			dispatchPack(got, vals, b)
 			want := make([]byte, (n*b+7)/8)
-			bitPackU64LE(want, vals, b)
+			Pack(want, vals, b)
 			if !bytes.Equal(got, want) {
 				t.Fatalf("b=%d n=%d: packBits mismatch\n got=%v\nwant=%v", b, n, got, want)
 			}

@@ -1,4 +1,4 @@
-package qdf
+package bitpack
 
 import (
 	"math/rand"
@@ -17,10 +17,10 @@ func TestBitUnpackFast_Parity(t *testing.T) {
 				vals[i] = rng.Uint64() & mask
 			}
 			body := make([]byte, (n*b+7)>>3)
-			bitPackU64LE(body, vals, b)
+			Pack(body, vals, b)
 
 			ref := make([]uint64, n)
-			bitUnpackU64LEScalar(ref, body, b)
+			UnpackScalar(ref, body, b)
 
 			got := make([]uint64, n)
 			bitUnpackU64LEFast(got, body, b)
@@ -59,13 +59,13 @@ func BenchmarkBitUnpackFast(b *testing.B) {
 			vals[i] = rng.Uint64() & mask
 		}
 		body := make([]byte, (cfg.n*bits+7)>>3)
-		bitPackU64LE(body, vals, bits)
+		Pack(body, vals, bits)
 		out := make([]uint64, cfg.n)
 		tag := strconv.Itoa(cfg.n) + "/" + strconv.Itoa(bits) + "b"
 		b.Run("scalar/"+tag, func(b *testing.B) {
 			b.SetBytes(int64(cfg.n * 8))
 			for b.Loop() {
-				bitUnpackU64LEScalar(out, body, bits)
+				UnpackScalar(out, body, bits)
 			}
 		})
 		b.Run("fast/"+tag, func(b *testing.B) {
@@ -79,7 +79,7 @@ func BenchmarkBitUnpackFast(b *testing.B) {
 		b.Run("dispatch/"+tag, func(b *testing.B) {
 			b.SetBytes(int64(cfg.n * 8))
 			for b.Loop() {
-				bitUnpackU64LE(out, body, bits)
+				Unpack(out, body, bits)
 			}
 		})
 	}

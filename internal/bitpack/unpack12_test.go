@@ -1,4 +1,4 @@
-package qdf
+package bitpack
 
 import (
 	"testing"
@@ -35,10 +35,10 @@ func TestUnpackVarWidth_MatchesReference(t *testing.T) {
 				vals[i] = uint64(i*2654435761+11) & mask
 			}
 			body := make([]byte, (n*bitsPer+7)/8)
-			bitPackU64LE(body, vals, bitsPer)
+			Pack(body, vals, bitsPer)
 
 			want := make([]uint64, n)
-			bitUnpackU64LEScalar(want, body, bitsPer)
+			UnpackScalar(want, body, bitsPer)
 			got := make([]uint64, n)
 			dispatchUnpack(got, body, bitsPer)
 			for i := range want {

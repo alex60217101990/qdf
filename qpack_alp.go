@@ -4,6 +4,8 @@ import (
 	"math"
 	"math/bits"
 	"slices"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
 )
 
 // ALP (Adaptive Lossless floating-Point, CWI 2023), decimal path. Encodes a
@@ -161,7 +163,7 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 		bodyBytes := (int(plan.width)*n + 7) / 8
 		base := len(out)
 		out = append(out, make([]byte, bodyBytes)...)
-		bitPackU64LE(out[base:], packed, int(plan.width))
+		bitpack.Pack(out[base:], packed, int(plan.width))
 	}
 
 	// Exception list.
@@ -233,7 +235,7 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 	if width > 0 {
 		bodyBytes := int((n64*uint64(width) + 7) / 8)
 		packed := make([]uint64, n)
-		bitUnpackU64LE(packed, d.buf[d.i:d.i+bodyBytes], width)
+		bitpack.Unpack(packed, d.buf[d.i:d.i+bodyBytes], width)
 		d.i += bodyBytes
 		for i := range out {
 			out[i] = float64(int64(packed[i])+forMin) * ie

@@ -1,8 +1,9 @@
 package qdf
 
 import (
-	"math/bits"
 	"slices"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
 )
 
 // Frame-of-Reference (FOR) bit-packing for integer slices.
@@ -17,104 +18,10 @@ import (
 // The packer caps bits at 56 so the running 64-bit accumulator never
 // overflows during the partial-byte drain (worst case: 7 carry-over bits
 // + 56 new bits = 63 < 64). Slices that genuinely need 57-64 bits per
-// delta should pick the raw-LE codec, which strictly beats FOR there.
+// delta should pick the raw-LE codec, which strictly beats FOR there. The
+// pure bit-packing kernels live in internal/bitpack.
 
 const qpackForMaxBits = 56
-
-// bitPackU64LE writes len(vals)*bits bits into out, LSB-first within each
-// byte. out must have len >= ceil(len(vals)*bits/8). bits must be in
-// [1, 56].
-func bitPackU64LE(out []byte, vals []uint64, bitsPer int) {
-	if bitsPer == 0 || len(vals) == 0 {
-		return
-	}
-	mask := uint64(1)<<uint(bitsPer) - 1
-	var acc uint64
-	var have uint
-	pos := 0
-	for _, v := range vals {
-		acc |= (v & mask) << have
-		have += uint(bitsPer)
-		for have >= 8 {
-			out[pos] = byte(acc)
-			acc >>= 8
-			have -= 8
-			pos++
-		}
-	}
-	if have > 0 {
-		out[pos] = byte(acc)
-	}
-}
-
-// bitUnpackU64LE reads len(out)*bits bits from in. bits must be in
-// [1, 56]. in must have len >= ceil(len(out)*bits/8). Byte-aligned
-// widths take a dedicated zero-extend fast path (asm under qdf_simd on
-// amd64, otherwise scalar memcpy-with-mask); other widths use the
-// 128-bit sliding window decoder.
-func bitUnpackU64LE(out []uint64, in []byte, bitsPer int) {
-	switch bitsPer {
-	case 8:
-		unpackBits8(out, in)
-		return
-	case 10:
-		unpackBits10(out, in)
-		return
-	case 12:
-		unpackBits12(out, in)
-		return
-	case 14:
-		unpackBits14(out, in)
-		return
-	case 16:
-		unpackBits16(out, in)
-		return
-	case 20:
-		unpackBits20(out, in)
-		return
-	case 32:
-		unpackBits32(out, in)
-		return
-	}
-	// Remaining small widths (1-7, 9, 11, 13) go through the general
-	// 4-value VPSRLVQ kernel; the wider non-aligned widths (15, 17-19,
-	// 21-28) use the 2-value kernel. Both fall back to the scalar window
-	// on non-SIMD builds or non-AVX2 CPUs. Widths >= 29 stay scalar.
-	if bitsPer <= 14 {
-		unpackBitsVar(out, in, bitsPer)
-		return
-	}
-	if bitsPer <= 28 {
-		unpackBitsVarWide(out, in, bitsPer)
-		return
-	}
-	bitUnpackU64LEFast(out, in, bitsPer)
-}
-
-// bitUnpackU64LEScalar is the original byte-at-a-time decoder, kept as
-// a parity reference for the fast path's tests.
-func bitUnpackU64LEScalar(out []uint64, in []byte, bitsPer int) {
-	if bitsPer == 0 {
-		for i := range out {
-			out[i] = 0
-		}
-		return
-	}
-	mask := uint64(1)<<uint(bitsPer) - 1
-	var acc uint64
-	var have uint
-	pos := 0
-	for i := range out {
-		for have < uint(bitsPer) {
-			acc |= uint64(in[pos]) << have
-			have += 8
-			pos++
-		}
-		out[i] = acc & mask
-		acc >>= uint(bitsPer)
-		have -= uint(bitsPer)
-	}
-}
 
 // zigzagEncode64 maps a signed int64 to an unsigned int64 with
 // magnitude-preserving low-bit cost: |v| small => result small.
@@ -206,74 +113,9 @@ func (e *Encoder) writePackedForUint64Slice(s []uint64, mn uint64, bitsPer int) 
 		for j, v := range s[i:end] {
 			chunk[j] = v - mn
 		}
-		bitPackChunkInto(body, chunk[:end-i], bitsPer, i)
+		bitpack.PackChunk(body, chunk[:end-i], bitsPer, i)
 	}
 	e.buf = out
-}
-
-// bitPackChunkInto writes a chunk of delta values starting at element
-// offset elemOff in the output bit-stream. It is bitPackU64LE generalised
-// to write into the middle of an existing buffer.
-func bitPackChunkInto(out []byte, vals []uint64, bitsPer int, elemOff int) {
-	if bitsPer == 0 || len(vals) == 0 {
-		return
-	}
-	bitOff := elemOff * bitsPer
-	// Byte-aligned widths land on whole-byte boundaries (bitsPer multiple
-	// of 8 ⇒ bitOff multiple of 8), so each value is an independent LE
-	// store with no cross-byte accumulator. These dedicated packers mirror
-	// the byte-aligned unpack fast paths and get a SIMD variant under
-	// qdf_simd.
-	// elemOff is always a multiple of the 64-element chunk size, so bitOff
-	// is byte-aligned for every width below (64*b is a multiple of 8). The
-	// dedicated packers write whole-byte chunks with a SIMD variant under
-	// qdf_simd; 10/12/14/20 use VPSLLVQ + lane-OR, 8/16/32 use VPSHUFB.
-	switch bitsPer {
-	case 8:
-		packBits8(out[bitOff>>3:], vals)
-		return
-	case 10:
-		packBits10(out[bitOff>>3:], vals)
-		return
-	case 12:
-		packBits12(out[bitOff>>3:], vals)
-		return
-	case 14:
-		packBits14(out[bitOff>>3:], vals)
-		return
-	case 16:
-		packBits16(out[bitOff>>3:], vals)
-		return
-	case 20:
-		packBits20(out[bitOff>>3:], vals)
-		return
-	case 32:
-		packBits32(out[bitOff>>3:], vals)
-		return
-	}
-	mask := uint64(1)<<uint(bitsPer) - 1
-	pos := bitOff >> 3
-	bitInByte := uint(bitOff & 7)
-	var acc uint64
-	if bitInByte > 0 {
-		acc = uint64(out[pos])
-	}
-	have := bitInByte
-	for _, v := range vals {
-		acc |= (v & mask) << have
-		have += uint(bitsPer)
-		for have >= 8 {
-			out[pos] = byte(acc)
-			acc >>= 8
-			have -= 8
-			pos++
-		}
-	}
-	if have > 0 {
-		// merge with any existing high bits in out[pos] (zero on a freshly
-		// cleared body, but safe in case the caller passed a populated buf)
-		out[pos] = byte(acc) | (out[pos] &^ byte((1<<have)-1))
-	}
 }
 
 // writePackedForInt64Slice mirrors writePackedForUint64Slice with a
@@ -301,7 +143,7 @@ func (e *Encoder) writePackedForInt64Slice(s []int64, mn int64, bitsPer int) {
 		for j, v := range s[i:end] {
 			chunk[j] = uint64(v) - mnU
 		}
-		bitPackChunkInto(body, chunk[:end-i], bitsPer, i)
+		bitpack.PackChunk(body, chunk[:end-i], bitsPer, i)
 	}
 	e.buf = out
 }
@@ -369,7 +211,7 @@ func (d *Decoder) readPackedForUint64Slice() ([]uint64, error) {
 		}
 		return out, nil
 	}
-	bitUnpackU64LE(out, body, bitsPer)
+	bitpack.Unpack(out, body, bitsPer)
 	if mn != 0 {
 		for i := range out {
 			out[i] += mn
@@ -391,16 +233,10 @@ func (d *Decoder) readPackedForInt64Slice() ([]int64, error) {
 		return out, nil
 	}
 	tmp := make([]uint64, n)
-	bitUnpackU64LE(tmp, body, bitsPer)
+	bitpack.Unpack(tmp, body, bitsPer)
 	mnU := uint64(mn)
 	for i, v := range tmp {
 		out[i] = int64(v + mnU)
 	}
 	return out, nil
-}
-
-// bitsForDelta returns the number of bits required to represent values
-// in [0, d], i.e. bits.Len64(d). 0 => no bits needed (all equal).
-func bitsForDelta(d uint64) int {
-	return bits.Len64(d)
 }

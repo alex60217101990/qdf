@@ -1,6 +1,10 @@
 package qdf
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
+)
 
 // Dictionary-coded integer slice codec. Wire format documented at
 // tagPackDict in wire.go. Wins on enum-like columns where the
@@ -45,7 +49,7 @@ func (e *Encoder) writePackedDictUint64Slice(s []uint64) {
 	out = out[:start+bodyBytes]
 	body := out[start : start+bodyBytes]
 	clear(body)
-	// Stage indices in a chunk buffer so bitPackChunkInto can
+	// Stage indices in a chunk buffer so bitpack.PackChunk can
 	// reuse its existing LSB-first packing routine.
 	var chunk [64]uint64
 	for i := 0; i < n; i += len(chunk) {
@@ -61,7 +65,7 @@ func (e *Encoder) writePackedDictUint64Slice(s []uint64) {
 				}
 			}
 		}
-		bitPackChunkInto(body, chunk[:end-i], bp, i)
+		bitpack.PackChunk(body, chunk[:end-i], bp, i)
 	}
 	e.buf = out
 }
@@ -105,7 +109,7 @@ func (e *Encoder) writePackedDictInt64Slice(s []int64) {
 				}
 			}
 		}
-		bitPackChunkInto(body, chunk[:end-i], bp, i)
+		bitpack.PackChunk(body, chunk[:end-i], bp, i)
 	}
 	e.buf = out
 }
@@ -175,7 +179,7 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) {
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
 	idx := make([]uint64, n)
-	bitUnpackU64LE(idx, body, bitsPer)
+	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {
 			return nil, ErrBadTag
@@ -223,7 +227,7 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) {
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
 	idx := make([]uint64, n)
-	bitUnpackU64LE(idx, body, bitsPer)
+	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {
 			return nil, ErrBadTag
