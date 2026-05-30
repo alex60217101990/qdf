@@ -76,3 +76,26 @@ func TestSelect_TypedSubsetSkips(t *testing.T) {
 		t.Fatalf("subset decode allocs %.0f not below full %.0f (columns not skipped)", sub, full)
 	}
 }
+
+func TestSelect_UnmarshalColumnsMap(t *testing.T) {
+	rows := mkSelFull(300)
+	enc, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	if err := UnmarshalColumns(enc, &out, "b", "d"); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != len(rows) {
+		t.Fatalf("len %d != %d", len(out), len(rows))
+	}
+	for i := range rows {
+		if out[i]["b"].(string) != rows[i].B || out[i]["d"].(bool) != rows[i].D {
+			t.Fatalf("row %d: %v", i, out[i])
+		}
+		if _, present := out[i]["a"]; present {
+			t.Fatalf("row %d: column a should have been skipped", i)
+		}
+	}
+}

@@ -16,3 +16,31 @@ func wantedColumns(plan *columnarPlan, names []string) []*colColumn {
 	}
 	return want
 }
+
+// UnmarshalColumns decodes only the named columns of a columnar []struct
+// payload into out, leaving the rest undecoded. out may point at a typed
+// subset slice (e.g. *[]Subset whose fields are the wanted columns, matched
+// by name like Unmarshal) or at the dynamic *[]map[string]any form, where
+// only the named columns are stored. When the payload carries the
+// column-length index (OptColumnIndex), unrequested columns are skipped
+// without decoding; otherwise they are decoded but dropped.
+//
+// fields names the wire columns to keep. With no fields it behaves like
+// Unmarshal.
+func UnmarshalColumns(data []byte, out any, fields ...string) error {
+	return unmarshal(data, out, fields)
+}
+
+// wantField reports whether name is in the active selectFields filter. A nil
+// filter wants every column (no filtering).
+func (d *Decoder) wantField(name string) bool {
+	if d.selectFields == nil {
+		return true
+	}
+	for _, f := range d.selectFields {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
