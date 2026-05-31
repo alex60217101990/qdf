@@ -116,6 +116,33 @@ func bitsetAnd(a, b []uint64) {
 	}
 }
 
+// bitsetOr sets a |= b (a and b same length).
+func bitsetOr(a, b []uint64) {
+	for i := range a {
+		a[i] |= b[i]
+	}
+}
+
+// bitsetAndNot sets a &^= b (a and b same length).
+func bitsetAndNot(a, b []uint64) {
+	for i := range a {
+		a[i] &^= b[i]
+	}
+}
+
+// notMask returns a fresh complement of m over n rows, with bits >= n cleared
+// so popcount and whole-word ops stay meaningful.
+func notMask(m []uint64, n int) []uint64 {
+	out := make([]uint64, len(m))
+	for i := range m {
+		out[i] = ^m[i]
+	}
+	if r := n & 63; r != 0 && len(out) > 0 {
+		out[len(out)-1] &= (uint64(1) << uint(r)) - 1
+	}
+	return out
+}
+
 func popcount(b []uint64) int {
 	n := 0
 	for _, w := range b {
