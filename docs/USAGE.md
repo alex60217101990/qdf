@@ -218,7 +218,7 @@ _ = qdf.UnmarshalColumns(buf, &rows, "level", "service")
 
 **When it helps:** wide columnar batches where consumers read a few columns
 (e.g. scan only `ts` + `level` out of a 16-field event row). On a 16-field
-batch decoding a 3-field subset is ≈6.9× faster and uses ≈33× fewer allocs
+batch decoding a 3-field subset is ≈5.7× faster and moves ≈5.3× fewer bytes
 than decoding the whole struct.
 
 **When it doesn't:** if every consumer reads all columns, or the payload is

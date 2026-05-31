@@ -471,12 +471,12 @@ _ = qdf.UnmarshalColumns(buf, &rows, "level", "service")
 
 Decoding a 3-field subset of a 16-field columnar batch (i7-9750H):
 
-| | ns/op | allocs/op |
-| --- | ---: | ---: |
-| full (16 fields) | 126,150 | 1065 |
-| subset (3 fields) | 18,365 | 32 |
+| | ns/op | B/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| full (16 fields) | 94,000 | 283,100 | 66 |
+| subset (3 fields) | 16,440 | 53,610 | 32 |
 
-≈ **6.9× faster, ≈33× fewer allocs** — it decodes 3 columns and skips 13.
+≈ **5.7× faster, ≈5.3× fewer bytes** — it decodes 3 columns and skips 13.
 
 Notes: the option only affects payloads the encoder transposes into the
 columnar container; the flag is backpatched **only when the index is actually
@@ -509,8 +509,8 @@ _ = qdf.Unmarshal(buf, &hot,
     qdf.Where("code", func(c int32) bool { return c >= 500 }))
 ```
 
-On a wide 9-column, 2000-row batch at 1% selectivity, pushdown moves **≈4×
-fewer bytes** and runs **≈2.1× faster** than a full decode + manual filter
+On a wide 9-column, 2000-row batch at 1% selectivity, pushdown moves **≈4.4×
+fewer bytes** and runs **≈2.3× faster** than a full decode + manual filter
 loop — because it never materializes the rows or columns it discards.
 
 **This is the unique selling point of qdf** versus `encoding/json`,
