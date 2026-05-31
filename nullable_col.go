@@ -391,17 +391,20 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 	return cv, nil
 }
 
-// scatterNullableRow writes cv's optional value at source row src into the *T
-// field at compacted row dst: a present value allocates a T (via col.elemType)
-// and points the field at it; an absent value leaves the pointer nil.
-func (cv *colVals) scatterNullableRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
+// scatterNullableRowInto writes cv's optional value at source row src into the
+// *T field at compacted row dst. A present value is placed in the caller's
+// backing slab at slab+dst*elemSize and the field points into it; an absent
+// value leaves the pointer nil. One slab per column replaces the former per-row
+// reflect.New (a wide nullable projection's 8k+ allocs collapse to ~one per
+// column). The caller MakeSlices the slab and keeps it alive (runtime.KeepAlive)
+// until every field pointer has been written.
+func (cv *colVals) scatterNullableRowInto(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int, slab unsafe.Pointer, elemSize uintptr) {
 	fp := unsafe.Add(base, uintptr(dst)*plan.stride+col.offset)
 	if !getBit(cv.present, src) {
 		*(*unsafe.Pointer)(fp) = nil
 		return
 	}
-	ev := reflect.New(col.elemType) // *T
-	ea := ev.UnsafePointer()
+	ea := unsafe.Add(slab, uintptr(dst)*elemSize) // &slab[dst]
 	switch cv.kind.base() {
 	case colKindInt:
 		storeI64At(ea, col.width, cv.i64[src])
@@ -415,7 +418,6 @@ func (cv *colVals) scatterNullableRow(base unsafe.Pointer, plan *columnarPlan, c
 		*(*string)(ea) = cv.s[src]
 	}
 	*(*unsafe.Pointer)(fp) = ea
-	runtime.KeepAlive(ev)
 }
 
 // decodeNullableColumnAny reads the mask + dense column and returns one boxed
