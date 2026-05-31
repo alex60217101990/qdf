@@ -190,6 +190,11 @@ const (
 	// the high-water buffer once it warms up, while still releasing
 	// truly outlier payloads instead of pinning them to the pool.
 	maxPooledBuf = 16 * 1024 * 1024
+	// maxRetainedDeltaScratch bounds the Delta+FOR decode scratch a pooled
+	// decoder keeps between calls. Retains it for columns up to ~16 k rows
+	// (the maxStateEntries scale) and drops it after a one-off larger decode so
+	// the pool never pins an outlier buffer.
+	maxRetainedDeltaScratch = 1 << 14
 )
 
 // Options is a bit-mask of per-call encoder feature toggles. A zero
@@ -427,6 +432,9 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.buf = nil
 	dec.selectFields = nil
 	dec.query = nil
+	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
+		dec.deltaScratch = nil
+	}
 	decPool.Put(dec)
 	return err
 }
@@ -448,6 +456,9 @@ func unmarshal(data []byte, out any, fields []string) error {
 	err := decodeReflect(dec, out)
 	dec.buf = nil
 	dec.selectFields = nil
+	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
+		dec.deltaScratch = nil
+	}
 	decPool.Put(dec)
 	return err
 }
