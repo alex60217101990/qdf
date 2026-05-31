@@ -1109,16 +1109,23 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			break
 		}
 		for i := range n {
-			sb, err := d.readStringBytes()
+			dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+			if col.isByte {
+				sb, err := d.readStringBytes()
+				if err != nil {
+					return err
+				}
+				*(*[]byte)(dp) = append([]byte(nil), sb...)
+				continue
+			}
+			// ReadString shares repeated values via the decode-side intern
+			// cache, so a low-cardinality string column that fell below the dict
+			// gate scatters to ~distinct allocs, not one per row.
+			str, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-			if col.isByte {
-				*(*[]byte)(dp) = append([]byte(nil), sb...)
-			} else {
-				*(*string)(dp) = string(sb)
-			}
+			*(*string)(dp) = str
 		}
 	}
 	return nil
