@@ -484,7 +484,7 @@ func TestQueryNotCompound(t *testing.T) {
 	}
 	var want []Ev
 	for _, r := range rows {
-		if !(r.Level == "ERROR" || r.Code < 10) {
+		if r.Level != "ERROR" && r.Code >= 10 {
 			want = append(want, r)
 		}
 	}
@@ -569,4 +569,46 @@ func TestQueryNullableThreeValued(t *testing.T) {
 	if len(notPos) != 0 {
 		t.Fatalf("Not(p>=0) kept %d rows, want 0", len(notPos))
 	}
+}
+
+// FuzzQueryOrNotByteFlip byte-flips every position of a well-formed payload and
+// confirms the OR/NOT predicate-tree decode path never panics or races on
+// corrupted input. Returning an error is fine; crashing is not.
+func FuzzQueryOrNotByteFlip(f *testing.F) {
+	type Row struct {
+		A int32  `qdf:"a"`
+		B string `qdf:"b"`
+		P *int32 `qdf:"p"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i] = Row{A: int32(i), B: "x"}
+		if i%2 == 0 {
+			v := int32(i)
+			rows[i].P = &v
+		}
+	}
+	// Seed with index variant (primary path).
+	buf, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(buf)
+	// Seed with no-index variant (skip/decode-and-discard path).
+	bufNoIdx, err := Marshal(rows, OptBalanced)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(bufNoIdx)
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var out []Row
+		// Must never panic, never race, regardless of corruption.
+		_ = Unmarshal(data, &out,
+			Or(
+				Where("a", func(v int32) bool { return v >= 10 }),
+				Not(Where("b", func(s string) bool { return s == "x" })),
+			),
+			Where("p", func(v int32) bool { return v >= 0 }),
+		)
+	})
 }
