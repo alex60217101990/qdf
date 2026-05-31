@@ -681,11 +681,14 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 		}
 		s := make([]string, n)
 		for i := range n {
-			sb, err := d.readStringBytes()
+			// ReadString shares repeated values via the decode-side intern
+			// cache (and aliases under noCopy), so a low-cardinality column that
+			// fell below the dict gate decodes to ~distinct allocs, not n.
+			str, err := d.ReadString()
 			if err != nil {
 				return cv, err
 			}
-			s[i] = string(sb)
+			s[i] = str
 		}
 		cv.s = s
 	default:
