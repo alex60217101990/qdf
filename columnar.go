@@ -745,6 +745,22 @@ func (cv *colVals) eval(term *predTerm, n int, mask []uint64) {
 	}
 }
 
+// evalMasks evaluates term against cv into a fresh T mask (rows that are TRUE).
+// For a nullable column it also returns an explicit F mask (rows that are
+// FALSE); nil F means the column has no nil rows, so F is the complement of T.
+// Built on eval, which already gates on the presence bitmap, so nil rows are
+// set in neither T nor F (SQL UNKNOWN).
+func (cv *colVals) evalMasks(term *predTerm, n int) (t, f []uint64) {
+	t = newBitset(n)
+	cv.eval(term, n, t)
+	if cv.present == nil {
+		return t, nil
+	}
+	f = append([]uint64(nil), cv.present...)
+	bitsetAndNot(f, t) // f = present &^ t  (present rows that failed the predicate)
+	return t, f
+}
+
 // scatterRow writes cv's value at source row src into the output struct slice
 // at compacted row dst. Mirrors decodeColumnInto's store half.
 func (cv *colVals) scatterRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
@@ -796,12 +812,12 @@ func (cv *colVals) anyAt(i int) any {
 	return nil
 }
 
-// runQueryColumns resolves d.query's predicates against the shape, then makes a
-// single forward pass over the wire columns: predicate and projected columns are
-// decoded into retained colVals (predicates evaluated into masks), and the rest
-// are skipped (via the column-length index when present, else decode-and-discard).
-// It ANDs the predicate masks and returns the retained column values (indexed by
-// wire column, nil where not retained) and the surviving row indices.
+// runQueryColumns resolves d.query's predicate tree against the shape, then
+// makes a single forward pass over the wire columns: predicate and projected
+// columns are decoded into retained colVals (predicates evaluated via the tree),
+// and the rest are skipped (via the column-length index when present, else
+// decode-and-discard). It returns the retained column values (indexed by wire
+// column, nil where not retained) and the surviving row indices.
 //
 // isProj reports whether wire column c should be retained for the caller to
 // materialise. isByte is forwarded to decodeColumnVals for column c (the typed
@@ -810,29 +826,36 @@ func (d *Decoder) runQueryColumns(
 	sh *decColShape, colLens []uint32, n int,
 	isProj func(c int) bool, isByte func(c int) bool,
 ) (retained []*colVals, matched []int, err error) {
-	predOf := make([]*predTerm, len(sh.kinds))
-	for _, term := range d.query.preds {
+	root := d.query.root
+
+	// Resolve each leaf to a wire column and validate its kind.
+	leaves := collectLeaves(root, nil)
+	leafCol := make(map[*condNode]int, len(leaves))
+	referenced := make([]bool, len(sh.kinds))
+	for _, lf := range leaves {
 		wi := -1
 		for c, name := range sh.names {
-			if name == term.field {
+			if name == lf.term.field {
 				wi = c
 				break
 			}
 		}
 		if wi < 0 {
-			return nil, nil, &QueryError{Op: "predicate pushdown", Field: term.field, Err: ErrFieldNotFound}
+			return nil, nil, &QueryError{Op: "predicate pushdown", Field: lf.term.field, Err: ErrFieldNotFound}
 		}
-		if sh.kinds[wi].base() != term.want {
-			return nil, nil, &QueryError{Op: "predicate pushdown", Field: term.field, Want: term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
+		if sh.kinds[wi].base() != lf.term.want {
+			return nil, nil, &QueryError{Op: "predicate pushdown", Field: lf.term.field, Want: lf.term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
 		}
-		predOf[wi] = term
+		leafCol[lf] = wi
+		referenced[wi] = true
 	}
 
+	// Single forward pass: decode projected or referenced columns once, skip rest.
 	retained = make([]*colVals, len(sh.kinds))
-	masks := make([][]uint64, 0, len(d.query.preds))
+	colCV := make([]*colVals, len(sh.kinds))
 	for c := range sh.kinds {
 		proj := isProj(c)
-		if !proj && predOf[c] == nil {
+		if !proj && !referenced[c] {
 			if colLens != nil {
 				if d.i+int(colLens[c]) > len(d.buf) {
 					return nil, nil, ErrShortBuffer
@@ -850,24 +873,26 @@ func (d *Decoder) runQueryColumns(
 		if proj {
 			retained[c] = &cv
 		}
-		if predOf[c] != nil {
-			m := newBitset(n)
-			cv.eval(predOf[c], n, m)
-			masks = append(masks, m)
+		if referenced[c] {
+			colCV[c] = &cv
 		}
 	}
 
+	// Map each leaf to its decoded column values.
+	cvOf := make(map[*condNode]*colVals, len(leaves))
+	for _, lf := range leaves {
+		cvOf[lf] = colCV[leafCol[lf]]
+	}
+
 	var combined []uint64
-	if len(masks) == 0 {
+	if root == nil {
 		combined = newBitset(n)
 		for i := range n {
 			setBit(combined, i)
 		}
 	} else {
-		combined = masks[0]
-		for _, m := range masks[1:] {
-			bitsetAnd(combined, m)
-		}
+		unk := computeUnknown(root, cvOf)
+		combined, _ = evalCond(root, n, cvOf, unk)
 	}
 	matched = matchedIndices(combined, n, nil)
 	return retained, matched, nil
