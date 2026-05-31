@@ -87,6 +87,21 @@ func BenchmarkQueryOrNot(b *testing.B) {
 	}
 }
 
+// BenchmarkColumnarFullDecode measures a plain full decode of a batch with a
+// low-cardinality string column (lvl: long runs that fall below the dict gate).
+func BenchmarkColumnarFullDecode(b *testing.B) {
+	rows := mkWide(2000, 100) // 1% ERROR, long INFO runs
+	enc, _ := qdf.Marshal(rows, qdf.OptBalanced|qdf.OptColumnIndex)
+	b.ReportAllocs()
+
+	for b.Loop() {
+		var all []wideRow
+		if err := qdf.Unmarshal(enc, &all); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkQuery_VsFullManual compares pushdown against full decode + manual filter.
 func BenchmarkQuery_VsFullManual(b *testing.B) {
 	rows := mkWide(2000, 100)
