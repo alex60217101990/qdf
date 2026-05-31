@@ -1,9 +1,10 @@
 package bench
 
 import (
-	"github.com/alex60217101990/qdf"
 	"math/rand"
 	"testing"
+
+	"github.com/alex60217101990/qdf"
 )
 
 // variable-delta int64 column -> DeltaFor bitsPer>0 -> exercises the tmp scratch
