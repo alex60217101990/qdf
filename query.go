@@ -1,6 +1,9 @@
 package qdf
 
-import "math/bits"
+import (
+	"math/bits"
+	"slices"
+)
 
 // Queryable is the set of column element types a predicate can match. Exact
 // base types only: Where dispatches on the concrete func(T) bool type once at
@@ -159,20 +162,6 @@ func firstCondErr(n *condNode) error {
 	return nil
 }
 
-// collectLeaves appends every leaf node of the tree to dst in pre-order.
-func collectLeaves(n *condNode, dst []*condNode) []*condNode {
-	if n == nil {
-		return dst
-	}
-	if n.op == condLeaf {
-		return append(dst, n)
-	}
-	for _, k := range n.kids {
-		dst = collectLeaves(k, dst)
-	}
-	return dst
-}
-
 func buildQueryPlan(opts []QueryOption) (*queryPlan, error) {
 	qp := &queryPlan{}
 	var nodes []*condNode
@@ -201,6 +190,19 @@ func buildQueryPlan(opts []QueryOption) (*queryPlan, error) {
 // --- bitset: row-match masks. LSB-first within each uint64 word. ---
 
 func newBitset(n int) []uint64 { return make([]uint64, (n+63)>>6) }
+
+// fullBitset returns an n-row bitset with every valid bit set (the "match all"
+// / AND identity), bits >= n cleared. Word-fill, not a per-row setBit loop.
+func fullBitset(n int) []uint64 {
+	b := newBitset(n)
+	for i := range b {
+		b[i] = ^uint64(0)
+	}
+	if r := n & 63; r != 0 && len(b) > 0 {
+		b[len(b)-1] = (uint64(1) << uint(r)) - 1
+	}
+	return b
+}
 
 func setBit(b []uint64, i int) { b[i>>6] |= 1 << (uint(i) & 63) }
 
@@ -258,63 +260,129 @@ func matchedIndices(b []uint64, n int, dst []int) []int {
 	return dst
 }
 
-// computeUnknown marks every node whose subtree contains a nullable leaf (a
-// source of SQL UNKNOWN). Only such subtrees carry an explicit F mask.
-func computeUnknown(n *condNode, cvOf map[*condNode]*colVals) map[*condNode]bool {
-	unk := make(map[*condNode]bool)
-	var walk func(*condNode) bool
-	walk = func(nd *condNode) bool {
-		if nd == nil {
-			return false
-		}
-		u := false
-		if nd.op == condLeaf {
-			u = cvOf[nd] != nil && cvOf[nd].present != nil
-		} else {
-			for _, k := range nd.kids {
-				if walk(k) {
-					u = true
-				}
-			}
-		}
-		unk[nd] = u
-		return u
-	}
-	walk(n)
-	return unk
+// cnode is a flattened predicate-tree node with a dense id. The flat form is
+// built per decode (local — it never mutates the shared QueryOption tree, so
+// the same tree stays safe to reuse across concurrent Unmarshal calls) and is
+// indexed by int, avoiding the per-node allocations and pointer hashing a
+// map[*condNode]… would cost on a small tree.
+type cnode struct {
+	op   condOp
+	term *predTerm // leaf only
+	kids []int     // child ids (And/Or: n; Not: 1)
+	col  int       // leaf only: resolved wire column index (-1 until resolved)
+	cv   *colVals  // leaf only: decoded column values (nil until bound)
+	unk  bool      // subtree can produce SQL UNKNOWN (contains a nullable leaf)
 }
 
-// evalCond returns the T mask (rows where node is TRUE) and, when the subtree
-// can produce UNKNOWN (unk[node]), the F mask (rows where node is FALSE); a nil
-// F means "no unknowns, F == complement of T". Leaf and And are handled here;
-// Or and Not are added in a later task.
-func evalCond(node *condNode, n int, cvOf map[*condNode]*colVals, unk map[*condNode]bool) (t, f []uint64) {
-	switch node.op {
-	case condLeaf:
-		return cvOf[node].evalMasks(node.term, n)
-	case condAnd:
-		return evalAnd(node, n, cvOf, unk)
-	default:
-		panic("qdf: evalCond: unsupported op")
+// flattenCond linearises the tree in pre-order (a parent always precedes its
+// descendants), returning the flat slice; the root is index 0 when non-empty.
+func flattenCond(root *condNode) []cnode {
+	if root == nil {
+		return nil
 	}
+	var flat []cnode
+	var walk func(*condNode) int
+	walk = func(n *condNode) int {
+		id := len(flat)
+		flat = append(flat, cnode{op: n.op, term: n.term, col: -1})
+		if len(n.kids) > 0 {
+			kids := make([]int, len(n.kids))
+			for i, k := range n.kids {
+				kids[i] = walk(k)
+			}
+			flat[id].kids = kids
+		}
+		return id
+	}
+	walk(root)
+	return flat
+}
+
+// markUnknown sets unk on every node whose subtree contains a nullable leaf (a
+// source of SQL UNKNOWN); only such subtrees carry an explicit F mask. The
+// pre-order ids let a single reverse pass finish every child before its parent.
+func markUnknown(flat []cnode) {
+	for i := len(flat) - 1; i >= 0; i-- {
+		if flat[i].op == condLeaf {
+			flat[i].unk = flat[i].cv != nil && flat[i].cv.present != nil
+			continue
+		}
+		for _, k := range flat[i].kids {
+			if flat[k].unk {
+				flat[i].unk = true
+				break
+			}
+		}
+	}
+}
+
+// evalCond returns the T mask (rows where node id is TRUE) and, when the subtree
+// can produce UNKNOWN (unk), the F mask (rows where it is FALSE); a nil F means
+// "no unknowns, F == complement of T".
+func evalCond(flat []cnode, id, n int) (t, f []uint64) {
+	nd := &flat[id]
+	switch nd.op {
+	case condLeaf:
+		return nd.cv.evalMasks(nd.term, n)
+	case condAnd:
+		return evalAnd(flat, id, n)
+	case condOr:
+		return evalOr(flat, id, n)
+	case condNot:
+		ct, cf := evalCond(flat, nd.kids[0], n)
+		if cf == nil {
+			cf = notMask(ct, n) // child had no unknowns: its F is the exact complement
+		}
+		if !nd.unk {
+			return cf, nil // no unknowns: keep F implicit (nil) per the protocol
+		}
+		// NOT swaps TRUE/FALSE; UNKNOWN rows stay in neither mask.
+		return cf, ct
+	default:
+		panic("qdf: evalCond: unknown op")
+	}
+}
+
+// evalOr combines kids: T = OR of kid T; F = AND of kid F (or ~kidT when a kid
+// has no unknowns). F stays nil when the whole subtree has no unknowns. With no
+// kids the OR identity (no rows) is returned.
+func evalOr(flat []cnode, id, n int) (t, f []uint64) {
+	nd := &flat[id]
+	t = newBitset(n)
+	first := true
+	for _, k := range nd.kids {
+		kt, kf := evalCond(flat, k, n)
+		bitsetOr(t, kt)
+		if nd.unk {
+			if kf == nil {
+				kf = notMask(kt, n)
+			}
+			if first {
+				f = slices.Clone(kf)
+			} else {
+				bitsetAnd(f, kf)
+			}
+		}
+		first = false
+	}
+	return t, f
 }
 
 // evalAnd combines kids: T = AND of kid T; F = OR of kid F (or ~kidT when a kid
-// has no unknowns). F stays nil when the whole subtree has no unknowns.
-func evalAnd(node *condNode, n int, cvOf map[*condNode]*colVals, unk map[*condNode]bool) (t, f []uint64) {
-	for i, k := range node.kids {
-		kt, kf := evalCond(k, n, cvOf, unk)
-		if i == 0 {
-			t = append([]uint64(nil), kt...)
-		} else {
-			bitsetAnd(t, kt)
-		}
-		if unk[node] {
+// has no unknowns). F stays nil when the whole subtree has no unknowns. With no
+// kids the AND identity (all rows true) is returned.
+func evalAnd(flat []cnode, id, n int) (t, f []uint64) {
+	nd := &flat[id]
+	t = fullBitset(n)
+	for _, k := range nd.kids {
+		kt, kf := evalCond(flat, k, n)
+		bitsetAnd(t, kt)
+		if nd.unk {
 			if kf == nil {
 				kf = notMask(kt, n)
 			}
 			if f == nil {
-				f = append([]uint64(nil), kf...)
+				f = slices.Clone(kf)
 			} else {
 				bitsetOr(f, kf)
 			}

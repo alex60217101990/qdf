@@ -3,6 +3,7 @@ package qdf
 import (
 	"encoding/binary"
 	"reflect"
+	"slices"
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/reflectutil"
@@ -756,7 +757,7 @@ func (cv *colVals) evalMasks(term *predTerm, n int) (t, f []uint64) {
 	if cv.present == nil {
 		return t, nil
 	}
-	f = append([]uint64(nil), cv.present...)
+	f = slices.Clone(cv.present)
 	bitsetAndNot(f, t) // f = present &^ t  (present rows that failed the predicate)
 	return t, f
 }
@@ -826,27 +827,31 @@ func (d *Decoder) runQueryColumns(
 	sh *decColShape, colLens []uint32, n int,
 	isProj func(c int) bool, isByte func(c int) bool,
 ) (retained []*colVals, matched []int, err error) {
-	root := d.query.root
+	// Flatten the predicate tree into a local, int-indexed slice (no per-node
+	// maps; never mutates the shared QueryOption tree).
+	flat := flattenCond(d.query.root)
 
 	// Resolve each leaf to a wire column and validate its kind.
-	leaves := collectLeaves(root, nil)
-	leafCol := make(map[*condNode]int, len(leaves))
 	referenced := make([]bool, len(sh.kinds))
-	for _, lf := range leaves {
+	for i := range flat {
+		if flat[i].op != condLeaf {
+			continue
+		}
+		field := flat[i].term.field
 		wi := -1
 		for c, name := range sh.names {
-			if name == lf.term.field {
+			if name == field {
 				wi = c
 				break
 			}
 		}
 		if wi < 0 {
-			return nil, nil, &QueryError{Op: "predicate pushdown", Field: lf.term.field, Err: ErrFieldNotFound}
+			return nil, nil, &QueryError{Op: "predicate pushdown", Field: field, Err: ErrFieldNotFound}
 		}
-		if sh.kinds[wi].base() != lf.term.want {
-			return nil, nil, &QueryError{Op: "predicate pushdown", Field: lf.term.field, Want: lf.term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
+		if sh.kinds[wi].base() != flat[i].term.want {
+			return nil, nil, &QueryError{Op: "predicate pushdown", Field: field, Want: flat[i].term.want, Got: sh.kinds[wi], Err: ErrTypeMismatch}
 		}
-		leafCol[lf] = wi
+		flat[i].col = wi
 		referenced[wi] = true
 	}
 
@@ -878,21 +883,19 @@ func (d *Decoder) runQueryColumns(
 		}
 	}
 
-	// Map each leaf to its decoded column values.
-	cvOf := make(map[*condNode]*colVals, len(leaves))
-	for _, lf := range leaves {
-		cvOf[lf] = colCV[leafCol[lf]]
+	// Bind each leaf to its decoded column values.
+	for i := range flat {
+		if flat[i].op == condLeaf {
+			flat[i].cv = colCV[flat[i].col]
+		}
 	}
 
 	var combined []uint64
-	if root == nil {
-		combined = newBitset(n)
-		for i := range n {
-			setBit(combined, i)
-		}
+	if len(flat) == 0 {
+		combined = fullBitset(n) // no filter: every row matches
 	} else {
-		unk := computeUnknown(root, cvOf)
-		combined, _ = evalCond(root, n, cvOf, unk)
+		markUnknown(flat)
+		combined, _ = evalCond(flat, 0, n)
 	}
 	matched = matchedIndices(combined, n, nil)
 	return retained, matched, nil

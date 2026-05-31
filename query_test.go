@@ -143,3 +143,41 @@ func TestSelectInCombinator_Unsupported(t *testing.T) {
 		t.Fatalf("want ErrUnsupported, got %v", err)
 	}
 }
+
+func TestEmptyAndNoPanic(t *testing.T) {
+	type Row struct {
+		A int32 `qdf:"a"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i].A = int32(i)
+	}
+	buf, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var out []Row
+	// And() with no predicates must not panic; it matches every row (AND identity).
+	if err := Unmarshal(buf, &out, And()); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != len(rows) {
+		t.Fatalf("empty And matched %d rows, want %d", len(out), len(rows))
+	}
+}
+
+func TestEmptyOrNoRows(t *testing.T) {
+	type Row struct {
+		A int32 `qdf:"a"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i].A = int32(i)
+	}
+	buf, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var out []Row
+	// Or() with no predicates is the OR identity (FALSE): no row matches.
+	if err := Unmarshal(buf, &out, Or()); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("empty Or matched %d rows, want 0", len(out))
+	}
+}

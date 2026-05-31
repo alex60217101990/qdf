@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -361,5 +362,174 @@ func TestQuery_NullableMalformedNoPanic(t *testing.T) {
 					Where("score", func(v int64) bool { return v > 50 }), Select("id", "score"))
 			}()
 		}
+	}
+}
+
+func TestQueryOrNot(t *testing.T) {
+	type Ev struct {
+		Level string `qdf:"level"`
+		Code  int32  `qdf:"code"`
+	}
+	rows := make([]Ev, 60)
+	for i := range rows {
+		switch i % 3 {
+		case 0:
+			rows[i] = Ev{Level: "ERROR", Code: int32(i)}
+		case 1:
+			rows[i] = Ev{Level: "WARN", Code: int32(i)}
+		default:
+			rows[i] = Ev{Level: "INFO", Code: int32(i)}
+		}
+	}
+	buf, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (ERROR OR (WARN AND code>=30))
+	var got []Ev
+	err = Unmarshal(buf, &got,
+		Or(
+			Where("level", func(s string) bool { return s == "ERROR" }),
+			And(
+				Where("level", func(s string) bool { return s == "WARN" }),
+				Where("code", func(c int32) bool { return c >= 30 }),
+			),
+		))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []Ev
+	for _, r := range rows {
+		if r.Level == "ERROR" || (r.Level == "WARN" && r.Code >= 30) {
+			want = append(want, r)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Or/And mismatch:\n got %v\nwant %v", got, want)
+	}
+
+	// NOT(level == "INFO")
+	var notInfo []Ev
+	err = Unmarshal(buf, &notInfo, Not(Where("level", func(s string) bool { return s == "INFO" })))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range notInfo {
+		if r.Level == "INFO" {
+			t.Fatalf("NOT kept an INFO row: %v", r)
+		}
+	}
+	cnt := 0
+	for _, r := range rows {
+		if r.Level != "INFO" {
+			cnt++
+		}
+	}
+	if len(notInfo) != cnt {
+		t.Fatalf("NOT count = %d, want %d", len(notInfo), cnt)
+	}
+}
+
+func TestQueryMultiLeafSameColumn(t *testing.T) {
+	type Row struct {
+		Code int32 `qdf:"code"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i].Code = int32(i)
+	}
+	buf, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	// code < 5 OR code >= 35 — same column, two leaves, decoded once.
+	var got []Row
+	if err := Unmarshal(buf, &got,
+		Or(
+			Where("code", func(c int32) bool { return c < 5 }),
+			Where("code", func(c int32) bool { return c >= 35 }),
+		)); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 10 {
+		t.Fatalf("multi-leaf same column = %d rows, want 10", len(got))
+	}
+}
+
+func TestQueryNotCompound(t *testing.T) {
+	type Ev struct {
+		Level string `qdf:"level"`
+		Code  int32  `qdf:"code"`
+	}
+	rows := make([]Ev, 60)
+	for i := range rows {
+		switch i % 3 {
+		case 0:
+			rows[i] = Ev{Level: "ERROR", Code: int32(i)}
+		case 1:
+			rows[i] = Ev{Level: "WARN", Code: int32(i)}
+		default:
+			rows[i] = Ev{Level: "INFO", Code: int32(i)}
+		}
+	}
+	buf, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// NOT(level == "ERROR" OR code < 10) == DeMorgan: level != "ERROR" AND code >= 10
+	var got []Ev
+	if err := Unmarshal(buf, &got, Not(Or(
+		Where("level", func(s string) bool { return s == "ERROR" }),
+		Where("code", func(c int32) bool { return c < 10 }),
+	))); err != nil {
+		t.Fatal(err)
+	}
+	var want []Ev
+	for _, r := range rows {
+		if !(r.Level == "ERROR" || r.Code < 10) {
+			want = append(want, r)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Not(Or) mismatch: got %d rows, want %d", len(got), len(want))
+	}
+}
+
+func TestQueryNullableThreeValued(t *testing.T) {
+	type Row struct {
+		P *int32 `qdf:"p"`
+	}
+	rows := make([]Row, 30)
+	for i := range rows {
+		if i%2 == 0 {
+			v := int32(i)
+			rows[i].P = &v
+		} // odd rows: nil
+	}
+	buf, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Where(p>=0): nil rows excluded.
+	var pos []Row
+	if err := Unmarshal(buf, &pos, Where("p", func(v int32) bool { return v >= 0 })); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range pos {
+		if r.P == nil {
+			t.Fatal("Where kept a nil row")
+		}
+	}
+	// Not(Where(p>=0)): three-valued — nil is UNKNOWN, still excluded.
+	var notPos []Row
+	if err := Unmarshal(buf, &notPos, Not(Where("p", func(v int32) bool { return v >= 0 }))); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range notPos {
+		if r.P == nil {
+			t.Fatal("Not(Where) resurrected a nil row — violates 3VL")
+		}
+	}
+	// p>=0 is true for all present rows, so NOT excludes everything.
+	if len(notPos) != 0 {
+		t.Fatalf("Not(p>=0) kept %d rows, want 0", len(notPos))
 	}
 }
