@@ -49,6 +49,12 @@ type Decoder struct {
 	// predicates (AND) and project the plan's columns. Set by Unmarshal when
 	// QueryOptions are passed; cleared on reset / SetInput so it never leaks.
 	query *queryPlan
+
+	// deltaScratch is a reused unpack buffer for the Delta+FOR readers: the
+	// bit-unpacked deltas are a transient intermediate (the prefix sum writes
+	// the retained out slice), so a per-call make is pure garbage. Grows to the
+	// largest column seen; bounded on return to pool.
+	deltaScratch []uint64
 }
 
 // colLenOK reports whether a slice length is acceptable in the current

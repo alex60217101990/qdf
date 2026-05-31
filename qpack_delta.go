@@ -247,12 +247,15 @@ func (d *Decoder) readPackedDeltaForUint64Slice() ([]uint64, error) {
 		}
 		return out, nil
 	}
-	tmp := make([]uint64, n-1)
+	if cap(d.deltaScratch) < n-1 {
+		d.deltaScratch = make([]uint64, n-1)
+	}
+	tmp := d.deltaScratch[:n-1]
 	bitpack.Unpack(tmp, body, bitsPer)
 	minU := uint64(minDelta)
 	v := first
-	for i, d := range tmp {
-		v += d + minU
+	for i, dv := range tmp {
+		v += dv + minU
 		out[i+1] = v
 	}
 	return out, nil
@@ -279,12 +282,15 @@ func (d *Decoder) readPackedDeltaForInt64Slice() ([]int64, error) {
 		}
 		return out, nil
 	}
-	tmp := make([]uint64, n-1)
+	if cap(d.deltaScratch) < n-1 {
+		d.deltaScratch = make([]uint64, n-1)
+	}
+	tmp := d.deltaScratch[:n-1]
 	bitpack.Unpack(tmp, body, bitsPer)
 	minU := uint64(minDelta)
 	v := uint64(first)
-	for i, d := range tmp {
-		v += d + minU
+	for i, dv := range tmp {
+		v += dv + minU
 		out[i+1] = int64(v)
 	}
 	return out, nil
