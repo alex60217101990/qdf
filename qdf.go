@@ -397,7 +397,11 @@ func Unmarshal(data []byte, out any, opts ...QueryOption) error {
 	if len(opts) == 0 {
 		return unmarshal(data, out, nil)
 	}
-	return unmarshalQuery(data, out, buildQueryPlan(opts))
+	qp, err := buildQueryPlan(opts)
+	if err != nil {
+		return err
+	}
+	return unmarshalQuery(data, out, qp)
 }
 
 // unmarshalQuery is the pooled-decoder dispatch for a filtering/projecting

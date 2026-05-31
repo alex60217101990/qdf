@@ -25,11 +25,33 @@ type predTerm struct {
 	pBool func(bool) bool
 }
 
-// QueryOption configures a filtering/projecting Unmarshal. Construct with Where
-// or Select. Exactly one of term / selectFields is set.
+// QueryOption configures a filtering/projecting Unmarshal. Construct with Where,
+// And, Or, Not (predicate tree) or Select (projection). Exactly one of node /
+// selectFields is set.
 type QueryOption struct {
-	term         *predTerm
+	node         *condNode
 	selectFields []string
+}
+
+// condOp is the kind of a predicate-tree node.
+type condOp uint8
+
+const (
+	condLeaf condOp = iota // single typed predicate (term set)
+	condAnd                // all kids true
+	condOr                 // any kid true
+	condNot                // single kid negated
+)
+
+// condNode is one node of the boolean predicate tree. A leaf carries exactly
+// one typed predTerm; And/Or carry n kids; Not carries one. err records a
+// construction misuse (e.g. a Select passed into a combinator) surfaced at
+// buildQueryPlan time.
+type condNode struct {
+	op   condOp
+	term *predTerm
+	kids []*condNode
+	err  error
 }
 
 // Where keeps only rows whose field column satisfies pred. T must match the
@@ -71,34 +93,109 @@ func Where[T Queryable](field string, pred func(T) bool) QueryOption {
 	case func(bool) bool:
 		t.want, t.pBool = colKindBool, p
 	}
-	return QueryOption{term: t}
+	return QueryOption{node: &condNode{op: condLeaf, term: t}}
 }
 
-// Select restricts decoding to the named columns, like the fields argument of
-// UnmarshalColumns. Without a Select, the output columns are the fields of the
-// target struct, matched by name.
+// Select restricts decoding to the named columns. Top-level only; nesting a
+// Select inside And/Or/Not is reported as ErrUnsupported.
 func Select(fields ...string) QueryOption {
 	return QueryOption{selectFields: append([]string(nil), fields...)}
 }
 
-// queryPlan is the resolved set of options for one decode, built from the
-// variadic QueryOptions. preds are AND-ed; selectFields (may be nil) projects.
+// combine builds an And/Or node from option kids, flagging any non-predicate
+// (Select) kid as an ErrUnsupported misuse.
+func combine(op condOp, opts []QueryOption) QueryOption {
+	n := &condNode{op: op}
+	for _, o := range opts {
+		if o.node == nil {
+			n.err = &QueryError{Op: "predicate combinator", Err: ErrUnsupported}
+			continue
+		}
+		n.kids = append(n.kids, o.node)
+	}
+	return QueryOption{node: n}
+}
+
+// And keeps rows where every sub-predicate is true. Multiple top-level Where
+// options are an implicit And; And is the explicit, nestable form.
+func And(opts ...QueryOption) QueryOption { return combine(condAnd, opts) }
+
+// Or keeps rows where at least one sub-predicate is true.
+func Or(opts ...QueryOption) QueryOption { return combine(condOr, opts) }
+
+// Not keeps rows where the sub-predicate is not true. Under three-valued NULL
+// semantics a nil (absent) nullable row is UNKNOWN, so Not(pred) excludes nil
+// rows just as the bare predicate does.
+func Not(opt QueryOption) QueryOption {
+	n := &condNode{op: condNot}
+	if opt.node == nil {
+		n.err = &QueryError{Op: "predicate combinator", Err: ErrUnsupported}
+	} else {
+		n.kids = []*condNode{opt.node}
+	}
+	return QueryOption{node: n}
+}
+
+// queryPlan is the resolved set of options for one decode: a boolean predicate
+// tree (root, nil = no filter) and an optional projection.
 type queryPlan struct {
-	preds        []*predTerm
+	root         *condNode
 	selectFields []string
 }
 
-func buildQueryPlan(opts []QueryOption) *queryPlan {
+// firstCondErr returns the first construction error in the tree, or nil.
+func firstCondErr(n *condNode) error {
+	if n == nil {
+		return nil
+	}
+	if n.err != nil {
+		return n.err
+	}
+	for _, k := range n.kids {
+		if e := firstCondErr(k); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// collectLeaves appends every leaf node of the tree to dst in pre-order.
+func collectLeaves(n *condNode, dst []*condNode) []*condNode {
+	if n == nil {
+		return dst
+	}
+	if n.op == condLeaf {
+		return append(dst, n)
+	}
+	for _, k := range n.kids {
+		dst = collectLeaves(k, dst)
+	}
+	return dst
+}
+
+func buildQueryPlan(opts []QueryOption) (*queryPlan, error) {
 	qp := &queryPlan{}
+	var nodes []*condNode
 	for _, o := range opts {
 		switch {
-		case o.term != nil:
-			qp.preds = append(qp.preds, o.term)
+		case o.node != nil:
+			nodes = append(nodes, o.node)
 		case o.selectFields != nil:
 			qp.selectFields = append(qp.selectFields, o.selectFields...)
 		}
 	}
-	return qp
+	switch len(nodes) {
+	case 0:
+		// no filter
+	case 1:
+		qp.root = nodes[0]
+	default:
+		qp.root = &condNode{op: condAnd, kids: nodes}
+	}
+	if err := firstCondErr(qp.root); err != nil {
+		return nil, err
+	}
+	return qp, nil
 }
 
 // --- bitset: row-match masks. LSB-first within each uint64 word. ---
@@ -159,4 +256,69 @@ func matchedIndices(b []uint64, n int, dst []int) []int {
 		}
 	}
 	return dst
+}
+
+// computeUnknown marks every node whose subtree contains a nullable leaf (a
+// source of SQL UNKNOWN). Only such subtrees carry an explicit F mask.
+func computeUnknown(n *condNode, cvOf map[*condNode]*colVals) map[*condNode]bool {
+	unk := make(map[*condNode]bool)
+	var walk func(*condNode) bool
+	walk = func(nd *condNode) bool {
+		if nd == nil {
+			return false
+		}
+		u := false
+		if nd.op == condLeaf {
+			u = cvOf[nd] != nil && cvOf[nd].present != nil
+		} else {
+			for _, k := range nd.kids {
+				if walk(k) {
+					u = true
+				}
+			}
+		}
+		unk[nd] = u
+		return u
+	}
+	walk(n)
+	return unk
+}
+
+// evalCond returns the T mask (rows where node is TRUE) and, when the subtree
+// can produce UNKNOWN (unk[node]), the F mask (rows where node is FALSE); a nil
+// F means "no unknowns, F == complement of T". Leaf and And are handled here;
+// Or and Not are added in a later task.
+func evalCond(node *condNode, n int, cvOf map[*condNode]*colVals, unk map[*condNode]bool) (t, f []uint64) {
+	switch node.op {
+	case condLeaf:
+		return cvOf[node].evalMasks(node.term, n)
+	case condAnd:
+		return evalAnd(node, n, cvOf, unk)
+	default:
+		panic("qdf: evalCond: unsupported op")
+	}
+}
+
+// evalAnd combines kids: T = AND of kid T; F = OR of kid F (or ~kidT when a kid
+// has no unknowns). F stays nil when the whole subtree has no unknowns.
+func evalAnd(node *condNode, n int, cvOf map[*condNode]*colVals, unk map[*condNode]bool) (t, f []uint64) {
+	for i, k := range node.kids {
+		kt, kf := evalCond(k, n, cvOf, unk)
+		if i == 0 {
+			t = append([]uint64(nil), kt...)
+		} else {
+			bitsetAnd(t, kt)
+		}
+		if unk[node] {
+			if kf == nil {
+				kf = notMask(kt, n)
+			}
+			if f == nil {
+				f = append([]uint64(nil), kf...)
+			} else {
+				bitsetOr(f, kf)
+			}
+		}
+	}
+	return t, f
 }

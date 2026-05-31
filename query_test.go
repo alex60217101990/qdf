@@ -1,18 +1,21 @@
 package qdf
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestWhere_NativePredicate_Int(t *testing.T) {
 	opt := Where("status", func(c int) bool { return c >= 500 })
-	if opt.term == nil {
+	if opt.node == nil || opt.node.term == nil {
 		t.Fatal("Where did not produce a predicate term")
 	}
-	if opt.term.field != "status" || opt.term.want != colKindInt {
-		t.Fatalf("term = %+v, want field=status kind=int", opt.term)
+	if opt.node.term.field != "status" || opt.node.term.want != colKindInt {
+		t.Fatalf("term = %+v, want field=status kind=int", opt.node.term)
 	}
 	got := make([]bool, 0, 4)
 	for _, v := range []int64{200, 500, 404, 503} {
-		got = append(got, opt.term.pI64(v))
+		got = append(got, opt.node.term.pI64(v))
 	}
 	want := []bool{false, true, false, true}
 	for i := range want {
@@ -24,10 +27,13 @@ func TestWhere_NativePredicate_Int(t *testing.T) {
 
 func TestWhere_NativePredicate_String(t *testing.T) {
 	opt := Where("level", func(s string) bool { return s == "ERROR" })
-	if opt.term.want != colKindString || opt.term.pStr == nil {
-		t.Fatalf("term = %+v, want kind=string", opt.term)
+	if opt.node == nil || opt.node.term == nil {
+		t.Fatal("Where did not produce a predicate term")
 	}
-	if !opt.term.pStr("ERROR") || opt.term.pStr("INFO") {
+	if opt.node.term.want != colKindString || opt.node.term.pStr == nil {
+		t.Fatalf("term = %+v, want kind=string", opt.node.term)
+	}
+	if !opt.node.term.pStr("ERROR") || opt.node.term.pStr("INFO") {
 		t.Fatal("pStr mismatch")
 	}
 }
@@ -89,5 +95,51 @@ func TestBitsetOps(t *testing.T) {
 	// bits >= n must be clear so popcount is meaningful
 	if popcount(not) != n-2 {
 		t.Fatalf("notMask popcount = %d, want %d", popcount(not), n-2)
+	}
+}
+
+func TestExplicitAnd_Equivalent(t *testing.T) {
+	type Row struct {
+		A int32  `qdf:"a"`
+		B string `qdf:"b"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i] = Row{A: int32(i), B: "x"}
+		if i%2 == 0 {
+			rows[i].B = "y"
+		}
+	}
+	buf, err := Marshal(rows, OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flat, explicit []Row
+	pA := Where("a", func(v int32) bool { return v >= 10 })
+	pB := Where("b", func(s string) bool { return s == "y" })
+	if err := Unmarshal(buf, &flat, pA, pB); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unmarshal(buf, &explicit, And(pA, pB)); err != nil {
+		t.Fatal(err)
+	}
+	if len(flat) != len(explicit) || len(flat) == 0 {
+		t.Fatalf("And() not equivalent to flat: %d vs %d", len(flat), len(explicit))
+	}
+}
+
+func TestSelectInCombinator_Unsupported(t *testing.T) {
+	type Row struct {
+		A int32 `qdf:"a"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i].A = int32(i)
+	}
+	buf, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var out []Row
+	err := Unmarshal(buf, &out, And(Where("a", func(v int32) bool { return v > 0 }), Select("a")))
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("want ErrUnsupported, got %v", err)
 	}
 }
