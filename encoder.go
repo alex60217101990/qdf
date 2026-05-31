@@ -132,6 +132,13 @@ func (e *Encoder) applyOpts(opts Options) {
 	e.opts = opts
 	if opts.Has(OptDense) {
 		e.mode = Dense
+		// Lazily allocate the Dense intern state. A pooled encoder starts with
+		// state == nil (set in the pool's New) and never allocates it while it
+		// only serves OptSpeed; the first Dense encode brings it up. A reused
+		// encoder keeps its state — Reset() clears it before this runs.
+		if e.state == nil {
+			e.state = newEncState()
+		}
 	} else {
 		e.mode = Fast
 	}
@@ -187,10 +194,7 @@ func NewEncoderWith(opts Options) *Encoder {
 		maxStateEntries: 1 << 14,
 		maxDepth:        DefaultMaxDepth,
 	}
-	e.applyOpts(opts)
-	if opts.Has(OptDense) {
-		e.state = newEncState()
-	}
+	e.applyOpts(opts) // allocates Dense state when OptDense is set
 	return e
 }
 

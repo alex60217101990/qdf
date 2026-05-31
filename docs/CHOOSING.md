@@ -98,7 +98,7 @@ but the intern table is per-call when using `Marshal`).
 b, err := qdf.Marshal(event, qdf.OptSpeed)
 ```
 
-Result: encode 349 ns vs json 678 ns vs msgpack 444 ns. Decode 282 ns
+Result: encode 290 ns vs json 678 ns vs msgpack 444 ns. Decode 282 ns
 vs json 1557 ns vs msgpack 618 ns. Wire 72 B vs json 97 B (msgpack
 wins on size here at 63 B — its fixmap header is one byte cheaper).
 

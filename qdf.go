@@ -304,9 +304,12 @@ var (
 	// reused across calls when the cap fits maxPooledBuf.
 	encPool = sync.Pool{
 		New: func() any {
+			// state is left nil: Fast/OptSpeed encodes never touch the intern
+			// table, so a pooled encoder serving only OptSpeed pays no state
+			// allocation and no per-call state.reset(). applyOpts lazily
+			// allocates it the first time the encoder runs in Dense mode.
 			return &Encoder{
 				buf:             make([]byte, 0, initialEncBuf),
-				state:           newEncState(),
 				minIntern:       4,
 				maxStateEntries: 1 << 14,
 				maxDepth:        DefaultMaxDepth,
