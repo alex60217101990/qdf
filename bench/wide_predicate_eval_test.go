@@ -1,8 +1,9 @@
 package bench
 
 import (
-	"github.com/alex60217101990/qdf"
 	"testing"
+
+	"github.com/alex60217101990/qdf"
 )
 
 // 6 int64 predicate columns AND-ed, 1% match -> eval-heavy (non-nullable dense path)
