@@ -921,7 +921,7 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 	want := wantedColumns(plan, sh.names)
 	if d.query.selectFields != nil {
 		for c, name := range sh.names {
-			if !sliceContains(d.query.selectFields, name) {
+			if !slices.Contains(d.query.selectFields, name) {
 				want[c] = nil
 			}
 		}
@@ -972,7 +972,7 @@ func decodeColumnarQueryAny(d *Decoder) (any, error) {
 	// Projection: selectFields, or all columns when none given.
 	projected := make([]bool, len(sh.kinds))
 	for c, name := range sh.names {
-		projected[c] = d.query.selectFields == nil || sliceContains(d.query.selectFields, name)
+		projected[c] = d.query.selectFields == nil || slices.Contains(d.query.selectFields, name)
 	}
 
 	retained, matched, err := d.runQueryColumns(sh, colLens, n,

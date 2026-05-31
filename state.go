@@ -719,6 +719,9 @@ func (d *decState) reset() {
 	if cap(d.colScratchI64) > maxRetainedIDs {
 		d.colScratchI64, d.colScratchU64, d.colScratchF64, d.colScratchBool = nil, nil, nil, nil
 	}
+	if cap(d.colLenScratch) > maxRetainedIDs {
+		d.colLenScratch = nil
+	}
 	for i := range d.mruRing {
 		d.mruRing[i] = mruEmpty
 	}

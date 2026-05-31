@@ -33,9 +33,6 @@ func UnmarshalColumns(data []byte, out any, fields ...string) error {
 	return unmarshal(data, out, fields)
 }
 
-// sliceContains reports whether ss contains s.
-func sliceContains(ss []string, s string) bool { return slices.Contains(ss, s) }
-
 // wantField reports whether name is in the active selectFields filter. A nil
 // filter wants every column (no filtering).
 func (d *Decoder) wantField(name string) bool {

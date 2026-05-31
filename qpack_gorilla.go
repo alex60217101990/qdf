@@ -219,9 +219,10 @@ func (e *Encoder) writePackedGorillaFloat32Slice(s []float32) {
 
 // readPackedGorillaHeader consumes kind, n, firstVal, numBits, body.
 // The tag itself must already be consumed. The numBits varuint is
-// validated and consumed but not returned — callers walk the body
-// via a bitReader that stops at numBits internally; surfacing the
-// value made it unused (caught by unparam).
+// validated and consumed but not returned — it is used only to compute
+// bodyBytes = ceil(numBits/8) and slice the body from the wire buffer;
+// the bitReader is then bounded by that byte-sliced body length, not by
+// a tracked bit count. Surfacing numBits made it unused (caught by unparam).
 func (d *Decoder) readPackedGorillaHeader(expectKind byte) (n int, firstU64 uint64, body []byte, err error) {
 	if d.i >= len(d.buf) {
 		return 0, 0, nil, ErrShortBuffer
