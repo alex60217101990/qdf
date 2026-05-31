@@ -285,10 +285,10 @@ i7-9750H, `OptBalanced|OptColumnIndex`, 1% of rows match):
 
 | | ns/op | B/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| **pushdown** (`Where` + project 2 cols) | 77,477 | 75,801 | 2022 |
-| full decode + manual filter | 161,458 | 309,222 | 2021 |
+| **pushdown** (`Where` + project 2 cols) | 43,680 | 66,240 | 26 |
+| full decode + manual filter | 102,200 | 294,100 | 23 |
 
-≈ **2.1× faster and ≈4× fewer bytes moved** — pushdown never materializes the
+≈ **2.3× faster and ≈4.4× fewer bytes moved** — pushdown never materializes the
 six columns it neither filters nor projects, and never reconstructs the 99% of
 rows that fail the predicate.
 
@@ -296,12 +296,15 @@ Selectivity sweep (same batch, varying the fraction of matching rows):
 
 | match rate | ns/op | allocs/op |
 | --- | ---: | ---: |
-| 1%  | 70,932 | 2022 |
-| 50% | 56,996 | 33 |
-| 100% | 98,320 | 2030 |
+| 1%  | 44,930 | 26 |
+| 50% | 48,490 | 35 |
+| 100% | 74,410 | 33 |
 
-(Allocations track the number of surviving rows that must be materialized; the
-byte and CPU savings hold across the range.) Reproduce with:
+Allocations stay flat (≈ a couple dozen, independent of row count): the string
+column decode shares interned values and reuses a scratch buffer rather than
+allocating per row, so the cost is a few column buffers plus the surviving-row
+output — the CPU and byte savings hold across the selectivity range. Reproduce
+with:
 
 ```bash
 go test -C bench -bench BenchmarkQuery -benchmem -run=^$ .

@@ -256,8 +256,8 @@ _ = qdf.UnmarshalColumns(b, &rows, "ts", "level") // skips the other 14
 
 Use it when consumers read a subset of columns from wide columnar
 batches: the index makes a skip a direct offset add, so decoding a
-3-field subset of a 16-field batch is ≈6.9× faster and ≈33× fewer
-allocs than decoding the whole struct. The cost is ~4 B per column on
+3-field subset of a 16-field batch is ≈5.7× faster and moves ≈5.3×
+fewer bytes than decoding the whole struct. The cost is ~4 B per column on
 the wire. **No benefit** if every consumer reads all columns or the
 payload is not columnar — leave the bit off and the wire is byte-
 identical to plain `OptBalanced`. (Without the index, subset decode
