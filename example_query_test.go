@@ -6,6 +6,35 @@ import (
 	"github.com/alex60217101990/qdf"
 )
 
+// ExampleOr demonstrates OR/NOT predicate combinators: keep events that are
+// either level=="ERROR" or code>=500, while excluding level=="DEBUG" rows.
+func ExampleOr() {
+	type Event struct {
+		Level string `qdf:"level"`
+		Code  int32  `qdf:"code"`
+	}
+	events := make([]Event, 30)
+	for i := range events {
+		if i%2 == 0 {
+			events[i] = Event{Level: "ERROR", Code: int32(500 + i)}
+		} else {
+			events[i] = Event{Level: "INFO", Code: int32(i)}
+		}
+	}
+	buf, _ := qdf.Marshal(events, qdf.OptBalanced|qdf.OptColumnIndex)
+
+	var hot []Event
+	_ = qdf.Unmarshal(buf, &hot,
+		qdf.Or(
+			qdf.Where("level", func(s string) bool { return s == "ERROR" }),
+			qdf.Where("code", func(c int32) bool { return c >= 500 }),
+		),
+		qdf.Not(qdf.Where("level", func(s string) bool { return s == "DEBUG" })),
+	)
+	fmt.Println(len(hot))
+	// Output: 15
+}
+
 // ExampleUnmarshal_predicatePushdown keeps only the rows matching typed
 // predicates (AND-ed), decoding just the projected columns of those rows.
 //

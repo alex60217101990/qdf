@@ -60,6 +60,33 @@ func BenchmarkQuery_Selectivity(b *testing.B) {
 	b.Run("hit_100pct", func(b *testing.B) { benchQuerySel(b, 1) })
 }
 
+// BenchmarkQueryOrNot measures a two-leaf Or with a Not guard over the same
+// wide batch that BenchmarkQuery_Selectivity uses.
+func BenchmarkQueryOrNot(b *testing.B) {
+	rows := mkWide(2000, 100) // 1% ERROR, rest INFO
+	enc, err := qdf.Marshal(rows, qdf.OptBalanced|qdf.OptColumnIndex)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.SetBytes(int64(len(enc)))
+	b.ResetTimer()
+	b.ReportAllocs()
+	for range b.N {
+		var out []struct {
+			A int64 `qdf:"a"`
+			B int64 `qdf:"b"`
+		}
+		_ = qdf.Unmarshal(enc, &out,
+			qdf.Or(
+				qdf.Where("a", func(v int64) bool { return v < 10 }),
+				qdf.Where("b", func(v int64) bool { return v > 1990 }),
+			),
+			qdf.Not(qdf.Where("c", func(v int64) bool { return v == 0 })),
+			qdf.Select("a", "b"),
+		)
+	}
+}
+
 // BenchmarkQuery_VsFullManual compares pushdown against full decode + manual filter.
 func BenchmarkQuery_VsFullManual(b *testing.B) {
 	rows := mkWide(2000, 100)

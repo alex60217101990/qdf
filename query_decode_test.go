@@ -493,6 +493,43 @@ func TestQueryNotCompound(t *testing.T) {
 	}
 }
 
+func TestQueryOrNotMapParity(t *testing.T) {
+	type Ev struct {
+		Level string `qdf:"level"`
+		Code  int32  `qdf:"code"`
+	}
+	rows := make([]Ev, 60)
+	for i := range rows {
+		if i%2 == 0 {
+			rows[i] = Ev{Level: "ERROR", Code: int32(i)}
+		} else {
+			rows[i] = Ev{Level: "INFO", Code: int32(i)}
+		}
+	}
+	buf, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+
+	q := Or(
+		Where("level", func(s string) bool { return s == "ERROR" }),
+		Where("code", func(c int32) bool { return c >= 50 }),
+	)
+	var typed []Ev
+	if err := Unmarshal(buf, &typed, q, Select("level", "code")); err != nil {
+		t.Fatal(err)
+	}
+	var asMap []map[string]any
+	if err := Unmarshal(buf, &asMap, q, Select("level", "code")); err != nil {
+		t.Fatal(err)
+	}
+	if len(typed) != len(asMap) || len(typed) == 0 {
+		t.Fatalf("map/typed row count differs: %d vs %d", len(typed), len(asMap))
+	}
+	for i := range typed {
+		if asMap[i]["level"].(string) != typed[i].Level {
+			t.Fatalf("row %d level mismatch", i)
+		}
+	}
+}
+
 func TestQueryNullableThreeValued(t *testing.T) {
 	type Row struct {
 		P *int32 `qdf:"p"`
