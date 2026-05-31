@@ -698,51 +698,83 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 }
 
 // eval runs term against cv, setting mask bits for matching rows. A nullable
-// row whose present bit is 0 never matches.
+// row whose present bit is 0 never matches. The common non-nullable column
+// takes a tight loop with no per-row presence test (split out so the predictable
+// presence branch is hoisted out of the hot path entirely).
 func (cv *colVals) eval(term *predTerm, n int, mask []uint64) {
+	if cv.present == nil {
+		cv.evalDense(term, n, mask)
+		return
+	}
+	cv.evalNullable(term, n, mask)
+}
+
+// evalDense is eval for a non-nullable column: no presence test per row.
+func (cv *colVals) evalDense(term *predTerm, n int, mask []uint64) {
 	switch term.want {
 	case colKindInt:
 		for i := range n {
-			if cv.present != nil && !getBit(cv.present, i) {
-				continue
-			}
 			if term.pI64(cv.i64[i]) {
 				setBit(mask, i)
 			}
 		}
 	case colKindUint:
 		for i := range n {
-			if cv.present != nil && !getBit(cv.present, i) {
-				continue
-			}
 			if term.pU64(cv.u64[i]) {
 				setBit(mask, i)
 			}
 		}
 	case colKindFloat:
 		for i := range n {
-			if cv.present != nil && !getBit(cv.present, i) {
-				continue
-			}
 			if term.pF64(cv.f64[i]) {
 				setBit(mask, i)
 			}
 		}
 	case colKindBool:
 		for i := range n {
-			if cv.present != nil && !getBit(cv.present, i) {
-				continue
-			}
 			if term.pBool(cv.b[i]) {
 				setBit(mask, i)
 			}
 		}
 	case colKindString:
 		for i := range n {
-			if cv.present != nil && !getBit(cv.present, i) {
-				continue
-			}
 			if term.pStr(cv.s[i]) {
+				setBit(mask, i)
+			}
+		}
+	}
+}
+
+// evalNullable is eval for a nullable column: an absent row never matches.
+func (cv *colVals) evalNullable(term *predTerm, n int, mask []uint64) {
+	switch term.want {
+	case colKindInt:
+		for i := range n {
+			if getBit(cv.present, i) && term.pI64(cv.i64[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindUint:
+		for i := range n {
+			if getBit(cv.present, i) && term.pU64(cv.u64[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindFloat:
+		for i := range n {
+			if getBit(cv.present, i) && term.pF64(cv.f64[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindBool:
+		for i := range n {
+			if getBit(cv.present, i) && term.pBool(cv.b[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindString:
+		for i := range n {
+			if getBit(cv.present, i) && term.pStr(cv.s[i]) {
 				setBit(mask, i)
 			}
 		}
