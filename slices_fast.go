@@ -80,6 +80,58 @@ func decodeSliceString(d *Decoder, p unsafe.Pointer) error {
 	return nil
 }
 
+// ----- QPack codec helpers shared by 64-bit and widened 32-bit paths -----
+
+// writeQPackUint64 runs the codec picker over s and writes the chosen QPack form.
+func (e *Encoder) writeQPackUint64(s []uint64) {
+	codec, mn, forBits, first, minDelta, deltaBits, pforBits, _ := pickU64Codec(s)
+	e.emitQPackUint64(s, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
+}
+
+// emitQPackUint64 writes s in the already-chosen codec form (picker output passed
+// in, so a caller that needs to inspect the choice does not pick twice).
+func (e *Encoder) emitQPackUint64(s []uint64, codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits, pforBits int) {
+	switch codec {
+	case qpackFor:
+		e.writePackedForUint64Slice(s, mn, forBits)
+	case qpackDeltaFor:
+		e.writePackedDeltaForUint64Slice(s, first, minDelta, deltaBits)
+	case qpackRLE:
+		e.writePackedRLEUint64Slice(s)
+	case qpackDict:
+		e.writePackedDictUint64Slice(s)
+	case qpackPFor:
+		e.writePackedPForUint64Slice(s, mn, pforBits)
+	default:
+		e.writePackedUint64Slice(s)
+	}
+}
+
+// writeQPackInt64 runs the codec picker over s and writes the chosen QPack form.
+func (e *Encoder) writeQPackInt64(s []int64) {
+	codec, mn, forBits, first, minDelta, deltaBits, pforBits, _ := pickI64Codec(s)
+	e.emitQPackInt64(s, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
+}
+
+// emitQPackInt64 writes s in the already-chosen codec form (picker output passed
+// in, so a caller that needs to inspect the choice does not pick twice).
+func (e *Encoder) emitQPackInt64(s []int64, codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits, pforBits int) {
+	switch codec {
+	case qpackFor:
+		e.writePackedForInt64Slice(s, mn, forBits)
+	case qpackDeltaFor:
+		e.writePackedDeltaForInt64Slice(s, first, minDelta, deltaBits)
+	case qpackRLE:
+		e.writePackedRLEInt64Slice(s)
+	case qpackDict:
+		e.writePackedDictInt64Slice(s)
+	case qpackPFor:
+		e.writePackedPForInt64Slice(s, mn, pforBits)
+	default:
+		e.writePackedInt64Slice(s)
+	}
+}
+
 // ----- []int / []int32 / []int64 / []uint32 / []uint64 -----
 
 func encodeSliceInt(e *Encoder, p unsafe.Pointer) error {
@@ -91,21 +143,7 @@ func encodeSliceInt(e *Encoder, p unsafe.Pointer) error {
 		// so the dead branch is eliminated.
 		if unsafe.Sizeof(int(0)) == 8 {
 			s64 := unsafe.Slice((*int64)(unsafe.Pointer(unsafe.SliceData(s))), len(s))
-			codec, mn, forBits, first, minDelta, deltaBits, pforBits := pickI64Codec(s64)
-			switch codec {
-			case qpackFor:
-				e.writePackedForInt64Slice(s64, mn, forBits)
-			case qpackDeltaFor:
-				e.writePackedDeltaForInt64Slice(s64, first, minDelta, deltaBits)
-			case qpackRLE:
-				e.writePackedRLEInt64Slice(s64)
-			case qpackDict:
-				e.writePackedDictInt64Slice(s64)
-			case qpackPFor:
-				e.writePackedPForInt64Slice(s64, mn, pforBits)
-			default:
-				e.writePackedInt64Slice(s64)
-			}
+			e.writeQPackInt64(s64)
 			return nil
 		}
 		s32 := unsafe.Slice((*int32)(unsafe.Pointer(unsafe.SliceData(s))), len(s))
@@ -163,7 +201,19 @@ func decodeSliceInt(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceInt32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]int32)(p)
 	if e.qpack {
-		e.writePackedInt32Slice(s)
+		w := make([]int64, len(s))
+		for i, v := range s {
+			w[i] = int64(v)
+		}
+		codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost := pickI64Codec(w)
+		// Never-worse floor: native int32-raw is 4 B/elem vs the picker's 8 B/elem
+		// uint64-raw baseline. Emit the widened codec only when it beats native
+		// int32-raw; else native raw so incompressible 32-bit data isn't inflated.
+		if bestCost >= 2+uvarintLen(uint64(len(s)))+4*len(s) {
+			e.writePackedInt32Slice(s)
+			return nil
+		}
+		e.emitQPackInt64(w, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
 		return nil
 	}
 	e.WriteArrayHeader(len(s))
@@ -172,18 +222,89 @@ func encodeSliceInt32(e *Encoder, p unsafe.Pointer) error {
 	}
 	return nil
 }
+
+// readQPackUint64 consumes a QPack uint64 codec body whose tag t was peeked.
+// The caller must have already peeked (not consumed) the tag; this function
+// increments d.i to consume it before reading the payload.
+func (d *Decoder) readQPackUint64(t byte) ([]uint64, error) {
+	d.i++
+	switch t {
+	case tagPackRaw:
+		return d.readPackedUint64Slice()
+	case tagPackFor:
+		return d.readPackedForUint64Slice()
+	case tagPackDeltaFor:
+		return d.readPackedDeltaForUint64Slice()
+	case tagPackRLE:
+		return d.readPackedRLEUint64Slice()
+	case tagPackDict:
+		return d.readPackedDictUint64Slice()
+	case tagPackPFor:
+		return d.readPackedPForUint64Slice()
+	}
+	return nil, ErrBadTag
+}
+
+// readQPackInt64 consumes a QPack int64 codec body whose tag t was peeked.
+// The caller must have already peeked (not consumed) the tag; this function
+// increments d.i to consume it before reading the payload.
+func (d *Decoder) readQPackInt64(t byte) ([]int64, error) {
+	d.i++
+	switch t {
+	case tagPackRaw:
+		return d.readPackedInt64Slice()
+	case tagPackFor:
+		return d.readPackedForInt64Slice()
+	case tagPackDeltaFor:
+		return d.readPackedDeltaForInt64Slice()
+	case tagPackRLE:
+		return d.readPackedRLEInt64Slice()
+	case tagPackDict:
+		return d.readPackedDictInt64Slice()
+	case tagPackPFor:
+		return d.readPackedPForInt64Slice()
+	}
+	return nil, ErrBadTag
+}
+
 func decodeSliceInt32(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
 		return err
 	}
-	if t == tagPackRaw {
+	switch t {
+	case tagPackRaw:
+		// Could be qpackKindInt32 (legacy raw) or qpackKindInt64 (new QPack path).
+		// Peek the kind byte (one position ahead of the tag) to decide.
+		if d.i+1 < len(d.buf) && d.buf[d.i+1] == qpackKindInt64 {
+			v64, err := d.readQPackInt64(t)
+			if err != nil {
+				return err
+			}
+			out := make([]int32, len(v64))
+			for i, x := range v64 {
+				out[i] = int32(x)
+			}
+			*(*[]int32)(p) = out
+			return nil
+		}
 		d.i++
 		v, err := d.readPackedInt32Slice()
 		if err != nil {
 			return err
 		}
 		*(*[]int32)(p) = v
+		return nil
+	case tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor:
+		v64, err := d.readQPackInt64(t)
+		if err != nil {
+			return err
+		}
+		out := make([]int32, len(v64))
+		for i, x := range v64 {
+			out[i] = int32(x)
+		}
+		*(*[]int32)(p) = out
 		return nil
 	}
 	n, err := d.ReadArrayHeader()
@@ -207,21 +328,7 @@ func decodeSliceInt32(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]int64)(p)
 	if e.qpack {
-		codec, mn, forBits, first, minDelta, deltaBits, pforBits := pickI64Codec(s)
-		switch codec {
-		case qpackFor:
-			e.writePackedForInt64Slice(s, mn, forBits)
-		case qpackDeltaFor:
-			e.writePackedDeltaForInt64Slice(s, first, minDelta, deltaBits)
-		case qpackRLE:
-			e.writePackedRLEInt64Slice(s)
-		case qpackDict:
-			e.writePackedDictInt64Slice(s)
-		case qpackPFor:
-			e.writePackedPForInt64Slice(s, mn, pforBits)
-		default:
-			e.writePackedInt64Slice(s)
-		}
+		e.writeQPackInt64(s)
 		return nil
 	}
 	e.WriteArrayHeader(len(s))
@@ -306,7 +413,20 @@ func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceUint32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]uint32)(p)
 	if e.qpack {
-		e.writePackedUint32Slice(s)
+		w := make([]uint64, len(s))
+		for i, v := range s {
+			w[i] = uint64(v)
+		}
+		codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost := pickU64Codec(w)
+		// Never-worse floor: the picker scores codecs against the uint64-raw
+		// 8 B/elem baseline, but the native form for a uint32 is 4 B/elem. Emit
+		// the widened codec only when its cost beats native uint32-raw; otherwise
+		// fall back to native raw so incompressible 32-bit data is never inflated.
+		if bestCost >= 2+uvarintLen(uint64(len(s)))+4*len(s) {
+			e.writePackedUint32Slice(s)
+			return nil
+		}
+		e.emitQPackUint64(w, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
 		return nil
 	}
 	e.WriteArrayHeader(len(s))
@@ -320,13 +440,39 @@ func decodeSliceUint32(d *Decoder, p unsafe.Pointer) error {
 	if err != nil {
 		return err
 	}
-	if t == tagPackRaw {
+	switch t {
+	case tagPackRaw:
+		// Could be qpackKindUint32 (legacy raw) or qpackKindUint64 (new QPack path).
+		// Peek the kind byte (one position ahead of the tag) to decide.
+		if d.i+1 < len(d.buf) && d.buf[d.i+1] == qpackKindUint64 {
+			v64, err := d.readQPackUint64(t)
+			if err != nil {
+				return err
+			}
+			out := make([]uint32, len(v64))
+			for i, x := range v64 {
+				out[i] = uint32(x)
+			}
+			*(*[]uint32)(p) = out
+			return nil
+		}
 		d.i++
 		v, err := d.readPackedUint32Slice()
 		if err != nil {
 			return err
 		}
 		*(*[]uint32)(p) = v
+		return nil
+	case tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor:
+		v64, err := d.readQPackUint64(t)
+		if err != nil {
+			return err
+		}
+		out := make([]uint32, len(v64))
+		for i, x := range v64 {
+			out[i] = uint32(x)
+		}
+		*(*[]uint32)(p) = out
 		return nil
 	}
 	n, err := d.ReadArrayHeader()
@@ -350,21 +496,7 @@ func decodeSliceUint32(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]uint64)(p)
 	if e.qpack {
-		codec, mn, forBits, first, minDelta, deltaBits, pforBits := pickU64Codec(s)
-		switch codec {
-		case qpackFor:
-			e.writePackedForUint64Slice(s, mn, forBits)
-		case qpackDeltaFor:
-			e.writePackedDeltaForUint64Slice(s, first, minDelta, deltaBits)
-		case qpackRLE:
-			e.writePackedRLEUint64Slice(s)
-		case qpackDict:
-			e.writePackedDictUint64Slice(s)
-		case qpackPFor:
-			e.writePackedPForUint64Slice(s, mn, pforBits)
-		default:
-			e.writePackedUint64Slice(s)
-		}
+		e.writeQPackUint64(s)
 		return nil
 	}
 	e.WriteArrayHeader(len(s))

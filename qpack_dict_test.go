@@ -73,7 +73,7 @@ func TestDict_PickerHitsSpreadValues(t *testing.T) {
 	for i := range s {
 		s[i] = dictVals[i%4]
 	}
-	codec, _, _, _, _, _, _ := pickU64Codec(s)
+	codec, _, _, _, _, _, _, _ := pickU64Codec(s)
 	if codec != qpackDict {
 		t.Fatalf("u64 picker: got codec %d, want qpackDict (%d) on 4-distinct/wide-range input", codec, qpackDict)
 	}
@@ -83,7 +83,7 @@ func TestDict_PickerHitsSpreadValues(t *testing.T) {
 	for i := range si {
 		si[i] = dictI[i%4]
 	}
-	codec, _, _, _, _, _, _ = pickI64Codec(si)
+	codec, _, _, _, _, _, _, _ = pickI64Codec(si)
 	if codec != qpackDict {
 		t.Fatalf("i64 picker: got codec %d, want qpackDict (%d) on 4-distinct/wide-range input", codec, qpackDict)
 	}
@@ -96,7 +96,7 @@ func TestDict_PickerSkipsHighCardinality(t *testing.T) {
 	for i := range s {
 		s[i] = uint64(i * 113) // 64 unique values, well above cap
 	}
-	codec, _, _, _, _, _, _ := pickU64Codec(s)
+	codec, _, _, _, _, _, _, _ := pickU64Codec(s)
 	if codec == qpackDict {
 		t.Fatalf("u64 picker: returned qpackDict on >cap distinct (=%d), want fallback", len(s))
 	}
