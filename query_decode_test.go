@@ -579,7 +579,7 @@ func TestQueryNullableThreeValued(t *testing.T) {
 	}
 	var want int
 	for _, r := range rows {
-		if r.P != nil && !(*r.P > 10) { // present AND p<=10
+		if r.P != nil && *r.P <= 10 { // present AND p<=10
 			want++
 		}
 	}
