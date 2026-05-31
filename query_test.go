@@ -58,3 +58,36 @@ func TestBitset_AndPopcountMatched(t *testing.T) {
 		t.Fatalf("matched = %v, want %v", got, want)
 	}
 }
+
+func TestBitsetOps(t *testing.T) {
+	n := 130 // spans 3 words, last partial
+	a := newBitset(n)
+	b := newBitset(n)
+	setBit(a, 1)
+	setBit(a, 64)
+	setBit(b, 64)
+	setBit(b, 129)
+
+	or := append([]uint64(nil), a...)
+	bitsetOr(or, b)
+	for _, i := range []int{1, 64, 129} {
+		if !getBit(or, i) {
+			t.Fatalf("bitsetOr: bit %d not set", i)
+		}
+	}
+
+	andNot := append([]uint64(nil), a...)
+	bitsetAndNot(andNot, b) // a &^ b: keeps 1, drops 64
+	if !getBit(andNot, 1) || getBit(andNot, 64) {
+		t.Fatalf("bitsetAndNot wrong: %064b", andNot[0])
+	}
+
+	not := notMask(a, n)
+	if getBit(not, 1) || !getBit(not, 0) || !getBit(not, 2) {
+		t.Fatalf("notMask wrong at low bits")
+	}
+	// bits >= n must be clear so popcount is meaningful
+	if popcount(not) != n-2 {
+		t.Fatalf("notMask popcount = %d, want %d", popcount(not), n-2)
+	}
+}
