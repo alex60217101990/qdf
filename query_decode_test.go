@@ -569,6 +569,28 @@ func TestQueryNullableThreeValued(t *testing.T) {
 	if len(notPos) != 0 {
 		t.Fatalf("Not(p>=0) kept %d rows, want 0", len(notPos))
 	}
+
+	// Mixed: Not(p>10) must KEEP present-but-false rows (p<=10) while still
+	// excluding nil (UNKNOWN) — proves Not over a nullable leaf isn't empty for
+	// the wrong reason.
+	var notHigh []Row
+	if err := Unmarshal(buf, &notHigh, Not(Where("p", func(v int32) bool { return v > 10 }))); err != nil {
+		t.Fatal(err)
+	}
+	var want int
+	for _, r := range rows {
+		if r.P != nil && !(*r.P > 10) { // present AND p<=10
+			want++
+		}
+	}
+	if len(notHigh) != want || want == 0 {
+		t.Fatalf("Not(p>10) kept %d rows, want %d (present-and-false only)", len(notHigh), want)
+	}
+	for _, r := range notHigh {
+		if r.P == nil || *r.P > 10 {
+			t.Fatalf("Not(p>10) kept a wrong row: %v", r.P)
+		}
+	}
 }
 
 // FuzzQueryOrNotByteFlip byte-flips every position of a well-formed payload and
