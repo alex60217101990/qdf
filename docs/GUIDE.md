@@ -758,7 +758,9 @@ per-element decode-and-discard walk.
 Selective decode skips columns; **predicate pushdown** also skips rows, reusing
 the same `tagColStruct` layout (plus the index above). `Unmarshal` takes
 trailing `QueryOption`s — `Where(field, pred)` and `Select(fields...)` (see
-`query.go`). The decode is whole-column, not element-addressable:
+`query.go`). Boolean predicate trees via `And(...)`, `Or(...)`, `Not(...)`
+are also supported (see `PREDICATE-PUSHDOWN.md`). The decode is whole-column,
+not element-addressable:
 
 1. For each `Where` field, **decode the whole predicate column** (the index
    lets the decoder seek straight to that column body; without it, it

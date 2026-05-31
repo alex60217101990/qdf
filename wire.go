@@ -171,10 +171,12 @@ const (
 	//                    columns are M values emitted consecutively through the
 	//                    intern path. Chosen per-array by a probe; the encoder
 	//                    falls back to row-major when columnar would not win.
+	//                    A nullable column (kind byte has bit 0x80 set) emits
+	//                    ceil(M/8) LSB-first presence-mask bytes followed by
+	//                    the dense non-nil values encoded with the base kind's
+	//                    codec.
 
-	tagExt8      = 0xF0
-	tagExt16     = 0xF1
-	tagExt32     = 0xF2
+	// 0xF0..0xF2 unassigned (reserved for a future MessagePack-style ext type).
 	tagTimestamp = 0xF3
 
 	// ALP (Adaptive Lossless floating-Point, CWI 2023), decimal path,
@@ -251,4 +253,27 @@ func readUvarint(b []byte) (uint64, int) {
 		shift += 7
 	}
 	return 0, 0
+}
+
+// uvarintLen returns the number of ULEB128 bytes needed to encode v.
+// Inlined by the compiler; used in QPack size estimators and the columnar probe.
+func uvarintLen(v uint64) int {
+	n := 1
+	for v >= 0x80 {
+		v >>= 7
+		n++
+	}
+	return n
+}
+
+// zigzagEncode64 maps a signed int64 to an unsigned int64 with
+// magnitude-preserving low-bit cost: |v| small => result small.
+// Used by the FOR / Delta-FOR codecs and the columnar probe.
+func zigzagEncode64(v int64) uint64 {
+	return uint64((v << 1) ^ (v >> 63))
+}
+
+// zigzagDecode64 reverses zigzagEncode64.
+func zigzagDecode64(u uint64) int64 {
+	return int64((u >> 1) ^ -(u & 1))
 }

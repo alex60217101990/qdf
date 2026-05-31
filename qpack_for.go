@@ -24,16 +24,6 @@ import (
 
 const qpackForMaxBits = 56
 
-// zigzagEncode64 maps a signed int64 to an unsigned int64 with
-// magnitude-preserving low-bit cost: |v| small => result small.
-func zigzagEncode64(v int64) uint64 {
-	return uint64((v << 1) ^ (v >> 63))
-}
-
-func zigzagDecode64(u uint64) int64 {
-	return int64((u >> 1) ^ -(u & 1))
-}
-
 // qpackForSizeUnsigned estimates the wire size, in bytes, of a FOR-packed
 // encoding for n unsigned values whose delta range needs bits per slot
 // and whose minimum value is m. Used to choose between raw and FOR.
@@ -49,15 +39,6 @@ func qpackForSizeSigned(n int, bitsPer int, m int64) int {
 	hdr := 3 + uvarintLen(zigzagEncode64(m)) + uvarintLen(uint64(n))
 	body := (n*bitsPer + 7) >> 3
 	return hdr + body
-}
-
-func uvarintLen(v uint64) int {
-	n := 1
-	for v >= 0x80 {
-		v >>= 7
-		n++
-	}
-	return n
 }
 
 // minMaxU64 returns the (min, max) of s. Caller must ensure len(s) > 0.

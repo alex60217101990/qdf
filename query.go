@@ -59,9 +59,10 @@ type condNode struct {
 
 // Where keeps only rows whose field column satisfies pred. T must match the
 // column's native kind (any integer width, float32/64, string, or bool); a
-// mismatch is reported as ErrTypeMismatch at decode time. Multiple Where
-// options are AND-ed. The predicate is called once per row with the native
-// value — no interface boxing per value.
+// mismatch is reported as ErrTypeMismatch at decode time. If field is absent
+// from the wire the call returns ErrFieldNotFound. Multiple Where options are
+// AND-ed. The predicate is called once per row with the native value — no
+// interface boxing per value.
 func Where[T Queryable](field string, pred func(T) bool) QueryOption {
 	t := &predTerm{field: field}
 	switch p := any(pred).(type) {

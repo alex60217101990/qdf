@@ -233,9 +233,9 @@ const (
 	OptShapeIntern
 
 	// OptPairPred enables the Markov-1 successor predictor
-	// (tagStatePair, 0xEA). Per previous state-ref ID the encoder keeps
-	// a ring of the last 4 successors; a hit emits the ring rank in a
-	// single byte. Requires OptDense.
+	// (tagStatePair, 0xEA). Per previous state-ref ID the encoder stores
+	// its most-recent successor (top-1, K=1); a hit emits the transition
+	// rank in a single byte (always rank 0). Requires OptDense.
 	OptPairPred
 
 	// OptMTF enables Move-to-Front rank coding (tagStateMTF, 0xE9).
