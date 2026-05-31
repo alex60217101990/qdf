@@ -142,7 +142,7 @@ intern-table CPU for zero wire benefit — skip it.
 
 ### Status-code / enum-like int column
 
-A long `[]int` (or `[]int64`) dominated by a handful of distinct
+A long `[]int` (or `[]int32`/`[]int64`) dominated by a handful of distinct
 values — HTTP status codes, log severities encoded as ints, sparse
 counter snapshots, finite-state-machine traces. Long stretches of
 the same value with short bursts of others is the canonical shape.
@@ -164,7 +164,7 @@ on raw / FOR without paying the estimator cost.
 
 ### Latency / outlier-heavy int column
 
-A long `[]int`/`[]uint64` that is mostly small but carries a rare
+A long `[]int`/`[]uint32`/`[]uint64` that is mostly small but carries a rare
 tail of large values — request latencies in microseconds with the
 occasional slow request, byte counters with the odd jumbo payload,
 counters that reset. The spikes are what kill plain Frame-of-Reference:

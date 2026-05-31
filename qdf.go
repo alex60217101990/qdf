@@ -211,7 +211,10 @@ const (
 	OptDense Options = 1 << iota
 
 	// OptQPack enables the numeric / boolean slice codecs. Bools
-	// bit-pack; integer slices try Frame-of-Reference and Delta+FOR;
+	// bit-pack; 32- and 64-bit integer slices ([]int/int32/int64,
+	// []uint/uint32/uint64) run the codec picker — Frame-of-Reference,
+	// Delta+FOR, RLE, dictionary, and Patched FOR — widening 32-bit
+	// values to 64-bit for selection and narrowing back on decode;
 	// float slices stay on raw-LE. Auto-selected per slice; the
 	// encoder falls back to raw-LE when nothing wins. Gorilla XOR
 	// for floats lives behind OptGorillaFloat (bit 5) — see
