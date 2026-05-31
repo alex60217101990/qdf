@@ -3,6 +3,7 @@ package qdf
 import (
 	"encoding/binary"
 	"reflect"
+	"runtime"
 	"slices"
 	"unsafe"
 
@@ -797,13 +798,11 @@ func (cv *colVals) evalMasks(term *predTerm, n int) (t, f []uint64) {
 	return t, f
 }
 
-// scatterRow writes cv's value at source row src into the output struct slice
-// at compacted row dst. Mirrors decodeColumnInto's store half.
+// scatterRow writes a non-nullable column's value at source row src into the
+// output struct slice at compacted row dst. Mirrors decodeColumnInto's store
+// half. Nullable columns are scattered via scatterNullableRowInto (one shared
+// backing slab instead of a per-row alloc).
 func (cv *colVals) scatterRow(base unsafe.Pointer, plan *columnarPlan, col *colColumn, src, dst int) {
-	if cv.present != nil {
-		cv.scatterNullableRow(base, plan, col, src, dst)
-		return
-	}
 	switch cv.kind {
 	case colKindInt:
 		storeScalarFromI64(base, plan.stride, col, dst, cv.i64[src])
@@ -975,11 +974,24 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 		if cv == nil || want[c] == nil {
 			continue
 		}
-		if sh.kinds[c].base() != want[c].kind.base() {
+		col := want[c]
+		if sh.kinds[c].base() != col.kind.base() {
 			return ErrTypeMismatch
 		}
+		if cv.present != nil {
+			// Nullable column: one backing slab holds all present values; each
+			// *T field points into it. Replaces a per-row reflect.New.
+			slab := reflect.MakeSlice(reflect.SliceOf(col.elemType), len(matched), len(matched))
+			slabBase := slab.UnsafePointer()
+			elemSize := col.elemType.Size()
+			for dst, src := range matched {
+				cv.scatterNullableRowInto(base, plan, col, src, dst, slabBase, elemSize)
+			}
+			runtime.KeepAlive(slab)
+			continue
+		}
 		for dst, src := range matched {
-			cv.scatterRow(base, plan, want[c], src, dst)
+			cv.scatterRow(base, plan, col, src, dst)
 		}
 	}
 	return nil
