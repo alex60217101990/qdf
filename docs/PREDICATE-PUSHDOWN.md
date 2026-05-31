@@ -16,6 +16,7 @@ and error model, performance, and how it works under the hood.
   - [1. Produce a columnar batch](#1-produce-a-columnar-batch)
   - [2. Filter rows with `Where`](#2-filter-rows-with-where)
   - [3. AND multiple predicates](#3-and-multiple-predicates)
+  - [3b. Boolean combinators (AND / OR / NOT)](#boolean-combinators-and--or--not)
   - [4. Project columns with `Select`](#4-project-columns-with-select)
   - [5. Decode into a map instead of a struct](#5-decode-into-a-map-instead-of-a-struct)
 - [Semantics](#semantics)
@@ -160,6 +161,35 @@ Note that the `code` predicate takes `int32` — the same width as the wire
 column. Any integer width works; qdf converts the decoded value to your
 predicate's type before the call.
 
+### Boolean combinators (AND / OR / NOT)
+
+Multiple `Where` options are AND-ed, but you can build an arbitrary boolean tree
+with `And`, `Or`, and `Not`. Leaves stay typed `Where[T]` predicates.
+
+```go
+var hot []Event
+_ = qdf.Unmarshal(buf, &hot,
+    qdf.Or(
+        qdf.Where("level", func(s string) bool { return s == "ERROR" }),
+        qdf.And(
+            qdf.Where("level", func(s string) bool { return s == "WARN" }),
+            qdf.Where("code",  func(c int32) bool { return c >= 500 }),
+        ),
+    ),
+    qdf.Not(qdf.Where("muted", func(b bool) bool { return b })),
+)
+// (ERROR OR (WARN AND code>=500)) AND NOT muted
+```
+
+`Select` may not be nested inside a combinator (it is a top-level projection);
+doing so returns `ErrUnsupported`.
+
+**Three-valued NULL semantics.** A `nil` row in a nullable (`*T`) column is
+`UNKNOWN`, never `TRUE`. `NOT(UNKNOWN)` is `UNKNOWN`, so a `nil` row is excluded
+under `Not(pred)` exactly as it is under the bare `pred` — there is no
+asymmetric "a nil row passes Not but fails Where". Only rows the whole
+expression evaluates `TRUE` survive, matching SQL `WHERE`.
+
 ### 4. Project columns with `Select`
 
 Without a `Select`, the output columns are the fields of your target struct
@@ -196,9 +226,9 @@ _ = qdf.Unmarshal(buf, &rows,
 
 ## Semantics
 
-- **AND, not OR.** Multiple `Where` clauses are conjunctive. (OR is not a
-  built-in; express it inside a single predicate, e.g.
-  `func(c int32) bool { return c == 500 || c == 503 }`.)
+- **AND by default; OR/NOT via combinators.** Multiple top-level `Where` clauses
+  are conjunctive (AND-ed). Use `Or(...)`, `And(...)`, and `Not(...)` to build
+  arbitrary boolean trees; leaves remain typed `Where[T]` predicates.
 - **Input order preserved.** Surviving rows come out in wire (= input) order.
 - **Filter field need not be in the output.** You can filter on a column you
   do not project.
@@ -316,8 +346,6 @@ materializing only the surviving rows of the projected columns.
 - **Single message only.** Like the column index, pushdown applies to a
   single `Unmarshal` of a columnar `[]struct`. It is not a streaming-mode
   feature (the column index is not emitted in streaming mode).
-- **No OR / cross-column predicates as a built-in.** Combine conditions inside
-  one predicate, or post-filter the (already much smaller) result.
 - **Base types only** for `Where[T]` — named types are not matched.
 
 See also: [USAGE.md](USAGE.md), [CHOOSING.md](CHOOSING.md), and the columnar
