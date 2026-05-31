@@ -142,6 +142,11 @@ func TestSelectInCombinator_Unsupported(t *testing.T) {
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("want ErrUnsupported, got %v", err)
 	}
+	// Nested same-op: the Select error must survive simplifyCond's flatten.
+	err = Unmarshal(buf, &out, And(And(Where("a", func(v int32) bool { return v > 0 }), Select("a")), Where("a", func(v int32) bool { return v < 5 })))
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("nested Select-in-combinator: want ErrUnsupported, got %v", err)
+	}
 }
 
 func TestEmptyAndNoPanic(t *testing.T) {
@@ -179,5 +184,53 @@ func TestEmptyOrNoRows(t *testing.T) {
 	}
 	if len(out) != 0 {
 		t.Fatalf("empty Or matched %d rows, want 0", len(out))
+	}
+}
+
+func TestSimplifyEquivalence(t *testing.T) {
+	type Row struct {
+		A int32 `qdf:"a"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i].A = int32(i)
+	}
+	buf, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+
+	gt10 := func() QueryOption { return Where("a", func(v int32) bool { return v > 10 }) }
+
+	// Not(Not(x)) ≡ x ; And(...) single-child unwraps.
+	var a, b []Row
+	if err := Unmarshal(buf, &a, gt10()); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unmarshal(buf, &b, And(Not(Not(gt10())))); err != nil {
+		t.Fatal(err)
+	}
+	if len(a) != len(b) || len(a) == 0 {
+		t.Fatalf("simplify changed result: %d vs %d", len(a), len(b))
+	}
+}
+
+func TestSimplifyShape(t *testing.T) {
+	leaf := func() *condNode { return &condNode{op: condLeaf, term: &predTerm{field: "a"}} }
+	// And(And(a, b), c) -> And(a, b, c)
+	tree := &condNode{op: condAnd, kids: []*condNode{
+		{op: condAnd, kids: []*condNode{leaf(), leaf()}},
+		leaf(),
+	}}
+	got := simplifyCond(tree)
+	if got.op != condAnd || len(got.kids) != 3 {
+		t.Fatalf("flatten failed: op=%d kids=%d", got.op, len(got.kids))
+	}
+	// Not(Not(leaf)) -> leaf
+	dn := &condNode{op: condNot, kids: []*condNode{{op: condNot, kids: []*condNode{leaf()}}}}
+	if simplifyCond(dn).op != condLeaf {
+		t.Fatal("double-not not folded")
+	}
+	// single-child And -> child
+	sc := &condNode{op: condAnd, kids: []*condNode{leaf()}}
+	if simplifyCond(sc).op != condLeaf {
+		t.Fatal("single-child And not unwrapped")
 	}
 }

@@ -181,10 +181,58 @@ func buildQueryPlan(opts []QueryOption) (*queryPlan, error) {
 	default:
 		qp.root = &condNode{op: condAnd, kids: nodes}
 	}
+	qp.root = simplifyCond(qp.root)
 	if err := firstCondErr(qp.root); err != nil {
 		return nil, err
 	}
 	return qp, nil
+}
+
+// simplifyCond rewrites the tree into an equivalent smaller form: it folds
+// double negation, flattens nested same-op And/Or, unwraps single-child
+// And/Or, and dedups identical sibling leaves (same field + same predicate
+// closure, keyed by predTerm pointer). Purely an optimisation — semantics are
+// unchanged.
+func simplifyCond(n *condNode) *condNode {
+	if n == nil || n.op == condLeaf {
+		return n
+	}
+	if n.op == condNot {
+		c := simplifyCond(n.kids[0])
+		if c.op == condNot { // Not(Not(x)) -> x
+			return c.kids[0]
+		}
+		return &condNode{op: condNot, kids: []*condNode{c}, err: n.err}
+	}
+	// And / Or: simplify kids, flatten same-op, dedup sibling leaves.
+	var kids []*condNode
+	err := n.err
+	for _, k := range n.kids {
+		k = simplifyCond(k)
+		if k.op == n.op { // flatten associative same-op
+			if k.err != nil && err == nil {
+				err = k.err // flattening drops k itself, so carry its error up
+			}
+			kids = append(kids, k.kids...)
+			continue
+		}
+		kids = append(kids, k)
+	}
+	seen := make(map[*predTerm]bool)
+	out := kids[:0]
+	for _, k := range kids {
+		if k.op == condLeaf {
+			if seen[k.term] {
+				continue
+			}
+			seen[k.term] = true
+		}
+		out = append(out, k)
+	}
+	if len(out) == 1 && err == nil { // single-child And/Or -> the child (only when no error on this node)
+		return out[0]
+	}
+	return &condNode{op: n.op, kids: out, err: err}
 }
 
 // --- bitset: row-match masks. LSB-first within each uint64 word. ---
