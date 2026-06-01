@@ -47,7 +47,7 @@ jobs:
       # module download cache (~/go/pkg/mod), but the build cache makes
       # the biggest difference on incremental runs.
       - name: Restore build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/go-build
@@ -147,7 +147,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Restore build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/go-build
           key: gocache-fuzz-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum', '**/*.go') }}
@@ -157,7 +157,7 @@ jobs:
       # Persist the fuzz corpus between runs so newly discovered inputs
       # accumulate across CI builds. Restore is best-effort.
       - name: Restore fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: testdata/fuzz
           key: fuzz-corpus-${{ github.sha }}
@@ -193,7 +193,7 @@ jobs:
 
       - name: Cache protoc + flatc binaries
         id: codegen-tools
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.codegen-tools/bin
           key: codegen-tools-protoc34.1-flatc25.12.19
