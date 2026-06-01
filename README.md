@@ -984,6 +984,25 @@ go test -tags "qdf_simd qdf_reflect2" -race ./...
 
 ---
 
+## Architecture diagrams
+
+Mermaid diagrams (GitHub renders them natively) covering every layer of the
+format — concept overview, wire layout, codec picker, Dense interning,
+columnar/selective-decode, and the algorithmic performance wins.
+
+**[diagrams/README.md](diagrams/README.md)** — start here: concept overview
+flowchart and index of all diagrams.
+
+| Diagram | Topic |
+|---------|-------|
+| [architecture.md](diagrams/architecture.md) | Marshal/Unmarshal end-to-end: pool, typeDesc cache, mode dispatch, rANS pass |
+| [wire-format.md](diagrams/wire-format.md) | 5-byte header, flags bit map, full tag space |
+| [options-and-modes.md](diagrams/options-and-modes.md) | Options bits, Speed/Balanced/Compression bundles, Fast vs Dense decision |
+| [qpack-codecs.md](diagrams/qpack-codecs.md) | Codec picker (FOR/Delta/RLE/dict/PFOR/Gorilla/ALP), never-larger floor, SIMD |
+| [dense-interning.md](diagrams/dense-interning.md) | Intern table, state-ref predictors (Markov-0/MTF/Markov-1/shape) |
+| [columnar-and-selective-decode.md](diagrams/columnar-and-selective-decode.md) | []struct transpose, Time split, Nullable slab, colIndex, 3VL pushdown |
+| [performance.md](diagrams/performance.md) | 10 algorithmic wins grouped by CPU / wire size / memory |
+
 ## Status
 
 Alpha. The wire format is stable for the `0x01` version byte; future

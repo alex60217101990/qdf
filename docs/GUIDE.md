@@ -1,5 +1,10 @@
 # qdf — developer guide
 
+> **Visual overview:** Mermaid architecture diagrams covering concept,
+> wire layout, codec picker, Dense interning, columnar/selective-decode,
+> and performance wins live in **[`../diagrams/`](../diagrams/README.md)**.
+> GitHub renders them natively — no build step required.
+
 This is a deep-dive companion to the README. README answers "what is
 this and how do I use it"; this file answers "why is it shaped this
 way and how does each feature pay for itself". If you are deciding
