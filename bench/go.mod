@@ -10,6 +10,7 @@ require (
 require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 replace github.com/alex60217101990/qdf => ../

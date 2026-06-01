@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package benchpb;
+
+option go_package = "github.com/alex60217101990/qdf/bench/pb";
+
+// ── RTB / OpenRTB fixtures ────────────────────────────────────────────────
+
+message Geo {
+  string country = 1;
+  double lat     = 2;
+  double lon     = 3;
+  int32  type    = 4;
+}
+
+message Device {
+  string ua   = 1;
+  string ip   = 2;
+  int32  os   = 3;
+  int32  type = 4;
+  Geo    geo  = 5;
+}
+
+message Impression {
+  string            id        = 1;
+  double            bid_floor = 2;
+  int32             w         = 3;
+  int32             h         = 4;
+  repeated string   deal_ids  = 5;
+  map<string,string> ext      = 6;
+}
+
+message BidRequest {
+  string            id   = 1;
+  int32             at   = 2;
+  int32             tmax = 3;
+  repeated Impression imp = 4;
+  Device            dev  = 5;
+  repeated string   cur  = 6;
+}
+
+message RTBBatch {
+  repeated BidRequest requests = 1;
+}
+
+// ── IoT fixtures ──────────────────────────────────────────────────────────
+
+message DeviceReading {
+  string             device_id = 1;
+  repeated int64     ts        = 2;
+  repeated double    temp      = 3;
+  repeated double    humidity  = 4;
+  map<string,string> tags      = 5;
+}
+
+message IoTBatchPB {
+  repeated DeviceReading devices = 1;
+}
+
+// ── OTLP / trace fixtures ─────────────────────────────────────────────────
+
+message KV {
+  string key   = 1;
+  string value = 2;
+}
+
+message Span {
+  string         trace_id  = 1;
+  string         span_id   = 2;
+  string         parent_id = 3;
+  string         name      = 4;
+  int32          kind      = 5;
+  int64          start_ns  = 6;
+  int64          end_ns    = 7;
+  repeated KV    attrs     = 8;
+  int32          status    = 9;
+}
+
+message ScopeSpans {
+  string         scope = 1;
+  repeated Span  spans = 2;
+}
+
+message ResourceSpans {
+  map<string,string>    resource = 1;
+  repeated ScopeSpans   scopes   = 2;
+}
+
+message TraceExportPB {
+  repeated ResourceSpans resource_spans = 1;
+}
+
+// ── Log / Event fixtures ──────────────────────────────────────────────────
+
+message LogRecord {
+  int64              ts       = 1;
+  int32              level    = 2;
+  string             service  = 3;
+  string             host     = 4;
+  string             message  = 5;
+  string             trace_id = 6;
+  string             span_id  = 7;
+  map<string,string> fields   = 8;
+}
+
+message LogBatchPB {
+  repeated LogRecord records = 1;
+}
+
+message EventRecord {
+  int64  ts      = 1;
+  int32  type    = 2;
+  string source  = 3;
+  bytes  payload = 4;
+}
+
+message EventBatchPB {
+  repeated EventRecord records = 1;
+}
