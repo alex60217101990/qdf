@@ -899,6 +899,15 @@ func encodeMarshaler(t reflect.Type) func(*Encoder, unsafe.Pointer) error {
 }
 func decodeUnmarshaler(t reflect.Type) func(*Decoder, unsafe.Pointer) error {
 	return func(d *Decoder, p unsafe.Pointer) error {
+		// Consume the 5-byte stream header when this is the top-level
+		// decoder (no-op once headerRead is set, e.g. a nested Unmarshaler
+		// field whose outer decoder already read it). Without this, a
+		// top-level Unmarshal into an Unmarshaler type hands the user's
+		// UnmarshalQDF the magic+flags bytes instead of the body —
+		// mirroring UnmarshalDirect, which slices data[5:].
+		if err := d.readHeader(); err != nil {
+			return err
+		}
 		u := reflect.NewAt(t, p).Interface().(Unmarshaler)
 		n, err := u.UnmarshalQDF(d.buf[d.i:])
 		if err != nil {
