@@ -12,6 +12,10 @@ that never grows the buffer.
 
 ## Encode path
 
+<img src="svg/architecture-1.svg" alt="encode path sequence diagram">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 sequenceDiagram
     participant Caller
@@ -44,7 +48,13 @@ sequenceDiagram
     Enc->>Pool: release *Encoder
 ```
 
+</details>
+
 ## Decode path
+
+<img src="svg/architecture-2.svg" alt="decode path sequence diagram">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 sequenceDiagram
@@ -71,7 +81,13 @@ sequenceDiagram
     Dec->>Pool: release *Decoder
 ```
 
+</details>
+
 ## typeDesc cache detail
+
+<img src="svg/architecture-3.svg" alt="typeDesc cache flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -82,11 +98,17 @@ flowchart LR
     C --> E["encode closure:\nfunc(*Encoder, unsafe.Pointer)\naccess fields via unsafe offset\nno per-call reflect"]
 ```
 
+</details>
+
 The cache is populated once per unique Go type across the process lifetime.
 After the first call, encoding a `MyEvent` touches only the cached closure
 array — no reflection, no type assertions on the hot path.
 
 ## Pool lifecycle
+
+<img src="svg/architecture-4.svg" alt="encoder pool lifecycle state diagram">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 stateDiagram-v2
@@ -97,6 +119,8 @@ stateDiagram-v2
     ResetCheck --> GC : cap exceeded\nbacking arrays dropped\nencoder discarded
     GC --> [*]
 ```
+
+</details>
 
 Dense-mode intern state (`encState`) is allocated lazily on the first Dense
 call and reused across pool recycles. `Reset()` shrinks the backing arrays

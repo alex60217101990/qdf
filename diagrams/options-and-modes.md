@@ -32,6 +32,10 @@ bit:  31..7      6          5               4            3       2           1  
 
 ## Bundle compositions
 
+<img src="svg/options-and-modes-1.svg" alt="options bit positions flowchart">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart TD
     Speed["OptSpeed = 0\n(all bits clear)"]
@@ -58,6 +62,8 @@ flowchart TD
     RANS --> Compression
 ```
 
+</details>
+
 | Bundle | Bit mask | When to use |
 |--------|----------|-------------|
 | `OptSpeed` | `0x00000000` | Hot encode/decode path; CPU is the bottleneck; single-shot small payloads; wire ≈ msgpack size |
@@ -69,6 +75,10 @@ when the consumer needs selective decode (`Unmarshal` into a subset struct or
 `UnmarshalColumns`).
 
 ## Fast vs Dense decision tree
+
+<img src="svg/options-and-modes-2.svg" alt="Fast vs Dense decision tree flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart TD
@@ -83,10 +93,16 @@ flowchart TD
     E -->|no| H
 ```
 
+</details>
+
 ## Dependent-bit guard
 
 Setting a dependent bit without its parent is silently a no-op (no error,
 no panic). The contract is tested in `TestValidity_DependentBitsAreNoOpsWithoutDense`.
+
+<img src="svg/options-and-modes-3.svg" alt="option dependencies flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -95,3 +111,5 @@ flowchart LR
     OptMTF -->|"requires"| OptDense
     OptGorillaFloat -->|"requires"| OptQPack
 ```
+
+</details>
