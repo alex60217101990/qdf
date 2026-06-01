@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload new corpus on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           path: testdata/fuzz/${{ matrix.target }}
