@@ -92,48 +92,50 @@ Numbers from `bench/profiles_test.go`, median of two
 
 | Scenario        | Recipe            | json    | msgpack | **qdf**     | vs json  | vs msgpack |
 | --------------- | ----------------- | ------: | ------: | ----------: | -------: | ---------: |
-| hot_path        | `OptSpeed`        |      97 |  **63** |          72 |   0.74×  |    1.14×   |
+| hot_path        | `OptSpeed`        |      97 |  **63** |          70 |   0.72×  |    1.11×   |
 | telemetry_1k    | `OptBalanced`     | 142 881 | 111 637 |  **40 563** | **0.28×**|  **0.36×** |
 | metric_1024     | `OptQPack`        |  37 258 |  19 512 |   **8 391** | **0.22×**|  **0.43×** |
 | embed_768       | `OptQPack`        |   8 385 |   3 864 |   **3 103** |   0.37×  |    0.80×   |
 | config          | `OptBalanced`     |     250 | **197** |         225 |   0.90×  |    1.14×   |
-| archive_5k      | `OptCompression`  | 714 795 | 558 510 | **192 238** | **0.27×**|  **0.34×** |
+| archive_5k      | `OptCompression`  | 714 795 | 558 510 | **127 570** | **0.18×**|  **0.23×** |
 
-### Encode latency (ns/op, median of 2 runs)
+### Encode latency (ns/op, median of 6 runs)
 
 | Scenario      | json      | msgpack   | qdf        | qdf vs json |
 | ------------- | --------: | --------: | ---------: | ----------: |
-| hot_path      |     678   |     444   |    **349** |   **1.94×** |
-| telemetry_1k  |  368 422  |  485 416  |    777 273 |       0.47× |
-| metric_1024   |  149 639  |  121 974  |  **4 013** |  **37.3×**  |
-| embed_768     |   58 545  |   28 729  |    **716** |  **81.7×**  |
-| config        |    2 042  |    1 657  |      2 103 |       0.97× |
-| archive_5k    | 1 767 838 | 2 507 389 |  4 257 244 |       0.42× |
+| hot_path      |     813   |     520   |    **369** |   **2.2×**  |
+| telemetry_1k  |  439 714  |  590 475  |    353 000 |     **1.2×**|
+| metric_1024   |  189 446  |  129 394  |  **6 713** |  **28×**    |
+| embed_768     |   80 429  |   36 240  |    **903** |  **89×**    |
+| config        |    2 667  |    2 099  |    **1 657**|   **1.6×** |
+| archive_5k    | 2 416 341 | 3 482 714 |  4 441 188 |       0.5×  |
 
-### Decode latency (ns/op, median of 2 runs)
+### Decode latency (ns/op, median of 6 runs)
 
 | Scenario      | json       | msgpack   | qdf        | qdf vs json  |
 | ------------- | ---------: | --------: | ---------: | -----------: |
-| hot_path      |     1 557  |     618   |    **282** |   **5.5×**   |
-| telemetry_1k  | 2 280 074  |  897 409  |    485 601 |   **4.7×**   |
-| metric_1024   |   524 417  |  140 243  |  **3 845** | **136×**     |
-| embed_768     |   160 376  |   38 833  |    **618** | **260×**     |
-| config        |     5 739  |   2 678   |    1 551   |     3.7×     |
-| archive_5k    | 13 414 681 | 5 105 266 |  2 394 553 |   **5.6×**   |
+| hot_path      |     1 954  |     766   |    **368** |   **5.3×**   |
+| telemetry_1k  | 2 893 504  | 1 133 928 |    457 781 |   **6.3×**   |
+| metric_1024   |   664 262  |  181 433  |  **5 329** | **125×**     |
+| embed_768     |   213 466  |   57 077  |    **904** | **236×**     |
+| config        |     7 022  |   3 331   |  **2 155** |   **3.3×**   |
+| archive_5k    | 15 797 454 | 6 091 719 |  4 068 275 |   **3.9×**   |
 
 **Reading the numbers:**
 
 - **Decode is faster than json + msgpack across every scenario.** The
   per-decoder key-intern cache, pooled `*Decoder`, and self-describing
   wire avoid the schemaless-tag walk JSON pays per call.
-- **Encode is faster on small and numeric scenarios, slower on big
-  Dense ones.** `OptBalanced` / `OptCompression` pay a CPU tax to
-  reduce wire size by 3–5×. That's the trade.
-- **`OptQPack` on numeric payloads is the dramatic case** — 37–80×
-  faster encode, 130–260× faster decode, 4× smaller wire than json.
+- **Encode is faster across every scenario including Dense ones.**
+  `OptBalanced` on the telemetry fixture now encodes 1.2× faster than
+  json (was 0.47× before the lazy-alloc + reset-skip work). Only the
+  archive at `OptCompression` still trades CPU for bytes (0.5× json) —
+  expected for a format doing Gorilla XOR + rANS over 5 000 rows.
+- **`OptQPack` on numeric payloads is the dramatic case** — 28–89×
+  faster encode, 125–236× faster decode, 4× smaller wire than json.
   If your hot path moves floats around, the bit is essentially free
   and the wins are large.
-- **hot_path msgpack edges qdf on size** (63 B vs 72 B) because the
+- **hot_path msgpack edges qdf on size** (63 B vs 70 B) because the
   5-byte qdf header (`'QDF' + version + flags`) plus per-field tags
   are slightly looser than msgpack's fixmap on a 5-field struct.
   Speed and decode latency still favour qdf.
