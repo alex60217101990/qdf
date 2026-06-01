@@ -11,6 +11,10 @@ filters rows inside the decoder.
 
 ## []struct → columnar transpose
 
+<img src="svg/columnar-and-selective-decode-1.svg" alt="columnar transpose flowchart">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart TD
     Input["[]MyStruct{row0, row1, ..., rowM-1}\n(M ≥ 16, flat fields, under OptBalanced)"]
@@ -37,7 +41,13 @@ flowchart TD
     NullCol --> Wire
 ```
 
+</details>
+
 ## Column-length index (OptColumnIndex / FlagColIndex)
+
+<img src="svg/columnar-and-selective-decode-2.svg" alt="column-length index flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -54,6 +64,8 @@ flowchart LR
     style Idx fill:#f9f,stroke:#333
 ```
 
+</details>
+
 With the index, the decoder can skip any column body with a single pointer
 advance (`d.i += colLen[c]`) instead of parsing the column to advance the
 cursor. Cost becomes O(columns read), not O(all columns).
@@ -63,6 +75,10 @@ confirms a columnar body was actually written. `OptColumnIndex` on a
 non-columnar payload is a true no-op.
 
 ## Selective decode: Select + Where
+
+<img src="svg/columnar-and-selective-decode-3.svg" alt="selective decode and predicate pushdown flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart TD
@@ -85,7 +101,13 @@ flowchart TD
     Scatter --> Result["output: only matched rows\nof projected columns\nzero per-value boxing"]
 ```
 
+</details>
+
 ## Nullable column: slab allocation
+
+<img src="svg/columnar-and-selective-decode-4.svg" alt="nullable column slab allocator flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -95,11 +117,17 @@ flowchart LR
     Loop --> Result["output slice\nno per-row reflect.New\n(one slab per column, not one alloc per row)"]
 ```
 
+</details>
+
 The slab allocator (added in `perf/nullable-scatter-slab`) replaces
 per-row `reflect.New` calls with a single slice allocation per nullable
 column, cutting allocations and GC pressure on batches with optional fields.
 
 ## 3VL predicate tree
+
+<img src="svg/columnar-and-selective-decode-5.svg" alt="3VL predicate tree evaluation flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart TD
@@ -114,6 +142,8 @@ flowchart TD
     E --> G
     F --> G
 ```
+
+</details>
 
 SQL 3-valued logic: a nullable `nil` row never matches a predicate
 (it contributes to the Unknown set, which is excluded from results).

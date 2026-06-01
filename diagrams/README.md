@@ -15,6 +15,10 @@ file and no two-pass encode.
 
 ### Overview flowchart
 
+<img src="svg/README-1.svg" alt="qdf encoder dispatch flowchart">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart TD
     A["Marshal(v, opts)"] --> B["acquire *Encoder\nfrom encPool"]
@@ -33,6 +37,8 @@ flowchart TD
     L --> M["release *Encoder\nto encPool"]
     M --> N["wire bytes"]
 ```
+
+</details>
 
 The encoder path (top-left to bottom-right) is a straight line with two
 decision branches: mode (Fast vs Dense) and shape (columnar vs row-major).

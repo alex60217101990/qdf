@@ -12,6 +12,10 @@ encoding.
 
 ## Intern table write path
 
+<img src="svg/dense-interning-1.svg" alt="intern table and predictor stack flowchart">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart TD
     A["WriteString(s)\nor WriteBytes(b)"]
@@ -35,7 +39,13 @@ flowchart TD
     L --> M
 ```
 
+</details>
+
 ## Predictor stack
+
+<img src="svg/dense-interning-2.svg" alt="four predictors comparison flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -50,11 +60,17 @@ flowchart LR
     P2 -->|"miss or OptMTF off\nor rank not shorter"| P3
 ```
 
+</details>
+
 Encoder picks the **shortest** of the applicable forms. If MTF rank encodes
 as a longer varuint than the raw ID, the raw form is used instead — the wire
 never grows from predictor overhead.
 
 ## Intern state data structures
+
+<img src="svg/dense-interning-3.svg" alt="encState class diagram">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 classDiagram
@@ -79,7 +95,13 @@ classDiagram
     note for internarena "bump-pointer allocator:\nPut(s) copies into active slab,\nreturns packed uint64 id.\nGet(id) = zero alloc.\nKeeps GC off per-key path."
 ```
 
+</details>
+
 ## Shape interning (OptShapeIntern)
+
+<img src="svg/dense-interning-4.svg" alt="shape interning sequence diagram">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 sequenceDiagram
@@ -99,6 +121,8 @@ sequenceDiagram
         Note over Wire: keys NOT re-emitted
     end
 ```
+
+</details>
 
 Per-record wire saving on an array of identical struct types: approximately
 `N × 2` bytes (elided key state-refs + map-header tag) per row after the first.

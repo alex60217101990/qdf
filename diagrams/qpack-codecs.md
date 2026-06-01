@@ -10,6 +10,10 @@ acceleration layer is noted at the end.
 
 ## Codec picker decision tree
 
+<img src="svg/qpack-codecs-1.svg" alt="QPack codec picker flowchart">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart TD
     Start["slice value\n([]bool / []intN / []uintN / []float32 / []float64)"]
@@ -44,6 +48,8 @@ flowchart TD
     Floor --> Emit["emit winner tag\n+ varuint(n) + payload"]
 ```
 
+</details>
+
 ## Codec reference table
 
 | Tag | Hex | Best case | Notes |
@@ -59,6 +65,10 @@ flowchart TD
 | `tagPackALP` | `0xF4` | quantized / decimal float64 | Chosen only when strictly smaller than raw and Gorilla |
 
 ## SIMD acceleration (build tag `qdf_simd`)
+
+<img src="svg/qpack-codecs-2.svg" alt="SIMD kernel architecture flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -80,6 +90,8 @@ flowchart LR
 
     Scalar -.->|"fallback when\nno SIMD or\nunsupported width"| Fallback["scalar window\nuint64 shifts"]
 ```
+
+</details>
 
 The SIMD path is a pure speed switch — wire format and output bytes are
 **identical** to the scalar path on every architecture. Typical speedup:

@@ -10,6 +10,10 @@ inherently cheaper — e.g. one allocation vs N allocations).
 
 ## Win map
 
+<img src="svg/performance-1.svg" alt="performance wins mindmap">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 mindmap
   root(("qdf\nperf wins"))
@@ -28,6 +32,8 @@ mindmap
       W8("nullable-column slab allocator\none slab per column\nvs per-row reflect.New\nproven: nullable_scatter bench\nbranch perf/nullable-scatter-slab")
 ```
 
+</details>
+
 ## Detail table
 
 | # | Win | Category | Mechanism | Proven by |
@@ -44,6 +50,10 @@ mindmap
 | 10 | Cross-record dedup as size baseline | Wire | Dense intern table shared per stream; repeated strings (service, region, level) written once; `tagStateRepeat`/`tagStateMTF`/`tagStatePair` compress state-ref stream further | realistic-corpus test: 85 B/entry vs 251 JSON; −57% vs protobuf on OTLP |
 
 ## Grouped by resource
+
+<img src="svg/performance-2.svg" alt="win categories flowchart">
+
+<details><summary>Mermaid source</summary>
 
 ```mermaid
 flowchart LR
@@ -66,6 +76,8 @@ flowchart LR
         M9["W9: decode cache\n(shared with CPU)"]
     end
 ```
+
+</details>
 
 Note that wins W2 and W9 appear in multiple categories — pooling and decode
 caching save both allocation count (GC pressure) and time (no setup cost per

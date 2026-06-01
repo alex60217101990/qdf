@@ -14,6 +14,10 @@ in-body tags; no out-of-band schema is required.
   0x51 'Q'   0x44 'D'   0x46 'F'   0x01 ver   flags byte    tagged body
 ```
 
+<img src="svg/wire-format-1.svg" alt="wire buffer layout flowchart">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart LR
     B0["byte 0\n0x51 'Q'\nMagic0"]
@@ -24,6 +28,8 @@ flowchart LR
     Body["bytes 5..N\ntagged body\n(or rANS stream\nif FlagRANS set)"]
     B0 --> B1 --> B2 --> B3 --> B4 --> Body
 ```
+
+</details>
 
 Byte positions 0–4 are the fixed header. Everything from byte 5 onward is
 the tagged body (or, if `FlagRANS` is set: `varuint(origLen)` + 256-entry
@@ -103,6 +109,10 @@ bit:  7   6   5   4      3            2          1          0
 
 When `tagColStruct` (0xEF) is present, the body following it is:
 
+<img src="svg/wire-format-2.svg" alt="tagColStruct body layout flowchart">
+
+<details><summary>Mermaid source</summary>
+
 ```mermaid
 flowchart LR
     A["0xEF\ntagColStruct"] --> B["varuint(M)\nrow count"]
@@ -119,6 +129,8 @@ flowchart LR
     I --> J["column 1 body"]
     J --> K["…\ncolumn K-1 body"]
 ```
+
+</details>
 
 The column-length index appears only when `FlagColIndex` is set, enabling
 O(1) skip of unwanted columns during selective decode.
