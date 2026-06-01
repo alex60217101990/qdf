@@ -147,7 +147,7 @@ time. You do not need to hint it — just set the bit.
 | `[]intN`/`[]uintN`, clustered range | Frame-of-Reference (FOR) | `OptQPack` |
 | `[]int`/`[]int32`/`[]int64`/`[]uint`/`[]uint32`/`[]uint64`, monotonic or time-series | Delta+FOR | `OptQPack` |
 | `[]intN`, run-heavy (status codes, enum-like, sparse counters) | RLE (value, runLen pairs) | `OptQPack` |
-| `[]intN`, small distinct cardinality (≤16), wide value range | Dictionary codec | `OptQPack` |
+| `[]intN`, small distinct cardinality (≤64), wide value range | Dictionary codec | `OptQPack` |
 | `[]intN`/`[]uintN`, mostly small with rare large outliers (latency spikes, counter resets) | Patched FOR (narrow body + exception list) | `OptQPack` |
 | `[]float64`/`[]float32`, smooth time-series | Gorilla XOR | `OptCompression` (or `OptGorillaFloat`) |
 | `[]float64`, quantized/decimal grid (prices, percentages, latencies) | ALP decimal (integer-mantissa FOR + exception list) | `OptCompression` |

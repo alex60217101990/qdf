@@ -553,7 +553,7 @@ slice; the decoder reads the picked tag.
 0xE6  tagPackDeltaFor  []intN       Delta + zigzag + FOR
 0xE7  tagPackGorilla   []float64    Gorilla XOR coding
 0xEB  tagPackRLE       []intN       Run-length encoded (value, runLen) pairs
-0xED  tagPackDict      []intN       Dictionary-coded; ≤16 distinct values
+0xED  tagPackDict      []intN       Dictionary-coded; ≤64 distinct values
 0xEE  tagPackPFor      []intN       Patched FOR: narrow body + outlier exceptions
 0xF5  tagColStrDict    []string col Dictionary-coded string column (distinct table + bit-packed index/row)
 ```

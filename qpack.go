@@ -262,8 +262,12 @@ const (
 
 // qpackDictMaxDistinct caps the dictionary codec: a slice with more
 // than this many unique values is rarely a dictionary-shape column
-// and the probe cost grows linearly with the cap.
-const qpackDictMaxDistinct = 16
+// and the probe cost grows linearly with the cap. 64 distinct still
+// pack at 6 index bits, covering wide-but-low-cardinality enums (HTTP
+// status, state machines) that FOR would force wide; the probe bails
+// the moment a (cap+1)th distinct appears, so high-cardinality slices
+// stay cheap regardless of the cap.
+const qpackDictMaxDistinct = 64
 
 // bitsForDistinct returns the per-index bit width of a dictionary
 // codec with the given distinct count. distinct == 1 gives 0 (the
@@ -277,47 +281,74 @@ func bitsForDistinct(distinct int) int {
 	return bits.Len(uint(distinct - 1))
 }
 
+// qpackProbeSlots is the open-addressed membership set used by the
+// distinct probes: the smallest power of two that keeps the load factor
+// at or below 1/2 when the table is full (qpackDictMaxDistinct keys). A
+// linear membership scan would cost O(n·cap); the set keeps the probe
+// O(n) so raising the cap never slows the picker on high- or
+// mid-cardinality slices.
+const qpackProbeSlots = 128
+
 // probeDistinctU64 walks s up to len(s) elements and returns the
 // distinct value table along with the count. The second return is
 // false when the cardinality exceeds qpackDictMaxDistinct — in that
 // case the table is unspecified and the caller skips the dictionary
 // codec entirely. The table buffer is caller-supplied so the picker
-// can keep the probe stack-allocated.
-//
-//go:nosplit
+// can keep the probe stack-allocated. Not //go:nosplit: the membership
+// set's backing arrays exceed the nosplit stack budget, and the probe
+// runs once per slice column so the growth-check prologue is noise.
 func probeDistinctU64(s []uint64, table *[qpackDictMaxDistinct + 1]uint64) (int, bool) {
+	var slots [qpackProbeSlots]uint64
+	var used [qpackProbeSlots]bool
 	count := 0
-outer:
 	for _, v := range s {
-		for j := 0; j < count; j++ {
-			if table[j] == v {
-				continue outer
+		h := (v * 0x9E3779B97F4A7C15) >> (64 - 7) & (qpackProbeSlots - 1) // top 7 bits → 128 slots
+		seen := false
+		for used[h] {
+			if slots[h] == v {
+				seen = true
+				break
 			}
+			h = (h + 1) & (qpackProbeSlots - 1)
+		}
+		if seen {
+			continue
 		}
 		if count >= qpackDictMaxDistinct {
 			return 0, false
 		}
+		used[h] = true
+		slots[h] = v
 		table[count] = v
 		count++
 	}
 	return count, true
 }
 
-// probeDistinctI64 mirrors probeDistinctU64 for signed slices.
-//
-//go:nosplit
+// probeDistinctI64 mirrors probeDistinctU64 for signed slices, hashing
+// the two's-complement bit pattern.
 func probeDistinctI64(s []int64, table *[qpackDictMaxDistinct + 1]int64) (int, bool) {
+	var slots [qpackProbeSlots]int64
+	var used [qpackProbeSlots]bool
 	count := 0
-outer:
 	for _, v := range s {
-		for j := 0; j < count; j++ {
-			if table[j] == v {
-				continue outer
+		h := (uint64(v) * 0x9E3779B97F4A7C15) >> (64 - 7) & (qpackProbeSlots - 1)
+		seen := false
+		for used[h] {
+			if slots[h] == v {
+				seen = true
+				break
 			}
+			h = (h + 1) & (qpackProbeSlots - 1)
+		}
+		if seen {
+			continue
 		}
 		if count >= qpackDictMaxDistinct {
 			return 0, false
 		}
+		used[h] = true
+		slots[h] = v
 		table[count] = v
 		count++
 	}
