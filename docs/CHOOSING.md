@@ -98,8 +98,8 @@ but the intern table is per-call when using `Marshal`).
 b, err := qdf.Marshal(event, qdf.OptSpeed)
 ```
 
-Result: encode 290 ns vs json 678 ns vs msgpack 444 ns. Decode 282 ns
-vs json 1557 ns vs msgpack 618 ns. Wire 72 B vs json 97 B (msgpack
+Result: encode 370 ns vs json 813 ns vs msgpack 520 ns. Decode 368 ns
+vs json 1954 ns vs msgpack 766 ns. Wire 70 B vs json 97 B (msgpack
 wins on size here at 63 B — its fixmap header is one byte cheaper).
 
 ### Telemetry / log batch
@@ -115,10 +115,10 @@ b, err := qdf.Marshal(rows, qdf.OptBalanced)
 ```
 
 Wire 40 KB vs json 143 KB vs msgpack 112 KB (3.5× smaller than json,
-2.8× vs msgpack). Decode 485 µs vs json 2280 µs (4.7× faster). Encode
-pays a CPU tax (777 µs vs json 368 µs) because shape declaration plus
-intern table cost up front — that's the trade you make for the size
-win.
+2.8× vs msgpack). Decode 458 µs vs json 2894 µs (6.3× faster). Encode
+353 µs vs json 440 µs (1.25× faster) — the lazy encoder-state alloc and
+reset-skip in `OptSpeed` eliminated the old CPU tax; you now get the
+size win for free on both encode and decode.
 
 If you control the receiver and care about decode latency more than
 encode, this is a clear win.
@@ -135,8 +135,8 @@ codecs (Delta+FOR for monotonic ints, Gorilla XOR for floats) pay off.
 b, err := qdf.Marshal(series, qdf.OptQPack)
 ```
 
-Result: encode **4 µs** vs json 150 µs (37× faster) vs msgpack 122 µs.
-Decode 4 µs vs json 524 µs (130× faster), msgpack 140 µs (35×). Wire
+Result: encode **6.7 µs** vs json 189 µs (28× faster) vs msgpack 129 µs.
+Decode 5.3 µs vs json 664 µs (125× faster), msgpack 181 µs (34×). Wire
 8.4 KB vs json 37 KB (4.4× smaller). Adding `OptDense` here costs
 intern-table CPU for zero wire benefit — skip it.
 
@@ -156,8 +156,8 @@ b, err := qdf.Marshal(batch, qdf.OptQPack)
 A 1024-element status column built from realistic HTTP traffic
 (mostly 200, occasional 4xx/5xx incident bursts) lands at **99
 bytes** of wire — 42× smaller than json (4.1 KB), 93× smaller than
-msgpack (9.2 KB). Encode 3.3 µs vs json 25 µs (7.6× faster);
-decode 2.2 µs vs json 133 µs (59× faster). The picker runs a cheap
+msgpack (9.2 KB). Encode 7.1 µs vs json 29 µs (4.0× faster);
+decode 2.7 µs vs json 155 µs (58× faster). The picker runs a cheap
 run-fraction probe over the first 32 elements and only commits to
 RLE if the win is real, so unrelated random `[]int` columns stay
 on raw / FOR without paying the estimator cost.
@@ -195,8 +195,8 @@ identifying string is small.
 b, err := qdf.Marshal(vec, qdf.OptQPack)
 ```
 
-Result: encode 716 ns vs json 58 µs (**80× faster**) vs msgpack 29 µs
-(40×). Decode 618 ns vs json 160 µs (**260× faster**). Wire 3 KB vs
+Result: encode 903 ns vs json 80 µs (**89× faster**) vs msgpack 36 µs
+(40×). Decode 904 ns vs json 213 µs (**236× faster**). Wire 3 KB vs
 json 8.4 KB. For embeddings this is the difference between a viable
 storage format and a bottleneck.
 
@@ -226,16 +226,18 @@ You want bytes-on-disk minimised.
 b, err := qdf.Marshal(snapshot, qdf.OptCompression)
 ```
 
-Result on a 5 000-row archive: wire 192 KB vs json 715 KB (3.7×) vs
-msgpack 558 KB (2.9×). Decode 2.4 ms vs json 13.4 ms (5.6×) vs
-msgpack 5.1 ms (2.1×). Encode pays 4.5 ms vs json 1.8 ms — fair for
-backup workloads.
+Result on a 5 000-row archive: wire 125 KB vs json 715 KB (5.6×) vs
+msgpack 558 KB (4.4×). Decode 4.1 ms vs json 15.8 ms (3.9×) vs
+msgpack 6.1 ms (1.5×). Encode 4.4 ms vs json 2.4 ms — fair for
+backup workloads. (Wire shrunk ~34% vs prior measurements: the
+dict-cap expansion and time-codec alignment eliminated padding waste
+in the columnar container.)
 
 On a 1024-sample smooth metric series `OptCompression` shrinks the
-float body from 8398 B (raw-LE under `OptQPack`) to 2307 B (Gorilla
-XOR), a 72.5 % drop. Encode/decode go from ~4.2 µs to ~41 µs — fine
-when the series is being archived once and queried over its lifetime,
-not for the hot ingest path.
+float body from 8398 B (raw-LE under `OptQPack`) to 1671 B (Gorilla
+XOR + rANS pass), an 80 % drop. Encode/decode go from ~6.7 µs to
+~41 µs — fine when the series is being archived once and queried over
+its lifetime, not for the hot ingest path.
 
 ### Wide columnar batch, consumers read a column subset
 
@@ -429,11 +431,11 @@ configured for that call.
 ```
 opts                   bytes vs json   encode vs json   decode vs json
 ─────────────────────  ──────────────  ───────────────  ──────────────
-OptSpeed (hot path)        0.74×           2.0×              5.5×
-OptQPack (metrics)         0.22×          37×              130×
-OptQPack (embedding)       0.37×          80×              260×
-OptBalanced (telemetry)    0.28×           0.5×              4.7×
-OptCompression (archive)   0.27×           0.4×              5.6×
+OptSpeed (hot path)        0.72×           2.2×              5.3×
+OptQPack (metrics)         0.22×          28×              125×
+OptQPack (embedding)       0.37×          89×              236×
+OptBalanced (telemetry)    0.28×           1.2×              6.3×
+OptCompression (archive)   0.18×           0.5×              3.9×
 ```
 
 (All "vs json" ratios on the fixtures in `bench/profiles_test.go`.)
