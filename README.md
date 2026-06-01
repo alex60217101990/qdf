@@ -109,6 +109,25 @@ is no schema language, no IDL, no compile-time registration — types
 are picked up via Go struct tags (`qdf:"name"`, falling back to
 `json:"name"`).
 
+### Measured against the field
+
+On realistic batch payloads (i7-9750H · Go 1.26), qdf's wire is **smaller
+than protobuf on every fixture** — because it dedups and columnar-compresses
+across records, while json/msgpack/protobuf/flatbuffers encode each record
+independently:
+
+| wire size vs protobuf | OTLP traces | logs | RTB | events | IoT floats |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `qdf_balanced` | −57 % | −43 % | −21 % | −39 % | −24 % |
+| `qdf_compression` | **−68 %** | **−60 %** | −38 % | −39 % | −29 % |
+
+It also allocates far less under load (IoT encode: `qdf_balanced` 3 allocs/op
+vs protobuf 385). Honest trade-offs: `qdf_speed` wire ≈ msgpack;
+`qdf_compression` encode trades CPU for bytes; protobuf and flatbuffers win
+raw decode throughput and single-tiny-message size. Full tables (json /
+msgpack / protobuf / flatbuffers × five fixtures, wire + memory) and the
+reproduction recipe are in **[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
+
 ### Wire layout
 
 ```
