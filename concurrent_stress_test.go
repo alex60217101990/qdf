@@ -258,3 +258,88 @@ func TestConcurrent_StreamEncoderPerGoroutine(t *testing.T) {
 	// surfaces under -race more reliably on subsequent tests.
 	runtime.GC()
 }
+
+// matrixRow is the mixed-column payload for TestConcurrentDecode_BundleMatrix.
+// It has a numeric column, a string column, and a nullable *int64 column so
+// both the columnar and nullable decode paths are exercised under contention.
+type matrixRow struct {
+	ID    int64  `qdf:"id"`
+	Label string `qdf:"label"`
+	Value *int64 `qdf:"value"` // ~1/3 nil
+}
+
+// buildMatrixRows returns a deterministic 100-row slice with ~1/3 nil Values.
+func buildMatrixRows() []matrixRow {
+	const rows = 100
+	out := make([]matrixRow, rows)
+	for i := range rows {
+		v := int64(i * 7)
+		row := matrixRow{
+			ID:    int64(i),
+			Label: []string{"alpha", "beta", "gamma"}[i%3],
+		}
+		if i%3 != 0 { // ~2/3 non-nil, ~1/3 nil
+			row.Value = &v
+		}
+		out[i] = row
+	}
+	return out
+}
+
+// TestConcurrentDecode_BundleMatrix pre-encodes the mixed columnar/nullable
+// payload under every bundle (all 9, including B6/B7 columnar+index) and then
+// hammers concurrent decode with 500 goroutines × 50 iterations each,
+// round-robin across bundles.  Run under -race to catch decoder-pool /
+// shared-state data races.
+func TestConcurrentDecode_BundleMatrix(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy concurrent test in -short")
+	}
+
+	rows := buildMatrixRows()
+	bundles := matrixBundles()
+
+	// Pre-encode once per bundle (single-threaded). Stress is decode-only.
+	wires := make(map[string][]byte, len(bundles))
+	for _, b := range bundles {
+		data, err := Marshal(rows, b.opts)
+		if err != nil {
+			t.Fatalf("pre-encode %s: %v", b.name, err)
+		}
+		wires[b.name] = data
+	}
+
+	const G = 500
+	const N = 50
+
+	var wg sync.WaitGroup
+	wg.Add(G)
+	var failures atomic.Int64
+
+	for g := range G {
+		go func(id int) {
+			defer wg.Done()
+			// Each goroutine owns a fixed bundle (round-robin by id).
+			b := bundles[id%len(bundles)]
+			wire := wires[b.name]
+			for range N {
+				var out []matrixRow
+				if err := Unmarshal(wire, &out); err != nil {
+					t.Errorf("goroutine %d bundle %s: unmarshal error: %v", id, b.name, err)
+					failures.Add(1)
+					return
+				}
+				if !reflect.DeepEqual(rows, out) {
+					t.Errorf("goroutine %d bundle %s: decoded %d rows, want %d; mismatch", id, b.name, len(out), len(rows))
+					failures.Add(1)
+					return
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+	if failures.Load() != 0 {
+		t.Fatalf("%d decode failures across %d goroutines x %d iterations", failures.Load(), G, N)
+	}
+}
