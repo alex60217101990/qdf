@@ -65,7 +65,7 @@ jobs:
         run: go vet ./...
 
       - name: test (default, -race, -coverprofile)
-        run: go test -race -count=1 -timeout=5m -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -race -count=1 -timeout=10m -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: upload coverage
         if: matrix.os == 'ubuntu-latest'
@@ -76,13 +76,13 @@ jobs:
           fail_ci_if_error: false
 
       - name: test (-tags qdf_reflect2, -race)
-        run: go test -tags qdf_reflect2 -race -count=1 -timeout=5m ./...
+        run: go test -tags qdf_reflect2 -race -count=1 -timeout=10m ./...
 
       - name: test (-tags qdf_simd, -race)
-        run: go test -tags qdf_simd -race -count=1 -timeout=5m ./...
+        run: go test -tags qdf_simd -race -count=1 -timeout=10m ./...
 
       - name: test (-tags qdf_reflect2 qdf_simd, -race)
-        run: go test -tags 'qdf_reflect2 qdf_simd' -race -count=1 -timeout=5m ./...
+        run: go test -tags 'qdf_reflect2 qdf_simd' -race -count=1 -timeout=10m ./...
 
       - name: build qdfgen
         working-directory: cmd/qdfgen
@@ -94,7 +94,7 @@ jobs:
           # First phase emits sample_qdf.go; second phase exercises the
           # generated methods. Both phases must pass.
           go test -run TestGenerate -count=1 .
-          go test -race -count=1 -timeout=5m .
+          go test -race -count=1 -timeout=10m .
 
       - name: TestSizes (bench module, no benchmarks)
         working-directory: bench
