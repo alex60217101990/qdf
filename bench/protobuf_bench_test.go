@@ -59,20 +59,20 @@ func BenchmarkRTB_1024_PB(b *testing.B) {
 	runProtobufArm(b, "RTB_1024", pb, func() proto.Message { return new(benchpb.RTBBatch) })
 }
 
-// BenchmarkIoT_PB benches protobuf on the IoT fixture (8 devices × 256
-// samples).
+// BenchmarkIoT_PB benches protobuf on the IoT fixture at the SAME size as
+// BenchmarkIoT_32x256 so the wire-B is directly comparable to the qdf arms.
 func BenchmarkIoT_PB(b *testing.B) {
-	batch := mkIoTBatch(8, 256)
+	batch := mkIoTBatch(32, 256)
 	pb := toPBIoTBatch(batch)
-	runProtobufArm(b, "IoT_8x256", pb, func() proto.Message { return new(benchpb.IoTBatchPB) })
+	runProtobufArm(b, "IoT_32x256", pb, func() proto.Message { return new(benchpb.IoTBatchPB) })
 }
 
-// BenchmarkOTLP_PB benches protobuf on the OTLP trace fixture (20 resources
-// × 10 spans per scope).
+// BenchmarkOTLP_PB benches protobuf on the OTLP fixture at the SAME size as
+// BenchmarkOTLP_4x512 so the wire-B is directly comparable to the qdf arms.
 func BenchmarkOTLP_PB(b *testing.B) {
-	batch := mkOTLPBatch(20, 10)
+	batch := mkOTLPBatch(4, 512)
 	pb := toPBTraceExport(batch)
-	runProtobufArm(b, "OTLP_20x10", pb, func() proto.Message { return new(benchpb.TraceExportPB) })
+	runProtobufArm(b, "OTLP_4x512", pb, func() proto.Message { return new(benchpb.TraceExportPB) })
 }
 
 // BenchmarkLogs_PB benches protobuf on the log batch fixture (1024 records).
