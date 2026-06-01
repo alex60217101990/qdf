@@ -58,6 +58,13 @@ func (r *fuzzReader) f64() float64 {
 	return v
 }
 
+// f64raw returns the float64 bit-for-bit without normalising NaN/Inf/−0.
+// Use this in fuzz targets that want to exercise the full IEEE-754 space,
+// including the values that f64() previously hid from the codec.
+func (r *fuzzReader) f64raw() float64 {
+	return math.Float64frombits(r.u64())
+}
+
 // boundedLen takes a fuzz-driven byte and clamps it to [0, max].
 func (r *fuzzReader) boundedLen(max int) int {
 	b := r.u8()
@@ -77,16 +84,14 @@ func (r *fuzzReader) str(maxLen int) string {
 	return string(out)
 }
 
-// floatSliceEqual compares two []float64 with bit-identical semantics:
-// NaN matches NaN, +0 / -0 distinguishable.
+// floatSliceEqual compares two []float64 with fully bit-exact semantics:
+// every bit of each element must match, including NaN payloads and the -0 sign.
+// This is intentionally stricter than == (which is NaN-unequal and -0==+0).
 func floatSliceEqual(a, b []float64) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if math.IsNaN(a[i]) && math.IsNaN(b[i]) {
-			continue
-		}
 		if math.Float64bits(a[i]) != math.Float64bits(b[i]) {
 			return false
 		}
@@ -165,27 +170,47 @@ func FuzzRoundTrip_Uint64Slice(f *testing.F) {
 func FuzzRoundTrip_Float64Slice(f *testing.F) {
 	f.Add([]byte{0})
 	f.Add(make([]byte, 64))
+	// Seed with bytes that produce NaN, +Inf, -Inf, and -0 so the corpus
+	// exercises the previously-blind IEEE-754 edge cases from the start.
+	f.Add([]byte{
+		// NaN (canonical quiet NaN on amd64/arm64: 0x7FF8000000000000)
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x7F,
+	})
+	f.Add([]byte{
+		// +Inf (0x7FF0000000000000)
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x7F,
+	})
+	f.Add([]byte{
+		// -Inf (0xFFF0000000000000)
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xFF,
+	})
+	f.Add([]byte{
+		// -0 (0x8000000000000000)
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
+	})
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r := newFuzzReader(data)
 		n := r.boundedLen(256)
 		in := make([]float64, n)
 		for i := range in {
-			in[i] = r.f64()
+			// Use f64raw so NaN/Inf/-0 reach the codec — the blind spot fix.
+			in[i] = r.f64raw()
 		}
-		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced} {
+		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced, OptCompression, OptQPack | OptGorillaFloat} {
 			buf, err := Marshal(in, opts)
 			if err != nil {
-				t.Fatalf("marshal: %v", err)
+				t.Fatalf("opts=%d marshal: %v", opts, err)
 			}
 			var out []float64
 			if err := Unmarshal(buf, &out); err != nil {
-				t.Fatalf("unmarshal: %v", err)
+				t.Fatalf("opts=%d unmarshal: %v", opts, err)
 			}
 			if n == 0 {
 				continue
 			}
 			if !floatSliceEqual(in, out) {
-				t.Fatalf("[]float64 mismatch")
+				t.Fatalf("opts=%d []float64 bits NOT preserved:\n in =%v\n out=%v\n inbits =%x\n outbits=%x",
+					opts, in, out, floatBits64(in), floatBits64(out))
 			}
 		}
 	})
