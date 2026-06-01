@@ -577,7 +577,7 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 // `expr` (which already evaluates to a value of type t) into the encoder e.
 func (g *gen) emitEncodeValue(w io.Writer, expr string, t types.Type, indent string) error {
 	if isTimeTime(t) {
-		fmt.Fprintf(w, "%se.WriteTimestampNano((%s).UnixNano())\n", indent, expr)
+		fmt.Fprintf(w, "%s{ _t := (%s).UTC(); e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond())) }\n", indent, expr)
 		return nil
 	}
 
@@ -652,7 +652,7 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 
 	elem := p.Elem()
 	if isTimeTime(elem) {
-		fmt.Fprintf(w, "%s\te.WriteTimestampNano((*%s).UnixNano())\n", indent, expr)
+		fmt.Fprintf(w, "%s\t{ _t := (*%s).UTC(); e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond())) }\n", indent, expr)
 	} else if named, ok := elem.(*types.Named); ok {
 		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
 			fmt.Fprintf(w, "%s\tb2, err := (%s).MarshalQDF(e.Bytes())\n", indent, expr)
@@ -727,12 +727,13 @@ func (g *gen) emitEncodeMap(w io.Writer, expr string, m *types.Map, indent strin
 
 func (g *gen) emitDecodeValue(w io.Writer, lhs string, t types.Type, indent string) error {
 	if isTimeTime(t) {
-		tmp := g.fresh("ns")
+		secTmp := g.fresh("sec")
+		nsecTmp := g.fresh("nsec")
 		fmt.Fprintf(w, "%s{\n", indent)
-		fmt.Fprintf(w, "%s\t%s, err := d.ReadTimestampNano()\n", indent, tmp)
+		fmt.Fprintf(w, "%s\t%s, %s, err := d.ReadTimestamp()\n", indent, secTmp, nsecTmp)
 		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
 		g.imports["time"] = ""
-		fmt.Fprintf(w, "%s\t%s = time.Unix(0, %s)\n", indent, lhs, tmp)
+		fmt.Fprintf(w, "%s\t%s = time.Unix(%s, int64(%s)).UTC()\n", indent, lhs, secTmp, nsecTmp)
 		fmt.Fprintf(w, "%s}\n", indent)
 		return nil
 	}
@@ -865,11 +866,12 @@ func (g *gen) emitDecodePointer(w io.Writer, lhs string, p *types.Pointer, inden
 
 	elem := p.Elem()
 	if isTimeTime(elem) {
-		tmp := g.fresh("ns")
-		fmt.Fprintf(w, "%s\t\t%s, err := d.ReadTimestampNano()\n", indent, tmp)
+		secTmp := g.fresh("sec")
+		nsecTmp := g.fresh("nsec")
+		fmt.Fprintf(w, "%s\t\t%s, %s, err := d.ReadTimestamp()\n", indent, secTmp, nsecTmp)
 		fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
 		g.imports["time"] = ""
-		fmt.Fprintf(w, "%s\t\tt := time.Unix(0, %s)\n", indent, tmp)
+		fmt.Fprintf(w, "%s\t\tt := time.Unix(%s, int64(%s)).UTC()\n", indent, secTmp, nsecTmp)
 		fmt.Fprintf(w, "%s\t\t%s = &t\n", indent, lhs)
 	} else if named, ok := elem.(*types.Named); ok {
 		if _, isStruct := named.Underlying().(*types.Struct); isStruct {

@@ -117,7 +117,10 @@ func (v *LogEntry) MarshalQDF(dst []byte) ([]byte, error) {
 	}
 	e.WriteMapHeader(10)
 	e.AppendBytes(qdfFieldHdr_time_7)
-	e.WriteTimestampNano((v.Time).UnixNano())
+	{
+		_t := (v.Time).UTC()
+		e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond()))
+	}
 	e.AppendBytes(qdfFieldHdr_level_8)
 	e.WriteString(string(v.Level))
 	e.AppendBytes(qdfFieldHdr_service_9)
@@ -158,11 +161,11 @@ func (v *LogEntry) UnmarshalQDF(src []byte) (int, error) {
 		switch string(kb) {
 		case "time":
 			{
-				ns17, err := d.ReadTimestampNano()
+				sec17, nsec17, err := d.ReadTimestamp()
 				if err != nil {
 					return 0, err
 				}
-				v.Time = time.Unix(0, ns17)
+				v.Time = time.Unix(sec17, int64(nsec17)).UTC()
 			}
 		case "level":
 			{

@@ -142,7 +142,7 @@
 //	    (e *Encoder) WriteString / WriteBytes / WriteInt / WriteUint /
 //	                WriteFloat32 / WriteFloat64 / WriteBool / WriteNil /
 //	                WriteArrayHeader / WriteMapHeader /
-//	                WriteTimestampNano / WriteStringInline
+//	                WriteTimestamp / WriteStringInline
 //	    (e *Encoder) AppendBytes / EnsureHeader / Bytes / Take /
 //	                Reset / SetBuffer / AdoptBuffer / SetIntern /
 //	                SetMaxDepth / SetQPack / QPack / ApplyOpts /
@@ -153,7 +153,7 @@
 //	    (d *Decoder) ReadString / ReadStringBytes / ReadBytes /
 //	                ReadBool / ReadInt / ReadUint / ReadFloat32 /
 //	                ReadFloat64 / ReadNil / ReadArrayHeader /
-//	                ReadMapHeader / ReadTimestampNano / Skip /
+//	                ReadMapHeader / ReadTimestamp / Skip /
 //	                PeekTag / IsNil / Pos / Remaining / RemainingBytes /
 //	                Advance / SetInput / SetNoCopy / MarkHeaderRead /
 //	                CheckLength / InternKey

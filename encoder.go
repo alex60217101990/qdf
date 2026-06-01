@@ -737,10 +737,15 @@ func (e *Encoder) WriteMapHeader(n int) {
 	}
 }
 
-// WriteTimestampNano writes a Unix-nanoseconds timestamp.
-func (e *Encoder) WriteTimestampNano(ns int64) {
+// WriteTimestamp writes a full-range timestamp as two uvarints:
+// sec (zigzag-encoded signed int64 seconds since Unix epoch) and
+// nsec (unsigned uint32 nanoseconds in [0, 999_999_999]).
+// This replaces the old fixed-8-byte UnixNano encoding (clean break).
+func (e *Encoder) WriteTimestamp(sec int64, nsec uint32) {
 	e.writeHeader()
-	e.buf = appendU64(append(e.buf, tagTimestamp), uint64(ns))
+	e.buf = append(e.buf, tagTimestamp)
+	e.buf = appendUvarint(e.buf, zigzagEncode64(sec))
+	e.buf = appendUvarint(e.buf, uint64(nsec))
 }
 
 // ----- helpers -----
