@@ -31,7 +31,7 @@ jobs:
             bench/go.sum
 
       - name: Restore build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/go-build
           key: gocache-benchtrend-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/*.go') }}

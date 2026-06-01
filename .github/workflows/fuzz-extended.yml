@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Restore build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/go-build
           key: gocache-fuzz-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/*.go') }}
@@ -40,7 +40,7 @@ jobs:
             gocache-fuzz-${{ runner.os }}-
 
       - name: Restore fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: testdata/fuzz/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
