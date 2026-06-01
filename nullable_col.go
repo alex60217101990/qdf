@@ -218,6 +218,10 @@ func (d *Decoder) readNullableMask(n int) (mask []byte, present int, err error) 
 // decodeNullableColumn reads the mask + dense column and scatters the present
 // values back into the `*T` field, allocating all present values in a single
 // backing slice that the field pointers reference into.
+//
+// The int64/uint64/float64/bool scratch fields are reused here too: the dense
+// column values are decoded into d.state.colScratch*, used only inside the
+// inline set() call, then the scratch is eligible for reuse by the next column.
 func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, col *colColumn, n int) error {
 	mask, present, err := d.readNullableMask(n)
 	if err != nil {
@@ -227,6 +231,7 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	backing := reflect.MakeSlice(reflect.SliceOf(col.elemType), present, present)
 	dataPtr := backing.UnsafePointer()
 	stride, off := plan.stride, col.offset
+	st := d.state // always non-nil: readColShape initialises it before the loop
 	k := 0
 	set := func(store func(ea unsafe.Pointer, k int)) {
 		for i := range n {
@@ -243,37 +248,37 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	}
 	switch col.kind.base() {
 	case colKindInt:
-		var s []int64
-		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
 			return err
 		}
+		s := st.colScratchI64
 		if len(s) != present {
 			return ErrTypeMismatch
 		}
 		set(func(ea unsafe.Pointer, k int) { storeI64At(ea, col.width, s[k]) })
 	case colKindUint:
-		var s []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return err
 		}
+		s := st.colScratchU64
 		if len(s) != present {
 			return ErrTypeMismatch
 		}
 		set(func(ea unsafe.Pointer, k int) { storeU64At(ea, col.width, s[k]) })
 	case colKindFloat:
-		var s []float64
-		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceFloat64Into(d, &st.colScratchF64); err != nil {
 			return err
 		}
+		s := st.colScratchF64
 		if len(s) != present {
 			return ErrTypeMismatch
 		}
 		set(func(ea unsafe.Pointer, k int) { storeF64At(ea, col.width, s[k]) })
 	case colKindBool:
-		var s []bool
-		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceBoolInto(d, &st.colScratchBool); err != nil {
 			return err
 		}
+		s := st.colScratchBool
 		if len(s) != present {
 			return ErrTypeMismatch
 		}
@@ -299,17 +304,17 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		// Decode two dense sub-columns (sec []int64, nsec []uint64) for the
 		// present count, reconstruct time.Time values, scatter into *time.Time
 		// fields using the shared backing slice.
-		var sec []int64
-		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
 			return err
 		}
+		sec := st.colScratchI64
 		if len(sec) != present {
 			return ErrTypeMismatch
 		}
-		var nsec []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return err
 		}
+		nsec := st.colScratchU64
 		if len(nsec) != present {
 			return ErrTypeMismatch
 		}

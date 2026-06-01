@@ -1169,16 +1169,24 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 // decodeColumnInto decodes a single column body from the wire into the matched
 // target plan column. Behavior is identical to the per-column body of the
 // former positional decode loop.
+//
+// The int64/uint64/float64/bool cases reuse decoder-held scratch slices
+// (d.state.colScratchI64 etc.) so that the transient column buffer is not
+// allocated fresh on every call — it is grown once and reused across columns
+// and across decode calls (the Decoder is pooled). The scratch slice is only
+// valid until the scatter loop below, which copies each element into the
+// output struct; it is never aliased by the output.
 func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col *colColumn, n int) error {
 	if col.kind.isNullable() {
 		return d.decodeNullableColumn(base, plan, col, n)
 	}
+	st := d.state // always non-nil: readColShape initialises it before the loop
 	switch col.kind {
 	case colKindInt:
-		var s []int64
-		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
 			return err
 		}
+		s := st.colScratchI64
 		if len(s) != n {
 			return ErrTypeMismatch
 		}
@@ -1186,10 +1194,10 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			storeScalarFromI64(base, plan.stride, col, i, s[i])
 		}
 	case colKindUint:
-		var s []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return err
 		}
+		s := st.colScratchU64
 		if len(s) != n {
 			return ErrTypeMismatch
 		}
@@ -1197,10 +1205,10 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			storeScalarFromU64(base, plan.stride, col, i, s[i])
 		}
 	case colKindFloat:
-		var s []float64
-		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceFloat64Into(d, &st.colScratchF64); err != nil {
 			return err
 		}
+		s := st.colScratchF64
 		if len(s) != n {
 			return ErrTypeMismatch
 		}
@@ -1208,10 +1216,10 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			storeFloat64(base, plan.stride, col, i, s[i])
 		}
 	case colKindBool:
-		var s []bool
-		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceBoolInto(d, &st.colScratchBool); err != nil {
 			return err
 		}
+		s := st.colScratchBool
 		if len(s) != n {
 			return ErrTypeMismatch
 		}
@@ -1250,18 +1258,18 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			*(*string)(dp) = str
 		}
 	case colKindTime:
-		// Decode sec sub-column then nsec sub-column.
-		var sec []int64
-		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+		// Decode sec sub-column then nsec sub-column, reusing scratch buffers.
+		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
 			return err
 		}
+		sec := st.colScratchI64
 		if len(sec) != n {
 			return ErrTypeMismatch
 		}
-		var nsec []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return err
 		}
+		nsec := st.colScratchU64
 		if len(nsec) != n {
 			return ErrTypeMismatch
 		}
