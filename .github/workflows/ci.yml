@@ -173,3 +173,60 @@ jobs:
       # Re-run the seed + persisted corpus as a regression check.
       - name: Fuzz corpus regression
         run: go test -run='Fuzz' -count=1 -timeout=2m
+
+  # Verifies the committed protobuf/flatbuffers competitor code (bench/pb,
+  # bench/fbs) is up to date with the .proto/.fbs schemas. The generated code
+  # is committed so normal CI/build needs no protoc/flatc; this is the only job
+  # that installs them, with the binaries cached between runs. Tool versions
+  # are pinned to match bench/codegen.go — a mismatch yields spurious diffs.
+  codegen-drift:
+    name: codegen drift (protobuf/flatbuffers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: bench/go.sum
+
+      - name: Cache protoc + flatc binaries
+        id: codegen-tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.codegen-tools/bin
+          key: codegen-tools-protoc34.1-flatc25.12.19
+
+      - name: Install protoc + flatc (cache miss only)
+        if: steps.codegen-tools.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.codegen-tools/bin
+          curl -fsSL -o /tmp/protoc.zip \
+            https://github.com/protocolbuffers/protobuf/releases/download/v34.1/protoc-34.1-linux-x86_64.zip
+          unzip -o /tmp/protoc.zip -d /tmp/protoc
+          install -m 0755 /tmp/protoc/bin/protoc ~/.codegen-tools/bin/protoc
+          # flatc v25.12.19 Linux release; adjust the asset name if it 404s.
+          curl -fsSL -o /tmp/flatc.zip \
+            https://github.com/google/flatbuffers/releases/download/v25.12.19/Linux.flatc.binary.g++-13.zip
+          unzip -o /tmp/flatc.zip -d ~/.codegen-tools/bin
+          chmod +x ~/.codegen-tools/bin/flatc
+
+      - name: Install protoc-gen-go (pinned)
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+
+      - name: Regenerate and verify no drift
+        working-directory: bench
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.codegen-tools/bin:$(go env GOPATH)/bin:$PATH"
+          protoc --go_out=. --go_opt=paths=source_relative pb/bench.proto
+          flatc --go --gen-onefile -o fbs fbs/bench.fbs
+          sed -i.bak 's/^package[[:space:]]*$/package benchfbs/' fbs/bench_generated.go
+          rm -f fbs/bench_generated.go.bak
+          if ! git diff --quiet -- pb fbs; then
+            echo "::error::Generated protobuf/flatbuffers code is stale — run 'go generate ./...' in bench/ (see bench/codegen.go) and commit."
+            git --no-pager diff -- pb fbs
+            exit 1
+          fi
