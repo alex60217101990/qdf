@@ -476,18 +476,32 @@ func (d *Decoder) ReadMapHeader() (int, error) {
 	return 0, ErrTypeMismatch
 }
 
-func (d *Decoder) ReadTimestampNano() (int64, error) {
+// ReadTimestamp reads a full-range timestamp and returns (sec, nsec, err).
+// sec is seconds since Unix epoch (may be negative for pre-1970 instants).
+// nsec is nanoseconds in [0, 999_999_999].
+// This replaces the old fixed-8-byte UnixNano encoding (clean break).
+func (d *Decoder) ReadTimestamp() (sec int64, nsec uint32, err error) {
 	t, err := d.next()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if t != tagTimestamp {
-		return 0, ErrTypeMismatch
+		return 0, 0, ErrTypeMismatch
 	}
-	if d.i+8 > len(d.buf) {
-		return 0, ErrShortBuffer
+	// Read zigzag-encoded seconds.
+	secZ, n := readUvarint(d.buf[d.i:])
+	if n <= 0 {
+		return 0, 0, ErrInvalidLength
 	}
-	v := int64(readU64(d.buf[d.i:]))
-	d.i += 8
-	return v, nil
+	d.i += n
+	// Read nanoseconds.
+	nsecU, n := readUvarint(d.buf[d.i:])
+	if n <= 0 {
+		return 0, 0, ErrInvalidLength
+	}
+	d.i += n
+	if nsecU > 999_999_999 {
+		return 0, 0, ErrInvalidLength
+	}
+	return zigzagDecode64(secZ), uint32(nsecU), nil
 }

@@ -865,23 +865,23 @@ func decodeAny(d *Decoder) (any, error) {
 	case tagColStruct:
 		return decodeColumnarAny(d)
 	case tagTimestamp:
-		ns, err := d.ReadTimestampNano()
-		return time.Unix(0, ns), err
+		sec, nsec, err := d.ReadTimestamp()
+		return time.Unix(sec, int64(nsec)).UTC(), err
 	}
 	return nil, ErrBadTag
 }
 
 func encodeTime(e *Encoder, p unsafe.Pointer) error {
-	t := *(*time.Time)(p)
-	e.WriteTimestampNano(t.UnixNano())
+	t := (*time.Time)(p).UTC()
+	e.WriteTimestamp(t.Unix(), uint32(t.Nanosecond()))
 	return nil
 }
 func decodeTime(d *Decoder, p unsafe.Pointer) error {
-	ns, err := d.ReadTimestampNano()
+	sec, nsec, err := d.ReadTimestamp()
 	if err != nil {
 		return err
 	}
-	*(*time.Time)(p) = time.Unix(0, ns)
+	*(*time.Time)(p) = time.Unix(sec, int64(nsec)).UTC()
 	return nil
 }
 

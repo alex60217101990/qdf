@@ -52,11 +52,23 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += 5
 		return nil
-	case tagUint64, tagInt64, tagFloat64, tagTimestamp:
+	case tagUint64, tagInt64, tagFloat64:
 		if d.i+9 > len(d.buf) {
 			return ErrShortBuffer
 		}
 		d.i += 9
+		return nil
+	case tagTimestamp:
+		// New wire format: tag + uvarint(zigzag(sec)) + uvarint(nsec).
+		// Skip two uvarints.
+		d.i++ // consume tag
+		for range 2 {
+			_, n := readUvarint(d.buf[d.i:])
+			if n <= 0 {
+				return ErrShortBuffer
+			}
+			d.i += n
+		}
 		return nil
 	case tagStr8, tagBin8, tagMap8:
 		// Map8 is a count, not a byte length; handle separately below.

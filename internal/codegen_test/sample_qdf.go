@@ -134,7 +134,10 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 		e.MarkHeaderWritten()
 	}
 	e.AppendBytes(qdfFieldHdr_when_16)
-	e.WriteTimestampNano((v.When).UnixNano())
+	{
+		_t := (v.When).UTC()
+		e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond()))
+	}
 	e.AppendBytes(qdfFieldHdr_buf_17)
 	if v.Buf == nil {
 		e.WriteNil()
@@ -277,11 +280,11 @@ func (v *Sample) UnmarshalQDF(src []byte) (int, error) {
 			}
 		case "when":
 			{
-				ns35, err := d.ReadTimestampNano()
+				sec35, nsec35, err := d.ReadTimestamp()
 				if err != nil {
 					return 0, err
 				}
-				v.When = time.Unix(0, ns35)
+				v.When = time.Unix(sec35, int64(nsec35)).UTC()
 			}
 		case "buf":
 			{
