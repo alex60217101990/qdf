@@ -102,15 +102,17 @@ func FuzzRoundTrip_Time(f *testing.F) {
 		T time.Time `qdf:"t"`
 	}
 
-	// Seed corpus: cover epoch, negative (pre-1970), and a recent timestamp.
+	// Seed corpus: cover epoch, negative (pre-1970), full-range extremes.
 	f.Add(int64(0), uint32(0))
 	f.Add(int64(1_700_000_000), uint32(123_456_789))
 	f.Add(int64(-2_208_988_800), uint32(0))            // 1900-01-01
 	f.Add(int64(-62_135_596_800), uint32(999_999_999)) // year 1 approx
+	f.Add(int64(253_402_300_799), uint32(999_999_999)) // year 9999-12-31
+	f.Add(int64(-1), uint32(0))                        // one second before epoch (negative sec)
 
 	f.Fuzz(func(t *testing.T, sec int64, nsec uint32) {
 		if nsec >= 1_000_000_000 {
-			nsec = nsec % 1_000_000_000
+			nsec %= 1_000_000_000
 		}
 		in := time.Unix(sec, int64(nsec)).UTC()
 

@@ -4,6 +4,7 @@ import (
 	"math/bits"
 	"reflect"
 	"runtime"
+	"time"
 	"unsafe"
 )
 
@@ -174,6 +175,27 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		e.buf = append(e.buf, mask...)
 		e.writeStringColumn(s)
 		return nil
+	case colKindTime:
+		// Gather present *time.Time values into sec+nsec dense sub-columns,
+		// mirroring the non-nullable colKindTime encoder in encodeColumnar.
+		sec := st.colScratchI64[:0]
+		nsec := st.colScratchU64[:0]
+		for i := range n {
+			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
+			if pp != nil {
+				mask[i>>3] |= 1 << uint(i&7)
+				t := (*time.Time)(pp).UTC()
+				sec = append(sec, t.Unix())
+				nsec = append(nsec, uint64(t.Nanosecond()))
+			}
+		}
+		st.colScratchI64 = sec
+		st.colScratchU64 = nsec
+		e.buf = append(e.buf, mask...)
+		if err := encodeSliceInt64(e, unsafe.Pointer(&sec)); err != nil {
+			return err
+		}
+		return encodeSliceUint64(e, unsafe.Pointer(&nsec))
 	}
 	return ErrBadTag
 }
@@ -273,6 +295,27 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		}
 		runtime.KeepAlive(strs)
 		return nil
+	case colKindTime:
+		// Decode two dense sub-columns (sec []int64, nsec []uint64) for the
+		// present count, reconstruct time.Time values, scatter into *time.Time
+		// fields using the shared backing slice.
+		var sec []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+			return err
+		}
+		if len(sec) != present {
+			return ErrTypeMismatch
+		}
+		var nsec []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+			return err
+		}
+		if len(nsec) != present {
+			return ErrTypeMismatch
+		}
+		set(func(ea unsafe.Pointer, k int) {
+			*(*time.Time)(ea) = time.Unix(sec[k], int64(nsec[k])).UTC()
+		})
 	default:
 		return ErrBadTag
 	}
@@ -385,6 +428,30 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 			}
 		}
 		cv.s = full
+	case colKindTime:
+		var sec []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+			return cv, err
+		}
+		if len(sec) != present {
+			return cv, ErrTypeMismatch
+		}
+		var nsec []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+			return cv, err
+		}
+		if len(nsec) != present {
+			return cv, ErrTypeMismatch
+		}
+		full := make([]time.Time, n)
+		k := 0
+		for i := range n {
+			if getBit(pres, i) {
+				full[i] = time.Unix(sec[k], int64(nsec[k])).UTC()
+				k++
+			}
+		}
+		cv.ts = full
 	default:
 		return cv, ErrBadTag
 	}
@@ -416,6 +483,8 @@ func (cv *colVals) scatterNullableRowInto(base unsafe.Pointer, plan *columnarPla
 		*(*bool)(ea) = cv.b[src]
 	case colKindString:
 		*(*string)(ea) = cv.s[src]
+	case colKindTime:
+		*(*time.Time)(ea) = cv.ts[src]
 	}
 	*(*unsafe.Pointer)(fp) = ea
 }
@@ -480,6 +549,22 @@ func (d *Decoder) decodeNullableColumnAny(kind colKind, n int) ([]any, error) {
 			return nil, err
 		}
 		scatter(func(i, k int) { out[i] = strs[k] })
+	case colKindTime:
+		var sec []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+			return nil, err
+		}
+		if len(sec) != present {
+			return nil, ErrTypeMismatch
+		}
+		var nsec []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+			return nil, err
+		}
+		if len(nsec) != present {
+			return nil, ErrTypeMismatch
+		}
+		scatter(func(i, k int) { out[i] = time.Unix(sec[k], int64(nsec[k])).UTC() })
 	default:
 		return nil, ErrBadTag
 	}
