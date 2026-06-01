@@ -39,6 +39,9 @@ func allEncodeOpts() []struct {
 		{"Dense", OptDense},
 		{"DenseQPack", OptDense | OptQPack},
 		{"Balanced", OptBalanced},
+		{"Compression", OptCompression},
+		{"DenseRANS", OptDense | OptRANS},
+		{"QPackGorillaFloat", OptQPack | OptGorillaFloat},
 	}
 }
 

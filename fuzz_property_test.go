@@ -385,3 +385,62 @@ func FuzzRoundTrip_AllModesAgree(f *testing.F) {
 		}
 	})
 }
+
+// --- FuzzRoundTrip_Compression -----------------------------------------
+//
+// Mirrors FuzzRoundTrip_Int64Slice but drives generated int/uint/bool/string
+// values through the heavy codec bundles (OptCompression and OptDense|OptRANS)
+// that were previously not covered by the roundtrip fuzz corpus. A bug in the
+// RANS decode path for non-string payloads would surface here.
+
+type fuzzCompInput struct {
+	Ints  []int64  `qdf:"ints"`
+	Uints []uint64 `qdf:"uints"`
+	Bools []bool   `qdf:"bools"`
+	Strs  []string `qdf:"strs"`
+}
+
+func FuzzRoundTrip_Compression(f *testing.F) {
+	f.Add([]byte{0})
+	f.Add([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+	f.Add(make([]byte, 64))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		r := newFuzzReader(data)
+
+		nInts := r.boundedLen(32)
+		in := fuzzCompInput{}
+		in.Ints = make([]int64, nInts)
+		for i := range in.Ints {
+			in.Ints[i] = r.i64()
+		}
+		nUints := r.boundedLen(32)
+		in.Uints = make([]uint64, nUints)
+		for i := range in.Uints {
+			in.Uints[i] = r.u64()
+		}
+		nBools := r.boundedLen(64)
+		in.Bools = make([]bool, nBools)
+		for i := range in.Bools {
+			in.Bools[i] = r.u8()&1 == 1
+		}
+		nStrs := r.boundedLen(16)
+		in.Strs = make([]string, nStrs)
+		for i := range in.Strs {
+			in.Strs[i] = r.str(16)
+		}
+
+		for _, opts := range []Options{OptCompression, OptDense | OptRANS} {
+			buf, err := Marshal(in, opts)
+			if err != nil {
+				t.Fatalf("opts=%d marshal: %v", opts, err)
+			}
+			var out fuzzCompInput
+			if err := Unmarshal(buf, &out); err != nil {
+				t.Fatalf("opts=%d unmarshal: %v", opts, err)
+			}
+			if !reflect.DeepEqual(in, out) {
+				t.Fatalf("opts=%d mismatch:\n in=%+v\nout=%+v", opts, in, out)
+			}
+		}
+	})
+}
