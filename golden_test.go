@@ -51,6 +51,17 @@ func goldenCases() []goldenCase {
 		Vec   []float64 `qdf:"vec"`
 		Tags  []string  `qdf:"tags"`
 	}
+	// structRow is the element type for the struct_batch golden case.
+	// A []structRow payload exercises the columnar encoder path and — when
+	// encoded with OptColumnIndex — causes a column-length index to be
+	// written, making this case the primary exerciser of the
+	// *_colindex dialect fixtures.
+	type structRow struct {
+		ID    int64   `qdf:"id"`
+		Label string  `qdf:"label"`
+		Score float64 `qdf:"score"`
+		OK    bool    `qdf:"ok"`
+	}
 
 	mkBigBatch := func() bigBatch {
 		return bigBatch{
@@ -59,6 +70,20 @@ func goldenCases() []goldenCase {
 			Vec:   []float64{0.5, 1.0, 1.5, 2.0, 2.5},
 			Tags:  []string{"prod", "prod", "stage", "prod"},
 		}
+	}
+
+	mkStructBatch := func() []structRow {
+		labels := []string{"alpha", "beta", "gamma", "delta"}
+		rows := make([]structRow, 32)
+		for i := range rows {
+			rows[i] = structRow{
+				ID:    int64(i + 1),
+				Label: labels[i%len(labels)],
+				Score: float64(i) * 0.25,
+				OK:    i%3 != 0,
+			}
+		}
+		return rows
 	}
 
 	return []goldenCase{
@@ -103,6 +128,15 @@ func goldenCases() []goldenCase {
 			zero:             func() any { v := map[string]int{}; return &v },
 			nonDeterministic: true,
 		},
+		{
+			// struct_batch exercises the columnar []struct path; when encoded
+			// with OptColumnIndex the encoder writes a column-length index,
+			// making this the primary coverage vehicle for the *_colindex
+			// dialect fixtures.
+			name:  "struct_batch",
+			value: mkStructBatch(),
+			zero:  func() any { v := []structRow{}; return &v },
+		},
 	}
 }
 
@@ -120,6 +154,43 @@ func TestGolden_QPack(t *testing.T) {
 
 func TestGolden_Dense(t *testing.T) {
 	runGolden(t, "dense", OptBalanced)
+}
+
+// TestGolden_DenseOnly pins the on-wire bytes for OptDense (inline intern
+// table only; no numeric-slice codecs, no shape interning).
+func TestGolden_DenseOnly(t *testing.T) {
+	runGolden(t, "dense_only", OptDense)
+}
+
+// TestGolden_Compression pins the on-wire bytes for the full OptCompression
+// bundle (OptBalanced + OptGorillaFloat + OptRANS).
+func TestGolden_Compression(t *testing.T) {
+	runGolden(t, "compression", OptCompression)
+}
+
+// TestGolden_BalancedColIndex pins the on-wire bytes for OptBalanced combined
+// with OptColumnIndex. The struct_batch golden case exercises the column-length
+// index written for a columnar []struct payload.
+func TestGolden_BalancedColIndex(t *testing.T) {
+	runGolden(t, "balanced_colindex", OptBalanced|OptColumnIndex)
+}
+
+// TestGolden_CompressionColIndex pins the on-wire bytes for OptCompression
+// combined with OptColumnIndex.
+func TestGolden_CompressionColIndex(t *testing.T) {
+	runGolden(t, "compression_colindex", OptCompression|OptColumnIndex)
+}
+
+// TestGolden_QPackGorilla pins the on-wire bytes for OptQPack combined with
+// OptGorillaFloat (Gorilla XOR codec for float slices).
+func TestGolden_QPackGorilla(t *testing.T) {
+	runGolden(t, "qpack_gorilla", OptQPack|OptGorillaFloat)
+}
+
+// TestGolden_DenseRANS pins the on-wire bytes for OptDense combined with
+// OptRANS (static order-0 rANS entropy pass over the encoded body).
+func TestGolden_DenseRANS(t *testing.T) {
+	runGolden(t, "dense_rans", OptDense|OptRANS)
 }
 
 // TestGolden_ColIndex pins the on-wire bytes of a columnar []struct slice
