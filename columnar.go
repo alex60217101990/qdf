@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"time"
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/reflectutil"
@@ -21,6 +22,7 @@ const (
 	colKindFloat                 // float32, float64 → []float64 column
 	colKindBool                  // bool → []bool column
 	colKindString                // string, []byte → consecutive WriteString
+	colKindTime                  // time.Time → sec []int64 sub-column + nsec []uint64 sub-column
 
 	// colKindNullable is OR'd onto a base kind in the columnar shape's kind
 	// byte to mark an optional (pointer-to-scalar/string) column: a `*T`
@@ -51,6 +53,8 @@ func (k colKind) String() string {
 		n = "bool"
 	case colKindString:
 		n = "string"
+	case colKindTime:
+		n = "time"
 	default:
 		n = "unknown"
 	}
@@ -265,6 +269,35 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 		case colKindBool:
 			rowBytes += sample
 			colBytes += (sample + 7) / 8
+		case colKindTime:
+			// A time.Time column encodes as two sub-columns: sec ([]int64) and
+			// nsec ([]uint64). Estimate both as two FOR-packed integer columns.
+			// Monotonic timestamps compress extremely well with Delta+FOR on sec;
+			// nsec is often 0 or small. Conservative estimate: treat like two
+			// int columns over the sample.
+			var mnSec, mxSec uint64 = ^uint64(0), 0
+			for i := range sample {
+				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+				t := (*time.Time)(p).UTC()
+				v := uint64(t.Unix() + (1 << 62)) // shift to unsigned for range calc
+				if v < mnSec {
+					mnSec = v
+				}
+				if v > mxSec {
+					mxSec = v
+				}
+				rowBytes += 8 + 4 // row-major: tagTimestamp + 8-byte sec + 4-byte nsec
+			}
+			spreadSec := mxSec - mnSec
+			bitsSec := 0
+			for spreadSec > 0 {
+				bitsSec++
+				spreadSec >>= 1
+			}
+			// sec sub-column (Delta+FOR compresses monotonic runs to near zero):
+			colBytes += 3 + (bitsSec*sample+7)/8
+			// nsec sub-column (small integers, usually 0): a few bytes overhead
+			colBytes += 3 + (30*sample+7)/8 // conservative: up to 30 bits for nsec
 		case colKindString:
 			// Estimate the column two ways over the sample and keep the
 			// cheaper, mirroring the encoder: per-value (with consecutive-repeat
@@ -439,6 +472,25 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 			}
 			st.colScratchStr = s
 			e.writeStringColumn(s)
+		case colKindTime:
+			// Encode as two sub-columns: sec ([]int64) + nsec ([]uint64).
+			// Delta+FOR on sec compresses monotonic timestamp series efficiently.
+			sec := st.colScratchI64[:0]
+			nsec := st.colScratchU64[:0]
+			for i := range n {
+				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+				t := (*time.Time)(p).UTC()
+				sec = append(sec, t.Unix())
+				nsec = append(nsec, uint64(t.Nanosecond()))
+			}
+			st.colScratchI64 = sec
+			st.colScratchU64 = nsec
+			if err := encodeSliceInt64(e, unsafe.Pointer(&sec)); err != nil {
+				return err
+			}
+			if err := encodeSliceUint64(e, unsafe.Pointer(&nsec)); err != nil {
+				return err
+			}
 		}
 		if e.colIndex {
 			end := len(e.buf)
@@ -606,7 +658,8 @@ type colVals struct {
 	b       []bool
 	s       []string
 	bs      [][]byte
-	present []uint64 // nullable only; nil otherwise
+	ts      []time.Time // colKindTime only
+	present []uint64    // nullable only; nil otherwise
 }
 
 // decodeColumnVals decodes a column body (length n) of the given kind into a
@@ -692,6 +745,26 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 			s[i] = str
 		}
 		cv.s = s
+	case colKindTime:
+		var sec []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+			return cv, err
+		}
+		if len(sec) != n {
+			return cv, ErrTypeMismatch
+		}
+		var nsec []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+			return cv, err
+		}
+		if len(nsec) != n {
+			return cv, ErrTypeMismatch
+		}
+		ts := make([]time.Time, n)
+		for i := range n {
+			ts[i] = time.Unix(sec[i], int64(nsec[i])).UTC()
+		}
+		cv.ts = ts
 	default:
 		return cv, ErrBadTag
 	}
@@ -819,6 +892,9 @@ func (cv *colVals) scatterRow(base unsafe.Pointer, plan *columnarPlan, col *colC
 		} else {
 			*(*string)(dp) = cv.s[src]
 		}
+	case colKindTime:
+		dp := unsafe.Add(base, uintptr(dst)*plan.stride+col.offset)
+		*(*time.Time)(dp) = cv.ts[src]
 	}
 }
 
@@ -843,6 +919,8 @@ func (cv *colVals) anyAt(i int) any {
 			return string(cv.bs[i])
 		}
 		return cv.s[i]
+	case colKindTime:
+		return cv.ts[i]
 	}
 	return nil
 }
@@ -1171,6 +1249,26 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			}
 			*(*string)(dp) = str
 		}
+	case colKindTime:
+		// Decode sec sub-column then nsec sub-column.
+		var sec []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+			return err
+		}
+		if len(sec) != n {
+			return ErrTypeMismatch
+		}
+		var nsec []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+			return err
+		}
+		if len(nsec) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+			*(*time.Time)(dp) = time.Unix(sec[i], int64(nsec[i])).UTC()
+		}
 	}
 	return nil
 }
@@ -1209,6 +1307,14 @@ func (d *Decoder) skipColumnValue(kind colKind, n int) error {
 			}
 		}
 		return nil
+	case colKindTime:
+		// Skip sec sub-column then nsec sub-column.
+		var sec []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+			return err
+		}
+		var nsec []uint64
+		return decodeSliceUint64(d, unsafe.Pointer(&nsec))
 	default:
 		return ErrBadTag
 	}
@@ -1382,6 +1488,26 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 					out[i].(map[string]any)[name] = string(sb)
 				}
 			}
+		case colKindTime:
+			var sec []int64
+			if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+				return nil, err
+			}
+			if len(sec) != n {
+				return nil, ErrTypeMismatch
+			}
+			var nsec []uint64
+			if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+				return nil, err
+			}
+			if len(nsec) != n {
+				return nil, ErrTypeMismatch
+			}
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = time.Unix(sec[i], int64(nsec[i])).UTC()
+				}
+			}
 		default:
 			return nil, ErrBadTag
 		}
@@ -1392,6 +1518,12 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok bool) {
 	if fd.marshalerKind != 0 {
 		return 0, 0, false, false // custom marshaler → row-major
+	}
+	// time.Time is a struct that has its own scalar codec (encodeTime/decodeTime).
+	// It must be detected before the generic struct fall-through so it gets
+	// colKindTime instead of being rejected as ineligible.
+	if fd.rType == reflect.TypeFor[time.Time]() {
+		return colKindTime, unsafe.Sizeof(time.Time{}), false, true
 	}
 	switch fd.kind {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
