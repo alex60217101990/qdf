@@ -1,0 +1,119 @@
+# Competitive benchmarks — qdf vs json / msgpack / protobuf / flatbuffers
+
+Realistic, batch-shaped payloads encoded by every codec at the **same record
+count**, so wire size and memory are directly comparable.
+
+**Environment:** Intel i7-9750H · Go 1.26 · darwin/amd64 · 2026-06-01.
+Speed numbers are machine-specific; wire size and allocation counts are
+deterministic. Reproduce with `scripts/compare.sh` (runs the `bench/` module
+suite at `-count=6` plus the `EMIT_MEM=1` memory report). Competitor deps live
+only in `bench/go.mod`; the root module stays dependency-free.
+
+## Fixtures
+| name | shape |
+| --- | --- |
+| RTB 1024 | OpenRTB-style nested bid requests, enum-heavy, hex IDs |
+| IoT 32×256 | 32 devices × 256 samples; float64 sensor series + monotonic ns timestamps |
+| OTLP 4×512 | nested trace spans, repeated op-names / attr keys, hex trace/span IDs |
+| Logs 1024 | structured logs: enum level, repeated service/host, hex trace IDs, map fields |
+| Events 1024 | typed events with raw `[]byte` payloads |
+
+## Wire size (bytes, lower = better)
+
+| fixture | json | msgpack | protobuf | flatbuffers | qdf_speed | qdf_balanced | qdf_compression |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| RTB 1024 | 559 294 | 428 404 | 327 700 | 648 808 | 436 517 | 258 167 | **203 360** |
+| IoT 32×256 | 469 058 | 224 534 | 207 562 | 203 224 | 224 604 | 158 474 | **148 177** |
+| OTLP 4×512 | 1 027 033 | 793 192 | 561 860 | 960 160 | 807 235 | 240 686 | **179 181** |
+| Logs 1024 | 245 037 | 193 476 | 156 479 | 278 104 | 195 530 | 89 631 | **62 149** |
+| Events 1024 | 122 857 | 84 712 | 64 978 | 88 944 | 85 742 | 39 650 | **39 639** |
+
+**qdf is smaller than protobuf on every batch fixture** at the compression
+tier — RTB −38 %, IoT −29 %, OTLP −68 %, Logs −60 %, Events −39 %. qdf dedups and
+columnar-compresses *across* records (intern + dictionary + Delta/FOR + Gorilla);
+protobuf, msgpack, json and flatbuffers encode each record independently, so
+repeated strings, enum values and smooth float series re-pay their cost every
+row. flatbuffers is the largest — it trades size for zero-copy random access.
+
+## Memory — bytes allocated per encode+decode cycle (lower = better)
+
+The steady-state allocation rate is what drives GC pressure and resident set
+under sustained load in a container.
+
+**Fairness note:** qdf's `Marshal` pools its encoder internally, so a naïve
+comparison against the default `proto.Marshal` (no pooling) flatters qdf. The
+table below is the **fair** comparison — every codec reuses its output buffer
+the way a throughput-conscious caller would: qdf via `AppendMarshal`, protobuf
+via `proto.MarshalOptions.MarshalAppend`, msgpack via a pooled encoder,
+flatbuffers via `Builder.Reset`, json via a reused `bytes.Buffer`. Bytes
+allocated **per encode cycle** (decode allocates a fresh target on all codecs —
+symmetric, excluded here):
+
+| fixture | json | msgpack | protobuf | flatbuffers | qdf_speed | qdf_balanced | qdf_compression |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| RTB 1024 | 3.17 M | 2.02 M | 2.51 M | **4 K** | 1.48 M | 4.38 M | 5.28 M |
+| IoT 32×256 | 557 K | 420 K | 227 K | **128** | 212 K | 212 K | 791 K |
+| OTLP 4×512 | 2.44 M | 2.02 M | 2.05 M | **10 K** | 1.21 M | 2.10 M | 2.93 M |
+| Logs 1024 | 1.06 M | 693 K | 1.02 M | **4 K** | 550 K | 561 K | 880 K |
+| Events 1024 | 203 K | 170 K | 184 K | **4 K** | 113 K | 163 K | 312 K |
+
+**Honest verdict once both sides reuse buffers:**
+- **flatbuffers wins encode allocation outright** (4 K–128 B/cycle) — it builds
+  in place with no heap traffic after warm-up. This is its core design win and
+  was *masked* in a default-API comparison (where it allocates a fresh builder).
+- **`qdf_speed` / `qdf_qpack` beat protobuf on 4 of 5 fixtures** (≈40–50 % less
+  on RTB and OTLP), and tie on IoT. They are the lowest-allocating of the
+  marshal-into-`[]byte` codecs.
+- **`qdf_balanced` / `qdf_compression` do NOT win memory** — their richer codecs
+  (intern table, Gorilla/ALP scratch) cost transient buffers. They trade memory
+  and CPU for the wire-size win above; pick them when bytes-on-wire dominate.
+- Default-API allocation *counts* (no reuse) are even more lopsided — e.g. IoT
+  encode `qdf_balanced` 3 allocs/op vs `proto.Marshal` 385 — but that is mostly
+  qdf's built-in pooling vs protobuf's pool-less default call, **not** a format
+  intrinsic, so the fair reuse table above is the one to trust.
+
+## Honest caveats
+- **`qdf_speed` wire ≈ msgpack** — the speed tier skips columnar compression; it
+  is the drop-in `encoding/json` replacement, not the size play.
+- **`qdf_compression` encode is slower** (Gorilla/ALP float cost: ~70 MB/s on the
+  IoT float batch vs `qdf_balanced` ~1100 MB/s). Use `OptBalanced` for the
+  size win without the CPU hit; reserve `OptCompression` for cold storage.
+- **protobuf and flatbuffers win raw decode throughput** — generated code and
+  zero-copy access beat qdf's reflection path. Closing that gap (codegen that
+  emits the columnar wire) is tracked in the speed backlog.
+- Single-tiny-message size favours protobuf (schema field numbers, no columnar
+  amortisation < 16 rows). qdf's win is *batches* of structured records.
+
+## Selective decode — a capability the others don't have
+
+The size and memory tables above all decode the **whole** payload. qdf can do
+something none of json / msgpack / protobuf can: decode **only the columns you
+ask for** and **filter rows with a predicate pushed into the decoder**, over a
+self-describing batch with no schema (`Unmarshal(data, &out, Select(...),
+Where(...))` on an `OptColumnIndex` payload). Unselected columns are skipped on
+the wire — never materialised.
+
+Measured on a wide `[]struct` batch (i7-9750H):
+
+| operation | time | memory | vs full |
+| --- | ---: | ---: | --- |
+| full decode | ~117 µs | 290 KB | baseline |
+| `Select` two columns (projection) | **~25 µs** | **55 KB** | **~5× faster, ~5× less memory** |
+| `Where` predicate pushdown | ~50 µs | 68 KB | vs decode-all-then-filter ~133 µs / 301 KB → **~2.5× faster, ~4.4× less** |
+
+protobuf and msgpack must decode the entire message before you can read one
+field. flatbuffers offers zero-copy random *field* access — a different model
+that needs a compiled schema and does not do predicate-filtered column
+projection across a batch in one call. For "store a wide batch, read a few
+columns or filter rows later" — the columnar-warehouse access pattern — qdf is
+the only one of these formats that reads less than the whole thing.
+
+## When to pick which
+- **Smallest wire on batches, no schema** → qdf (`OptBalanced` for balanced
+  CPU, `OptCompression` for minimum bytes).
+- **Read a few columns / filter rows out of a stored batch** → qdf, uniquely
+  (`Select` / `Where` pushdown — ~5× faster, ~5× less memory than full decode).
+- **Lowest encode allocation, schema on hand** → flatbuffers (zero-copy build).
+- **Fastest decode / zero-copy random field access** → flatbuffers.
+- **Schema-based RPC, smallest single message, max encode throughput** → protobuf.
+- **Maximum interop / human-readable** → json.
