@@ -13,8 +13,9 @@ import (
 // reach competitive density.
 //
 // The encoder re-runs the distinct probe because the picker discards
-// the table after the size estimate; the probe is O(n * distinct)
-// and stays well under the bitpack-body work it replaces.
+// the table after the size estimate; both the probe and the per-element
+// index resolution use an open-addressed hash set, so each is O(n)
+// regardless of the distinct count.
 
 // writePackedDictUint64Slice emits s as a tagPackDict payload. The
 // caller has already decided via pickU64Codec that dict wins.
@@ -49,25 +50,44 @@ func (e *Encoder) writePackedDictUint64Slice(s []uint64) {
 	out = out[:start+bodyBytes]
 	body := out[start : start+bodyBytes]
 	clear(body)
+	// Build an open-addressed value→index map once so each element's
+	// index resolves in O(1); a linear scan over the table would be
+	// O(n·count) and grow with the cap.
+	hslot, hidx := buildDictIndexU64(&table, count)
 	// Stage indices in a chunk buffer so bitpack.PackChunk can
 	// reuse its existing LSB-first packing routine.
 	var chunk [64]uint64
 	for i := 0; i < n; i += len(chunk) {
 		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
-			// Resolve dict index via linear scan over the small
-			// table — count is bounded by qpackDictMaxDistinct so
-			// this stays well inside the cache.
-			for k := range count {
-				if table[k] == v {
-					chunk[j] = uint64(k)
-					break
-				}
+			h := (v * 0x9E3779B97F4A7C15) >> (64 - 7) & (qpackProbeSlots - 1)
+			for hslot[h] != v { // present by construction
+				h = (h + 1) & (qpackProbeSlots - 1)
 			}
+			chunk[j] = uint64(hidx[h])
 		}
 		bitpack.PackChunk(body, chunk[:end-i], bp, i)
 	}
 	e.buf = out
+}
+
+// buildDictIndexU64 returns an open-addressed map from each of the
+// count distinct values in table to its index, used by the dict
+// encoder to resolve element indices in O(1). The hslot array holds
+// the keys; hidx[slot] is the value's position in the dictionary.
+func buildDictIndexU64(table *[qpackDictMaxDistinct + 1]uint64, count int) (hslot [qpackProbeSlots]uint64, hidx [qpackProbeSlots]int16) {
+	var used [qpackProbeSlots]bool
+	for k := range count {
+		v := table[k]
+		h := (v * 0x9E3779B97F4A7C15) >> (64 - 7)
+		for used[h] {
+			h = (h + 1) & (qpackProbeSlots - 1)
+		}
+		used[h] = true
+		hslot[h] = v
+		hidx[h] = int16(k)
+	}
+	return hslot, hidx
 }
 
 // writePackedDictInt64Slice mirrors the unsigned variant. Dictionary
@@ -98,20 +118,37 @@ func (e *Encoder) writePackedDictInt64Slice(s []int64) {
 	out = out[:start+bodyBytes]
 	body := out[start : start+bodyBytes]
 	clear(body)
+	hslot, hidx := buildDictIndexI64(&table, count)
 	var chunk [64]uint64
 	for i := 0; i < n; i += len(chunk) {
 		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
-			for k := range count {
-				if table[k] == v {
-					chunk[j] = uint64(k)
-					break
-				}
+			h := (uint64(v) * 0x9E3779B97F4A7C15) >> (64 - 7) & (qpackProbeSlots - 1)
+			for hslot[h] != v { // present by construction
+				h = (h + 1) & (qpackProbeSlots - 1)
 			}
+			chunk[j] = uint64(hidx[h])
 		}
 		bitpack.PackChunk(body, chunk[:end-i], bp, i)
 	}
 	e.buf = out
+}
+
+// buildDictIndexI64 mirrors buildDictIndexU64 for signed dictionaries,
+// hashing the two's-complement bit pattern.
+func buildDictIndexI64(table *[qpackDictMaxDistinct + 1]int64, count int) (hslot [qpackProbeSlots]int64, hidx [qpackProbeSlots]int16) {
+	var used [qpackProbeSlots]bool
+	for k := range count {
+		v := table[k]
+		h := (uint64(v) * 0x9E3779B97F4A7C15) >> (64 - 7)
+		for used[h] {
+			h = (h + 1) & (qpackProbeSlots - 1)
+		}
+		used[h] = true
+		hslot[h] = v
+		hidx[h] = int16(k)
+	}
+	return hslot, hidx
 }
 
 // readPackedDictHeader parses the kind byte and distinct count after
