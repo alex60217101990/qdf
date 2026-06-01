@@ -31,7 +31,6 @@ func TestCompression_TypeMatrix(t *testing.T) {
 		Ptr:     &n,
 	}
 	for _, opts := range []Options{OptCompression, OptDense | OptRANS, OptQPack | OptGorillaFloat} {
-		opts := opts
 		t.Run(fmt.Sprintf("opts=%05b", opts), func(t *testing.T) {
 			data, err := Marshal(v, opts)
 			if err != nil {

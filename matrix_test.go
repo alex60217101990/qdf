@@ -37,7 +37,6 @@ func roundtripBundles[T any](t *testing.T, value T) map[string][]byte {
 		if b.columnarOnly {
 			continue
 		}
-		b := b
 		t.Run(b.name, func(t *testing.T) {
 			data, err := Marshal(value, b.opts)
 			if err != nil {
@@ -60,7 +59,6 @@ func roundtripBundles[T any](t *testing.T, value T) map[string][]byte {
 func roundtripColumnar[T any](t *testing.T, rows []T) {
 	t.Helper()
 	for _, b := range matrixBundles() {
-		b := b
 		t.Run(b.name, func(t *testing.T) {
 			data, err := Marshal(rows, b.opts)
 			if err != nil {
