@@ -81,7 +81,7 @@ jobs:
           go test -bench=. -benchmem -benchtime="${BENCH_TIME}" -run=^$ -timeout=10m | tee bench_codegen.txt
 
       - name: upload bench artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-results-${{ github.sha }}
           path: |
