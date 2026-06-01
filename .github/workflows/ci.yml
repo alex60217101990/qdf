@@ -31,7 +31,7 @@ jobs:
         # but this is the canonical Linux arm64 runner).
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
@@ -114,7 +114,7 @@ jobs:
           - module: qdfgen
             working-directory: cmd/qdfgen
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
@@ -138,7 +138,7 @@ jobs:
     name: fuzz (30s smoke)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
@@ -183,7 +183,7 @@ jobs:
     name: codegen drift (protobuf/flatbuffers)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:

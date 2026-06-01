@@ -36,7 +36,7 @@ jobs:
           - module: codegen_test
             working-directory: internal/codegen_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
         with:
