@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
