@@ -380,10 +380,14 @@ correctly resolved). On the `cmd/qdfgen` `Sample` fixture
 
 | Encode      | ns/op   | B/op | allocs |
 | ----------- | ------: | ---: | -----: |
-| json        |    1800 |  576 |      8 |
-| qdf_reflect |     580 |  480 |      3 |
-| qdf_codegen |     530 |  504 |      6 |
-| **qdf_direct** | **364** | **160** | **1** |
+| json        |    2760 |  576 |      8 |
+| qdf_reflect |     910 |  480 |      3 |
+| qdf_codegen |     800 |  504 |      6 |
+| **qdf_direct** | **545** | **160** | **1** |
+
+(i7-9750H · Go 1.26 · `-count=6` median. Absolute ns are machine-specific;
+the ratios — `qdf_direct` ≈ 5× faster than json, ≈ 1.6× faster than the
+reflect path, at 1 alloc vs json's 8 — are the stable signal.)
 
 Decode-side performance is bounded by the receiver's `UnmarshalQDF`.
 The reflect path is heavily pooled (Decoder pool + per-decoder key
