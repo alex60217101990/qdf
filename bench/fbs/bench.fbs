@@ -1,0 +1,124 @@
+// bench.fbs — FlatBuffers schema mirroring all five benchmark fixtures.
+// namespace: benchfbs  (maps to Go package benchfbs under bench/fbs/)
+// flatbuffers has no native map type; map<string,string> is modelled as
+// a vector of KeyValue tables.
+
+namespace benchfbs;
+
+// ── shared KV (used everywhere maps appear) ───────────────────────────────
+
+table KeyValue {
+  key:   string;
+  value: string;
+}
+
+// ── RTB / OpenRTB fixtures ────────────────────────────────────────────────
+
+table Geo {
+  country: string;
+  lat:     double;
+  lon:     double;
+  geo_type: int;
+}
+
+table Device {
+  ua:          string;
+  ip:          string;
+  os:          int;
+  device_type: int;
+  geo:         Geo;
+}
+
+table Impression {
+  imp_id:    string;
+  bid_floor: double;
+  w:         int;
+  h:         int;
+  deal_ids:  [string];
+  ext:       [KeyValue];
+}
+
+table BidRequest {
+  req_id:  string;
+  at:      int;
+  tmax:    int;
+  imp:     [Impression];
+  dev:     Device;
+  cur:     [string];
+}
+
+table RTBBatch {
+  requests: [BidRequest];
+}
+
+root_type RTBBatch;
+
+// ── IoT fixtures ──────────────────────────────────────────────────────────
+
+table DeviceReading {
+  device_id: string;
+  ts:        [long];
+  temp:      [double];
+  humidity:  [double];
+  tags:      [KeyValue];
+}
+
+table IoTBatchFB {
+  devices: [DeviceReading];
+}
+
+// ── OTLP / trace fixtures ─────────────────────────────────────────────────
+
+table Span {
+  trace_id:  string;
+  span_id:   string;
+  parent_id: string;
+  name:      string;
+  kind:      int;
+  start_ns:  long;
+  end_ns:    long;
+  attrs:     [KeyValue];
+  status:    int;
+}
+
+table ScopeSpans {
+  scope: string;
+  spans: [Span];
+}
+
+table ResourceSpans {
+  resource: [KeyValue];
+  scopes:   [ScopeSpans];
+}
+
+table TraceExportFB {
+  resource_spans: [ResourceSpans];
+}
+
+// ── Log / Event fixtures ──────────────────────────────────────────────────
+
+table LogRecord {
+  ts:       long;
+  level:    int;
+  service:  string;
+  host:     string;
+  message:  string;
+  trace_id: string;
+  span_id:  string;
+  fields:   [KeyValue];
+}
+
+table LogBatchFB {
+  records: [LogRecord];
+}
+
+table EventRecord {
+  ts:      long;
+  ev_type: int;
+  source:  string;
+  payload: [ubyte];
+}
+
+table EventBatchFB {
+  records: [EventRecord];
+}
