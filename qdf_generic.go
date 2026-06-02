@@ -63,6 +63,14 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	dec.i = 0
 	dec.headerRead = false
 	dec.mode = Fast
+	// Start from a clean pooled decoder: it is shared with Unmarshal /
+	// UnmarshalColumns / query paths, any of which may have left noCopy,
+	// selectFields, query, or colIndex set. Inheriting noCopy would silently
+	// alias the input buffer; inheriting selectFields/query would mis-project.
+	dec.noCopy = false
+	dec.colIndex = false
+	dec.selectFields = nil
+	dec.query = nil
 	if dec.state != nil {
 		dec.state.reset()
 	}
@@ -75,6 +83,10 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	}
 	err = td.decode(dec, unsafe.Pointer(out))
 	dec.buf = nil
+	// Don't pin a spike-sized scratch buffer in the pool (mirrors unmarshal).
+	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
+		dec.deltaScratch = nil
+	}
 	decPool.Put(dec)
 	return err
 }

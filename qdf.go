@@ -468,6 +468,11 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool) error {
 	err := decodeReflect(dec, out)
 	dec.buf = nil
 	dec.selectFields = nil
+	// Reset noCopy so a WithNoCopy() decode never leaves the pooled decoder in
+	// aliasing mode for the next acquirer (e.g. UnmarshalT) — that would return
+	// buffer-aliased strings the caller never opted into (a silent
+	// use-after-free, undetectable by the race detector).
+	dec.noCopy = false
 	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
 		dec.deltaScratch = nil
 	}
