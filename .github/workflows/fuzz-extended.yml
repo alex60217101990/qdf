@@ -47,8 +47,15 @@ jobs:
           restore-keys: |
             fuzz-corpus-${{ matrix.target }}-
 
+      # GOMEMLIMIT makes each fuzz worker GC under memory pressure instead of
+      # being OOM-killed by the OS after cumulative RSS growth over a long run
+      # (the "hung or terminated unexpectedly" failure mode — an environmental
+      # OOM, not an input crash). -parallel caps worker processes so their
+      # aggregate footprint stays well under the runner's RAM.
       - name: ${{ matrix.target }} (10m)
-        run: go test -run=^$ -fuzz=${{ matrix.target }} -fuzztime=10m -timeout=15m
+        env:
+          GOMEMLIMIT: 2GiB
+        run: go test -run=^$ -fuzz=${{ matrix.target }} -fuzztime=10m -timeout=15m -parallel=2
 
       - name: Upload new corpus on failure
         if: failure()
