@@ -122,6 +122,31 @@ func benchDecode[T any](b *testing.B, name string, v T) {
 		}
 		b.SetBytes(int64(len(qdfDenseBytes)))
 	})
+	// noCopy cases: WithNoCopy aliases the input buffer (safe here — the bytes
+	// live for the whole benchmark and are never reused). It cuts allocations
+	// on the reflect path (e.g. Flat/Nested/Wide). Codegen/Unmarshaler types
+	// (LogBatch) decode via their own decoder and do NOT inherit the flag, so
+	// their nocopy rows stay flat by design.
+	b.Run(name+"/qdf_fast_nocopy", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var out T
+			if err := qdf.Unmarshal(qdfFastBytes, &out, qdf.WithNoCopy()); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.SetBytes(int64(len(qdfFastBytes)))
+	})
+	b.Run(name+"/qdf_dense_nocopy", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var out T
+			if err := qdf.Unmarshal(qdfDenseBytes, &out, qdf.WithNoCopy()); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.SetBytes(int64(len(qdfDenseBytes)))
+	})
 }
 
 // ----- size comparison (also runs roundtrip correctness) -----
