@@ -34,6 +34,7 @@ type predTerm struct {
 type QueryOption struct {
 	node         *condNode
 	selectFields []string
+	noCopy       bool
 }
 
 // condOp is the kind of a predicate-tree node.
@@ -106,6 +107,21 @@ func Select(fields ...string) QueryOption {
 	return QueryOption{selectFields: append([]string(nil), fields...)}
 }
 
+// WithNoCopy makes the decode return string and []byte values that ALIAS the
+// input buffer instead of copying them. On string-heavy payloads this is ~2x
+// faster with near-zero allocations.
+//
+// DANGER — lifetime contract: the returned values are valid ONLY while the
+// input buffer passed to Unmarshal stays alive and is never modified or reused.
+// Do NOT use WithNoCopy when the input may be recycled, mutated, or freed before
+// you finish reading the decoded values — e.g. a pooled HTTP request body. The
+// decoded strings would silently become garbage. This is a manual-memory
+// use-after-free, not a data race: the race detector will NOT catch it.
+//
+// Safe only for caller-owned, long-lived, immutable input such as an mmap or a
+// file read fully into memory.
+func WithNoCopy() QueryOption { return QueryOption{noCopy: true} }
+
 // combine builds an And/Or node from option kids, flagging any non-predicate
 // (Select) kid as an ErrUnsupported misuse.
 func combine(op condOp, opts []QueryOption) QueryOption {
@@ -145,6 +161,7 @@ func Not(opt QueryOption) QueryOption {
 type queryPlan struct {
 	root         *condNode
 	selectFields []string
+	noCopy       bool
 }
 
 // firstCondErr returns the first construction error in the tree, or nil.
@@ -167,6 +184,9 @@ func buildQueryPlan(opts []QueryOption) (*queryPlan, error) {
 	qp := &queryPlan{}
 	var nodes []*condNode
 	for _, o := range opts {
+		if o.noCopy {
+			qp.noCopy = true
+		}
 		switch {
 		case o.node != nil:
 			nodes = append(nodes, o.node)

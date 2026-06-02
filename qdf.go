@@ -406,11 +406,17 @@ func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
 // behavior is exactly the plain decode above.
 func Unmarshal(data []byte, out any, opts ...QueryOption) error {
 	if len(opts) == 0 {
-		return unmarshal(data, out, nil)
+		return unmarshal(data, out, nil, false)
 	}
 	qp, err := buildQueryPlan(opts)
 	if err != nil {
 		return err
+	}
+	// A noCopy-only plan (no predicate, no projection) is a plain decode — do
+	// NOT route it through the columnar query path, which assumes a columnar
+	// container and would reject a row payload.
+	if qp.root == nil && qp.selectFields == nil {
+		return unmarshal(data, out, nil, qp.noCopy)
 	}
 	return unmarshalQuery(data, out, qp)
 }
@@ -428,6 +434,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.colIndex = false
 	dec.selectFields = qp.selectFields
 	dec.query = qp
+	dec.noCopy = qp.noCopy
 	if dec.state != nil {
 		dec.state.reset()
 	}
@@ -435,6 +442,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.buf = nil
 	dec.selectFields = nil
 	dec.query = nil
+	dec.noCopy = false
 	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
 		dec.deltaScratch = nil
 	}
@@ -445,13 +453,14 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 // unmarshal is the shared pooled-decoder dispatch behind Unmarshal and
 // UnmarshalColumns. When fields is non-nil it restricts the columnar map
 // (any) decode to those columns (see Decoder.selectFields).
-func unmarshal(data []byte, out any, fields []string) error {
+func unmarshal(data []byte, out any, fields []string, noCopy bool) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data
 	dec.i = 0
 	dec.headerRead = false
 	dec.mode = Fast
 	dec.colIndex = false
+	dec.noCopy = noCopy
 	dec.selectFields = fields
 	if dec.state != nil {
 		dec.state.reset()
