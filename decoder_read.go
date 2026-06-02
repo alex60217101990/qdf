@@ -314,6 +314,12 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		if d.state == nil {
 			return nil, ErrUnknownStateID
 		}
+		// Reject before the uint32 narrowing: a hostile 10-byte varint above
+		// 2^32 would truncate to a small, possibly-valid id and silently
+		// resolve the WRONG interned string (and desync the LRU/pair chains).
+		if id64 > math.MaxUint32 {
+			return nil, ErrUnknownStateID
+		}
 		out, ok := d.state.get(uint32(id64))
 		if !ok {
 			return nil, ErrUnknownStateID
@@ -333,6 +339,11 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		}
 		d.i += n
 		if d.state == nil {
+			return nil, ErrUnknownStateID
+		}
+		// Reject before narrowing: a >2^32 varint would truncate to a small
+		// rank and resolve a wrong entry instead of failing.
+		if rank64 > math.MaxUint32 {
 			return nil, ErrUnknownStateID
 		}
 		// Side-cache lookup: the encoder emits tagStateMTF only when
