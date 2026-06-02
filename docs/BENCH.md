@@ -191,6 +191,18 @@ at ~3 allocs/op for fast path.
 | Wide ×1000       | 4.14M   | 1.95M   | **1.06M**   | 1.84×      | 3.89×   |
 | LogBatch ×1000   | 3.42M   | 1.32M   | **469k**    | 2.81×      | 7.30×   |
 
+## Decode hot-path: header parse outlined (inliner)
+
+`peekTag` ran on every tag and called `readHeader` just to test the
+already-read flag; `readHeader` was too complex to inline, so it stayed a real
+call. Outlining the parse into `readHeaderSlow` (`//go:noinline`) and inlining
+the flag check into `peekTag` drops that call from the common path. benchstat
+(i7-9750H, count=10, reflect decode): **Flat −6.8%, Nested −10.0%,
+LogBatch1k −7.6%, geomean −6.8% / +7.3% throughput**; allocs and wire
+unchanged. Per-tag overhead matters most on small/per-message decodes; the
+big columnar `Wide ×1000` fixture is dominated by codec work and moves within
+noise.
+
 ## Decode — realistic (different bytes per iteration)
 
 | Bench                              | json | msgpack | qdf_fast | vs msgpack | vs json |
