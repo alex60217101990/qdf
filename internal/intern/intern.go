@@ -17,20 +17,23 @@ import (
 )
 
 // Cache is a 256-slot direct-mapped string interner. The zero value is
-// ready to use. Lookups are a hash + one read + one comparison. 256
-// slots fit in ~4 KiB on 64-bit, which keeps the table in L1.
+// ready to use. Lookups are a hash + one read + one comparison. The 256-slot
+// table (~4 KiB on 64-bit) lives behind a pointer and is allocated lazily on
+// the first Make, so an unused Cache costs ~24 bytes inside its owner — this
+// matters for decoders that are constructed per nested value (codegen) and
+// never touch a map key. Once allocated it stays in L1 across reuse.
 type Cache struct {
-	slots [256]string
+	slots *[256]string
 	seed  maphash.Seed
 	init  bool
 }
 
-func (c *Cache) hash(b []byte) uint64 {
+func (c *Cache) ensure() {
 	if !c.init {
 		c.seed = maphash.MakeSeed()
+		c.slots = new([256]string)
 		c.init = true
 	}
-	return maphash.Bytes(c.seed, b)
 }
 
 // Make returns a string equal to b. On a cache hit the existing string
@@ -43,7 +46,8 @@ func (c *Cache) Make(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
-	h := c.hash(b)
+	c.ensure()
+	h := maphash.Bytes(c.seed, b)
 	slot := h & (uint64(len(c.slots)) - 1)
 	if existing := c.slots[slot]; existing != "" && existing == unsafestr.String(b) {
 		return existing
