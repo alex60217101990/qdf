@@ -157,11 +157,22 @@ func (d *Decoder) CheckLength(n int, perElem int) error {
 	return nil
 }
 
-// readHeader parses the 5-byte header. Called once per buffer.
+// readHeader consumes the 5-byte header once per buffer. The hot path is the
+// already-read check; the actual parse is outlined into readHeaderSlow so this
+// (and its callers, peekTag/next) stay within the inliner budget.
 func (d *Decoder) readHeader() error {
 	if d.headerRead {
 		return nil
 	}
+	return d.readHeaderSlow()
+}
+
+// readHeaderSlow parses the 5-byte header (and an optional rANS body). Kept out
+// of line: it runs once per decode, so inlining its cost into the per-tag hot
+// path would only bloat callers.
+//
+//go:noinline
+func (d *Decoder) readHeaderSlow() error {
 	if len(d.buf)-d.i < 5 {
 		return ErrShortBuffer
 	}
@@ -205,10 +216,14 @@ func (d *Decoder) readHeader() error {
 	return nil
 }
 
-// peekTag returns the next tag without consuming it.
+// peekTag returns the next tag without consuming it. The header check is
+// inlined here so the common (header-already-read) path has no call; the parse
+// is taken only on the first tag of a decode.
 func (d *Decoder) peekTag() (byte, error) {
-	if err := d.readHeader(); err != nil {
-		return 0, err
+	if !d.headerRead {
+		if err := d.readHeaderSlow(); err != nil {
+			return 0, err
+		}
 	}
 	if d.i >= len(d.buf) {
 		return 0, ErrShortBuffer
