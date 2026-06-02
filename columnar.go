@@ -1053,7 +1053,13 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 			continue
 		}
 		col := want[c]
-		if sh.kinds[c].base() != col.kind.base() {
+		// Full-kind compare (incl. the nullable flag), matching the full-decode
+		// path. The scatter below branches on cv.present (the WIRE nullability),
+		// so a wire/plan nullability mismatch must be rejected here: otherwise a
+		// nullable wire column scattered into a non-nullable plan column hits
+		// reflect.SliceOf(nil) (col.elemType==nil) → panic, and the reverse
+		// scatters a raw value into a *T field slot → corruption.
+		if sh.kinds[c] != col.kind {
 			return ErrTypeMismatch
 		}
 		if cv.present != nil {
