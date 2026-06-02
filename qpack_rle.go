@@ -89,11 +89,17 @@ func (d *Decoder) readPackedRLEHeader(expectKind byte) (n int, err error) {
 		return 0, ErrInvalidLength
 	}
 	d.i += nr
+	// In a columnar column every codec must yield exactly the struct count
+	// (colMaxLen); RLE can legitimately claim far more elements than remaining
+	// bytes (a long run is 2 bytes), so unlike the body-bounded codecs it MUST
+	// be gated by colLenOK or a tiny body could claim a multi-GB element count.
+	if !d.colLenOK(n64) {
+		return 0, ErrInvalidLength
+	}
 	if n64 > uint64(len(d.buf)-d.i) {
-		// Each run takes at least 2 bytes (1 byte value + 1 byte
-		// runLen). A claim of more elements than remaining bytes
-		// would mean over-long runs — let the body loop catch it,
-		// just guard the obvious lie here to avoid huge allocs.
+		// Standalone decode (colMaxLen == 0): no per-element body bound exists
+		// for RLE, so cap the obvious lie. Each run is ≥ 2 bytes; the body loop
+		// catches subtler over-claims.
 		if n64 > 1<<30 {
 			return 0, ErrInvalidLength
 		}
