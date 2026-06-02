@@ -660,8 +660,15 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 				}
 				fieldNames = sh.names
 			}
+			cur := 0
 			for _, name := range fieldNames {
-				fd := resolveField(name)
+				var fd *fieldDesc
+				if cur < len(indexed) && indexed[cur].name == name {
+					fd = indexed[cur].f
+					cur++
+				} else {
+					fd = resolveField(name)
+				}
 				if fd == nil {
 					if err := d.Skip(); err != nil {
 						return err
@@ -681,13 +688,25 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 		if err != nil {
 			return err
 		}
+		// Fields arrive in struct-declaration order in the common case (qdf
+		// encodes them that way), so try the expected next field before the
+		// map/linear lookup. An in-order hit is one string compare — no hash,
+		// no map access. cur is left unchanged on a miss so a skipped unknown
+		// field doesn't desync the cursor for the following in-order fields.
+		cur := 0
 		for range n {
 			kb, err := d.readStringBytes()
 			if err != nil {
 				return err
 			}
 			name := unsafestr.String(kb)
-			fd := resolveField(name)
+			var fd *fieldDesc
+			if cur < len(indexed) && indexed[cur].name == name {
+				fd = indexed[cur].f
+				cur++
+			} else {
+				fd = resolveField(name)
+			}
 			if fd == nil {
 				if err := d.Skip(); err != nil {
 					return err
