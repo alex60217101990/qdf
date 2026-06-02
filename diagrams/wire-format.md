@@ -134,3 +134,35 @@ flowchart LR
 
 The column-length index appears only when `FlagColIndex` is set, enabling
 O(1) skip of unwanted columns during selective decode.
+
+## Stream framing (`StreamEncoder` / `StreamDecoder`)
+
+One-shot `Marshal` produces a single self-contained buffer (the layout above).
+A **stream** is different: the 5-byte header is written once as a preamble, then
+each message is length-delimited with a `uvarint` byte-count so the decoder can
+buffer a whole message — of any size — before decoding it.
+
+<img src="svg/wire-format-3.svg" alt="stream framing layout">
+
+<details><summary>Mermaid source</summary>
+
+```mermaid
+flowchart LR
+    H["header (5 bytes)\nonce per stream"]
+    L0["uvarint len0"]
+    M0["message 0 body"]
+    L1["uvarint len1"]
+    M1["message 1 body"]
+    LN["uvarint lenN\n…"]
+    H --> L0 --> M0 --> L1 --> M1 --> LN
+```
+
+</details>
+
+The shared Dense intern/shape/predictor tables span the whole stream (a repeated
+value in message 1 is a state-ref back into message 0). A truncated final frame
+returns `ErrShortBuffer`; a clean boundary returns `io.EOF`. Frame length is
+capped at 2 GiB. The whole-buffer features — `FlagRANS`, `FlagColIndex`, and
+predicate pushdown — are not used in streams; they apply to a single complete
+payload. This framing is stream-specific: the one-shot `Marshal` wire has no
+per-message length prefix.

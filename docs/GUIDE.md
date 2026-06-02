@@ -1009,6 +1009,45 @@ its keys for state-refs.
 the stream encoder is returned to its pool (`Close`), the state
 shrinks via the same watermark logic.
 
+**Framing.** The 5-byte header is written once, before the first
+message. Each message is then length-delimited: a `uvarint` byte-count
+precedes its body. The decoder reads the length, buffers exactly that
+many bytes, and decodes the message in one pass — so a message of **any
+size** round-trips (including through a reader that returns one byte per
+`Read`), and a partial read never corrupts the shared dense state. A
+frame length is capped at 2 GiB; a truncated final frame returns
+`ErrShortBuffer`, a clean end returns `io.EOF`. (This framing is
+specific to the stream wire; the one-shot `Marshal`/`Unmarshal` format
+has no per-message length prefix.)
+
+**What the stream supports vs the one-shot API.** Struct tags
+(`qdf:"..."`) and all Dense/codec features behave identically — pass any
+`Options` to `NewStreamEncoderWith`, and the intern/shape/predictor
+tables span the whole stream. Decode-side **zero-copy** works too:
+`StreamDecoder.SetNoCopy(true)` aliases the input buffer, and because the
+window is never compacted the aliases stay valid for the stream's
+lifetime.
+
+Three whole-payload features are **not** part of streaming, by design —
+they operate on a single complete message/batch, which is the opposite
+of a per-message stream:
+
+| Feature | In a stream? | Why |
+|---|---|---|
+| `OptColumnIndex` (selective/columnar decode) | no | needs a backpatched header over one columnar batch |
+| `Where` / `Select` predicate pushdown, `UnmarshalColumns` | no | operate on a columnar batch; a stream is the row-by-row alternative |
+| `OptRANS` (whole-body entropy pass) | no | needs the whole buffer; per-tiny-message it rarely wins |
+
+For those, encode a batch with one-shot `Marshal(..., OptColumnIndex)`
+and read it back with `Unmarshal(..., Where/Select)`.
+
+**Buffer reuse / zero-alloc encode.** There is no `AppendMarshal(dst)`
+form for streams — a stream writes to an `io.Writer`. The encoder reuses
+its own pooled buffer across `Encode` calls, so steady-state encoding is
+allocation-free; to land the bytes in a `[]byte`, pass a `*bytes.Buffer`
+as the writer. After `Close`, `Encode`/`Flush`/`Decode`/`SetNoCopy`
+return an error (or no-op) rather than panicking.
+
 ### Custom marshalers (`Marshaler` / `Unmarshaler`)
 
 ```go
