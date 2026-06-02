@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780379751580,
+  "lastUpdate": 1780385804557,
   "repoUrl": "https://github.com/alex60217101990/qdf",
   "entries": {
     "qdf Go Benchmarks": [
@@ -219948,6 +219948,10344 @@ window.BENCHMARK_DATA = {
             "value": 61,
             "unit": "allocs/op",
             "extra": "14324 times\n4 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alex6021710@gmail.com",
+            "name": "alex60217101990",
+            "username": "alex60217101990"
+          },
+          "committer": {
+            "email": "33520849+alex60217101990@users.noreply.github.com",
+            "name": "alex60217101990",
+            "username": "alex60217101990"
+          },
+          "distinct": true,
+          "id": "e6cd4f33f769bbe36231d4a28bca719fd0f781d2",
+          "message": "docs: runnable ExampleWithNoCopy for godoc",
+          "timestamp": "2026-06-02T10:21:36+03:00",
+          "tree_id": "50ca935f517725931d377fcd42c4d16014f88f9f",
+          "url": "https://github.com/alex60217101990/qdf/commit/e6cd4f33f769bbe36231d4a28bca719fd0f781d2"
+        },
+        "date": 1780385803692,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json",
+            "value": 177.7,
+            "unit": "ns/op\t 140.67 MB/s\t      24 B/op\t       1 allocs/op",
+            "extra": "13543801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json - ns/op",
+            "value": 177.7,
+            "unit": "ns/op",
+            "extra": "13543801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json - MB/s",
+            "value": 140.67,
+            "unit": "MB/s",
+            "extra": "13543801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json - B/op",
+            "value": 24,
+            "unit": "B/op",
+            "extra": "13543801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "13543801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json_marshal",
+            "value": 200.7,
+            "unit": "ns/op\t 119.60 MB/s\t      48 B/op\t       2 allocs/op",
+            "extra": "11925240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json_marshal - ns/op",
+            "value": 200.7,
+            "unit": "ns/op",
+            "extra": "11925240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json_marshal - MB/s",
+            "value": 119.6,
+            "unit": "MB/s",
+            "extra": "11925240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json_marshal - B/op",
+            "value": 48,
+            "unit": "B/op",
+            "extra": "11925240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/json_marshal - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "11925240 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/msgpack",
+            "value": 242.6,
+            "unit": "ns/op\t  65.96 MB/s\t     136 B/op\t       3 allocs/op",
+            "extra": "9836124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/msgpack - ns/op",
+            "value": 242.6,
+            "unit": "ns/op",
+            "extra": "9836124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/msgpack - MB/s",
+            "value": 65.96,
+            "unit": "MB/s",
+            "extra": "9836124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/msgpack - B/op",
+            "value": 136,
+            "unit": "B/op",
+            "extra": "9836124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/msgpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "9836124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_fast",
+            "value": 217.8,
+            "unit": "ns/op\t 101.00 MB/s\t      72 B/op\t       3 allocs/op",
+            "extra": "11428815 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_fast - ns/op",
+            "value": 217.8,
+            "unit": "ns/op",
+            "extra": "11428815 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_fast - MB/s",
+            "value": 101,
+            "unit": "MB/s",
+            "extra": "11428815 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_fast - B/op",
+            "value": 72,
+            "unit": "B/op",
+            "extra": "11428815 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "11428815 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_dense",
+            "value": 424.5,
+            "unit": "ns/op\t  58.89 MB/s\t      80 B/op\t       3 allocs/op",
+            "extra": "5626045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_dense - ns/op",
+            "value": 424.5,
+            "unit": "ns/op",
+            "extra": "5626045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_dense - MB/s",
+            "value": 58.89,
+            "unit": "MB/s",
+            "extra": "5626045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_dense - B/op",
+            "value": 80,
+            "unit": "B/op",
+            "extra": "5626045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Tiny/Tiny/qdf_dense - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "5626045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json",
+            "value": 988.8,
+            "unit": "ns/op\t 213.39 MB/s\t     192 B/op\t       1 allocs/op",
+            "extra": "2422582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json - ns/op",
+            "value": 988.8,
+            "unit": "ns/op",
+            "extra": "2422582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json - MB/s",
+            "value": 213.39,
+            "unit": "MB/s",
+            "extra": "2422582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json - B/op",
+            "value": 192,
+            "unit": "B/op",
+            "extra": "2422582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "2422582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json_marshal",
+            "value": 1073,
+            "unit": "ns/op\t 195.80 MB/s\t     416 B/op\t       2 allocs/op",
+            "extra": "2213570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json_marshal - ns/op",
+            "value": 1073,
+            "unit": "ns/op",
+            "extra": "2213570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json_marshal - MB/s",
+            "value": 195.8,
+            "unit": "MB/s",
+            "extra": "2213570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json_marshal - B/op",
+            "value": 416,
+            "unit": "B/op",
+            "extra": "2213570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/json_marshal - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "2213570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/msgpack",
+            "value": 1071,
+            "unit": "ns/op\t 125.17 MB/s\t     688 B/op\t       5 allocs/op",
+            "extra": "2263521 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/msgpack - ns/op",
+            "value": 1071,
+            "unit": "ns/op",
+            "extra": "2263521 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/msgpack - MB/s",
+            "value": 125.17,
+            "unit": "MB/s",
+            "extra": "2263521 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/msgpack - B/op",
+            "value": 688,
+            "unit": "B/op",
+            "extra": "2263521 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/msgpack - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "2263521 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_fast",
+            "value": 515.1,
+            "unit": "ns/op\t 256.25 MB/s\t     528 B/op\t       3 allocs/op",
+            "extra": "4632679 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_fast - ns/op",
+            "value": 515.1,
+            "unit": "ns/op",
+            "extra": "4632679 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_fast - MB/s",
+            "value": 256.25,
+            "unit": "MB/s",
+            "extra": "4632679 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_fast - B/op",
+            "value": 528,
+            "unit": "B/op",
+            "extra": "4632679 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "4632679 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_dense",
+            "value": 843.9,
+            "unit": "ns/op\t 163.52 MB/s\t     528 B/op\t       3 allocs/op",
+            "extra": "2877346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_dense - ns/op",
+            "value": 843.9,
+            "unit": "ns/op",
+            "extra": "2877346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_dense - MB/s",
+            "value": 163.52,
+            "unit": "MB/s",
+            "extra": "2877346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_dense - B/op",
+            "value": 528,
+            "unit": "B/op",
+            "extra": "2877346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Flat/Flat/qdf_dense - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "2877346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json",
+            "value": 451.4,
+            "unit": "ns/op\t 230.42 MB/s\t      80 B/op\t       1 allocs/op",
+            "extra": "5295988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json - ns/op",
+            "value": 451.4,
+            "unit": "ns/op",
+            "extra": "5295988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json - MB/s",
+            "value": 230.42,
+            "unit": "MB/s",
+            "extra": "5295988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json - B/op",
+            "value": 80,
+            "unit": "B/op",
+            "extra": "5295988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "5295988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json_marshal",
+            "value": 498.9,
+            "unit": "ns/op\t 206.44 MB/s\t     192 B/op\t       2 allocs/op",
+            "extra": "4798839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json_marshal - ns/op",
+            "value": 498.9,
+            "unit": "ns/op",
+            "extra": "4798839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json_marshal - MB/s",
+            "value": 206.44,
+            "unit": "MB/s",
+            "extra": "4798839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json_marshal - B/op",
+            "value": 192,
+            "unit": "B/op",
+            "extra": "4798839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/json_marshal - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "4798839 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/msgpack",
+            "value": 755.8,
+            "unit": "ns/op\t 100.55 MB/s\t     320 B/op\t       4 allocs/op",
+            "extra": "3131074 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/msgpack - ns/op",
+            "value": 755.8,
+            "unit": "ns/op",
+            "extra": "3131074 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/msgpack - MB/s",
+            "value": 100.55,
+            "unit": "MB/s",
+            "extra": "3131074 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/msgpack - B/op",
+            "value": 320,
+            "unit": "B/op",
+            "extra": "3131074 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/msgpack - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3131074 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_fast",
+            "value": 346,
+            "unit": "ns/op\t 248.58 MB/s\t     256 B/op\t       3 allocs/op",
+            "extra": "6904768 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_fast - ns/op",
+            "value": 346,
+            "unit": "ns/op",
+            "extra": "6904768 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_fast - MB/s",
+            "value": 248.58,
+            "unit": "MB/s",
+            "extra": "6904768 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_fast - B/op",
+            "value": 256,
+            "unit": "B/op",
+            "extra": "6904768 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "6904768 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_dense",
+            "value": 680.1,
+            "unit": "ns/op\t 141.17 MB/s\t     256 B/op\t       3 allocs/op",
+            "extra": "3490053 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_dense - ns/op",
+            "value": 680.1,
+            "unit": "ns/op",
+            "extra": "3490053 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_dense - MB/s",
+            "value": 141.17,
+            "unit": "MB/s",
+            "extra": "3490053 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_dense - B/op",
+            "value": 256,
+            "unit": "B/op",
+            "extra": "3490053 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Nested/Nested/qdf_dense - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "3490053 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json",
+            "value": 1476,
+            "unit": "ns/op\t 162.64 MB/s\t       0 B/op\t       0 allocs/op",
+            "extra": "1628487 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json - ns/op",
+            "value": 1476,
+            "unit": "ns/op",
+            "extra": "1628487 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json - MB/s",
+            "value": 162.64,
+            "unit": "MB/s",
+            "extra": "1628487 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "1628487 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "1628487 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json_marshal",
+            "value": 1561,
+            "unit": "ns/op\t 153.09 MB/s\t     240 B/op\t       1 allocs/op",
+            "extra": "1537658 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json_marshal - ns/op",
+            "value": 1561,
+            "unit": "ns/op",
+            "extra": "1537658 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json_marshal - MB/s",
+            "value": 153.09,
+            "unit": "MB/s",
+            "extra": "1537658 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json_marshal - B/op",
+            "value": 240,
+            "unit": "B/op",
+            "extra": "1537658 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/json_marshal - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "1537658 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/msgpack",
+            "value": 2922,
+            "unit": "ns/op\t  47.58 MB/s\t     752 B/op\t      20 allocs/op",
+            "extra": "800402 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/msgpack - ns/op",
+            "value": 2922,
+            "unit": "ns/op",
+            "extra": "800402 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/msgpack - MB/s",
+            "value": 47.58,
+            "unit": "MB/s",
+            "extra": "800402 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/msgpack - B/op",
+            "value": 752,
+            "unit": "B/op",
+            "extra": "800402 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/msgpack - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "800402 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_fast",
+            "value": 639.8,
+            "unit": "ns/op\t 259.44 MB/s\t     176 B/op\t       1 allocs/op",
+            "extra": "3752154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_fast - ns/op",
+            "value": 639.8,
+            "unit": "ns/op",
+            "extra": "3752154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_fast - MB/s",
+            "value": 259.44,
+            "unit": "MB/s",
+            "extra": "3752154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_fast - B/op",
+            "value": 176,
+            "unit": "B/op",
+            "extra": "3752154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_fast - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "3752154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_dense",
+            "value": 719.9,
+            "unit": "ns/op\t  87.52 MB/s\t      64 B/op\t       1 allocs/op",
+            "extra": "3306872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_dense - ns/op",
+            "value": 719.9,
+            "unit": "ns/op",
+            "extra": "3306872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_dense - MB/s",
+            "value": 87.52,
+            "unit": "MB/s",
+            "extra": "3306872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_dense - B/op",
+            "value": 64,
+            "unit": "B/op",
+            "extra": "3306872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Deep16/Deep16/qdf_dense - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "3306872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json",
+            "value": 841711,
+            "unit": "ns/op\t 252.94 MB/s\t     280 B/op\t       1 allocs/op",
+            "extra": "2882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json - ns/op",
+            "value": 841711,
+            "unit": "ns/op",
+            "extra": "2882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json - MB/s",
+            "value": 252.94,
+            "unit": "MB/s",
+            "extra": "2882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json - B/op",
+            "value": 280,
+            "unit": "B/op",
+            "extra": "2882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "2882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json_marshal",
+            "value": 841236,
+            "unit": "ns/op\t 253.08 MB/s\t  213235 B/op\t       2 allocs/op",
+            "extra": "2812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json_marshal - ns/op",
+            "value": 841236,
+            "unit": "ns/op",
+            "extra": "2812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json_marshal - MB/s",
+            "value": 253.08,
+            "unit": "MB/s",
+            "extra": "2812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json_marshal - B/op",
+            "value": 213235,
+            "unit": "B/op",
+            "extra": "2812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/json_marshal - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "2812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/msgpack",
+            "value": 777502,
+            "unit": "ns/op\t 174.44 MB/s\t  524381 B/op\t      15 allocs/op",
+            "extra": "3019 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/msgpack - ns/op",
+            "value": 777502,
+            "unit": "ns/op",
+            "extra": "3019 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/msgpack - MB/s",
+            "value": 174.44,
+            "unit": "MB/s",
+            "extra": "3019 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/msgpack - B/op",
+            "value": 524381,
+            "unit": "B/op",
+            "extra": "3019 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/msgpack - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "3019 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_fast",
+            "value": 253632,
+            "unit": "ns/op\t 507.16 MB/s\t  131157 B/op\t       3 allocs/op",
+            "extra": "9566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_fast - ns/op",
+            "value": 253632,
+            "unit": "ns/op",
+            "extra": "9566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_fast - MB/s",
+            "value": 507.16,
+            "unit": "MB/s",
+            "extra": "9566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_fast - B/op",
+            "value": 131157,
+            "unit": "B/op",
+            "extra": "9566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "9566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_dense",
+            "value": 233190,
+            "unit": "ns/op\t 161.11 MB/s\t   41444 B/op\t       5 allocs/op",
+            "extra": "9912 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_dense - ns/op",
+            "value": 233190,
+            "unit": "ns/op",
+            "extra": "9912 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_dense - MB/s",
+            "value": 161.11,
+            "unit": "MB/s",
+            "extra": "9912 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_dense - B/op",
+            "value": 41444,
+            "unit": "B/op",
+            "extra": "9912 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Wide_x1000/Wide1k/qdf_dense - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "9912 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json",
+            "value": 945240,
+            "unit": "ns/op\t 261.21 MB/s\t   48565 B/op\t    1001 allocs/op",
+            "extra": "2506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json - ns/op",
+            "value": 945240,
+            "unit": "ns/op",
+            "extra": "2506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json - MB/s",
+            "value": 261.21,
+            "unit": "MB/s",
+            "extra": "2506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json - B/op",
+            "value": 48565,
+            "unit": "B/op",
+            "extra": "2506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json - allocs/op",
+            "value": 1001,
+            "unit": "allocs/op",
+            "extra": "2506 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json_marshal",
+            "value": 972580,
+            "unit": "ns/op\t 253.86 MB/s\t  302291 B/op\t    1002 allocs/op",
+            "extra": "2457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json_marshal - ns/op",
+            "value": 972580,
+            "unit": "ns/op",
+            "extra": "2457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json_marshal - MB/s",
+            "value": 253.86,
+            "unit": "MB/s",
+            "extra": "2457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json_marshal - B/op",
+            "value": 302291,
+            "unit": "B/op",
+            "extra": "2457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/json_marshal - allocs/op",
+            "value": 1002,
+            "unit": "allocs/op",
+            "extra": "2457 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/msgpack",
+            "value": 604659,
+            "unit": "ns/op\t 307.01 MB/s\t  548384 B/op\t    1015 allocs/op",
+            "extra": "3955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/msgpack - ns/op",
+            "value": 604659,
+            "unit": "ns/op",
+            "extra": "3955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/msgpack - MB/s",
+            "value": 307.01,
+            "unit": "MB/s",
+            "extra": "3955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/msgpack - B/op",
+            "value": 548384,
+            "unit": "B/op",
+            "extra": "3955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/msgpack - allocs/op",
+            "value": 1015,
+            "unit": "allocs/op",
+            "extra": "3955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_fast",
+            "value": 185662,
+            "unit": "ns/op\t1009.23 MB/s\t  188702 B/op\t       3 allocs/op",
+            "extra": "12931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_fast - ns/op",
+            "value": 185662,
+            "unit": "ns/op",
+            "extra": "12931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_fast - MB/s",
+            "value": 1009.23,
+            "unit": "MB/s",
+            "extra": "12931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_fast - B/op",
+            "value": 188702,
+            "unit": "B/op",
+            "extra": "12931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "12931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_dense",
+            "value": 186043,
+            "unit": "ns/op\t1007.16 MB/s\t  188984 B/op\t       3 allocs/op",
+            "extra": "12877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_dense - ns/op",
+            "value": 186043,
+            "unit": "ns/op",
+            "extra": "12877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_dense - MB/s",
+            "value": 1007.16,
+            "unit": "MB/s",
+            "extra": "12877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_dense - B/op",
+            "value": 188984,
+            "unit": "B/op",
+            "extra": "12877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k/LogBatch1k/qdf_dense - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "12877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/json",
+            "value": 722.4,
+            "unit": "ns/op\t  33.22 MB/s\t     248 B/op\t       6 allocs/op",
+            "extra": "3317341 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/json - ns/op",
+            "value": 722.4,
+            "unit": "ns/op",
+            "extra": "3317341 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/json - MB/s",
+            "value": 33.22,
+            "unit": "MB/s",
+            "extra": "3317341 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/json - B/op",
+            "value": 248,
+            "unit": "B/op",
+            "extra": "3317341 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/json - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "3317341 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/msgpack",
+            "value": 338.4,
+            "unit": "ns/op\t  47.29 MB/s\t      77 B/op\t       3 allocs/op",
+            "extra": "7065646 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/msgpack - ns/op",
+            "value": 338.4,
+            "unit": "ns/op",
+            "extra": "7065646 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/msgpack - MB/s",
+            "value": 47.29,
+            "unit": "MB/s",
+            "extra": "7065646 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/msgpack - B/op",
+            "value": 77,
+            "unit": "B/op",
+            "extra": "7065646 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/msgpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "7065646 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast",
+            "value": 167.2,
+            "unit": "ns/op\t 131.61 MB/s\t      29 B/op\t       2 allocs/op",
+            "extra": "14344335 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast - ns/op",
+            "value": 167.2,
+            "unit": "ns/op",
+            "extra": "14344335 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast - MB/s",
+            "value": 131.61,
+            "unit": "MB/s",
+            "extra": "14344335 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast - B/op",
+            "value": 29,
+            "unit": "B/op",
+            "extra": "14344335 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "14344335 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense",
+            "value": 349.1,
+            "unit": "ns/op\t  71.61 MB/s\t      72 B/op\t       4 allocs/op",
+            "extra": "6885120 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense - ns/op",
+            "value": 349.1,
+            "unit": "ns/op",
+            "extra": "6885120 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense - MB/s",
+            "value": 71.61,
+            "unit": "MB/s",
+            "extra": "6885120 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense - B/op",
+            "value": 72,
+            "unit": "B/op",
+            "extra": "6885120 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "6885120 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast_nocopy",
+            "value": 187.3,
+            "unit": "ns/op\t 117.46 MB/s\t      72 B/op\t       2 allocs/op",
+            "extra": "12677718 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast_nocopy - ns/op",
+            "value": 187.3,
+            "unit": "ns/op",
+            "extra": "12677718 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast_nocopy - MB/s",
+            "value": 117.46,
+            "unit": "MB/s",
+            "extra": "12677718 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast_nocopy - B/op",
+            "value": 72,
+            "unit": "B/op",
+            "extra": "12677718 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_fast_nocopy - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "12677718 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense_nocopy",
+            "value": 352.5,
+            "unit": "ns/op\t  70.92 MB/s\t     112 B/op\t       4 allocs/op",
+            "extra": "6740277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense_nocopy - ns/op",
+            "value": 352.5,
+            "unit": "ns/op",
+            "extra": "6740277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense_nocopy - MB/s",
+            "value": 70.92,
+            "unit": "MB/s",
+            "extra": "6740277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense_nocopy - B/op",
+            "value": 112,
+            "unit": "B/op",
+            "extra": "6740277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Tiny/Tiny/qdf_dense_nocopy - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "6740277 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/json",
+            "value": 4276,
+            "unit": "ns/op\t  49.11 MB/s\t     448 B/op\t      10 allocs/op",
+            "extra": "543554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/json - ns/op",
+            "value": 4276,
+            "unit": "ns/op",
+            "extra": "543554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/json - MB/s",
+            "value": 49.11,
+            "unit": "MB/s",
+            "extra": "543554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/json - B/op",
+            "value": 448,
+            "unit": "B/op",
+            "extra": "543554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/json - allocs/op",
+            "value": 10,
+            "unit": "allocs/op",
+            "extra": "543554 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/msgpack",
+            "value": 1599,
+            "unit": "ns/op\t  83.80 MB/s\t     272 B/op\t       7 allocs/op",
+            "extra": "1495878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/msgpack - ns/op",
+            "value": 1599,
+            "unit": "ns/op",
+            "extra": "1495878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/msgpack - MB/s",
+            "value": 83.8,
+            "unit": "MB/s",
+            "extra": "1495878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/msgpack - B/op",
+            "value": 272,
+            "unit": "B/op",
+            "extra": "1495878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/msgpack - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1495878 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast",
+            "value": 872,
+            "unit": "ns/op\t 151.38 MB/s\t     224 B/op\t       6 allocs/op",
+            "extra": "2752321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast - ns/op",
+            "value": 872,
+            "unit": "ns/op",
+            "extra": "2752321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast - MB/s",
+            "value": 151.38,
+            "unit": "MB/s",
+            "extra": "2752321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast - B/op",
+            "value": 224,
+            "unit": "B/op",
+            "extra": "2752321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "2752321 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense",
+            "value": 1419,
+            "unit": "ns/op\t  97.27 MB/s\t     624 B/op\t       8 allocs/op",
+            "extra": "1685994 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense - ns/op",
+            "value": 1419,
+            "unit": "ns/op",
+            "extra": "1685994 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense - MB/s",
+            "value": 97.27,
+            "unit": "MB/s",
+            "extra": "1685994 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense - B/op",
+            "value": 624,
+            "unit": "B/op",
+            "extra": "1685994 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "1685994 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast_nocopy",
+            "value": 835.2,
+            "unit": "ns/op\t 158.04 MB/s\t     240 B/op\t       2 allocs/op",
+            "extra": "2853148 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast_nocopy - ns/op",
+            "value": 835.2,
+            "unit": "ns/op",
+            "extra": "2853148 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast_nocopy - MB/s",
+            "value": 158.04,
+            "unit": "MB/s",
+            "extra": "2853148 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast_nocopy - B/op",
+            "value": 240,
+            "unit": "B/op",
+            "extra": "2853148 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_fast_nocopy - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "2853148 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense_nocopy",
+            "value": 1359,
+            "unit": "ns/op\t 101.58 MB/s\t     640 B/op\t       4 allocs/op",
+            "extra": "1768838 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense_nocopy - ns/op",
+            "value": 1359,
+            "unit": "ns/op",
+            "extra": "1768838 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense_nocopy - MB/s",
+            "value": 101.58,
+            "unit": "MB/s",
+            "extra": "1768838 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense_nocopy - B/op",
+            "value": 640,
+            "unit": "B/op",
+            "extra": "1768838 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Flat/Flat/qdf_dense_nocopy - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "1768838 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/json",
+            "value": 2420,
+            "unit": "ns/op\t  42.57 MB/s\t     664 B/op\t      15 allocs/op",
+            "extra": "938017 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/json - ns/op",
+            "value": 2420,
+            "unit": "ns/op",
+            "extra": "938017 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/json - MB/s",
+            "value": 42.57,
+            "unit": "MB/s",
+            "extra": "938017 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/json - B/op",
+            "value": 664,
+            "unit": "B/op",
+            "extra": "938017 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/json - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "938017 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/msgpack",
+            "value": 1010,
+            "unit": "ns/op\t  75.22 MB/s\t     160 B/op\t       6 allocs/op",
+            "extra": "2384702 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/msgpack - ns/op",
+            "value": 1010,
+            "unit": "ns/op",
+            "extra": "2384702 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/msgpack - MB/s",
+            "value": 75.22,
+            "unit": "MB/s",
+            "extra": "2384702 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/msgpack - B/op",
+            "value": 160,
+            "unit": "B/op",
+            "extra": "2384702 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/msgpack - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "2384702 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast",
+            "value": 432.2,
+            "unit": "ns/op\t 199.00 MB/s\t     112 B/op\t       5 allocs/op",
+            "extra": "5533344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast - ns/op",
+            "value": 432.2,
+            "unit": "ns/op",
+            "extra": "5533344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast - MB/s",
+            "value": 199,
+            "unit": "MB/s",
+            "extra": "5533344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast - B/op",
+            "value": 112,
+            "unit": "B/op",
+            "extra": "5533344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "5533344 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense",
+            "value": 936.9,
+            "unit": "ns/op\t 102.46 MB/s\t     296 B/op\t      15 allocs/op",
+            "extra": "2556350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense - ns/op",
+            "value": 936.9,
+            "unit": "ns/op",
+            "extra": "2556350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense - MB/s",
+            "value": 102.46,
+            "unit": "MB/s",
+            "extra": "2556350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense - B/op",
+            "value": 296,
+            "unit": "B/op",
+            "extra": "2556350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "2556350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast_nocopy",
+            "value": 404.9,
+            "unit": "ns/op\t 212.38 MB/s\t     128 B/op\t       2 allocs/op",
+            "extra": "5922055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast_nocopy - ns/op",
+            "value": 404.9,
+            "unit": "ns/op",
+            "extra": "5922055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast_nocopy - MB/s",
+            "value": 212.38,
+            "unit": "MB/s",
+            "extra": "5922055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast_nocopy - B/op",
+            "value": 128,
+            "unit": "B/op",
+            "extra": "5922055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_fast_nocopy - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "5922055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense_nocopy",
+            "value": 866.9,
+            "unit": "ns/op\t 110.74 MB/s\t     312 B/op\t      12 allocs/op",
+            "extra": "2763118 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense_nocopy - ns/op",
+            "value": 866.9,
+            "unit": "ns/op",
+            "extra": "2763118 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense_nocopy - MB/s",
+            "value": 110.74,
+            "unit": "MB/s",
+            "extra": "2763118 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense_nocopy - B/op",
+            "value": 312,
+            "unit": "B/op",
+            "extra": "2763118 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Nested/Nested/qdf_dense_nocopy - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "2763118 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/json",
+            "value": 7173,
+            "unit": "ns/op\t  33.32 MB/s\t    1200 B/op\t      29 allocs/op",
+            "extra": "322141 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/json - ns/op",
+            "value": 7173,
+            "unit": "ns/op",
+            "extra": "322141 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/json - MB/s",
+            "value": 33.32,
+            "unit": "MB/s",
+            "extra": "322141 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/json - B/op",
+            "value": 1200,
+            "unit": "B/op",
+            "extra": "322141 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/json - allocs/op",
+            "value": 29,
+            "unit": "allocs/op",
+            "extra": "322141 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/msgpack",
+            "value": 3893,
+            "unit": "ns/op\t  35.71 MB/s\t     312 B/op\t      18 allocs/op",
+            "extra": "598461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/msgpack - ns/op",
+            "value": 3893,
+            "unit": "ns/op",
+            "extra": "598461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/msgpack - MB/s",
+            "value": 35.71,
+            "unit": "MB/s",
+            "extra": "598461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/msgpack - B/op",
+            "value": 312,
+            "unit": "B/op",
+            "extra": "598461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/msgpack - allocs/op",
+            "value": 18,
+            "unit": "allocs/op",
+            "extra": "598461 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast",
+            "value": 2114,
+            "unit": "ns/op\t  78.54 MB/s\t     264 B/op\t      17 allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast - ns/op",
+            "value": 2114,
+            "unit": "ns/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast - MB/s",
+            "value": 78.54,
+            "unit": "MB/s",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast - B/op",
+            "value": 264,
+            "unit": "B/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense",
+            "value": 1934,
+            "unit": "ns/op\t  32.57 MB/s\t     304 B/op\t      19 allocs/op",
+            "extra": "1240842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense - ns/op",
+            "value": 1934,
+            "unit": "ns/op",
+            "extra": "1240842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense - MB/s",
+            "value": 32.57,
+            "unit": "MB/s",
+            "extra": "1240842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense - B/op",
+            "value": 304,
+            "unit": "B/op",
+            "extra": "1240842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense - allocs/op",
+            "value": 19,
+            "unit": "allocs/op",
+            "extra": "1240842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast_nocopy",
+            "value": 2164,
+            "unit": "ns/op\t  76.71 MB/s\t     312 B/op\t      18 allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast_nocopy - ns/op",
+            "value": 2164,
+            "unit": "ns/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast_nocopy - MB/s",
+            "value": 76.71,
+            "unit": "MB/s",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast_nocopy - B/op",
+            "value": 312,
+            "unit": "B/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_fast_nocopy - allocs/op",
+            "value": 18,
+            "unit": "allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense_nocopy",
+            "value": 1961,
+            "unit": "ns/op\t  32.13 MB/s\t     352 B/op\t      20 allocs/op",
+            "extra": "1223636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense_nocopy - ns/op",
+            "value": 1961,
+            "unit": "ns/op",
+            "extra": "1223636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense_nocopy - MB/s",
+            "value": 32.13,
+            "unit": "MB/s",
+            "extra": "1223636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense_nocopy - B/op",
+            "value": 352,
+            "unit": "B/op",
+            "extra": "1223636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Deep16/Deep16/qdf_dense_nocopy - allocs/op",
+            "value": 20,
+            "unit": "allocs/op",
+            "extra": "1223636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/json",
+            "value": 4147550,
+            "unit": "ns/op\t  51.33 MB/s\t  638352 B/op\t    5020 allocs/op",
+            "extra": "578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/json - ns/op",
+            "value": 4147550,
+            "unit": "ns/op",
+            "extra": "578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/json - MB/s",
+            "value": 51.33,
+            "unit": "MB/s",
+            "extra": "578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/json - B/op",
+            "value": 638352,
+            "unit": "B/op",
+            "extra": "578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/json - allocs/op",
+            "value": 5020,
+            "unit": "allocs/op",
+            "extra": "578 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/msgpack",
+            "value": 1527882,
+            "unit": "ns/op\t  88.77 MB/s\t  409043 B/op\t    5007 allocs/op",
+            "extra": "1552 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/msgpack - ns/op",
+            "value": 1527882,
+            "unit": "ns/op",
+            "extra": "1552 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/msgpack - MB/s",
+            "value": 88.77,
+            "unit": "MB/s",
+            "extra": "1552 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/msgpack - B/op",
+            "value": 409043,
+            "unit": "B/op",
+            "extra": "1552 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/msgpack - allocs/op",
+            "value": 5007,
+            "unit": "allocs/op",
+            "extra": "1552 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast",
+            "value": 783147,
+            "unit": "ns/op\t 164.25 MB/s\t  220500 B/op\t    5003 allocs/op",
+            "extra": "3045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast - ns/op",
+            "value": 783147,
+            "unit": "ns/op",
+            "extra": "3045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast - MB/s",
+            "value": 164.25,
+            "unit": "MB/s",
+            "extra": "3045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast - B/op",
+            "value": 220500,
+            "unit": "B/op",
+            "extra": "3045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast - allocs/op",
+            "value": 5003,
+            "unit": "allocs/op",
+            "extra": "3045 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense",
+            "value": 119863,
+            "unit": "ns/op\t 313.44 MB/s\t  189055 B/op\t      13 allocs/op",
+            "extra": "19988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense - ns/op",
+            "value": 119863,
+            "unit": "ns/op",
+            "extra": "19988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense - MB/s",
+            "value": 313.44,
+            "unit": "MB/s",
+            "extra": "19988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense - B/op",
+            "value": 189055,
+            "unit": "B/op",
+            "extra": "19988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense - allocs/op",
+            "value": 13,
+            "unit": "allocs/op",
+            "extra": "19988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast_nocopy",
+            "value": 735637,
+            "unit": "ns/op\t 174.86 MB/s\t  188542 B/op\t       4 allocs/op",
+            "extra": "3274 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast_nocopy - ns/op",
+            "value": 735637,
+            "unit": "ns/op",
+            "extra": "3274 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast_nocopy - MB/s",
+            "value": 174.86,
+            "unit": "MB/s",
+            "extra": "3274 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast_nocopy - B/op",
+            "value": 188542,
+            "unit": "B/op",
+            "extra": "3274 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_fast_nocopy - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3274 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense_nocopy",
+            "value": 115473,
+            "unit": "ns/op\t 325.36 MB/s\t  189073 B/op\t       9 allocs/op",
+            "extra": "20601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense_nocopy - ns/op",
+            "value": 115473,
+            "unit": "ns/op",
+            "extra": "20601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense_nocopy - MB/s",
+            "value": 325.36,
+            "unit": "MB/s",
+            "extra": "20601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense_nocopy - B/op",
+            "value": 189073,
+            "unit": "B/op",
+            "extra": "20601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Wide_x1000/Wide1k/qdf_dense_nocopy - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "20601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/json",
+            "value": 3207379,
+            "unit": "ns/op\t  76.98 MB/s\t  442536 B/op\t    7019 allocs/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/json - ns/op",
+            "value": 3207379,
+            "unit": "ns/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/json - MB/s",
+            "value": 76.98,
+            "unit": "MB/s",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/json - B/op",
+            "value": 442536,
+            "unit": "B/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/json - allocs/op",
+            "value": 7019,
+            "unit": "allocs/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/msgpack",
+            "value": 1011652,
+            "unit": "ns/op\t 183.50 MB/s\t  407518 B/op\t    7007 allocs/op",
+            "extra": "2415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/msgpack - ns/op",
+            "value": 1011652,
+            "unit": "ns/op",
+            "extra": "2415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/msgpack - MB/s",
+            "value": 183.5,
+            "unit": "MB/s",
+            "extra": "2415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/msgpack - B/op",
+            "value": 407518,
+            "unit": "B/op",
+            "extra": "2415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/msgpack - allocs/op",
+            "value": 7007,
+            "unit": "allocs/op",
+            "extra": "2415 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast",
+            "value": 470501,
+            "unit": "ns/op\t 398.25 MB/s\t  251713 B/op\t    7002 allocs/op",
+            "extra": "5096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast - ns/op",
+            "value": 470501,
+            "unit": "ns/op",
+            "extra": "5096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast - MB/s",
+            "value": 398.25,
+            "unit": "MB/s",
+            "extra": "5096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast - B/op",
+            "value": 251713,
+            "unit": "B/op",
+            "extra": "5096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast - allocs/op",
+            "value": 7002,
+            "unit": "allocs/op",
+            "extra": "5096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense",
+            "value": 470270,
+            "unit": "ns/op\t 398.44 MB/s\t  251714 B/op\t    7002 allocs/op",
+            "extra": "5011 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense - ns/op",
+            "value": 470270,
+            "unit": "ns/op",
+            "extra": "5011 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense - MB/s",
+            "value": 398.44,
+            "unit": "MB/s",
+            "extra": "5011 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense - B/op",
+            "value": 251714,
+            "unit": "B/op",
+            "extra": "5011 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense - allocs/op",
+            "value": 7002,
+            "unit": "allocs/op",
+            "extra": "5011 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast_nocopy",
+            "value": 287826,
+            "unit": "ns/op\t 651.00 MB/s\t  155745 B/op\t       3 allocs/op",
+            "extra": "8136 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast_nocopy - ns/op",
+            "value": 287826,
+            "unit": "ns/op",
+            "extra": "8136 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast_nocopy - MB/s",
+            "value": 651,
+            "unit": "MB/s",
+            "extra": "8136 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast_nocopy - B/op",
+            "value": 155745,
+            "unit": "B/op",
+            "extra": "8136 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_fast_nocopy - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "8136 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense_nocopy",
+            "value": 287382,
+            "unit": "ns/op\t 652.01 MB/s\t  155744 B/op\t       3 allocs/op",
+            "extra": "8367 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense_nocopy - ns/op",
+            "value": 287382,
+            "unit": "ns/op",
+            "extra": "8367 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense_nocopy - MB/s",
+            "value": 652.01,
+            "unit": "MB/s",
+            "extra": "8367 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense_nocopy - B/op",
+            "value": 155744,
+            "unit": "B/op",
+            "extra": "8367 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k/LogBatch1k/qdf_dense_nocopy - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "8367 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k_Codegen",
+            "value": 338268,
+            "unit": "ns/op\t 553.92 MB/s\t  908026 B/op\t      26 allocs/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k_Codegen - ns/op",
+            "value": 338268,
+            "unit": "ns/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k_Codegen - MB/s",
+            "value": 553.92,
+            "unit": "MB/s",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k_Codegen - B/op",
+            "value": 908026,
+            "unit": "B/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_LogBatch1k_Codegen - allocs/op",
+            "value": 26,
+            "unit": "allocs/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k_Codegen",
+            "value": 468330,
+            "unit": "ns/op\t 400.09 MB/s\t  251648 B/op\t    7001 allocs/op",
+            "extra": "5005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k_Codegen - ns/op",
+            "value": 468330,
+            "unit": "ns/op",
+            "extra": "5005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k_Codegen - MB/s",
+            "value": 400.09,
+            "unit": "MB/s",
+            "extra": "5005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k_Codegen - B/op",
+            "value": 251648,
+            "unit": "B/op",
+            "extra": "5005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_LogBatch1k_Codegen - allocs/op",
+            "value": 7001,
+            "unit": "allocs/op",
+            "extra": "5005 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/json",
+            "value": 141006,
+            "unit": "ns/op\t 190.95 MB/s\t   27435 B/op\t       2 allocs/op",
+            "extra": "17026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/json - ns/op",
+            "value": 141006,
+            "unit": "ns/op",
+            "extra": "17026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/json - MB/s",
+            "value": 190.95,
+            "unit": "MB/s",
+            "extra": "17026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/json - B/op",
+            "value": 27435,
+            "unit": "B/op",
+            "extra": "17026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "17026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/msgpack",
+            "value": 186923,
+            "unit": "ns/op\t 203.26 MB/s\t  131236 B/op\t      13 allocs/op",
+            "extra": "12862 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/msgpack - ns/op",
+            "value": 186923,
+            "unit": "ns/op",
+            "extra": "12862 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/msgpack - MB/s",
+            "value": 203.26,
+            "unit": "MB/s",
+            "extra": "12862 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/msgpack - B/op",
+            "value": 131236,
+            "unit": "B/op",
+            "extra": "12862 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/msgpack - allocs/op",
+            "value": 13,
+            "unit": "allocs/op",
+            "extra": "12862 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/qdf",
+            "value": 20071,
+            "unit": "ns/op\t 431.86 MB/s\t    9798 B/op\t       3 allocs/op",
+            "extra": "118567 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/qdf - ns/op",
+            "value": 20071,
+            "unit": "ns/op",
+            "extra": "118567 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/qdf - MB/s",
+            "value": 431.86,
+            "unit": "MB/s",
+            "extra": "118567 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/qdf - B/op",
+            "value": 9798,
+            "unit": "B/op",
+            "extra": "118567 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "118567 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/json",
+            "value": 606904,
+            "unit": "ns/op\t  44.36 MB/s\t  104576 B/op\t      65 allocs/op",
+            "extra": "3883 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/json - ns/op",
+            "value": 606904,
+            "unit": "ns/op",
+            "extra": "3883 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/json - MB/s",
+            "value": 44.36,
+            "unit": "MB/s",
+            "extra": "3883 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/json - B/op",
+            "value": 104576,
+            "unit": "B/op",
+            "extra": "3883 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/json - allocs/op",
+            "value": 65,
+            "unit": "allocs/op",
+            "extra": "3883 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/msgpack",
+            "value": 230946,
+            "unit": "ns/op\t 164.51 MB/s\t   68194 B/op\t      29 allocs/op",
+            "extra": "9907 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/msgpack - ns/op",
+            "value": 230946,
+            "unit": "ns/op",
+            "extra": "9907 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/msgpack - MB/s",
+            "value": 164.51,
+            "unit": "MB/s",
+            "extra": "9907 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/msgpack - B/op",
+            "value": 68194,
+            "unit": "B/op",
+            "extra": "9907 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/msgpack - allocs/op",
+            "value": 29,
+            "unit": "allocs/op",
+            "extra": "9907 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/qdf",
+            "value": 9211,
+            "unit": "ns/op\t 941.06 MB/s\t   34138 B/op\t      10 allocs/op",
+            "extra": "262416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/qdf - ns/op",
+            "value": 9211,
+            "unit": "ns/op",
+            "extra": "262416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/qdf - MB/s",
+            "value": 941.06,
+            "unit": "MB/s",
+            "extra": "262416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/qdf - B/op",
+            "value": 34138,
+            "unit": "B/op",
+            "extra": "262416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_WebRequest/webreq_1024/decode/qdf - allocs/op",
+            "value": 10,
+            "unit": "allocs/op",
+            "extra": "262416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/json",
+            "value": 72622,
+            "unit": "ns/op\t 238.41 MB/s\t   18538 B/op\t       2 allocs/op",
+            "extra": "33157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/json - ns/op",
+            "value": 72622,
+            "unit": "ns/op",
+            "extra": "33157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/json - MB/s",
+            "value": 238.41,
+            "unit": "MB/s",
+            "extra": "33157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/json - B/op",
+            "value": 18538,
+            "unit": "B/op",
+            "extra": "33157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "33157 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/msgpack",
+            "value": 119896,
+            "unit": "ns/op\t 231.12 MB/s\t   65625 B/op\t      12 allocs/op",
+            "extra": "19947 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/msgpack - ns/op",
+            "value": 119896,
+            "unit": "ns/op",
+            "extra": "19947 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/msgpack - MB/s",
+            "value": 231.12,
+            "unit": "MB/s",
+            "extra": "19947 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/msgpack - B/op",
+            "value": 65625,
+            "unit": "B/op",
+            "extra": "19947 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/msgpack - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "19947 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/qdf",
+            "value": 18413,
+            "unit": "ns/op\t  24.87 MB/s\t     672 B/op\t       3 allocs/op",
+            "extra": "129416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/qdf - ns/op",
+            "value": 18413,
+            "unit": "ns/op",
+            "extra": "129416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/qdf - MB/s",
+            "value": 24.87,
+            "unit": "MB/s",
+            "extra": "129416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/qdf - B/op",
+            "value": 672,
+            "unit": "B/op",
+            "extra": "129416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "129416 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/json",
+            "value": 369821,
+            "unit": "ns/op\t  46.82 MB/s\t   75976 B/op\t      43 allocs/op",
+            "extra": "6314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/json - ns/op",
+            "value": 369821,
+            "unit": "ns/op",
+            "extra": "6314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/json - MB/s",
+            "value": 46.82,
+            "unit": "MB/s",
+            "extra": "6314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/json - B/op",
+            "value": 75976,
+            "unit": "B/op",
+            "extra": "6314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/json - allocs/op",
+            "value": 43,
+            "unit": "allocs/op",
+            "extra": "6314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/msgpack",
+            "value": 153658,
+            "unit": "ns/op\t 180.34 MB/s\t   49543 B/op\t      18 allocs/op",
+            "extra": "15598 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/msgpack - ns/op",
+            "value": 153658,
+            "unit": "ns/op",
+            "extra": "15598 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/msgpack - MB/s",
+            "value": 180.34,
+            "unit": "MB/s",
+            "extra": "15598 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/msgpack - B/op",
+            "value": 49543,
+            "unit": "B/op",
+            "extra": "15598 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/msgpack - allocs/op",
+            "value": 18,
+            "unit": "allocs/op",
+            "extra": "15598 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/qdf",
+            "value": 8098,
+            "unit": "ns/op\t  56.56 MB/s\t   24704 B/op\t       5 allocs/op",
+            "extra": "301936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/qdf - ns/op",
+            "value": 8098,
+            "unit": "ns/op",
+            "extra": "301936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/qdf - MB/s",
+            "value": 56.56,
+            "unit": "MB/s",
+            "extra": "301936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/qdf - B/op",
+            "value": 24704,
+            "unit": "B/op",
+            "extra": "301936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Counters/counters_1024/decode/qdf - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "301936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/json",
+            "value": 27960,
+            "unit": "ns/op\t 244.17 MB/s\t    6962 B/op\t       2 allocs/op",
+            "extra": "85064 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/json - ns/op",
+            "value": 27960,
+            "unit": "ns/op",
+            "extra": "85064 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/json - MB/s",
+            "value": 244.17,
+            "unit": "MB/s",
+            "extra": "85064 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/json - B/op",
+            "value": 6962,
+            "unit": "B/op",
+            "extra": "85064 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "85064 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/msgpack",
+            "value": 43065,
+            "unit": "ns/op\t 214.77 MB/s\t   32804 B/op\t      11 allocs/op",
+            "extra": "55932 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/msgpack - ns/op",
+            "value": 43065,
+            "unit": "ns/op",
+            "extra": "55932 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/msgpack - MB/s",
+            "value": 214.77,
+            "unit": "MB/s",
+            "extra": "55932 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/msgpack - B/op",
+            "value": 32804,
+            "unit": "B/op",
+            "extra": "55932 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/msgpack - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "55932 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/qdf",
+            "value": 9136,
+            "unit": "ns/op\t  33.71 MB/s\t     416 B/op\t       3 allocs/op",
+            "extra": "258922 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/qdf - ns/op",
+            "value": 9136,
+            "unit": "ns/op",
+            "extra": "258922 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/qdf - MB/s",
+            "value": 33.71,
+            "unit": "MB/s",
+            "extra": "258922 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/qdf - B/op",
+            "value": 416,
+            "unit": "B/op",
+            "extra": "258922 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "258922 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/json",
+            "value": 141652,
+            "unit": "ns/op\t  48.20 MB/s\t   25504 B/op\t      19 allocs/op",
+            "extra": "16945 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/json - ns/op",
+            "value": 141652,
+            "unit": "ns/op",
+            "extra": "16945 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/json - MB/s",
+            "value": 48.2,
+            "unit": "MB/s",
+            "extra": "16945 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/json - B/op",
+            "value": 25504,
+            "unit": "B/op",
+            "extra": "16945 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/json - allocs/op",
+            "value": 19,
+            "unit": "allocs/op",
+            "extra": "16945 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/msgpack",
+            "value": 52316,
+            "unit": "ns/op\t 176.79 MB/s\t   16570 B/op\t       8 allocs/op",
+            "extra": "45663 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/msgpack - ns/op",
+            "value": 52316,
+            "unit": "ns/op",
+            "extra": "45663 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/msgpack - MB/s",
+            "value": 176.79,
+            "unit": "MB/s",
+            "extra": "45663 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/msgpack - B/op",
+            "value": 16570,
+            "unit": "B/op",
+            "extra": "45663 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/msgpack - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "45663 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/qdf",
+            "value": 5709,
+            "unit": "ns/op\t  53.95 MB/s\t   16452 B/op\t       4 allocs/op",
+            "extra": "428186 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/qdf - ns/op",
+            "value": 5709,
+            "unit": "ns/op",
+            "extra": "428186 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/qdf - MB/s",
+            "value": 53.95,
+            "unit": "MB/s",
+            "extra": "428186 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/qdf - B/op",
+            "value": 16452,
+            "unit": "B/op",
+            "extra": "428186 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_SpreadEnum/spread_enum_1024/decode/qdf - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "428186 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/json",
+            "value": 161572,
+            "unit": "ns/op\t 454.63 MB/s\t   73763 B/op\t       2 allocs/op",
+            "extra": "14869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/json - ns/op",
+            "value": 161572,
+            "unit": "ns/op",
+            "extra": "14869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/json - MB/s",
+            "value": 454.63,
+            "unit": "MB/s",
+            "extra": "14869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/json - B/op",
+            "value": 73763,
+            "unit": "B/op",
+            "extra": "14869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "14869 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/msgpack",
+            "value": 153961,
+            "unit": "ns/op\t 387.84 MB/s\t  131101 B/op\t      13 allocs/op",
+            "extra": "15529 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/msgpack - ns/op",
+            "value": 153961,
+            "unit": "ns/op",
+            "extra": "15529 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/msgpack - MB/s",
+            "value": 387.84,
+            "unit": "MB/s",
+            "extra": "15529 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/msgpack - B/op",
+            "value": 131101,
+            "unit": "B/op",
+            "extra": "15529 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/msgpack - allocs/op",
+            "value": 13,
+            "unit": "allocs/op",
+            "extra": "15529 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/qdf",
+            "value": 79780,
+            "unit": "ns/op\t 380.82 MB/s\t   33002 B/op\t       5 allocs/op",
+            "extra": "29934 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/qdf - ns/op",
+            "value": 79780,
+            "unit": "ns/op",
+            "extra": "29934 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/qdf - MB/s",
+            "value": 380.82,
+            "unit": "MB/s",
+            "extra": "29934 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/qdf - B/op",
+            "value": 33002,
+            "unit": "B/op",
+            "extra": "29934 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/encode/qdf - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "29934 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/json",
+            "value": 964099,
+            "unit": "ns/op\t  76.19 MB/s\t  125256 B/op\t    2016 allocs/op",
+            "extra": "2484 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/json - ns/op",
+            "value": 964099,
+            "unit": "ns/op",
+            "extra": "2484 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/json - MB/s",
+            "value": 76.19,
+            "unit": "MB/s",
+            "extra": "2484 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/json - B/op",
+            "value": 125256,
+            "unit": "B/op",
+            "extra": "2484 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/json - allocs/op",
+            "value": 2016,
+            "unit": "allocs/op",
+            "extra": "2484 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/msgpack",
+            "value": 279359,
+            "unit": "ns/op\t 213.75 MB/s\t  114785 B/op\t    2007 allocs/op",
+            "extra": "7998 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/msgpack - ns/op",
+            "value": 279359,
+            "unit": "ns/op",
+            "extra": "7998 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/msgpack - MB/s",
+            "value": 213.75,
+            "unit": "MB/s",
+            "extra": "7998 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/msgpack - B/op",
+            "value": 114785,
+            "unit": "B/op",
+            "extra": "7998 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/msgpack - allocs/op",
+            "value": 2007,
+            "unit": "allocs/op",
+            "extra": "7998 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/qdf",
+            "value": 63314,
+            "unit": "ns/op\t 479.86 MB/s\t   77695 B/op\t    1024 allocs/op",
+            "extra": "38154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/qdf - ns/op",
+            "value": 63314,
+            "unit": "ns/op",
+            "extra": "38154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/qdf - MB/s",
+            "value": 479.86,
+            "unit": "MB/s",
+            "extra": "38154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/qdf - B/op",
+            "value": 77695,
+            "unit": "B/op",
+            "extra": "38154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCorpusCodec_Traces/traces_500/decode/qdf - allocs/op",
+            "value": 1024,
+            "unit": "allocs/op",
+            "extra": "38154 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/encode/fb",
+            "value": 111643,
+            "unit": "ns/op\t 372.83 MB/s\t     41624 wire-B\t   65920 B/op\t       6 allocs/op",
+            "extra": "21562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/encode/fb - ns/op",
+            "value": 111643,
+            "unit": "ns/op",
+            "extra": "21562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/encode/fb - MB/s",
+            "value": 372.83,
+            "unit": "MB/s",
+            "extra": "21562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/encode/fb - wire-B",
+            "value": 41624,
+            "unit": "wire-B",
+            "extra": "21562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/encode/fb - B/op",
+            "value": 65920,
+            "unit": "B/op",
+            "extra": "21562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/encode/fb - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "21562 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/decode/fb",
+            "value": 11827,
+            "unit": "ns/op\t3519.26 MB/s\t     41624 wire-B\t    4096 B/op\t     128 allocs/op",
+            "extra": "200990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/decode/fb - ns/op",
+            "value": 11827,
+            "unit": "ns/op",
+            "extra": "200990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/decode/fb - MB/s",
+            "value": 3519.26,
+            "unit": "MB/s",
+            "extra": "200990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/decode/fb - wire-B",
+            "value": 41624,
+            "unit": "wire-B",
+            "extra": "200990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/decode/fb - B/op",
+            "value": 4096,
+            "unit": "B/op",
+            "extra": "200990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_FB/RTB_64/decode/fb - allocs/op",
+            "value": 128,
+            "unit": "allocs/op",
+            "extra": "200990 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/encode/fb",
+            "value": 1863041,
+            "unit": "ns/op\t 348.25 MB/s\t    648808 wire-B\t 1052805 B/op\t       6 allocs/op",
+            "extra": "1263 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/encode/fb - ns/op",
+            "value": 1863041,
+            "unit": "ns/op",
+            "extra": "1263 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/encode/fb - MB/s",
+            "value": 348.25,
+            "unit": "MB/s",
+            "extra": "1263 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/encode/fb - wire-B",
+            "value": 648808,
+            "unit": "wire-B",
+            "extra": "1263 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/encode/fb - B/op",
+            "value": 1052805,
+            "unit": "B/op",
+            "extra": "1263 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/encode/fb - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "1263 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/decode/fb",
+            "value": 195661,
+            "unit": "ns/op\t3315.99 MB/s\t    648808 wire-B\t   65536 B/op\t    2048 allocs/op",
+            "extra": "12237 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/decode/fb - ns/op",
+            "value": 195661,
+            "unit": "ns/op",
+            "extra": "12237 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/decode/fb - MB/s",
+            "value": 3315.99,
+            "unit": "MB/s",
+            "extra": "12237 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/decode/fb - wire-B",
+            "value": 648808,
+            "unit": "wire-B",
+            "extra": "12237 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/decode/fb - B/op",
+            "value": 65536,
+            "unit": "B/op",
+            "extra": "12237 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_FB/RTB_1024/decode/fb - allocs/op",
+            "value": 2048,
+            "unit": "allocs/op",
+            "extra": "12237 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/encode/fb",
+            "value": 329535,
+            "unit": "ns/op\t 616.70 MB/s\t    203224 wire-B\t  835811 B/op\t      11 allocs/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/encode/fb - ns/op",
+            "value": 329535,
+            "unit": "ns/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/encode/fb - MB/s",
+            "value": 616.7,
+            "unit": "MB/s",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/encode/fb - wire-B",
+            "value": 203224,
+            "unit": "wire-B",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/encode/fb - B/op",
+            "value": 835811,
+            "unit": "B/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/encode/fb - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "7322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/decode/fb",
+            "value": 60209,
+            "unit": "ns/op\t3375.32 MB/s\t    203224 wire-B\t       0 B/op\t       0 allocs/op",
+            "extra": "39842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/decode/fb - ns/op",
+            "value": 60209,
+            "unit": "ns/op",
+            "extra": "39842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/decode/fb - MB/s",
+            "value": 3375.32,
+            "unit": "MB/s",
+            "extra": "39842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/decode/fb - wire-B",
+            "value": 203224,
+            "unit": "wire-B",
+            "extra": "39842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/decode/fb - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "39842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_FB/IoT_32x256/decode/fb - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "39842 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/encode/fb",
+            "value": 2613092,
+            "unit": "ns/op\t 367.44 MB/s\t    960160 wire-B\t 3620224 B/op\t      25 allocs/op",
+            "extra": "955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/encode/fb - ns/op",
+            "value": 2613092,
+            "unit": "ns/op",
+            "extra": "955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/encode/fb - MB/s",
+            "value": 367.44,
+            "unit": "MB/s",
+            "extra": "955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/encode/fb - wire-B",
+            "value": 960160,
+            "unit": "wire-B",
+            "extra": "955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/encode/fb - B/op",
+            "value": 3620224,
+            "unit": "B/op",
+            "extra": "955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/encode/fb - allocs/op",
+            "value": 25,
+            "unit": "allocs/op",
+            "extra": "955 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/decode/fb",
+            "value": 267945,
+            "unit": "ns/op\t3583.42 MB/s\t    960160 wire-B\t       0 B/op\t       0 allocs/op",
+            "extra": "9049 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/decode/fb - ns/op",
+            "value": 267945,
+            "unit": "ns/op",
+            "extra": "9049 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/decode/fb - MB/s",
+            "value": 3583.42,
+            "unit": "MB/s",
+            "extra": "9049 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/decode/fb - wire-B",
+            "value": 960160,
+            "unit": "wire-B",
+            "extra": "9049 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/decode/fb - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "9049 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_FB/OTLP_4x512/decode/fb - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "9049 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/encode/fb",
+            "value": 836476,
+            "unit": "ns/op\t 332.47 MB/s\t    278104 wire-B\t 1175657 B/op\t       7 allocs/op",
+            "extra": "2686 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/encode/fb - ns/op",
+            "value": 836476,
+            "unit": "ns/op",
+            "extra": "2686 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/encode/fb - MB/s",
+            "value": 332.47,
+            "unit": "MB/s",
+            "extra": "2686 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/encode/fb - wire-B",
+            "value": 278104,
+            "unit": "wire-B",
+            "extra": "2686 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/encode/fb - B/op",
+            "value": 1175657,
+            "unit": "B/op",
+            "extra": "2686 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/encode/fb - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "2686 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/decode/fb",
+            "value": 93341,
+            "unit": "ns/op\t2979.43 MB/s\t    278104 wire-B\t       0 B/op\t       0 allocs/op",
+            "extra": "26571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/decode/fb - ns/op",
+            "value": 93341,
+            "unit": "ns/op",
+            "extra": "26571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/decode/fb - MB/s",
+            "value": 2979.43,
+            "unit": "MB/s",
+            "extra": "26571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/decode/fb - wire-B",
+            "value": 278104,
+            "unit": "wire-B",
+            "extra": "26571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/decode/fb - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "26571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_FB/Logs_1024/decode/fb - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "26571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/encode/fb",
+            "value": 141795,
+            "unit": "ns/op\t 627.27 MB/s\t     88944 wire-B\t  135248 B/op\t       4 allocs/op",
+            "extra": "16872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/encode/fb - ns/op",
+            "value": 141795,
+            "unit": "ns/op",
+            "extra": "16872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/encode/fb - MB/s",
+            "value": 627.27,
+            "unit": "MB/s",
+            "extra": "16872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/encode/fb - wire-B",
+            "value": 88944,
+            "unit": "wire-B",
+            "extra": "16872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/encode/fb - B/op",
+            "value": 135248,
+            "unit": "B/op",
+            "extra": "16872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/encode/fb - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "16872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/decode/fb",
+            "value": 36473,
+            "unit": "ns/op\t2438.64 MB/s\t     88944 wire-B\t       0 B/op\t       0 allocs/op",
+            "extra": "66358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/decode/fb - ns/op",
+            "value": 36473,
+            "unit": "ns/op",
+            "extra": "66358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/decode/fb - MB/s",
+            "value": 2438.64,
+            "unit": "MB/s",
+            "extra": "66358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/decode/fb - wire-B",
+            "value": 88944,
+            "unit": "wire-B",
+            "extra": "66358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/decode/fb - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "66358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_FB/Events_1024/decode/fb - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "66358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/json",
+            "value": 26300,
+            "unit": "ns/op\t    2736 B/op\t       2 allocs/op",
+            "extra": "89877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/json - ns/op",
+            "value": 26300,
+            "unit": "ns/op",
+            "extra": "89877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/json - B/op",
+            "value": 2736,
+            "unit": "B/op",
+            "extra": "89877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "89877 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/msgpack",
+            "value": 17413,
+            "unit": "ns/op\t    8225 B/op\t       9 allocs/op",
+            "extra": "137840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/msgpack - ns/op",
+            "value": 17413,
+            "unit": "ns/op",
+            "extra": "137840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/msgpack - B/op",
+            "value": 8225,
+            "unit": "B/op",
+            "extra": "137840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/msgpack - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "137840 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/qdf_fast",
+            "value": 1857,
+            "unit": "ns/op\t    2784 B/op\t       3 allocs/op",
+            "extra": "1290772 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/qdf_fast - ns/op",
+            "value": 1857,
+            "unit": "ns/op",
+            "extra": "1290772 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/qdf_fast - B/op",
+            "value": 2784,
+            "unit": "B/op",
+            "extra": "1290772 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float32Vec512/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "1290772 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/json",
+            "value": 29144,
+            "unit": "ns/op\t    2736 B/op\t       2 allocs/op",
+            "extra": "82039 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/json - ns/op",
+            "value": 29144,
+            "unit": "ns/op",
+            "extra": "82039 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/json - B/op",
+            "value": 2736,
+            "unit": "B/op",
+            "extra": "82039 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "82039 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/msgpack",
+            "value": 19412,
+            "unit": "ns/op\t   16418 B/op\t      10 allocs/op",
+            "extra": "123229 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/msgpack - ns/op",
+            "value": 19412,
+            "unit": "ns/op",
+            "extra": "123229 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/msgpack - B/op",
+            "value": 16418,
+            "unit": "B/op",
+            "extra": "123229 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/msgpack - allocs/op",
+            "value": 10,
+            "unit": "allocs/op",
+            "extra": "123229 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/qdf_fast",
+            "value": 2113,
+            "unit": "ns/op\t    4961 B/op\t       3 allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/qdf_fast - ns/op",
+            "value": 2113,
+            "unit": "ns/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/qdf_fast - B/op",
+            "value": 4961,
+            "unit": "B/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_Float64Vec512/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/json",
+            "value": 77014,
+            "unit": "ns/op\t    4384 B/op\t      16 allocs/op",
+            "extra": "30950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/json - ns/op",
+            "value": 77014,
+            "unit": "ns/op",
+            "extra": "30950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/json - B/op",
+            "value": 4384,
+            "unit": "B/op",
+            "extra": "30950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/json - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "30950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/msgpack",
+            "value": 23541,
+            "unit": "ns/op\t    4280 B/op\t       8 allocs/op",
+            "extra": "101467 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/msgpack - ns/op",
+            "value": 23541,
+            "unit": "ns/op",
+            "extra": "101467 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/msgpack - B/op",
+            "value": 4280,
+            "unit": "B/op",
+            "extra": "101467 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/msgpack - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "101467 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/qdf_fast",
+            "value": 3954,
+            "unit": "ns/op\t    2112 B/op\t       3 allocs/op",
+            "extra": "604322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/qdf_fast - ns/op",
+            "value": 3954,
+            "unit": "ns/op",
+            "extra": "604322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/qdf_fast - B/op",
+            "value": 2112,
+            "unit": "B/op",
+            "extra": "604322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_Float32Vec512/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "604322 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/json",
+            "value": 1801270,
+            "unit": "ns/op\t 260.40 MB/s\t    469058 wire-B\t  488743 B/op\t     226 allocs/op",
+            "extra": "1328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/json - ns/op",
+            "value": 1801270,
+            "unit": "ns/op",
+            "extra": "1328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/json - MB/s",
+            "value": 260.4,
+            "unit": "MB/s",
+            "extra": "1328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/json - wire-B",
+            "value": 469058,
+            "unit": "wire-B",
+            "extra": "1328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/json - B/op",
+            "value": 488743,
+            "unit": "B/op",
+            "extra": "1328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/json - allocs/op",
+            "value": 226,
+            "unit": "allocs/op",
+            "extra": "1328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/json",
+            "value": 6096800,
+            "unit": "ns/op\t  76.94 MB/s\t  415177 B/op\t    1294 allocs/op",
+            "extra": "391 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/json - ns/op",
+            "value": 6096800,
+            "unit": "ns/op",
+            "extra": "391 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/json - MB/s",
+            "value": 76.94,
+            "unit": "MB/s",
+            "extra": "391 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/json - B/op",
+            "value": 415177,
+            "unit": "B/op",
+            "extra": "391 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/json - allocs/op",
+            "value": 1294,
+            "unit": "allocs/op",
+            "extra": "391 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/msgpack",
+            "value": 902382,
+            "unit": "ns/op\t 248.82 MB/s\t    224534 wire-B\t  524642 B/op\t      47 allocs/op",
+            "extra": "2625 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/msgpack - ns/op",
+            "value": 902382,
+            "unit": "ns/op",
+            "extra": "2625 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/msgpack - MB/s",
+            "value": 248.82,
+            "unit": "MB/s",
+            "extra": "2625 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/msgpack - wire-B",
+            "value": 224534,
+            "unit": "wire-B",
+            "extra": "2625 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/msgpack - B/op",
+            "value": 524642,
+            "unit": "B/op",
+            "extra": "2625 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/msgpack - allocs/op",
+            "value": 47,
+            "unit": "allocs/op",
+            "extra": "2625 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/msgpack",
+            "value": 1268353,
+            "unit": "ns/op\t 177.03 MB/s\t  419787 B/op\t     775 allocs/op",
+            "extra": "1855 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/msgpack - ns/op",
+            "value": 1268353,
+            "unit": "ns/op",
+            "extra": "1855 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/msgpack - MB/s",
+            "value": 177.03,
+            "unit": "MB/s",
+            "extra": "1855 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/msgpack - B/op",
+            "value": 419787,
+            "unit": "B/op",
+            "extra": "1855 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/msgpack - allocs/op",
+            "value": 775,
+            "unit": "allocs/op",
+            "extra": "1855 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_speed",
+            "value": 380924,
+            "unit": "ns/op\t 589.63 MB/s\t    224604 wire-B\t 1186852 B/op\t      30 allocs/op",
+            "extra": "6499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_speed - ns/op",
+            "value": 380924,
+            "unit": "ns/op",
+            "extra": "6499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_speed - MB/s",
+            "value": 589.63,
+            "unit": "MB/s",
+            "extra": "6499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_speed - wire-B",
+            "value": 224604,
+            "unit": "wire-B",
+            "extra": "6499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_speed - B/op",
+            "value": 1186852,
+            "unit": "B/op",
+            "extra": "6499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_speed - allocs/op",
+            "value": 30,
+            "unit": "allocs/op",
+            "extra": "6499 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_speed",
+            "value": 260635,
+            "unit": "ns/op\t 861.76 MB/s\t  212007 B/op\t     291 allocs/op",
+            "extra": "9249 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_speed - ns/op",
+            "value": 260635,
+            "unit": "ns/op",
+            "extra": "9249 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_speed - MB/s",
+            "value": 861.76,
+            "unit": "MB/s",
+            "extra": "9249 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_speed - B/op",
+            "value": 212007,
+            "unit": "B/op",
+            "extra": "9249 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_speed - allocs/op",
+            "value": 291,
+            "unit": "allocs/op",
+            "extra": "9249 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_balanced",
+            "value": 109451,
+            "unit": "ns/op\t1447.89 MB/s\t    158474 wire-B\t  164422 B/op\t       3 allocs/op",
+            "extra": "21870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_balanced - ns/op",
+            "value": 109451,
+            "unit": "ns/op",
+            "extra": "21870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_balanced - MB/s",
+            "value": 1447.89,
+            "unit": "MB/s",
+            "extra": "21870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_balanced - wire-B",
+            "value": 158474,
+            "unit": "wire-B",
+            "extra": "21870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_balanced - B/op",
+            "value": 164422,
+            "unit": "B/op",
+            "extra": "21870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_balanced - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "21870 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_balanced",
+            "value": 97924,
+            "unit": "ns/op\t1618.34 MB/s\t  211233 B/op\t     214 allocs/op",
+            "extra": "24278 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_balanced - ns/op",
+            "value": 97924,
+            "unit": "ns/op",
+            "extra": "24278 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_balanced - MB/s",
+            "value": 1618.34,
+            "unit": "MB/s",
+            "extra": "24278 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_balanced - B/op",
+            "value": 211233,
+            "unit": "B/op",
+            "extra": "24278 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_balanced - allocs/op",
+            "value": 214,
+            "unit": "allocs/op",
+            "extra": "24278 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_qpack",
+            "value": 104155,
+            "unit": "ns/op\t1541.66 MB/s\t    160572 wire-B\t  165553 B/op\t       3 allocs/op",
+            "extra": "23216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_qpack - ns/op",
+            "value": 104155,
+            "unit": "ns/op",
+            "extra": "23216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_qpack - MB/s",
+            "value": 1541.66,
+            "unit": "MB/s",
+            "extra": "23216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_qpack - wire-B",
+            "value": 160572,
+            "unit": "wire-B",
+            "extra": "23216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_qpack - B/op",
+            "value": 165553,
+            "unit": "B/op",
+            "extra": "23216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_qpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "23216 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_qpack",
+            "value": 97327,
+            "unit": "ns/op\t1649.82 MB/s\t  212042 B/op\t     294 allocs/op",
+            "extra": "24950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_qpack - ns/op",
+            "value": 97327,
+            "unit": "ns/op",
+            "extra": "24950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_qpack - MB/s",
+            "value": 1649.82,
+            "unit": "MB/s",
+            "extra": "24950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_qpack - B/op",
+            "value": 212042,
+            "unit": "B/op",
+            "extra": "24950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_qpack - allocs/op",
+            "value": 294,
+            "unit": "allocs/op",
+            "extra": "24950 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_compression",
+            "value": 1153940,
+            "unit": "ns/op\t 128.41 MB/s\t    148177 wire-B\t  563686 B/op\t      13 allocs/op",
+            "extra": "2055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_compression - ns/op",
+            "value": 1153940,
+            "unit": "ns/op",
+            "extra": "2055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_compression - MB/s",
+            "value": 128.41,
+            "unit": "MB/s",
+            "extra": "2055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_compression - wire-B",
+            "value": 148177,
+            "unit": "wire-B",
+            "extra": "2055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_compression - B/op",
+            "value": 563686,
+            "unit": "B/op",
+            "extra": "2055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/encode/qdf_compression - allocs/op",
+            "value": 13,
+            "unit": "allocs/op",
+            "extra": "2055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_compression",
+            "value": 1012342,
+            "unit": "ns/op\t 146.37 MB/s\t  381220 B/op\t     221 allocs/op",
+            "extra": "2346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_compression - ns/op",
+            "value": 1012342,
+            "unit": "ns/op",
+            "extra": "2346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_compression - MB/s",
+            "value": 146.37,
+            "unit": "MB/s",
+            "extra": "2346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_compression - B/op",
+            "value": 381220,
+            "unit": "B/op",
+            "extra": "2346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_32x256/decode/qdf_compression - allocs/op",
+            "value": 221,
+            "unit": "allocs/op",
+            "extra": "2346 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/json",
+            "value": 13950324,
+            "unit": "ns/op\t 267.77 MB/s\t   3735415 wire-B\t 3910706 B/op\t     899 allocs/op",
+            "extra": "172 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/json - ns/op",
+            "value": 13950324,
+            "unit": "ns/op",
+            "extra": "172 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/json - MB/s",
+            "value": 267.77,
+            "unit": "MB/s",
+            "extra": "172 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/json - wire-B",
+            "value": 3735415,
+            "unit": "wire-B",
+            "extra": "172 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/json - B/op",
+            "value": 3910706,
+            "unit": "B/op",
+            "extra": "172 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/json - allocs/op",
+            "value": 899,
+            "unit": "allocs/op",
+            "extra": "172 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/json",
+            "value": 48263325,
+            "unit": "ns/op\t  77.40 MB/s\t 3234859 B/op\t    5520 allocs/op",
+            "extra": "49 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/json - ns/op",
+            "value": 48263325,
+            "unit": "ns/op",
+            "extra": "49 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/json - MB/s",
+            "value": 77.4,
+            "unit": "MB/s",
+            "extra": "49 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/json - B/op",
+            "value": 3234859,
+            "unit": "B/op",
+            "extra": "49 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/json - allocs/op",
+            "value": 5520,
+            "unit": "allocs/op",
+            "extra": "49 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/msgpack",
+            "value": 7030759,
+            "unit": "ns/op\t 253.58 MB/s\t   1782875 wire-B\t 4195598 B/op\t     147 allocs/op",
+            "extra": "328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/msgpack - ns/op",
+            "value": 7030759,
+            "unit": "ns/op",
+            "extra": "328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/msgpack - MB/s",
+            "value": 253.58,
+            "unit": "MB/s",
+            "extra": "328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/msgpack - wire-B",
+            "value": 1782875,
+            "unit": "wire-B",
+            "extra": "328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/msgpack - B/op",
+            "value": 4195598,
+            "unit": "B/op",
+            "extra": "328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/msgpack - allocs/op",
+            "value": 147,
+            "unit": "allocs/op",
+            "extra": "328 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/msgpack",
+            "value": 10275118,
+            "unit": "ns/op\t 173.51 MB/s\t 3253173 B/op\t    3080 allocs/op",
+            "extra": "232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/msgpack - ns/op",
+            "value": 10275118,
+            "unit": "ns/op",
+            "extra": "232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/msgpack - MB/s",
+            "value": 173.51,
+            "unit": "MB/s",
+            "extra": "232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/msgpack - B/op",
+            "value": 3253173,
+            "unit": "B/op",
+            "extra": "232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/msgpack - allocs/op",
+            "value": 3080,
+            "unit": "allocs/op",
+            "extra": "232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_speed",
+            "value": 1517618,
+            "unit": "ns/op\t1174.96 MB/s\t   1783137 wire-B\t 4660532 B/op\t      35 allocs/op",
+            "extra": "1498 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_speed - ns/op",
+            "value": 1517618,
+            "unit": "ns/op",
+            "extra": "1498 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_speed - MB/s",
+            "value": 1174.96,
+            "unit": "MB/s",
+            "extra": "1498 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_speed - wire-B",
+            "value": 1783137,
+            "unit": "wire-B",
+            "extra": "1498 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_speed - B/op",
+            "value": 4660532,
+            "unit": "B/op",
+            "extra": "1498 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_speed - allocs/op",
+            "value": 35,
+            "unit": "allocs/op",
+            "extra": "1498 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_speed",
+            "value": 2026770,
+            "unit": "ns/op\t 879.79 MB/s\t 1635242 B/op\t    1155 allocs/op",
+            "extra": "1179 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_speed - ns/op",
+            "value": 2026770,
+            "unit": "ns/op",
+            "extra": "1179 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_speed - MB/s",
+            "value": 879.79,
+            "unit": "MB/s",
+            "extra": "1179 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_speed - B/op",
+            "value": 1635242,
+            "unit": "B/op",
+            "extra": "1179 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_speed - allocs/op",
+            "value": 1155,
+            "unit": "allocs/op",
+            "extra": "1179 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_balanced",
+            "value": 1042717,
+            "unit": "ns/op\t1208.36 MB/s\t   1259978 wire-B\t 3188172 B/op\t      24 allocs/op",
+            "extra": "2035 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_balanced - ns/op",
+            "value": 1042717,
+            "unit": "ns/op",
+            "extra": "2035 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_balanced - MB/s",
+            "value": 1208.36,
+            "unit": "MB/s",
+            "extra": "2035 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_balanced - wire-B",
+            "value": 1259978,
+            "unit": "wire-B",
+            "extra": "2035 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_balanced - B/op",
+            "value": 3188172,
+            "unit": "B/op",
+            "extra": "2035 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_balanced - allocs/op",
+            "value": 24,
+            "unit": "allocs/op",
+            "extra": "2035 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_balanced",
+            "value": 709954,
+            "unit": "ns/op\t1774.73 MB/s\t 1631096 B/op\t     789 allocs/op",
+            "extra": "3559 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_balanced - ns/op",
+            "value": 709954,
+            "unit": "ns/op",
+            "extra": "3559 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_balanced - MB/s",
+            "value": 1774.73,
+            "unit": "MB/s",
+            "extra": "3559 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_balanced - B/op",
+            "value": 1631096,
+            "unit": "B/op",
+            "extra": "3559 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_balanced - allocs/op",
+            "value": 789,
+            "unit": "allocs/op",
+            "extra": "3559 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_qpack",
+            "value": 1035580,
+            "unit": "ns/op\t1225.36 MB/s\t   1268961 wire-B\t 3196446 B/op\t      24 allocs/op",
+            "extra": "2095 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_qpack - ns/op",
+            "value": 1035580,
+            "unit": "ns/op",
+            "extra": "2095 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_qpack - MB/s",
+            "value": 1225.36,
+            "unit": "MB/s",
+            "extra": "2095 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_qpack - wire-B",
+            "value": 1268961,
+            "unit": "wire-B",
+            "extra": "2095 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_qpack - B/op",
+            "value": 3196446,
+            "unit": "B/op",
+            "extra": "2095 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_qpack - allocs/op",
+            "value": 24,
+            "unit": "allocs/op",
+            "extra": "2095 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_qpack",
+            "value": 710145,
+            "unit": "ns/op\t1786.90 MB/s\t 1635279 B/op\t    1155 allocs/op",
+            "extra": "3242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_qpack - ns/op",
+            "value": 710145,
+            "unit": "ns/op",
+            "extra": "3242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_qpack - MB/s",
+            "value": 1786.9,
+            "unit": "MB/s",
+            "extra": "3242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_qpack - B/op",
+            "value": 1635279,
+            "unit": "B/op",
+            "extra": "3242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_qpack - allocs/op",
+            "value": 1155,
+            "unit": "allocs/op",
+            "extra": "3242 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_compression",
+            "value": 9880652,
+            "unit": "ns/op\t 119.36 MB/s\t   1179369 wire-B\t 6358772 B/op\t      52 allocs/op",
+            "extra": "241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_compression - ns/op",
+            "value": 9880652,
+            "unit": "ns/op",
+            "extra": "241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_compression - MB/s",
+            "value": 119.36,
+            "unit": "MB/s",
+            "extra": "241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_compression - wire-B",
+            "value": 1179369,
+            "unit": "wire-B",
+            "extra": "241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_compression - B/op",
+            "value": 6358772,
+            "unit": "B/op",
+            "extra": "241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/encode/qdf_compression - allocs/op",
+            "value": 52,
+            "unit": "allocs/op",
+            "extra": "241 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_compression",
+            "value": 7870078,
+            "unit": "ns/op\t 149.85 MB/s\t 2974669 B/op\t     815 allocs/op",
+            "extra": "301 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_compression - ns/op",
+            "value": 7870078,
+            "unit": "ns/op",
+            "extra": "301 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_compression - MB/s",
+            "value": 149.85,
+            "unit": "MB/s",
+            "extra": "301 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_compression - B/op",
+            "value": 2974669,
+            "unit": "B/op",
+            "extra": "301 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_128x512/decode/qdf_compression - allocs/op",
+            "value": 815,
+            "unit": "allocs/op",
+            "extra": "301 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/json",
+            "value": 152349876,
+            "unit": "ns/op\t 244.42 MB/s\t57769314 B/op\t  350217 allocs/op",
+            "extra": "14 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/json - ns/op",
+            "value": 152349876,
+            "unit": "ns/op",
+            "extra": "14 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/json - MB/s",
+            "value": 244.42,
+            "unit": "MB/s",
+            "extra": "14 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/json - B/op",
+            "value": 57769314,
+            "unit": "B/op",
+            "extra": "14 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/json - allocs/op",
+            "value": 350217,
+            "unit": "allocs/op",
+            "extra": "14 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/msgpack",
+            "value": 86823412,
+            "unit": "ns/op\t 280.67 MB/s\t68709109 B/op\t  100022 allocs/op",
+            "extra": "27 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/msgpack - ns/op",
+            "value": 86823412,
+            "unit": "ns/op",
+            "extra": "27 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/msgpack - MB/s",
+            "value": 280.67,
+            "unit": "MB/s",
+            "extra": "27 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/msgpack - B/op",
+            "value": 68709109,
+            "unit": "B/op",
+            "extra": "27 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/msgpack - allocs/op",
+            "value": 100022,
+            "unit": "allocs/op",
+            "extra": "27 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_fast",
+            "value": 28521057,
+            "unit": "ns/op\t 845.26 MB/s\t29512006 B/op\t      19 allocs/op",
+            "extra": "87 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_fast - ns/op",
+            "value": 28521057,
+            "unit": "ns/op",
+            "extra": "87 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_fast - MB/s",
+            "value": 845.26,
+            "unit": "MB/s",
+            "extra": "87 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_fast - B/op",
+            "value": 29512006,
+            "unit": "B/op",
+            "extra": "87 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_fast - allocs/op",
+            "value": 19,
+            "unit": "allocs/op",
+            "extra": "87 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_qpack",
+            "value": 33182826,
+            "unit": "ns/op\t 701.68 MB/s\t30468703 B/op\t   31105 allocs/op",
+            "extra": "74 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_qpack - ns/op",
+            "value": 33182826,
+            "unit": "ns/op",
+            "extra": "74 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_qpack - MB/s",
+            "value": 701.68,
+            "unit": "MB/s",
+            "extra": "74 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_qpack - B/op",
+            "value": 30468703,
+            "unit": "B/op",
+            "extra": "74 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_qpack - allocs/op",
+            "value": 31105,
+            "unit": "allocs/op",
+            "extra": "74 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_dense",
+            "value": 34896950,
+            "unit": "ns/op\t 512.20 MB/s\t23679491 B/op\t   31159 allocs/op",
+            "extra": "73 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_dense - ns/op",
+            "value": 34896950,
+            "unit": "ns/op",
+            "extra": "73 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_dense - MB/s",
+            "value": 512.2,
+            "unit": "MB/s",
+            "extra": "73 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_dense - B/op",
+            "value": 23679491,
+            "unit": "B/op",
+            "extra": "73 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Encode/qdf_dense - allocs/op",
+            "value": 31159,
+            "unit": "allocs/op",
+            "extra": "73 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/json",
+            "value": 597712618,
+            "unit": "ns/op\t  62.31 MB/s\t119804004 B/op\t 1559637 allocs/op",
+            "extra": "4 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/json - ns/op",
+            "value": 597712618,
+            "unit": "ns/op",
+            "extra": "4 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/json - MB/s",
+            "value": 62.31,
+            "unit": "MB/s",
+            "extra": "4 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/json - B/op",
+            "value": 119804004,
+            "unit": "B/op",
+            "extra": "4 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/json - allocs/op",
+            "value": 1559637,
+            "unit": "allocs/op",
+            "extra": "4 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/msgpack",
+            "value": 183103448,
+            "unit": "ns/op\t 133.11 MB/s\t74391248 B/op\t 1425125 allocs/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/msgpack - ns/op",
+            "value": 183103448,
+            "unit": "ns/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/msgpack - MB/s",
+            "value": 133.11,
+            "unit": "MB/s",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/msgpack - B/op",
+            "value": 74391248,
+            "unit": "B/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/msgpack - allocs/op",
+            "value": 1425125,
+            "unit": "allocs/op",
+            "extra": "13 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_fast",
+            "value": 78039844,
+            "unit": "ns/op\t 308.96 MB/s\t48380484 B/op\t  875099 allocs/op",
+            "extra": "31 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_fast - ns/op",
+            "value": 78039844,
+            "unit": "ns/op",
+            "extra": "31 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_fast - MB/s",
+            "value": 308.96,
+            "unit": "MB/s",
+            "extra": "31 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_fast - B/op",
+            "value": 48380484,
+            "unit": "B/op",
+            "extra": "31 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_fast - allocs/op",
+            "value": 875099,
+            "unit": "allocs/op",
+            "extra": "31 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_qpack",
+            "value": 74762968,
+            "unit": "ns/op\t 311.44 MB/s\t50517838 B/op\t  913994 allocs/op",
+            "extra": "30 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_qpack - ns/op",
+            "value": 74762968,
+            "unit": "ns/op",
+            "extra": "30 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_qpack - MB/s",
+            "value": 311.44,
+            "unit": "MB/s",
+            "extra": "30 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_qpack - B/op",
+            "value": 50517838,
+            "unit": "B/op",
+            "extra": "30 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_qpack - allocs/op",
+            "value": 913994,
+            "unit": "allocs/op",
+            "extra": "30 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_dense",
+            "value": 70866702,
+            "unit": "ns/op\t 252.22 MB/s\t53030492 B/op\t  829844 allocs/op",
+            "extra": "33 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_dense - ns/op",
+            "value": 70866702,
+            "unit": "ns/op",
+            "extra": "33 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_dense - MB/s",
+            "value": 252.22,
+            "unit": "MB/s",
+            "extra": "33 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_dense - B/op",
+            "value": 53030492,
+            "unit": "B/op",
+            "extra": "33 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLargePayload_Decode/qdf_dense - allocs/op",
+            "value": 829844,
+            "unit": "allocs/op",
+            "extra": "33 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/json",
+            "value": 1098932,
+            "unit": "ns/op\t 222.98 MB/s\t    245037 wire-B\t  460390 B/op\t    6838 allocs/op",
+            "extra": "2149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/json - ns/op",
+            "value": 1098932,
+            "unit": "ns/op",
+            "extra": "2149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/json - MB/s",
+            "value": 222.98,
+            "unit": "MB/s",
+            "extra": "2149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/json - wire-B",
+            "value": 245037,
+            "unit": "wire-B",
+            "extra": "2149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/json - B/op",
+            "value": 460390,
+            "unit": "B/op",
+            "extra": "2149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/json - allocs/op",
+            "value": 6838,
+            "unit": "allocs/op",
+            "extra": "2149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/json",
+            "value": 4007419,
+            "unit": "ns/op\t  61.15 MB/s\t  771555 B/op\t   16929 allocs/op",
+            "extra": "595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/json - ns/op",
+            "value": 4007419,
+            "unit": "ns/op",
+            "extra": "595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/json - MB/s",
+            "value": 61.15,
+            "unit": "MB/s",
+            "extra": "595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/json - B/op",
+            "value": 771555,
+            "unit": "B/op",
+            "extra": "595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/json - allocs/op",
+            "value": 16929,
+            "unit": "allocs/op",
+            "extra": "595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/msgpack",
+            "value": 786984,
+            "unit": "ns/op\t 245.84 MB/s\t    193476 wire-B\t  532595 B/op\t    1039 allocs/op",
+            "extra": "3026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/msgpack - ns/op",
+            "value": 786984,
+            "unit": "ns/op",
+            "extra": "3026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/msgpack - MB/s",
+            "value": 245.84,
+            "unit": "MB/s",
+            "extra": "3026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/msgpack - wire-B",
+            "value": 193476,
+            "unit": "wire-B",
+            "extra": "3026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/msgpack - B/op",
+            "value": 532595,
+            "unit": "B/op",
+            "extra": "3026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/msgpack - allocs/op",
+            "value": 1039,
+            "unit": "allocs/op",
+            "extra": "3026 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/msgpack",
+            "value": 1511136,
+            "unit": "ns/op\t 128.03 MB/s\t  685351 B/op\t   12987 allocs/op",
+            "extra": "1575 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/msgpack - ns/op",
+            "value": 1511136,
+            "unit": "ns/op",
+            "extra": "1575 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/msgpack - MB/s",
+            "value": 128.03,
+            "unit": "MB/s",
+            "extra": "1575 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/msgpack - B/op",
+            "value": 685351,
+            "unit": "B/op",
+            "extra": "1575 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/msgpack - allocs/op",
+            "value": 12987,
+            "unit": "allocs/op",
+            "extra": "1575 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_speed",
+            "value": 345050,
+            "unit": "ns/op\t 566.67 MB/s\t    195530 wire-B\t  197043 B/op\t       3 allocs/op",
+            "extra": "6736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_speed - ns/op",
+            "value": 345050,
+            "unit": "ns/op",
+            "extra": "6736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_speed - MB/s",
+            "value": 566.67,
+            "unit": "MB/s",
+            "extra": "6736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_speed - wire-B",
+            "value": 195530,
+            "unit": "wire-B",
+            "extra": "6736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_speed - B/op",
+            "value": 197043,
+            "unit": "B/op",
+            "extra": "6736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_speed - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "6736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_speed",
+            "value": 888026,
+            "unit": "ns/op\t 220.19 MB/s\t  548925 B/op\t   10077 allocs/op",
+            "extra": "2710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_speed - ns/op",
+            "value": 888026,
+            "unit": "ns/op",
+            "extra": "2710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_speed - MB/s",
+            "value": 220.19,
+            "unit": "MB/s",
+            "extra": "2710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_speed - B/op",
+            "value": 548925,
+            "unit": "B/op",
+            "extra": "2710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_speed - allocs/op",
+            "value": 10077,
+            "unit": "allocs/op",
+            "extra": "2710 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_balanced",
+            "value": 490679,
+            "unit": "ns/op\t 182.67 MB/s\t     89631 wire-B\t   90301 B/op\t       3 allocs/op",
+            "extra": "4758 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_balanced - ns/op",
+            "value": 490679,
+            "unit": "ns/op",
+            "extra": "4758 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_balanced - MB/s",
+            "value": 182.67,
+            "unit": "MB/s",
+            "extra": "4758 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_balanced - wire-B",
+            "value": 89631,
+            "unit": "wire-B",
+            "extra": "4758 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_balanced - B/op",
+            "value": 90301,
+            "unit": "B/op",
+            "extra": "4758 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_balanced - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "4758 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_balanced",
+            "value": 782703,
+            "unit": "ns/op\t 114.51 MB/s\t  505293 B/op\t    5672 allocs/op",
+            "extra": "3156 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_balanced - ns/op",
+            "value": 782703,
+            "unit": "ns/op",
+            "extra": "3156 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_balanced - MB/s",
+            "value": 114.51,
+            "unit": "MB/s",
+            "extra": "3156 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_balanced - B/op",
+            "value": 505293,
+            "unit": "B/op",
+            "extra": "3156 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_balanced - allocs/op",
+            "value": 5672,
+            "unit": "allocs/op",
+            "extra": "3156 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_qpack",
+            "value": 344807,
+            "unit": "ns/op\t 567.07 MB/s\t    195530 wire-B\t  197107 B/op\t       3 allocs/op",
+            "extra": "6957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_qpack - ns/op",
+            "value": 344807,
+            "unit": "ns/op",
+            "extra": "6957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_qpack - MB/s",
+            "value": 567.07,
+            "unit": "MB/s",
+            "extra": "6957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_qpack - wire-B",
+            "value": 195530,
+            "unit": "wire-B",
+            "extra": "6957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_qpack - B/op",
+            "value": 197107,
+            "unit": "B/op",
+            "extra": "6957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_qpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "6957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_qpack",
+            "value": 902144,
+            "unit": "ns/op\t 216.74 MB/s\t  551382 B/op\t   10480 allocs/op",
+            "extra": "2656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_qpack - ns/op",
+            "value": 902144,
+            "unit": "ns/op",
+            "extra": "2656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_qpack - MB/s",
+            "value": 216.74,
+            "unit": "MB/s",
+            "extra": "2656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_qpack - B/op",
+            "value": 551382,
+            "unit": "B/op",
+            "extra": "2656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_qpack - allocs/op",
+            "value": 10480,
+            "unit": "allocs/op",
+            "extra": "2656 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_compression",
+            "value": 1077283,
+            "unit": "ns/op\t  57.69 MB/s\t     62149 wire-B\t  278902 B/op\t       6 allocs/op",
+            "extra": "2188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_compression - ns/op",
+            "value": 1077283,
+            "unit": "ns/op",
+            "extra": "2188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_compression - MB/s",
+            "value": 57.69,
+            "unit": "MB/s",
+            "extra": "2188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_compression - wire-B",
+            "value": 62149,
+            "unit": "wire-B",
+            "extra": "2188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_compression - B/op",
+            "value": 278902,
+            "unit": "B/op",
+            "extra": "2188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/encode/qdf_compression - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "2188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_compression",
+            "value": 1385990,
+            "unit": "ns/op\t  44.84 MB/s\t  595645 B/op\t    5673 allocs/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_compression - ns/op",
+            "value": 1385990,
+            "unit": "ns/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_compression - MB/s",
+            "value": 44.84,
+            "unit": "MB/s",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_compression - B/op",
+            "value": 595645,
+            "unit": "B/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_1024/decode/qdf_compression - allocs/op",
+            "value": 5673,
+            "unit": "allocs/op",
+            "extra": "1734 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/json",
+            "value": 233059,
+            "unit": "ns/op\t 527.15 MB/s\t    122857 wire-B\t  123133 B/op\t       2 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/json - ns/op",
+            "value": 233059,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/json - MB/s",
+            "value": 527.15,
+            "unit": "MB/s",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/json - wire-B",
+            "value": 122857,
+            "unit": "wire-B",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/json - B/op",
+            "value": 123133,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/json",
+            "value": 1579980,
+            "unit": "ns/op\t  77.76 MB/s\t  179696 B/op\t    2067 allocs/op",
+            "extra": "1515 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/json - ns/op",
+            "value": 1579980,
+            "unit": "ns/op",
+            "extra": "1515 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/json - MB/s",
+            "value": 77.76,
+            "unit": "MB/s",
+            "extra": "1515 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/json - B/op",
+            "value": 179696,
+            "unit": "B/op",
+            "extra": "1515 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/json - allocs/op",
+            "value": 2067,
+            "unit": "allocs/op",
+            "extra": "1515 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/msgpack",
+            "value": 282685,
+            "unit": "ns/op\t 299.67 MB/s\t     84712 wire-B\t  262196 B/op\t      14 allocs/op",
+            "extra": "8149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/msgpack - ns/op",
+            "value": 282685,
+            "unit": "ns/op",
+            "extra": "8149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/msgpack - MB/s",
+            "value": 299.67,
+            "unit": "MB/s",
+            "extra": "8149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/msgpack - wire-B",
+            "value": 84712,
+            "unit": "wire-B",
+            "extra": "8149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/msgpack - B/op",
+            "value": 262196,
+            "unit": "B/op",
+            "extra": "8149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/msgpack - allocs/op",
+            "value": 14,
+            "unit": "allocs/op",
+            "extra": "8149 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/msgpack",
+            "value": 467832,
+            "unit": "ns/op\t 181.07 MB/s\t  170347 B/op\t    2055 allocs/op",
+            "extra": "4957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/msgpack - ns/op",
+            "value": 467832,
+            "unit": "ns/op",
+            "extra": "4957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/msgpack - MB/s",
+            "value": 181.07,
+            "unit": "MB/s",
+            "extra": "4957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/msgpack - B/op",
+            "value": 170347,
+            "unit": "B/op",
+            "extra": "4957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/msgpack - allocs/op",
+            "value": 2055,
+            "unit": "allocs/op",
+            "extra": "4957 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_speed",
+            "value": 91208,
+            "unit": "ns/op\t 940.07 MB/s\t     85742 wire-B\t   90192 B/op\t       3 allocs/op",
+            "extra": "26164 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_speed - ns/op",
+            "value": 91208,
+            "unit": "ns/op",
+            "extra": "26164 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_speed - MB/s",
+            "value": 940.07,
+            "unit": "MB/s",
+            "extra": "26164 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_speed - wire-B",
+            "value": 85742,
+            "unit": "wire-B",
+            "extra": "26164 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_speed - B/op",
+            "value": 90192,
+            "unit": "B/op",
+            "extra": "26164 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_speed - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "26164 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_speed",
+            "value": 211008,
+            "unit": "ns/op\t 406.35 MB/s\t  112898 B/op\t    2051 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_speed - ns/op",
+            "value": 211008,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_speed - MB/s",
+            "value": 406.35,
+            "unit": "MB/s",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_speed - B/op",
+            "value": 112898,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_speed - allocs/op",
+            "value": 2051,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_balanced",
+            "value": 93512,
+            "unit": "ns/op\t 424.01 MB/s\t     39650 wire-B\t   42576 B/op\t      37 allocs/op",
+            "extra": "25648 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_balanced - ns/op",
+            "value": 93512,
+            "unit": "ns/op",
+            "extra": "25648 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_balanced - MB/s",
+            "value": 424.01,
+            "unit": "MB/s",
+            "extra": "25648 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_balanced - wire-B",
+            "value": 39650,
+            "unit": "wire-B",
+            "extra": "25648 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_balanced - B/op",
+            "value": 42576,
+            "unit": "B/op",
+            "extra": "25648 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_balanced - allocs/op",
+            "value": 37,
+            "unit": "allocs/op",
+            "extra": "25648 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_balanced",
+            "value": 98713,
+            "unit": "ns/op\t 401.67 MB/s\t  112637 B/op\t    1044 allocs/op",
+            "extra": "24266 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_balanced - ns/op",
+            "value": 98713,
+            "unit": "ns/op",
+            "extra": "24266 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_balanced - MB/s",
+            "value": 401.67,
+            "unit": "MB/s",
+            "extra": "24266 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_balanced - B/op",
+            "value": 112637,
+            "unit": "B/op",
+            "extra": "24266 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_balanced - allocs/op",
+            "value": 1044,
+            "unit": "allocs/op",
+            "extra": "24266 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_qpack",
+            "value": 91426,
+            "unit": "ns/op\t 937.83 MB/s\t     85742 wire-B\t   90187 B/op\t       3 allocs/op",
+            "extra": "26331 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_qpack - ns/op",
+            "value": 91426,
+            "unit": "ns/op",
+            "extra": "26331 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_qpack - MB/s",
+            "value": 937.83,
+            "unit": "MB/s",
+            "extra": "26331 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_qpack - wire-B",
+            "value": 85742,
+            "unit": "wire-B",
+            "extra": "26331 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_qpack - B/op",
+            "value": 90187,
+            "unit": "B/op",
+            "extra": "26331 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_qpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "26331 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_qpack",
+            "value": 210591,
+            "unit": "ns/op\t 407.15 MB/s\t  112899 B/op\t    2051 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_qpack - ns/op",
+            "value": 210591,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_qpack - MB/s",
+            "value": 407.15,
+            "unit": "MB/s",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_qpack - B/op",
+            "value": 112899,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_qpack - allocs/op",
+            "value": 2051,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_compression",
+            "value": 318160,
+            "unit": "ns/op\t 124.59 MB/s\t     39639 wire-B\t  145254 B/op\t      40 allocs/op",
+            "extra": "7356 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_compression - ns/op",
+            "value": 318160,
+            "unit": "ns/op",
+            "extra": "7356 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_compression - MB/s",
+            "value": 124.59,
+            "unit": "MB/s",
+            "extra": "7356 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_compression - wire-B",
+            "value": 39639,
+            "unit": "wire-B",
+            "extra": "7356 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_compression - B/op",
+            "value": 145254,
+            "unit": "B/op",
+            "extra": "7356 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/encode/qdf_compression - allocs/op",
+            "value": 40,
+            "unit": "allocs/op",
+            "extra": "7356 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_compression",
+            "value": 328198,
+            "unit": "ns/op\t 120.78 MB/s\t  153621 B/op\t    1045 allocs/op",
+            "extra": "7024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_compression - ns/op",
+            "value": 328198,
+            "unit": "ns/op",
+            "extra": "7024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_compression - MB/s",
+            "value": 120.78,
+            "unit": "MB/s",
+            "extra": "7024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_compression - B/op",
+            "value": 153621,
+            "unit": "B/op",
+            "extra": "7024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_1024/decode/qdf_compression - allocs/op",
+            "value": 1045,
+            "unit": "allocs/op",
+            "extra": "7024 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/json",
+            "value": 8286,
+            "unit": "ns/op\t    3408 B/op\t      84 allocs/op",
+            "extra": "283090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/json - ns/op",
+            "value": 8286,
+            "unit": "ns/op",
+            "extra": "283090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/json - B/op",
+            "value": 3408,
+            "unit": "B/op",
+            "extra": "283090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/json - allocs/op",
+            "value": 84,
+            "unit": "allocs/op",
+            "extra": "283090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/msgpack",
+            "value": 4344,
+            "unit": "ns/op\t    1536 B/op\t      46 allocs/op",
+            "extra": "564872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/msgpack - ns/op",
+            "value": 4344,
+            "unit": "ns/op",
+            "extra": "564872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/msgpack - B/op",
+            "value": 1536,
+            "unit": "B/op",
+            "extra": "564872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/msgpack - allocs/op",
+            "value": 46,
+            "unit": "allocs/op",
+            "extra": "564872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_fast",
+            "value": 1446,
+            "unit": "ns/op\t     416 B/op\t       3 allocs/op",
+            "extra": "1659854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_fast - ns/op",
+            "value": 1446,
+            "unit": "ns/op",
+            "extra": "1659854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_fast - B/op",
+            "value": 416,
+            "unit": "B/op",
+            "extra": "1659854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "1659854 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_dense",
+            "value": 1801,
+            "unit": "ns/op\t     416 B/op\t       3 allocs/op",
+            "extra": "1333234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_dense - ns/op",
+            "value": 1801,
+            "unit": "ns/op",
+            "extra": "1333234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_dense - B/op",
+            "value": 416,
+            "unit": "B/op",
+            "extra": "1333234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MapHeavy/qdf_dense - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "1333234 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/json",
+            "value": 16694,
+            "unit": "ns/op\t    4912 B/op\t     124 allocs/op",
+            "extra": "143320 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/json - ns/op",
+            "value": 16694,
+            "unit": "ns/op",
+            "extra": "143320 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/json - B/op",
+            "value": 4912,
+            "unit": "B/op",
+            "extra": "143320 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/json - allocs/op",
+            "value": 124,
+            "unit": "allocs/op",
+            "extra": "143320 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/msgpack",
+            "value": 7279,
+            "unit": "ns/op\t    3088 B/op\t     112 allocs/op",
+            "extra": "324820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/msgpack - ns/op",
+            "value": 7279,
+            "unit": "ns/op",
+            "extra": "324820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/msgpack - B/op",
+            "value": 3088,
+            "unit": "B/op",
+            "extra": "324820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/msgpack - allocs/op",
+            "value": 112,
+            "unit": "allocs/op",
+            "extra": "324820 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/qdf_fast",
+            "value": 3246,
+            "unit": "ns/op\t    2362 B/op\t      34 allocs/op",
+            "extra": "716138 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/qdf_fast - ns/op",
+            "value": 3246,
+            "unit": "ns/op",
+            "extra": "716138 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/qdf_fast - B/op",
+            "value": 2362,
+            "unit": "B/op",
+            "extra": "716138 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy/qdf_fast - allocs/op",
+            "value": 34,
+            "unit": "allocs/op",
+            "extra": "716138 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/json",
+            "value": 8774,
+            "unit": "ns/op\t    2820 B/op\t      71 allocs/op",
+            "extra": "275919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/json - ns/op",
+            "value": 8774,
+            "unit": "ns/op",
+            "extra": "275919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/json - B/op",
+            "value": 2820,
+            "unit": "B/op",
+            "extra": "275919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/json - allocs/op",
+            "value": 71,
+            "unit": "allocs/op",
+            "extra": "275919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/msgpack",
+            "value": 2445,
+            "unit": "ns/op\t    1487 B/op\t      46 allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/msgpack - ns/op",
+            "value": 2445,
+            "unit": "ns/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/msgpack - B/op",
+            "value": 1487,
+            "unit": "B/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/msgpack - allocs/op",
+            "value": 46,
+            "unit": "allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/qdf_fast",
+            "value": 1883,
+            "unit": "ns/op\t    1403 B/op\t      26 allocs/op",
+            "extra": "1270579 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/qdf_fast - ns/op",
+            "value": 1883,
+            "unit": "ns/op",
+            "extra": "1270579 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/qdf_fast - B/op",
+            "value": 1403,
+            "unit": "B/op",
+            "extra": "1270579 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapHeavy_RepeatedKeys/qdf_fast - allocs/op",
+            "value": 26,
+            "unit": "allocs/op",
+            "extra": "1270579 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/json",
+            "value": 0.3402,
+            "unit": "ns/op\t    442536 B/decode\t       0 B/op\t       0 allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/json - ns/op",
+            "value": 0.3402,
+            "unit": "ns/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/json - B/decode",
+            "value": 442536,
+            "unit": "B/decode",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/json - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/json - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/msgpack",
+            "value": 0.107,
+            "unit": "ns/op\t    407515 B/decode\t       0 B/op\t       0 allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/msgpack - ns/op",
+            "value": 0.107,
+            "unit": "ns/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/msgpack - B/decode",
+            "value": 407515,
+            "unit": "B/decode",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/msgpack - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/msgpack - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/qdf_fast",
+            "value": 0.05103,
+            "unit": "ns/op\t    251762 B/decode\t       0 B/op\t       0 allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/qdf_fast - ns/op",
+            "value": 0.05103,
+            "unit": "ns/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/qdf_fast - B/decode",
+            "value": 251762,
+            "unit": "B/decode",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/qdf_fast - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemory_DecodeLogBatch1k_Bytes/qdf_fast - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/json",
+            "value": 3586,
+            "unit": "ns/op\t     790 B/op\t      37 allocs/op",
+            "extra": "665060 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/json - ns/op",
+            "value": 3586,
+            "unit": "ns/op",
+            "extra": "665060 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/json - B/op",
+            "value": 790,
+            "unit": "B/op",
+            "extra": "665060 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/json - allocs/op",
+            "value": 37,
+            "unit": "allocs/op",
+            "extra": "665060 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/qdf_fast",
+            "value": 635,
+            "unit": "ns/op\t     345 B/op\t       3 allocs/op",
+            "extra": "3712507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/qdf_fast - ns/op",
+            "value": 635,
+            "unit": "ns/op",
+            "extra": "3712507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/qdf_fast - B/op",
+            "value": 345,
+            "unit": "B/op",
+            "extra": "3712507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_MapStringAny_RepeatedKeys/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "3712507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNullableScatter",
+            "value": 207922,
+            "unit": "ns/op\t  458549 B/op\t      39 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNullableScatter - ns/op",
+            "value": 207922,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNullableScatter - B/op",
+            "value": 458549,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNullableScatter - allocs/op",
+            "value": 39,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/json",
+            "value": 367377,
+            "unit": "ns/op\t 417.13 MB/s\t    153243 wire-B\t  157840 B/op\t      30 allocs/op",
+            "extra": "6316 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/json - ns/op",
+            "value": 367377,
+            "unit": "ns/op",
+            "extra": "6316 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/json - MB/s",
+            "value": 417.13,
+            "unit": "MB/s",
+            "extra": "6316 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/json - wire-B",
+            "value": 153243,
+            "unit": "wire-B",
+            "extra": "6316 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/json - B/op",
+            "value": 157840,
+            "unit": "B/op",
+            "extra": "6316 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/json - allocs/op",
+            "value": 30,
+            "unit": "allocs/op",
+            "extra": "6316 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/json",
+            "value": 2320796,
+            "unit": "ns/op\t  66.03 MB/s\t  296408 B/op\t    6356 allocs/op",
+            "extra": "1020 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/json - ns/op",
+            "value": 2320796,
+            "unit": "ns/op",
+            "extra": "1020 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/json - MB/s",
+            "value": 66.03,
+            "unit": "MB/s",
+            "extra": "1020 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/json - B/op",
+            "value": 296408,
+            "unit": "B/op",
+            "extra": "1020 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/json - allocs/op",
+            "value": 6356,
+            "unit": "allocs/op",
+            "extra": "1020 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/msgpack",
+            "value": 470248,
+            "unit": "ns/op\t 251.65 MB/s\t    118337 wire-B\t  262227 B/op\t      18 allocs/op",
+            "extra": "5082 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/msgpack - ns/op",
+            "value": 470248,
+            "unit": "ns/op",
+            "extra": "5082 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/msgpack - MB/s",
+            "value": 251.65,
+            "unit": "MB/s",
+            "extra": "5082 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/msgpack - wire-B",
+            "value": 118337,
+            "unit": "wire-B",
+            "extra": "5082 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/msgpack - B/op",
+            "value": 262227,
+            "unit": "B/op",
+            "extra": "5082 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/msgpack - allocs/op",
+            "value": 18,
+            "unit": "allocs/op",
+            "extra": "5082 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/msgpack",
+            "value": 961788,
+            "unit": "ns/op\t 123.04 MB/s\t  303620 B/op\t    6931 allocs/op",
+            "extra": "2480 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/msgpack - ns/op",
+            "value": 961788,
+            "unit": "ns/op",
+            "extra": "2480 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/msgpack - MB/s",
+            "value": 123.04,
+            "unit": "MB/s",
+            "extra": "2480 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/msgpack - B/op",
+            "value": 303620,
+            "unit": "B/op",
+            "extra": "2480 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/msgpack - allocs/op",
+            "value": 6931,
+            "unit": "allocs/op",
+            "extra": "2480 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_speed",
+            "value": 167330,
+            "unit": "ns/op\t 719.72 MB/s\t    120431 wire-B\t  123077 B/op\t       3 allocs/op",
+            "extra": "14374 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_speed - ns/op",
+            "value": 167330,
+            "unit": "ns/op",
+            "extra": "14374 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_speed - MB/s",
+            "value": 719.72,
+            "unit": "MB/s",
+            "extra": "14374 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_speed - wire-B",
+            "value": 120431,
+            "unit": "wire-B",
+            "extra": "14374 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_speed - B/op",
+            "value": 123077,
+            "unit": "B/op",
+            "extra": "14374 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_speed - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "14374 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_speed",
+            "value": 447421,
+            "unit": "ns/op\t 269.17 MB/s\t  180783 B/op\t    5733 allocs/op",
+            "extra": "5233 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_speed - ns/op",
+            "value": 447421,
+            "unit": "ns/op",
+            "extra": "5233 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_speed - MB/s",
+            "value": 269.17,
+            "unit": "MB/s",
+            "extra": "5233 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_speed - B/op",
+            "value": 180783,
+            "unit": "B/op",
+            "extra": "5233 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_speed - allocs/op",
+            "value": 5733,
+            "unit": "allocs/op",
+            "extra": "5233 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_balanced",
+            "value": 224162,
+            "unit": "ns/op\t 163.60 MB/s\t     36673 wire-B\t   41080 B/op\t       3 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_balanced - ns/op",
+            "value": 224162,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_balanced - MB/s",
+            "value": 163.6,
+            "unit": "MB/s",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_balanced - wire-B",
+            "value": 36673,
+            "unit": "wire-B",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_balanced - B/op",
+            "value": 41080,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_balanced - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_balanced",
+            "value": 350071,
+            "unit": "ns/op\t 104.76 MB/s\t  130158 B/op\t    2334 allocs/op",
+            "extra": "6601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_balanced - ns/op",
+            "value": 350071,
+            "unit": "ns/op",
+            "extra": "6601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_balanced - MB/s",
+            "value": 104.76,
+            "unit": "MB/s",
+            "extra": "6601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_balanced - B/op",
+            "value": 130158,
+            "unit": "B/op",
+            "extra": "6601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_balanced - allocs/op",
+            "value": 2334,
+            "unit": "allocs/op",
+            "extra": "6601 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_qpack",
+            "value": 170061,
+            "unit": "ns/op\t 708.16 MB/s\t    120431 wire-B\t  123308 B/op\t       3 allocs/op",
+            "extra": "14251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_qpack - ns/op",
+            "value": 170061,
+            "unit": "ns/op",
+            "extra": "14251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_qpack - MB/s",
+            "value": 708.16,
+            "unit": "MB/s",
+            "extra": "14251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_qpack - wire-B",
+            "value": 120431,
+            "unit": "wire-B",
+            "extra": "14251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_qpack - B/op",
+            "value": 123308,
+            "unit": "B/op",
+            "extra": "14251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_qpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "14251 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_qpack",
+            "value": 454926,
+            "unit": "ns/op\t 264.73 MB/s\t  180784 B/op\t    5733 allocs/op",
+            "extra": "5221 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_qpack - ns/op",
+            "value": 454926,
+            "unit": "ns/op",
+            "extra": "5221 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_qpack - MB/s",
+            "value": 264.73,
+            "unit": "MB/s",
+            "extra": "5221 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_qpack - B/op",
+            "value": 180784,
+            "unit": "B/op",
+            "extra": "5221 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_qpack - allocs/op",
+            "value": 5733,
+            "unit": "allocs/op",
+            "extra": "5221 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_compression",
+            "value": 472682,
+            "unit": "ns/op\t  58.57 MB/s\t     27686 wire-B\t  121805 B/op\t       6 allocs/op",
+            "extra": "4940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_compression - ns/op",
+            "value": 472682,
+            "unit": "ns/op",
+            "extra": "4940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_compression - MB/s",
+            "value": 58.57,
+            "unit": "MB/s",
+            "extra": "4940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_compression - wire-B",
+            "value": 27686,
+            "unit": "wire-B",
+            "extra": "4940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_compression - B/op",
+            "value": 121805,
+            "unit": "B/op",
+            "extra": "4940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/encode/qdf_compression - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "4940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_compression",
+            "value": 597360,
+            "unit": "ns/op\t  46.35 MB/s\t  171088 B/op\t    2337 allocs/op",
+            "extra": "3876 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_compression - ns/op",
+            "value": 597360,
+            "unit": "ns/op",
+            "extra": "3876 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_compression - MB/s",
+            "value": 46.35,
+            "unit": "MB/s",
+            "extra": "3876 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_compression - B/op",
+            "value": 171088,
+            "unit": "B/op",
+            "extra": "3876 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x64/decode/qdf_compression - allocs/op",
+            "value": 2337,
+            "unit": "allocs/op",
+            "extra": "3876 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/json",
+            "value": 2503736,
+            "unit": "ns/op\t 410.20 MB/s\t   1027033 wire-B\t 1035499 B/op\t      30 allocs/op",
+            "extra": "919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/json - ns/op",
+            "value": 2503736,
+            "unit": "ns/op",
+            "extra": "919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/json - MB/s",
+            "value": 410.2,
+            "unit": "MB/s",
+            "extra": "919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/json - wire-B",
+            "value": 1027033,
+            "unit": "wire-B",
+            "extra": "919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/json - B/op",
+            "value": 1035499,
+            "unit": "B/op",
+            "extra": "919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/json - allocs/op",
+            "value": 30,
+            "unit": "allocs/op",
+            "extra": "919 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/json",
+            "value": 15707865,
+            "unit": "ns/op\t  65.38 MB/s\t 1999206 B/op\t   42224 allocs/op",
+            "extra": "152 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/json - ns/op",
+            "value": 15707865,
+            "unit": "ns/op",
+            "extra": "152 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/json - MB/s",
+            "value": 65.38,
+            "unit": "MB/s",
+            "extra": "152 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/json - B/op",
+            "value": 1999206,
+            "unit": "B/op",
+            "extra": "152 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/json - allocs/op",
+            "value": 42224,
+            "unit": "allocs/op",
+            "extra": "152 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/msgpack",
+            "value": 3195709,
+            "unit": "ns/op\t 248.21 MB/s\t    793192 wire-B\t 2097453 B/op\t      22 allocs/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/msgpack - ns/op",
+            "value": 3195709,
+            "unit": "ns/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/msgpack - MB/s",
+            "value": 248.21,
+            "unit": "MB/s",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/msgpack - wire-B",
+            "value": 793192,
+            "unit": "wire-B",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/msgpack - B/op",
+            "value": 2097453,
+            "unit": "B/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/msgpack - allocs/op",
+            "value": 22,
+            "unit": "allocs/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/msgpack",
+            "value": 6703455,
+            "unit": "ns/op\t 118.33 MB/s\t 2024339 B/op\t   46058 allocs/op",
+            "extra": "352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/msgpack - ns/op",
+            "value": 6703455,
+            "unit": "ns/op",
+            "extra": "352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/msgpack - MB/s",
+            "value": 118.33,
+            "unit": "MB/s",
+            "extra": "352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/msgpack - B/op",
+            "value": 2024339,
+            "unit": "B/op",
+            "extra": "352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/msgpack - allocs/op",
+            "value": 46058,
+            "unit": "allocs/op",
+            "extra": "352 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_speed",
+            "value": 1821292,
+            "unit": "ns/op\t 443.22 MB/s\t    807235 wire-B\t 2953922 B/op\t      23 allocs/op",
+            "extra": "1370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_speed - ns/op",
+            "value": 1821292,
+            "unit": "ns/op",
+            "extra": "1370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_speed - MB/s",
+            "value": 443.22,
+            "unit": "MB/s",
+            "extra": "1370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_speed - wire-B",
+            "value": 807235,
+            "unit": "wire-B",
+            "extra": "1370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_speed - B/op",
+            "value": 2953922,
+            "unit": "B/op",
+            "extra": "1370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_speed - allocs/op",
+            "value": 23,
+            "unit": "allocs/op",
+            "extra": "1370 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_speed",
+            "value": 3196100,
+            "unit": "ns/op\t 252.57 MB/s\t 1205703 B/op\t   38334 allocs/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_speed - ns/op",
+            "value": 3196100,
+            "unit": "ns/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_speed - MB/s",
+            "value": 252.57,
+            "unit": "MB/s",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_speed - B/op",
+            "value": 1205703,
+            "unit": "B/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_speed - allocs/op",
+            "value": 38334,
+            "unit": "allocs/op",
+            "extra": "759 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_balanced",
+            "value": 1689434,
+            "unit": "ns/op\t 142.47 MB/s\t    240686 wire-B\t  392171 B/op\t      33 allocs/op",
+            "extra": "1405 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_balanced - ns/op",
+            "value": 1689434,
+            "unit": "ns/op",
+            "extra": "1405 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_balanced - MB/s",
+            "value": 142.47,
+            "unit": "MB/s",
+            "extra": "1405 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_balanced - wire-B",
+            "value": 240686,
+            "unit": "wire-B",
+            "extra": "1405 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_balanced - B/op",
+            "value": 392171,
+            "unit": "B/op",
+            "extra": "1405 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_balanced - allocs/op",
+            "value": 33,
+            "unit": "allocs/op",
+            "extra": "1405 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_balanced",
+            "value": 3037460,
+            "unit": "ns/op\t  79.24 MB/s\t 1856350 B/op\t   15239 allocs/op",
+            "extra": "788 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_balanced - ns/op",
+            "value": 3037460,
+            "unit": "ns/op",
+            "extra": "788 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_balanced - MB/s",
+            "value": 79.24,
+            "unit": "MB/s",
+            "extra": "788 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_balanced - B/op",
+            "value": 1856350,
+            "unit": "B/op",
+            "extra": "788 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_balanced - allocs/op",
+            "value": 15239,
+            "unit": "allocs/op",
+            "extra": "788 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_qpack",
+            "value": 1876151,
+            "unit": "ns/op\t 430.26 MB/s\t    807235 wire-B\t 2953879 B/op\t      23 allocs/op",
+            "extra": "1231 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_qpack - ns/op",
+            "value": 1876151,
+            "unit": "ns/op",
+            "extra": "1231 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_qpack - MB/s",
+            "value": 430.26,
+            "unit": "MB/s",
+            "extra": "1231 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_qpack - wire-B",
+            "value": 807235,
+            "unit": "wire-B",
+            "extra": "1231 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_qpack - B/op",
+            "value": 2953879,
+            "unit": "B/op",
+            "extra": "1231 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_qpack - allocs/op",
+            "value": 23,
+            "unit": "allocs/op",
+            "extra": "1231 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_qpack",
+            "value": 3146545,
+            "unit": "ns/op\t 256.55 MB/s\t 1205691 B/op\t   38334 allocs/op",
+            "extra": "756 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_qpack - ns/op",
+            "value": 3146545,
+            "unit": "ns/op",
+            "extra": "756 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_qpack - MB/s",
+            "value": 256.55,
+            "unit": "MB/s",
+            "extra": "756 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_qpack - B/op",
+            "value": 1205691,
+            "unit": "B/op",
+            "extra": "756 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_qpack - allocs/op",
+            "value": 38334,
+            "unit": "allocs/op",
+            "extra": "756 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_compression",
+            "value": 3158005,
+            "unit": "ns/op\t  56.74 MB/s\t    179181 wire-B\t  888782 B/op\t      36 allocs/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_compression - ns/op",
+            "value": 3158005,
+            "unit": "ns/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_compression - MB/s",
+            "value": 56.74,
+            "unit": "MB/s",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_compression - wire-B",
+            "value": 179181,
+            "unit": "wire-B",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_compression - B/op",
+            "value": 888782,
+            "unit": "B/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/encode/qdf_compression - allocs/op",
+            "value": 36,
+            "unit": "allocs/op",
+            "extra": "744 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_compression",
+            "value": 4614181,
+            "unit": "ns/op\t  38.83 MB/s\t 2101962 B/op\t   15240 allocs/op",
+            "extra": "568 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_compression - ns/op",
+            "value": 4614181,
+            "unit": "ns/op",
+            "extra": "568 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_compression - MB/s",
+            "value": 38.83,
+            "unit": "MB/s",
+            "extra": "568 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_compression - B/op",
+            "value": 2101962,
+            "unit": "B/op",
+            "extra": "568 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_4x512/decode/qdf_compression - allocs/op",
+            "value": 15240,
+            "unit": "allocs/op",
+            "extra": "568 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/json",
+            "value": 639.9,
+            "unit": "ns/op\t 151.58 MB/s\t     240 B/op\t       3 allocs/op",
+            "extra": "3746355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/json - ns/op",
+            "value": 639.9,
+            "unit": "ns/op",
+            "extra": "3746355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/json - MB/s",
+            "value": 151.58,
+            "unit": "MB/s",
+            "extra": "3746355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/json - B/op",
+            "value": 240,
+            "unit": "B/op",
+            "extra": "3746355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/json - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "3746355 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/msgpack",
+            "value": 402.7,
+            "unit": "ns/op\t 156.43 MB/s\t     192 B/op\t       3 allocs/op",
+            "extra": "5959738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/msgpack - ns/op",
+            "value": 402.7,
+            "unit": "ns/op",
+            "extra": "5959738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/msgpack - MB/s",
+            "value": 156.43,
+            "unit": "MB/s",
+            "extra": "5959738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/msgpack - B/op",
+            "value": 192,
+            "unit": "B/op",
+            "extra": "5959738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/msgpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "5959738 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/qdf",
+            "value": 325,
+            "unit": "ns/op\t 215.40 MB/s\t     240 B/op\t       3 allocs/op",
+            "extra": "7383844 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/qdf - ns/op",
+            "value": 325,
+            "unit": "ns/op",
+            "extra": "7383844 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/qdf - MB/s",
+            "value": 215.4,
+            "unit": "MB/s",
+            "extra": "7383844 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/qdf - B/op",
+            "value": 240,
+            "unit": "B/op",
+            "extra": "7383844 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "7383844 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/json",
+            "value": 1662,
+            "unit": "ns/op\t  58.36 MB/s\t     328 B/op\t       7 allocs/op",
+            "extra": "1444507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/json - ns/op",
+            "value": 1662,
+            "unit": "ns/op",
+            "extra": "1444507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/json - MB/s",
+            "value": 58.36,
+            "unit": "MB/s",
+            "extra": "1444507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/json - B/op",
+            "value": 328,
+            "unit": "B/op",
+            "extra": "1444507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/json - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "1444507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/msgpack",
+            "value": 633,
+            "unit": "ns/op\t  99.52 MB/s\t     160 B/op\t       4 allocs/op",
+            "extra": "3793785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/msgpack - ns/op",
+            "value": 633,
+            "unit": "ns/op",
+            "extra": "3793785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/msgpack - MB/s",
+            "value": 99.52,
+            "unit": "MB/s",
+            "extra": "3793785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/msgpack - B/op",
+            "value": 160,
+            "unit": "B/op",
+            "extra": "3793785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/msgpack - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "3793785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/qdf",
+            "value": 316.5,
+            "unit": "ns/op\t 221.19 MB/s\t     112 B/op\t       3 allocs/op",
+            "extra": "7618512 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/qdf - ns/op",
+            "value": 316.5,
+            "unit": "ns/op",
+            "extra": "7618512 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/qdf - MB/s",
+            "value": 221.19,
+            "unit": "MB/s",
+            "extra": "7618512 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/qdf - B/op",
+            "value": 112,
+            "unit": "B/op",
+            "extra": "7618512 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_HotPath/hot_path/decode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "7618512 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/json",
+            "value": 363445,
+            "unit": "ns/op\t 393.13 MB/s\t  148647 B/op\t       2 allocs/op",
+            "extra": "6439 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/json - ns/op",
+            "value": 363445,
+            "unit": "ns/op",
+            "extra": "6439 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/json - MB/s",
+            "value": 393.13,
+            "unit": "MB/s",
+            "extra": "6439 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/json - B/op",
+            "value": 148647,
+            "unit": "B/op",
+            "extra": "6439 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "6439 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/msgpack",
+            "value": 480938,
+            "unit": "ns/op\t 232.12 MB/s\t  286204 B/op\t    1014 allocs/op",
+            "extra": "4918 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/msgpack - ns/op",
+            "value": 480938,
+            "unit": "ns/op",
+            "extra": "4918 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/msgpack - MB/s",
+            "value": 232.12,
+            "unit": "MB/s",
+            "extra": "4918 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/msgpack - B/op",
+            "value": 286204,
+            "unit": "B/op",
+            "extra": "4918 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/msgpack - allocs/op",
+            "value": 1014,
+            "unit": "allocs/op",
+            "extra": "4918 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/qdf",
+            "value": 277616,
+            "unit": "ns/op\t 146.11 MB/s\t   41180 B/op\t       3 allocs/op",
+            "extra": "8629 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/qdf - ns/op",
+            "value": 277616,
+            "unit": "ns/op",
+            "extra": "8629 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/qdf - MB/s",
+            "value": 146.11,
+            "unit": "MB/s",
+            "extra": "8629 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/qdf - B/op",
+            "value": 41180,
+            "unit": "B/op",
+            "extra": "8629 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "8629 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/json",
+            "value": 2441081,
+            "unit": "ns/op\t  58.53 MB/s\t  503577 B/op\t    9019 allocs/op",
+            "extra": "973 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/json - ns/op",
+            "value": 2441081,
+            "unit": "ns/op",
+            "extra": "973 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/json - MB/s",
+            "value": 58.53,
+            "unit": "MB/s",
+            "extra": "973 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/json - B/op",
+            "value": 503577,
+            "unit": "B/op",
+            "extra": "973 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/json - allocs/op",
+            "value": 9019,
+            "unit": "allocs/op",
+            "extra": "973 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/msgpack",
+            "value": 881307,
+            "unit": "ns/op\t 126.67 MB/s\t  323893 B/op\t    8007 allocs/op",
+            "extra": "2725 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/msgpack - ns/op",
+            "value": 881307,
+            "unit": "ns/op",
+            "extra": "2725 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/msgpack - MB/s",
+            "value": 126.67,
+            "unit": "MB/s",
+            "extra": "2725 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/msgpack - B/op",
+            "value": 323893,
+            "unit": "B/op",
+            "extra": "2725 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/msgpack - allocs/op",
+            "value": 8007,
+            "unit": "allocs/op",
+            "extra": "2725 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/qdf",
+            "value": 362208,
+            "unit": "ns/op\t 111.99 MB/s\t  169204 B/op\t    3466 allocs/op",
+            "extra": "6571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/qdf - ns/op",
+            "value": 362208,
+            "unit": "ns/op",
+            "extra": "6571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/qdf - MB/s",
+            "value": 111.99,
+            "unit": "MB/s",
+            "extra": "6571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/qdf - B/op",
+            "value": 169204,
+            "unit": "B/op",
+            "extra": "6571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch/telemetry_1k/decode/qdf - allocs/op",
+            "value": 3466,
+            "unit": "allocs/op",
+            "extra": "6571 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch_PreIntern/telemetry_1k_preintern/encode/qdf",
+            "value": 260223,
+            "unit": "ns/op\t 155.88 MB/s\t      78 B/op\t       2 allocs/op",
+            "extra": "9184 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch_PreIntern/telemetry_1k_preintern/encode/qdf - ns/op",
+            "value": 260223,
+            "unit": "ns/op",
+            "extra": "9184 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch_PreIntern/telemetry_1k_preintern/encode/qdf - MB/s",
+            "value": 155.88,
+            "unit": "MB/s",
+            "extra": "9184 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch_PreIntern/telemetry_1k_preintern/encode/qdf - B/op",
+            "value": 78,
+            "unit": "B/op",
+            "extra": "9184 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_TelemetryBatch_PreIntern/telemetry_1k_preintern/encode/qdf - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "9184 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/json",
+            "value": 145671,
+            "unit": "ns/op\t 255.77 MB/s\t   41101 B/op\t       2 allocs/op",
+            "extra": "16518 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/json - ns/op",
+            "value": 145671,
+            "unit": "ns/op",
+            "extra": "16518 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/json - MB/s",
+            "value": 255.77,
+            "unit": "MB/s",
+            "extra": "16518 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/json - B/op",
+            "value": 41101,
+            "unit": "B/op",
+            "extra": "16518 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "16518 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/msgpack",
+            "value": 110690,
+            "unit": "ns/op\t 176.28 MB/s\t   65626 B/op\t      12 allocs/op",
+            "extra": "21524 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/msgpack - ns/op",
+            "value": 110690,
+            "unit": "ns/op",
+            "extra": "21524 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/msgpack - MB/s",
+            "value": 176.28,
+            "unit": "MB/s",
+            "extra": "21524 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/msgpack - B/op",
+            "value": 65626,
+            "unit": "B/op",
+            "extra": "21524 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/msgpack - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "21524 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/qdf",
+            "value": 6206,
+            "unit": "ns/op\t1352.09 MB/s\t    9668 B/op\t       3 allocs/op",
+            "extra": "387991 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/qdf - ns/op",
+            "value": 6206,
+            "unit": "ns/op",
+            "extra": "387991 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/qdf - MB/s",
+            "value": 1352.09,
+            "unit": "MB/s",
+            "extra": "387991 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/qdf - B/op",
+            "value": 9668,
+            "unit": "B/op",
+            "extra": "387991 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "387991 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/json",
+            "value": 549867,
+            "unit": "ns/op\t  67.76 MB/s\t   54080 B/op\t      40 allocs/op",
+            "extra": "4291 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/json - ns/op",
+            "value": 549867,
+            "unit": "ns/op",
+            "extra": "4291 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/json - MB/s",
+            "value": 67.76,
+            "unit": "MB/s",
+            "extra": "4291 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/json - B/op",
+            "value": 54080,
+            "unit": "B/op",
+            "extra": "4291 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/json - allocs/op",
+            "value": 40,
+            "unit": "allocs/op",
+            "extra": "4291 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/msgpack",
+            "value": 136607,
+            "unit": "ns/op\t 142.83 MB/s\t   35197 B/op\t      18 allocs/op",
+            "extra": "17577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/msgpack - ns/op",
+            "value": 136607,
+            "unit": "ns/op",
+            "extra": "17577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/msgpack - MB/s",
+            "value": 142.83,
+            "unit": "MB/s",
+            "extra": "17577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/msgpack - B/op",
+            "value": 35197,
+            "unit": "B/op",
+            "extra": "17577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/msgpack - allocs/op",
+            "value": 18,
+            "unit": "allocs/op",
+            "extra": "17577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/qdf",
+            "value": 5891,
+            "unit": "ns/op\t1424.41 MB/s\t   17524 B/op\t       5 allocs/op",
+            "extra": "415232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/qdf - ns/op",
+            "value": 5891,
+            "unit": "ns/op",
+            "extra": "415232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/qdf - MB/s",
+            "value": 1424.41,
+            "unit": "MB/s",
+            "extra": "415232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/qdf - B/op",
+            "value": 17524,
+            "unit": "B/op",
+            "extra": "415232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeries/metric_1024/decode/qdf - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "415232 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/json",
+            "value": 122611,
+            "unit": "ns/op\t 236.72 MB/s\t   32879 B/op\t       2 allocs/op",
+            "extra": "19507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/json - ns/op",
+            "value": 122611,
+            "unit": "ns/op",
+            "extra": "19507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/json - MB/s",
+            "value": 236.72,
+            "unit": "MB/s",
+            "extra": "19507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/json - B/op",
+            "value": 32879,
+            "unit": "B/op",
+            "extra": "19507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "19507 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/msgpack",
+            "value": 110005,
+            "unit": "ns/op\t 177.44 MB/s\t   65626 B/op\t      12 allocs/op",
+            "extra": "21801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/msgpack - ns/op",
+            "value": 110005,
+            "unit": "ns/op",
+            "extra": "21801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/msgpack - MB/s",
+            "value": 177.44,
+            "unit": "MB/s",
+            "extra": "21801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/msgpack - B/op",
+            "value": 65626,
+            "unit": "B/op",
+            "extra": "21801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/msgpack - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "21801 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/qdf",
+            "value": 6245,
+            "unit": "ns/op\t1344.78 MB/s\t    9667 B/op\t       3 allocs/op",
+            "extra": "368707 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/qdf - ns/op",
+            "value": 6245,
+            "unit": "ns/op",
+            "extra": "368707 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/qdf - MB/s",
+            "value": 1344.78,
+            "unit": "MB/s",
+            "extra": "368707 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/qdf - B/op",
+            "value": 9667,
+            "unit": "B/op",
+            "extra": "368707 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "368707 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/json",
+            "value": 459712,
+            "unit": "ns/op\t  63.14 MB/s\t   54088 B/op\t      40 allocs/op",
+            "extra": "5236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/json - ns/op",
+            "value": 459712,
+            "unit": "ns/op",
+            "extra": "5236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/json - MB/s",
+            "value": 63.14,
+            "unit": "MB/s",
+            "extra": "5236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/json - B/op",
+            "value": 54088,
+            "unit": "B/op",
+            "extra": "5236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/json - allocs/op",
+            "value": 40,
+            "unit": "allocs/op",
+            "extra": "5236 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/msgpack",
+            "value": 136384,
+            "unit": "ns/op\t 143.12 MB/s\t   35205 B/op\t      18 allocs/op",
+            "extra": "17570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/msgpack - ns/op",
+            "value": 136384,
+            "unit": "ns/op",
+            "extra": "17570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/msgpack - MB/s",
+            "value": 143.12,
+            "unit": "MB/s",
+            "extra": "17570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/msgpack - B/op",
+            "value": 35205,
+            "unit": "B/op",
+            "extra": "17570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/msgpack - allocs/op",
+            "value": 18,
+            "unit": "allocs/op",
+            "extra": "17570 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/qdf",
+            "value": 5864,
+            "unit": "ns/op\t1432.23 MB/s\t   17533 B/op\t       5 allocs/op",
+            "extra": "407956 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/qdf - ns/op",
+            "value": 5864,
+            "unit": "ns/op",
+            "extra": "407956 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/qdf - MB/s",
+            "value": 1432.23,
+            "unit": "MB/s",
+            "extra": "407956 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/qdf - B/op",
+            "value": 17533,
+            "unit": "B/op",
+            "extra": "407956 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmooth/metric_smooth_1024/decode/qdf - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "407956 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/json",
+            "value": 121268,
+            "unit": "ns/op\t 239.34 MB/s\t   32885 B/op\t       2 allocs/op",
+            "extra": "19767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/json - ns/op",
+            "value": 121268,
+            "unit": "ns/op",
+            "extra": "19767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/json - MB/s",
+            "value": 239.34,
+            "unit": "MB/s",
+            "extra": "19767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/json - B/op",
+            "value": 32885,
+            "unit": "B/op",
+            "extra": "19767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "19767 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/msgpack",
+            "value": 109613,
+            "unit": "ns/op\t 178.07 MB/s\t   65626 B/op\t      12 allocs/op",
+            "extra": "21940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/msgpack - ns/op",
+            "value": 109613,
+            "unit": "ns/op",
+            "extra": "21940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/msgpack - MB/s",
+            "value": 178.07,
+            "unit": "MB/s",
+            "extra": "21940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/msgpack - B/op",
+            "value": 65626,
+            "unit": "B/op",
+            "extra": "21940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/msgpack - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "21940 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/qdf",
+            "value": 68627,
+            "unit": "ns/op\t  24.35 MB/s\t   17214 B/op\t      17 allocs/op",
+            "extra": "34964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/qdf - ns/op",
+            "value": 68627,
+            "unit": "ns/op",
+            "extra": "34964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/qdf - MB/s",
+            "value": 24.35,
+            "unit": "MB/s",
+            "extra": "34964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/qdf - B/op",
+            "value": 17214,
+            "unit": "B/op",
+            "extra": "34964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/encode/qdf - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "34964 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/json",
+            "value": 459370,
+            "unit": "ns/op\t  63.18 MB/s\t   54088 B/op\t      40 allocs/op",
+            "extra": "5188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/json - ns/op",
+            "value": 459370,
+            "unit": "ns/op",
+            "extra": "5188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/json - MB/s",
+            "value": 63.18,
+            "unit": "MB/s",
+            "extra": "5188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/json - B/op",
+            "value": 54088,
+            "unit": "B/op",
+            "extra": "5188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/json - allocs/op",
+            "value": 40,
+            "unit": "allocs/op",
+            "extra": "5188 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/msgpack",
+            "value": 136051,
+            "unit": "ns/op\t 143.47 MB/s\t   35205 B/op\t      18 allocs/op",
+            "extra": "17630 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/msgpack - ns/op",
+            "value": 136051,
+            "unit": "ns/op",
+            "extra": "17630 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/msgpack - MB/s",
+            "value": 143.47,
+            "unit": "MB/s",
+            "extra": "17630 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/msgpack - B/op",
+            "value": 35205,
+            "unit": "B/op",
+            "extra": "17630 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/msgpack - allocs/op",
+            "value": 18,
+            "unit": "allocs/op",
+            "extra": "17630 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/qdf",
+            "value": 58790,
+            "unit": "ns/op\t  28.42 MB/s\t   19916 B/op\t       8 allocs/op",
+            "extra": "40920 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/qdf - ns/op",
+            "value": 58790,
+            "unit": "ns/op",
+            "extra": "40920 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/qdf - MB/s",
+            "value": 28.42,
+            "unit": "MB/s",
+            "extra": "40920 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/qdf - B/op",
+            "value": 19916,
+            "unit": "B/op",
+            "extra": "40920 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_MetricSeriesSmoothCompress/metric_smooth_1024_compress/decode/qdf - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "40920 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/json",
+            "value": 23058,
+            "unit": "ns/op\t 179.37 MB/s\t    4913 B/op\t       2 allocs/op",
+            "extra": "101503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/json - ns/op",
+            "value": 23058,
+            "unit": "ns/op",
+            "extra": "101503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/json - MB/s",
+            "value": 179.37,
+            "unit": "MB/s",
+            "extra": "101503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/json - B/op",
+            "value": 4913,
+            "unit": "B/op",
+            "extra": "101503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "101503 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/msgpack",
+            "value": 44751,
+            "unit": "ns/op\t 206.72 MB/s\t   32805 B/op\t      11 allocs/op",
+            "extra": "53330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/msgpack - ns/op",
+            "value": 44751,
+            "unit": "ns/op",
+            "extra": "53330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/msgpack - MB/s",
+            "value": 206.72,
+            "unit": "MB/s",
+            "extra": "53330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/msgpack - B/op",
+            "value": 32805,
+            "unit": "B/op",
+            "extra": "53330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/msgpack - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "53330 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/qdf",
+            "value": 6397,
+            "unit": "ns/op\t  15.48 MB/s\t     208 B/op\t       3 allocs/op",
+            "extra": "373410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/qdf - ns/op",
+            "value": 6397,
+            "unit": "ns/op",
+            "extra": "373410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/qdf - MB/s",
+            "value": 15.48,
+            "unit": "MB/s",
+            "extra": "373410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/qdf - B/op",
+            "value": 208,
+            "unit": "B/op",
+            "extra": "373410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "373410 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/json",
+            "value": 116595,
+            "unit": "ns/op\t  35.47 MB/s\t   25504 B/op\t      19 allocs/op",
+            "extra": "20563 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/json - ns/op",
+            "value": 116595,
+            "unit": "ns/op",
+            "extra": "20563 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/json - MB/s",
+            "value": 35.47,
+            "unit": "MB/s",
+            "extra": "20563 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/json - B/op",
+            "value": 25504,
+            "unit": "B/op",
+            "extra": "20563 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/json - allocs/op",
+            "value": 19,
+            "unit": "allocs/op",
+            "extra": "20563 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/msgpack",
+            "value": 54016,
+            "unit": "ns/op\t 171.26 MB/s\t   16570 B/op\t       8 allocs/op",
+            "extra": "44428 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/msgpack - ns/op",
+            "value": 54016,
+            "unit": "ns/op",
+            "extra": "44428 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/msgpack - MB/s",
+            "value": 171.26,
+            "unit": "MB/s",
+            "extra": "44428 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/msgpack - B/op",
+            "value": 16570,
+            "unit": "B/op",
+            "extra": "44428 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/msgpack - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "44428 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/qdf",
+            "value": 2834,
+            "unit": "ns/op\t  34.93 MB/s\t    8258 B/op\t       3 allocs/op",
+            "extra": "812205 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/qdf - ns/op",
+            "value": 2834,
+            "unit": "ns/op",
+            "extra": "812205 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/qdf - MB/s",
+            "value": 34.93,
+            "unit": "MB/s",
+            "extra": "812205 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/qdf - B/op",
+            "value": 8258,
+            "unit": "B/op",
+            "extra": "812205 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_StatusBatch/status_1024/decode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "812205 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/json",
+            "value": 53754,
+            "unit": "ns/op\t 155.99 MB/s\t    9522 B/op\t       2 allocs/op",
+            "extra": "44084 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/json - ns/op",
+            "value": 53754,
+            "unit": "ns/op",
+            "extra": "44084 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/json - MB/s",
+            "value": 155.99,
+            "unit": "MB/s",
+            "extra": "44084 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/json - B/op",
+            "value": 9522,
+            "unit": "B/op",
+            "extra": "44084 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "44084 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/msgpack",
+            "value": 25600,
+            "unit": "ns/op\t 150.94 MB/s\t    8225 B/op\t       9 allocs/op",
+            "extra": "93780 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/msgpack - ns/op",
+            "value": 25600,
+            "unit": "ns/op",
+            "extra": "93780 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/msgpack - MB/s",
+            "value": 150.94,
+            "unit": "MB/s",
+            "extra": "93780 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/msgpack - B/op",
+            "value": 8225,
+            "unit": "B/op",
+            "extra": "93780 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/msgpack - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "93780 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/qdf",
+            "value": 959.9,
+            "unit": "ns/op\t3232.64 MB/s\t    3297 B/op\t       3 allocs/op",
+            "extra": "2469124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/qdf - ns/op",
+            "value": 959.9,
+            "unit": "ns/op",
+            "extra": "2469124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/qdf - MB/s",
+            "value": 3232.64,
+            "unit": "MB/s",
+            "extra": "2469124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/qdf - B/op",
+            "value": 3297,
+            "unit": "B/op",
+            "extra": "2469124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "2469124 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/json",
+            "value": 167756,
+            "unit": "ns/op\t  49.98 MB/s\t    7832 B/op\t      17 allocs/op",
+            "extra": "14305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/json - ns/op",
+            "value": 167756,
+            "unit": "ns/op",
+            "extra": "14305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/json - MB/s",
+            "value": 49.98,
+            "unit": "MB/s",
+            "extra": "14305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/json - B/op",
+            "value": 7832,
+            "unit": "B/op",
+            "extra": "14305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/json - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "14305 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/msgpack",
+            "value": 36189,
+            "unit": "ns/op\t 106.77 MB/s\t    6320 B/op\t       8 allocs/op",
+            "extra": "66098 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/msgpack - ns/op",
+            "value": 36189,
+            "unit": "ns/op",
+            "extra": "66098 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/msgpack - MB/s",
+            "value": 106.77,
+            "unit": "MB/s",
+            "extra": "66098 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/msgpack - B/op",
+            "value": 6320,
+            "unit": "B/op",
+            "extra": "66098 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/msgpack - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "66098 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/qdf",
+            "value": 884.2,
+            "unit": "ns/op\t3509.40 MB/s\t    3129 B/op\t       3 allocs/op",
+            "extra": "2715543 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/qdf - ns/op",
+            "value": 884.2,
+            "unit": "ns/op",
+            "extra": "2715543 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/qdf - MB/s",
+            "value": 3509.4,
+            "unit": "MB/s",
+            "extra": "2715543 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/qdf - B/op",
+            "value": 3129,
+            "unit": "B/op",
+            "extra": "2715543 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_EmbeddingVec/embed_768/decode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "2715543 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/json",
+            "value": 2081,
+            "unit": "ns/op\t 120.14 MB/s\t     936 B/op\t      22 allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/json - ns/op",
+            "value": 2081,
+            "unit": "ns/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/json - MB/s",
+            "value": 120.14,
+            "unit": "MB/s",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/json - B/op",
+            "value": 936,
+            "unit": "B/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/json - allocs/op",
+            "value": 22,
+            "unit": "allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/msgpack",
+            "value": 1658,
+            "unit": "ns/op\t 118.83 MB/s\t     680 B/op\t      15 allocs/op",
+            "extra": "1447162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/msgpack - ns/op",
+            "value": 1658,
+            "unit": "ns/op",
+            "extra": "1447162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/msgpack - MB/s",
+            "value": 118.83,
+            "unit": "MB/s",
+            "extra": "1447162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/msgpack - B/op",
+            "value": 680,
+            "unit": "B/op",
+            "extra": "1447162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/msgpack - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "1447162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/qdf",
+            "value": 1328,
+            "unit": "ns/op\t 169.44 MB/s\t     368 B/op\t       3 allocs/op",
+            "extra": "1808959 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/qdf - ns/op",
+            "value": 1328,
+            "unit": "ns/op",
+            "extra": "1808959 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/qdf - MB/s",
+            "value": 169.44,
+            "unit": "MB/s",
+            "extra": "1808959 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/qdf - B/op",
+            "value": 368,
+            "unit": "B/op",
+            "extra": "1808959 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/encode/qdf - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "1808959 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/json",
+            "value": 5693,
+            "unit": "ns/op\t  43.91 MB/s\t    1352 B/op\t      41 allocs/op",
+            "extra": "422350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/json - ns/op",
+            "value": 5693,
+            "unit": "ns/op",
+            "extra": "422350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/json - MB/s",
+            "value": 43.91,
+            "unit": "MB/s",
+            "extra": "422350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/json - B/op",
+            "value": 1352,
+            "unit": "B/op",
+            "extra": "422350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/json - allocs/op",
+            "value": 41,
+            "unit": "allocs/op",
+            "extra": "422350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/msgpack",
+            "value": 2619,
+            "unit": "ns/op\t  75.21 MB/s\t    1064 B/op\t      34 allocs/op",
+            "extra": "918451 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/msgpack - ns/op",
+            "value": 2619,
+            "unit": "ns/op",
+            "extra": "918451 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/msgpack - MB/s",
+            "value": 75.21,
+            "unit": "MB/s",
+            "extra": "918451 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/msgpack - B/op",
+            "value": 1064,
+            "unit": "B/op",
+            "extra": "918451 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/msgpack - allocs/op",
+            "value": 34,
+            "unit": "allocs/op",
+            "extra": "918451 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/qdf",
+            "value": 1655,
+            "unit": "ns/op\t 135.99 MB/s\t     888 B/op\t      16 allocs/op",
+            "extra": "1451582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/qdf - ns/op",
+            "value": 1655,
+            "unit": "ns/op",
+            "extra": "1451582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/qdf - MB/s",
+            "value": 135.99,
+            "unit": "MB/s",
+            "extra": "1451582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/qdf - B/op",
+            "value": 888,
+            "unit": "B/op",
+            "extra": "1451582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Config/config/decode/qdf - allocs/op",
+            "value": 16,
+            "unit": "allocs/op",
+            "extra": "1451582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/json",
+            "value": 1809537,
+            "unit": "ns/op\t 395.02 MB/s\t  727524 B/op\t       3 allocs/op",
+            "extra": "1315 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/json - ns/op",
+            "value": 1809537,
+            "unit": "ns/op",
+            "extra": "1315 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/json - MB/s",
+            "value": 395.02,
+            "unit": "MB/s",
+            "extra": "1315 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/json - B/op",
+            "value": 727524,
+            "unit": "B/op",
+            "extra": "1315 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/json - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "1315 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/msgpack",
+            "value": 2448401,
+            "unit": "ns/op\t 228.11 MB/s\t 2217447 B/op\t    5018 allocs/op",
+            "extra": "936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/msgpack - ns/op",
+            "value": 2448401,
+            "unit": "ns/op",
+            "extra": "936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/msgpack - MB/s",
+            "value": 228.11,
+            "unit": "MB/s",
+            "extra": "936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/msgpack - B/op",
+            "value": 2217447,
+            "unit": "B/op",
+            "extra": "936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/msgpack - allocs/op",
+            "value": 5018,
+            "unit": "allocs/op",
+            "extra": "936 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/qdf",
+            "value": 2682971,
+            "unit": "ns/op\t  47.55 MB/s\t  919625 B/op\t      45 allocs/op",
+            "extra": "897 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/qdf - ns/op",
+            "value": 2682971,
+            "unit": "ns/op",
+            "extra": "897 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/qdf - MB/s",
+            "value": 47.55,
+            "unit": "MB/s",
+            "extra": "897 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/qdf - B/op",
+            "value": 919625,
+            "unit": "B/op",
+            "extra": "897 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/encode/qdf - allocs/op",
+            "value": 45,
+            "unit": "allocs/op",
+            "extra": "897 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/json",
+            "value": 12784659,
+            "unit": "ns/op\t  55.91 MB/s\t 3074421 B/op\t   45025 allocs/op",
+            "extra": "187 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/json - ns/op",
+            "value": 12784659,
+            "unit": "ns/op",
+            "extra": "187 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/json - MB/s",
+            "value": 55.91,
+            "unit": "MB/s",
+            "extra": "187 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/json - B/op",
+            "value": 3074421,
+            "unit": "B/op",
+            "extra": "187 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/json - allocs/op",
+            "value": 45025,
+            "unit": "allocs/op",
+            "extra": "187 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/msgpack",
+            "value": 5027628,
+            "unit": "ns/op\t 111.09 MB/s\t 1602153 B/op\t   40008 allocs/op",
+            "extra": "477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/msgpack - ns/op",
+            "value": 5027628,
+            "unit": "ns/op",
+            "extra": "477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/msgpack - MB/s",
+            "value": 111.09,
+            "unit": "MB/s",
+            "extra": "477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/msgpack - B/op",
+            "value": 1602153,
+            "unit": "B/op",
+            "extra": "477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/msgpack - allocs/op",
+            "value": 40008,
+            "unit": "allocs/op",
+            "extra": "477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/qdf",
+            "value": 3548298,
+            "unit": "ns/op\t  35.95 MB/s\t 2019561 B/op\t   16296 allocs/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/qdf - ns/op",
+            "value": 3548298,
+            "unit": "ns/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/qdf - MB/s",
+            "value": 35.95,
+            "unit": "MB/s",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/qdf - B/op",
+            "value": 2019561,
+            "unit": "B/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkProfile_Archive/archive_5k/decode/qdf - allocs/op",
+            "value": 16296,
+            "unit": "allocs/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/encode/protobuf",
+            "value": 200724,
+            "unit": "ns/op\t 104.54 MB/s\t     20983 wire-B\t   43584 B/op\t    1365 allocs/op",
+            "extra": "12002 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/encode/protobuf - ns/op",
+            "value": 200724,
+            "unit": "ns/op",
+            "extra": "12002 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/encode/protobuf - MB/s",
+            "value": 104.54,
+            "unit": "MB/s",
+            "extra": "12002 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/encode/protobuf - wire-B",
+            "value": 20983,
+            "unit": "wire-B",
+            "extra": "12002 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/encode/protobuf - B/op",
+            "value": 43584,
+            "unit": "B/op",
+            "extra": "12002 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/encode/protobuf - allocs/op",
+            "value": 1365,
+            "unit": "allocs/op",
+            "extra": "12002 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/decode/protobuf",
+            "value": 266038,
+            "unit": "ns/op\t  78.87 MB/s\t  137704 B/op\t    3893 allocs/op",
+            "extra": "8762 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/decode/protobuf - ns/op",
+            "value": 266038,
+            "unit": "ns/op",
+            "extra": "8762 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/decode/protobuf - MB/s",
+            "value": 78.87,
+            "unit": "MB/s",
+            "extra": "8762 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/decode/protobuf - B/op",
+            "value": 137704,
+            "unit": "B/op",
+            "extra": "8762 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64_PB/RTB_64/decode/protobuf - allocs/op",
+            "value": 3893,
+            "unit": "allocs/op",
+            "extra": "8762 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/encode/protobuf",
+            "value": 3187021,
+            "unit": "ns/op\t 102.82 MB/s\t    327700 wire-B\t  677057 B/op\t   21325 allocs/op",
+            "extra": "752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/encode/protobuf - ns/op",
+            "value": 3187021,
+            "unit": "ns/op",
+            "extra": "752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/encode/protobuf - MB/s",
+            "value": 102.82,
+            "unit": "MB/s",
+            "extra": "752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/encode/protobuf - wire-B",
+            "value": 327700,
+            "unit": "wire-B",
+            "extra": "752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/encode/protobuf - B/op",
+            "value": 677057,
+            "unit": "B/op",
+            "extra": "752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/encode/protobuf - allocs/op",
+            "value": 21325,
+            "unit": "allocs/op",
+            "extra": "752 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/decode/protobuf",
+            "value": 4328105,
+            "unit": "ns/op\t  75.71 MB/s\t 2172582 B/op\t   60617 allocs/op",
+            "extra": "555 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/decode/protobuf - ns/op",
+            "value": 4328105,
+            "unit": "ns/op",
+            "extra": "555 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/decode/protobuf - MB/s",
+            "value": 75.71,
+            "unit": "MB/s",
+            "extra": "555 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/decode/protobuf - B/op",
+            "value": 2172582,
+            "unit": "B/op",
+            "extra": "555 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024_PB/RTB_1024/decode/protobuf - allocs/op",
+            "value": 60617,
+            "unit": "allocs/op",
+            "extra": "555 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/encode/protobuf",
+            "value": 191576,
+            "unit": "ns/op\t1083.45 MB/s\t    207562 wire-B\t  219136 B/op\t     385 allocs/op",
+            "extra": "12595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/encode/protobuf - ns/op",
+            "value": 191576,
+            "unit": "ns/op",
+            "extra": "12595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/encode/protobuf - MB/s",
+            "value": 1083.45,
+            "unit": "MB/s",
+            "extra": "12595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/encode/protobuf - wire-B",
+            "value": 207562,
+            "unit": "wire-B",
+            "extra": "12595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/encode/protobuf - B/op",
+            "value": 219136,
+            "unit": "B/op",
+            "extra": "12595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/encode/protobuf - allocs/op",
+            "value": 385,
+            "unit": "allocs/op",
+            "extra": "12595 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/decode/protobuf",
+            "value": 238679,
+            "unit": "ns/op\t 869.63 MB/s\t  220952 B/op\t     807 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/decode/protobuf - ns/op",
+            "value": 238679,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/decode/protobuf - MB/s",
+            "value": 869.63,
+            "unit": "MB/s",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/decode/protobuf - B/op",
+            "value": 220952,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIoT_PB/IoT_32x256/decode/protobuf - allocs/op",
+            "value": 807,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/encode/protobuf",
+            "value": 1850996,
+            "unit": "ns/op\t 303.54 MB/s\t    561860 wire-B\t  566016 B/op\t      49 allocs/op",
+            "extra": "1284 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/encode/protobuf - ns/op",
+            "value": 1850996,
+            "unit": "ns/op",
+            "extra": "1284 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/encode/protobuf - MB/s",
+            "value": 303.54,
+            "unit": "MB/s",
+            "extra": "1284 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/encode/protobuf - wire-B",
+            "value": 561860,
+            "unit": "wire-B",
+            "extra": "1284 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/encode/protobuf - B/op",
+            "value": 566016,
+            "unit": "B/op",
+            "extra": "1284 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/encode/protobuf - allocs/op",
+            "value": 49,
+            "unit": "allocs/op",
+            "extra": "1284 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/decode/protobuf",
+            "value": 4036932,
+            "unit": "ns/op\t 139.18 MB/s\t 2047664 B/op\t   56278 allocs/op",
+            "extra": "596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/decode/protobuf - ns/op",
+            "value": 4036932,
+            "unit": "ns/op",
+            "extra": "596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/decode/protobuf - MB/s",
+            "value": 139.18,
+            "unit": "MB/s",
+            "extra": "596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/decode/protobuf - B/op",
+            "value": 2047664,
+            "unit": "B/op",
+            "extra": "596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkOTLP_PB/OTLP_4x512/decode/protobuf - allocs/op",
+            "value": 56278,
+            "unit": "allocs/op",
+            "extra": "596 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/encode/protobuf",
+            "value": 1453025,
+            "unit": "ns/op\t 107.69 MB/s\t    156479 wire-B\t  349825 B/op\t   11625 allocs/op",
+            "extra": "1636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/encode/protobuf - ns/op",
+            "value": 1453025,
+            "unit": "ns/op",
+            "extra": "1636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/encode/protobuf - MB/s",
+            "value": 107.69,
+            "unit": "MB/s",
+            "extra": "1636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/encode/protobuf - wire-B",
+            "value": 156479,
+            "unit": "wire-B",
+            "extra": "1636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/encode/protobuf - B/op",
+            "value": 349825,
+            "unit": "B/op",
+            "extra": "1636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/encode/protobuf - allocs/op",
+            "value": 11625,
+            "unit": "allocs/op",
+            "extra": "1636 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/decode/protobuf",
+            "value": 1720313,
+            "unit": "ns/op\t  90.96 MB/s\t  835043 B/op\t   25641 allocs/op",
+            "extra": "1398 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/decode/protobuf - ns/op",
+            "value": 1720313,
+            "unit": "ns/op",
+            "extra": "1398 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/decode/protobuf - MB/s",
+            "value": 90.96,
+            "unit": "MB/s",
+            "extra": "1398 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/decode/protobuf - B/op",
+            "value": 835043,
+            "unit": "B/op",
+            "extra": "1398 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkLogs_PB/Logs_1024/decode/protobuf - allocs/op",
+            "value": 25641,
+            "unit": "allocs/op",
+            "extra": "1398 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/encode/protobuf",
+            "value": 134995,
+            "unit": "ns/op\t 481.34 MB/s\t     64978 wire-B\t   65536 B/op\t       1 allocs/op",
+            "extra": "17886 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/encode/protobuf - ns/op",
+            "value": 134995,
+            "unit": "ns/op",
+            "extra": "17886 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/encode/protobuf - MB/s",
+            "value": 481.34,
+            "unit": "MB/s",
+            "extra": "17886 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/encode/protobuf - wire-B",
+            "value": 64978,
+            "unit": "wire-B",
+            "extra": "17886 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/encode/protobuf - B/op",
+            "value": 65536,
+            "unit": "B/op",
+            "extra": "17886 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/encode/protobuf - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "17886 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/decode/protobuf",
+            "value": 260407,
+            "unit": "ns/op\t 249.53 MB/s\t  183832 B/op\t    3085 allocs/op",
+            "extra": "9296 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/decode/protobuf - ns/op",
+            "value": 260407,
+            "unit": "ns/op",
+            "extra": "9296 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/decode/protobuf - MB/s",
+            "value": 249.53,
+            "unit": "MB/s",
+            "extra": "9296 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/decode/protobuf - B/op",
+            "value": 183832,
+            "unit": "B/op",
+            "extra": "9296 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEvents_PB/Events_1024/decode/protobuf - allocs/op",
+            "value": 3085,
+            "unit": "allocs/op",
+            "extra": "9296 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/json",
+            "value": 46974,
+            "unit": "ns/op\t   10979 B/op\t       2 allocs/op",
+            "extra": "51717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/json - ns/op",
+            "value": 46974,
+            "unit": "ns/op",
+            "extra": "51717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/json - B/op",
+            "value": 10979,
+            "unit": "B/op",
+            "extra": "51717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/json - allocs/op",
+            "value": 2,
+            "unit": "allocs/op",
+            "extra": "51717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/msgpack",
+            "value": 58419,
+            "unit": "ns/op\t   32853 B/op\t      11 allocs/op",
+            "extra": "41173 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/msgpack - ns/op",
+            "value": 58419,
+            "unit": "ns/op",
+            "extra": "41173 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/msgpack - B/op",
+            "value": 32853,
+            "unit": "B/op",
+            "extra": "41173 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/msgpack - allocs/op",
+            "value": 11,
+            "unit": "allocs/op",
+            "extra": "41173 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_fast",
+            "value": 7633,
+            "unit": "ns/op\t    6978 B/op\t       3 allocs/op",
+            "extra": "313143 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_fast - ns/op",
+            "value": 7633,
+            "unit": "ns/op",
+            "extra": "313143 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_fast - B/op",
+            "value": 6978,
+            "unit": "B/op",
+            "extra": "313143 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_fast - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "313143 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_qpack",
+            "value": 4956,
+            "unit": "ns/op\t    2496 B/op\t       3 allocs/op",
+            "extra": "488146 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_qpack - ns/op",
+            "value": 4956,
+            "unit": "ns/op",
+            "extra": "488146 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_qpack - B/op",
+            "value": 2496,
+            "unit": "B/op",
+            "extra": "488146 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_qpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "488146 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_dense",
+            "value": 5204,
+            "unit": "ns/op\t    2497 B/op\t       3 allocs/op",
+            "extra": "461965 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_dense - ns/op",
+            "value": 5204,
+            "unit": "ns/op",
+            "extra": "461965 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_dense - B/op",
+            "value": 2497,
+            "unit": "B/op",
+            "extra": "461965 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Encode/qdf_dense - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "461965 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/json",
+            "value": 204335,
+            "unit": "ns/op\t   21288 B/op\t      41 allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/json - ns/op",
+            "value": 204335,
+            "unit": "ns/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/json - B/op",
+            "value": 21288,
+            "unit": "B/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/json - allocs/op",
+            "value": 41,
+            "unit": "allocs/op",
+            "extra": "10000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/msgpack",
+            "value": 78068,
+            "unit": "ns/op\t   21427 B/op\t      22 allocs/op",
+            "extra": "30698 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/msgpack - ns/op",
+            "value": 78068,
+            "unit": "ns/op",
+            "extra": "30698 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/msgpack - B/op",
+            "value": 21427,
+            "unit": "B/op",
+            "extra": "30698 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/msgpack - allocs/op",
+            "value": 22,
+            "unit": "allocs/op",
+            "extra": "30698 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_fast",
+            "value": 14652,
+            "unit": "ns/op\t   10594 B/op\t       5 allocs/op",
+            "extra": "164989 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_fast - ns/op",
+            "value": 14652,
+            "unit": "ns/op",
+            "extra": "164989 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_fast - B/op",
+            "value": 10594,
+            "unit": "B/op",
+            "extra": "164989 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_fast - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "164989 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_qpack",
+            "value": 3982,
+            "unit": "ns/op\t   10594 B/op\t       5 allocs/op",
+            "extra": "575385 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_qpack - ns/op",
+            "value": 3982,
+            "unit": "ns/op",
+            "extra": "575385 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_qpack - B/op",
+            "value": 10594,
+            "unit": "B/op",
+            "extra": "575385 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_qpack - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "575385 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_dense",
+            "value": 4292,
+            "unit": "ns/op\t   10675 B/op\t       7 allocs/op",
+            "extra": "567931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_dense - ns/op",
+            "value": 4292,
+            "unit": "ns/op",
+            "extra": "567931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_dense - B/op",
+            "value": 10675,
+            "unit": "B/op",
+            "extra": "567931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQPack_Decode/qdf_dense - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "567931 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_1pct",
+            "value": 54189,
+            "unit": "ns/op\t  40.23 MB/s\t   67910 B/op\t      26 allocs/op",
+            "extra": "43684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_1pct - ns/op",
+            "value": 54189,
+            "unit": "ns/op",
+            "extra": "43684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_1pct - MB/s",
+            "value": 40.23,
+            "unit": "MB/s",
+            "extra": "43684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_1pct - B/op",
+            "value": 67910,
+            "unit": "B/op",
+            "extra": "43684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_1pct - allocs/op",
+            "value": 26,
+            "unit": "allocs/op",
+            "extra": "43684 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_50pct",
+            "value": 68569,
+            "unit": "ns/op\t   5.78 MB/s\t  133306 B/op\t      35 allocs/op",
+            "extra": "34882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_50pct - ns/op",
+            "value": 68569,
+            "unit": "ns/op",
+            "extra": "34882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_50pct - MB/s",
+            "value": 5.78,
+            "unit": "MB/s",
+            "extra": "34882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_50pct - B/op",
+            "value": 133306,
+            "unit": "B/op",
+            "extra": "34882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_50pct - allocs/op",
+            "value": 35,
+            "unit": "allocs/op",
+            "extra": "34882 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_100pct",
+            "value": 101936,
+            "unit": "ns/op\t  20.96 MB/s\t  159895 B/op\t      33 allocs/op",
+            "extra": "23899 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_100pct - ns/op",
+            "value": 101936,
+            "unit": "ns/op",
+            "extra": "23899 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_100pct - MB/s",
+            "value": 20.96,
+            "unit": "MB/s",
+            "extra": "23899 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_100pct - B/op",
+            "value": 159895,
+            "unit": "B/op",
+            "extra": "23899 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_Selectivity/hit_100pct - allocs/op",
+            "value": 33,
+            "unit": "allocs/op",
+            "extra": "23899 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQueryOrNot",
+            "value": 61246,
+            "unit": "ns/op\t  35.59 MB/s\t   95343 B/op\t      62 allocs/op",
+            "extra": "39090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQueryOrNot - ns/op",
+            "value": 61246,
+            "unit": "ns/op",
+            "extra": "39090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQueryOrNot - MB/s",
+            "value": 35.59,
+            "unit": "MB/s",
+            "extra": "39090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQueryOrNot - B/op",
+            "value": 95343,
+            "unit": "B/op",
+            "extra": "39090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQueryOrNot - allocs/op",
+            "value": 62,
+            "unit": "allocs/op",
+            "extra": "39090 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkColumnarFullDecode",
+            "value": 89952,
+            "unit": "ns/op\t  164183 B/op\t       9 allocs/op",
+            "extra": "26774 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkColumnarFullDecode - ns/op",
+            "value": 89952,
+            "unit": "ns/op",
+            "extra": "26774 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkColumnarFullDecode - B/op",
+            "value": 164183,
+            "unit": "B/op",
+            "extra": "26774 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkColumnarFullDecode - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "26774 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/pushdown",
+            "value": 54802,
+            "unit": "ns/op\t   67909 B/op\t      26 allocs/op",
+            "extra": "43783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/pushdown - ns/op",
+            "value": 54802,
+            "unit": "ns/op",
+            "extra": "43783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/pushdown - B/op",
+            "value": 67909,
+            "unit": "B/op",
+            "extra": "43783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/pushdown - allocs/op",
+            "value": 26,
+            "unit": "allocs/op",
+            "extra": "43783 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/full_then_filter",
+            "value": 101728,
+            "unit": "ns/op\t  170022 B/op\t      15 allocs/op",
+            "extra": "24055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/full_then_filter - ns/op",
+            "value": 101728,
+            "unit": "ns/op",
+            "extra": "24055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/full_then_filter - B/op",
+            "value": 170022,
+            "unit": "B/op",
+            "extra": "24055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkQuery_VsFullManual/full_then_filter - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "24055 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/json",
+            "value": 3643,
+            "unit": "ns/op\t     488 B/op\t      12 allocs/op",
+            "extra": "646107 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/json - ns/op",
+            "value": 3643,
+            "unit": "ns/op",
+            "extra": "646107 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/json - B/op",
+            "value": 488,
+            "unit": "B/op",
+            "extra": "646107 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/json - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "646107 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/msgpack",
+            "value": 1142,
+            "unit": "ns/op\t     312 B/op\t       9 allocs/op",
+            "extra": "2096785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/msgpack - ns/op",
+            "value": 1142,
+            "unit": "ns/op",
+            "extra": "2096785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/msgpack - B/op",
+            "value": 312,
+            "unit": "B/op",
+            "extra": "2096785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/msgpack - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "2096785 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/qdf_fast",
+            "value": 627.7,
+            "unit": "ns/op\t     264 B/op\t       8 allocs/op",
+            "extra": "3829880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/qdf_fast - ns/op",
+            "value": 627.7,
+            "unit": "ns/op",
+            "extra": "3829880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/qdf_fast - B/op",
+            "value": 264,
+            "unit": "B/op",
+            "extra": "3829880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecode_UniqueLog/qdf_fast - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "3829880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/json",
+            "value": 1687,
+            "unit": "ns/op\t     488 B/op\t      12 allocs/op",
+            "extra": "1420966 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/json - ns/op",
+            "value": 1687,
+            "unit": "ns/op",
+            "extra": "1420966 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/json - B/op",
+            "value": 488,
+            "unit": "B/op",
+            "extra": "1420966 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/json - allocs/op",
+            "value": 12,
+            "unit": "allocs/op",
+            "extra": "1420966 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/msgpack",
+            "value": 581,
+            "unit": "ns/op\t     312 B/op\t       9 allocs/op",
+            "extra": "4119879 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/msgpack - ns/op",
+            "value": 581,
+            "unit": "ns/op",
+            "extra": "4119879 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/msgpack - B/op",
+            "value": 312,
+            "unit": "B/op",
+            "extra": "4119879 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/msgpack - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "4119879 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/qdf_fast",
+            "value": 323.9,
+            "unit": "ns/op\t     264 B/op\t       8 allocs/op",
+            "extra": "7130594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/qdf_fast - ns/op",
+            "value": 323.9,
+            "unit": "ns/op",
+            "extra": "7130594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/qdf_fast - B/op",
+            "value": 264,
+            "unit": "B/op",
+            "extra": "7130594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeParallel_UniqueLog/qdf_fast - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "7130594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStream_LogBatch1k_Dense/encode_stream_dense",
+            "value": 430406,
+            "unit": "ns/op\t 435.44 MB/s\t  379098 B/op\t    2013 allocs/op",
+            "extra": "5258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStream_LogBatch1k_Dense/encode_stream_dense - ns/op",
+            "value": 430406,
+            "unit": "ns/op",
+            "extra": "5258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStream_LogBatch1k_Dense/encode_stream_dense - MB/s",
+            "value": 435.44,
+            "unit": "MB/s",
+            "extra": "5258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStream_LogBatch1k_Dense/encode_stream_dense - B/op",
+            "value": 379098,
+            "unit": "B/op",
+            "extra": "5258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStream_LogBatch1k_Dense/encode_stream_dense - allocs/op",
+            "value": 2013,
+            "unit": "allocs/op",
+            "extra": "5258 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/json",
+            "value": 2379,
+            "unit": "ns/op\t     800 B/op\t      14 allocs/op",
+            "extra": "968076 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/json - ns/op",
+            "value": 2379,
+            "unit": "ns/op",
+            "extra": "968076 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/json - B/op",
+            "value": 800,
+            "unit": "B/op",
+            "extra": "968076 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/json - allocs/op",
+            "value": 14,
+            "unit": "allocs/op",
+            "extra": "968076 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/msgpack",
+            "value": 2106,
+            "unit": "ns/op\t    1008 B/op\t      17 allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/msgpack - ns/op",
+            "value": 2106,
+            "unit": "ns/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/msgpack - B/op",
+            "value": 1008,
+            "unit": "B/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/msgpack - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "1000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/qdf_fast",
+            "value": 1594,
+            "unit": "ns/op\t     696 B/op\t      13 allocs/op",
+            "extra": "1505162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/qdf_fast - ns/op",
+            "value": 1594,
+            "unit": "ns/op",
+            "extra": "1505162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/qdf_fast - B/op",
+            "value": 696,
+            "unit": "B/op",
+            "extra": "1505162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_UniqueLog/qdf_fast - allocs/op",
+            "value": 13,
+            "unit": "allocs/op",
+            "extra": "1505162 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/json",
+            "value": 1097,
+            "unit": "ns/op\t     364 B/op\t       5 allocs/op",
+            "extra": "2181350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/json - ns/op",
+            "value": 1097,
+            "unit": "ns/op",
+            "extra": "2181350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/json - B/op",
+            "value": 364,
+            "unit": "B/op",
+            "extra": "2181350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/json - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "2181350 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/msgpack",
+            "value": 1105,
+            "unit": "ns/op\t     538 B/op\t       7 allocs/op",
+            "extra": "2166806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/msgpack - ns/op",
+            "value": 1105,
+            "unit": "ns/op",
+            "extra": "2166806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/msgpack - B/op",
+            "value": 538,
+            "unit": "B/op",
+            "extra": "2166806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/msgpack - allocs/op",
+            "value": 7,
+            "unit": "allocs/op",
+            "extra": "2166806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/qdf_fast",
+            "value": 734.7,
+            "unit": "ns/op\t     388 B/op\t       5 allocs/op",
+            "extra": "3257594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/qdf_fast - ns/op",
+            "value": 734.7,
+            "unit": "ns/op",
+            "extra": "3257594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/qdf_fast - B/op",
+            "value": 388,
+            "unit": "B/op",
+            "extra": "3257594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_MixedTypes/qdf_fast - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "3257594 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/json",
+            "value": 269289,
+            "unit": "ns/op\t  122161 B/op\t       3 allocs/op",
+            "extra": "8649 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/json - ns/op",
+            "value": 269289,
+            "unit": "ns/op",
+            "extra": "8649 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/json - B/op",
+            "value": 122161,
+            "unit": "B/op",
+            "extra": "8649 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/json - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "8649 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/msgpack",
+            "value": 250650,
+            "unit": "ns/op\t  190339 B/op\t      10 allocs/op",
+            "extra": "9802 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/msgpack - ns/op",
+            "value": 250650,
+            "unit": "ns/op",
+            "extra": "9802 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/msgpack - B/op",
+            "value": 190339,
+            "unit": "B/op",
+            "extra": "9802 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/msgpack - allocs/op",
+            "value": 10,
+            "unit": "allocs/op",
+            "extra": "9802 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/qdf_fast",
+            "value": 96179,
+            "unit": "ns/op\t   91603 B/op\t       4 allocs/op",
+            "extra": "24536 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/qdf_fast - ns/op",
+            "value": 96179,
+            "unit": "ns/op",
+            "extra": "24536 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/qdf_fast - B/op",
+            "value": 91603,
+            "unit": "B/op",
+            "extra": "24536 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncode_RandomSize/qdf_fast - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "24536 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/json",
+            "value": 1205,
+            "unit": "ns/op\t     800 B/op\t      14 allocs/op",
+            "extra": "1996220 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/json - ns/op",
+            "value": 1205,
+            "unit": "ns/op",
+            "extra": "1996220 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/json - B/op",
+            "value": 800,
+            "unit": "B/op",
+            "extra": "1996220 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/json - allocs/op",
+            "value": 14,
+            "unit": "allocs/op",
+            "extra": "1996220 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/msgpack",
+            "value": 1153,
+            "unit": "ns/op\t    1008 B/op\t      17 allocs/op",
+            "extra": "2101477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/msgpack - ns/op",
+            "value": 1153,
+            "unit": "ns/op",
+            "extra": "2101477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/msgpack - B/op",
+            "value": 1008,
+            "unit": "B/op",
+            "extra": "2101477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/msgpack - allocs/op",
+            "value": 17,
+            "unit": "allocs/op",
+            "extra": "2101477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/qdf_fast",
+            "value": 860.4,
+            "unit": "ns/op\t     696 B/op\t      13 allocs/op",
+            "extra": "2820764 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/qdf_fast - ns/op",
+            "value": 860.4,
+            "unit": "ns/op",
+            "extra": "2820764 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/qdf_fast - B/op",
+            "value": 696,
+            "unit": "B/op",
+            "extra": "2820764 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeParallel_UniqueLog/qdf_fast - allocs/op",
+            "value": 13,
+            "unit": "allocs/op",
+            "extra": "2820764 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/json",
+            "value": 186523,
+            "unit": "ns/op\t 190.98 MB/s\t     35623 wire-B\t   66048 B/op\t     844 allocs/op",
+            "extra": "12850 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/json - ns/op",
+            "value": 186523,
+            "unit": "ns/op",
+            "extra": "12850 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/json - MB/s",
+            "value": 190.98,
+            "unit": "MB/s",
+            "extra": "12850 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/json - wire-B",
+            "value": 35623,
+            "unit": "wire-B",
+            "extra": "12850 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/json - B/op",
+            "value": 66048,
+            "unit": "B/op",
+            "extra": "12850 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/json - allocs/op",
+            "value": 844,
+            "unit": "allocs/op",
+            "extra": "12850 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/json",
+            "value": 770974,
+            "unit": "ns/op\t  46.21 MB/s\t  130704 B/op\t    2734 allocs/op",
+            "extra": "3054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/json - ns/op",
+            "value": 770974,
+            "unit": "ns/op",
+            "extra": "3054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/json - MB/s",
+            "value": 46.21,
+            "unit": "MB/s",
+            "extra": "3054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/json - B/op",
+            "value": 130704,
+            "unit": "B/op",
+            "extra": "3054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/json - allocs/op",
+            "value": 2734,
+            "unit": "allocs/op",
+            "extra": "3054 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/msgpack",
+            "value": 156085,
+            "unit": "ns/op\t 174.89 MB/s\t     27298 wire-B\t   72212 B/op\t     396 allocs/op",
+            "extra": "15420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/msgpack - ns/op",
+            "value": 156085,
+            "unit": "ns/op",
+            "extra": "15420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/msgpack - MB/s",
+            "value": 174.89,
+            "unit": "MB/s",
+            "extra": "15420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/msgpack - wire-B",
+            "value": 27298,
+            "unit": "wire-B",
+            "extra": "15420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/msgpack - B/op",
+            "value": 72212,
+            "unit": "B/op",
+            "extra": "15420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/msgpack - allocs/op",
+            "value": 396,
+            "unit": "allocs/op",
+            "extra": "15420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/msgpack",
+            "value": 302202,
+            "unit": "ns/op\t  90.33 MB/s\t  122406 B/op\t    2224 allocs/op",
+            "extra": "7626 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/msgpack - ns/op",
+            "value": 302202,
+            "unit": "ns/op",
+            "extra": "7626 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/msgpack - MB/s",
+            "value": 90.33,
+            "unit": "MB/s",
+            "extra": "7626 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/msgpack - B/op",
+            "value": 122406,
+            "unit": "B/op",
+            "extra": "7626 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/msgpack - allocs/op",
+            "value": 2224,
+            "unit": "allocs/op",
+            "extra": "7626 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_speed",
+            "value": 55654,
+            "unit": "ns/op\t 499.78 MB/s\t     27815 wire-B\t   28730 B/op\t       3 allocs/op",
+            "extra": "42988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_speed - ns/op",
+            "value": 55654,
+            "unit": "ns/op",
+            "extra": "42988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_speed - MB/s",
+            "value": 499.78,
+            "unit": "MB/s",
+            "extra": "42988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_speed - wire-B",
+            "value": 27815,
+            "unit": "wire-B",
+            "extra": "42988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_speed - B/op",
+            "value": 28730,
+            "unit": "B/op",
+            "extra": "42988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_speed - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "42988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_speed",
+            "value": 162298,
+            "unit": "ns/op\t 171.38 MB/s\t   94273 B/op\t    1687 allocs/op",
+            "extra": "14858 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_speed - ns/op",
+            "value": 162298,
+            "unit": "ns/op",
+            "extra": "14858 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_speed - MB/s",
+            "value": 171.38,
+            "unit": "MB/s",
+            "extra": "14858 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_speed - B/op",
+            "value": 94273,
+            "unit": "B/op",
+            "extra": "14858 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_speed - allocs/op",
+            "value": 1687,
+            "unit": "allocs/op",
+            "extra": "14858 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_balanced",
+            "value": 74532,
+            "unit": "ns/op\t 230.90 MB/s\t     17209 wire-B\t   18492 B/op\t       3 allocs/op",
+            "extra": "32199 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_balanced - ns/op",
+            "value": 74532,
+            "unit": "ns/op",
+            "extra": "32199 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_balanced - MB/s",
+            "value": 230.9,
+            "unit": "MB/s",
+            "extra": "32199 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_balanced - wire-B",
+            "value": 17209,
+            "unit": "wire-B",
+            "extra": "32199 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_balanced - B/op",
+            "value": 18492,
+            "unit": "B/op",
+            "extra": "32199 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_balanced - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "32199 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_balanced",
+            "value": 156849,
+            "unit": "ns/op\t 109.72 MB/s\t   93110 B/op\t    1472 allocs/op",
+            "extra": "15303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_balanced - ns/op",
+            "value": 156849,
+            "unit": "ns/op",
+            "extra": "15303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_balanced - MB/s",
+            "value": 109.72,
+            "unit": "MB/s",
+            "extra": "15303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_balanced - B/op",
+            "value": 93110,
+            "unit": "B/op",
+            "extra": "15303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_balanced - allocs/op",
+            "value": 1472,
+            "unit": "allocs/op",
+            "extra": "15303 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_qpack",
+            "value": 55636,
+            "unit": "ns/op\t 499.95 MB/s\t     27815 wire-B\t   28734 B/op\t       3 allocs/op",
+            "extra": "43096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_qpack - ns/op",
+            "value": 55636,
+            "unit": "ns/op",
+            "extra": "43096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_qpack - MB/s",
+            "value": 499.95,
+            "unit": "MB/s",
+            "extra": "43096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_qpack - wire-B",
+            "value": 27815,
+            "unit": "wire-B",
+            "extra": "43096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_qpack - B/op",
+            "value": 28734,
+            "unit": "B/op",
+            "extra": "43096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_qpack - allocs/op",
+            "value": 3,
+            "unit": "allocs/op",
+            "extra": "43096 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_qpack",
+            "value": 161664,
+            "unit": "ns/op\t 172.05 MB/s\t   94339 B/op\t    1687 allocs/op",
+            "extra": "14812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_qpack - ns/op",
+            "value": 161664,
+            "unit": "ns/op",
+            "extra": "14812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_qpack - MB/s",
+            "value": 172.05,
+            "unit": "MB/s",
+            "extra": "14812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_qpack - B/op",
+            "value": 94339,
+            "unit": "B/op",
+            "extra": "14812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_qpack - allocs/op",
+            "value": 1687,
+            "unit": "allocs/op",
+            "extra": "14812 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_compression",
+            "value": 189041,
+            "unit": "ns/op\t  73.26 MB/s\t     13850 wire-B\t   58682 B/op\t       6 allocs/op",
+            "extra": "12766 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_compression - ns/op",
+            "value": 189041,
+            "unit": "ns/op",
+            "extra": "12766 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_compression - MB/s",
+            "value": 73.26,
+            "unit": "MB/s",
+            "extra": "12766 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_compression - wire-B",
+            "value": 13850,
+            "unit": "wire-B",
+            "extra": "12766 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_compression - B/op",
+            "value": 58682,
+            "unit": "B/op",
+            "extra": "12766 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/encode/qdf_compression - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "12766 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_compression",
+            "value": 271578,
+            "unit": "ns/op\t  51.00 MB/s\t  111779 B/op\t    1504 allocs/op",
+            "extra": "8746 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_compression - ns/op",
+            "value": 271578,
+            "unit": "ns/op",
+            "extra": "8746 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_compression - MB/s",
+            "value": 51,
+            "unit": "MB/s",
+            "extra": "8746 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_compression - B/op",
+            "value": 111779,
+            "unit": "B/op",
+            "extra": "8746 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_64/decode/qdf_compression - allocs/op",
+            "value": 1504,
+            "unit": "allocs/op",
+            "extra": "8746 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/json",
+            "value": 3030044,
+            "unit": "ns/op\t 184.58 MB/s\t    559294 wire-B\t  964714 B/op\t   13182 allocs/op",
+            "extra": "789 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/json - ns/op",
+            "value": 3030044,
+            "unit": "ns/op",
+            "extra": "789 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/json - MB/s",
+            "value": 184.58,
+            "unit": "MB/s",
+            "extra": "789 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/json - wire-B",
+            "value": 559294,
+            "unit": "wire-B",
+            "extra": "789 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/json - B/op",
+            "value": 964714,
+            "unit": "B/op",
+            "extra": "789 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/json - allocs/op",
+            "value": 13182,
+            "unit": "allocs/op",
+            "extra": "789 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/json",
+            "value": 12418097,
+            "unit": "ns/op\t  45.04 MB/s\t 2232496 B/op\t   42435 allocs/op",
+            "extra": "193 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/json - ns/op",
+            "value": 12418097,
+            "unit": "ns/op",
+            "extra": "193 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/json - MB/s",
+            "value": 45.04,
+            "unit": "MB/s",
+            "extra": "193 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/json - B/op",
+            "value": 2232496,
+            "unit": "B/op",
+            "extra": "193 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/json - allocs/op",
+            "value": 42435,
+            "unit": "allocs/op",
+            "extra": "193 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/msgpack",
+            "value": 2469860,
+            "unit": "ns/op\t 173.45 MB/s\t    428404 wire-B\t 1153916 B/op\t    6076 allocs/op",
+            "extra": "961 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/msgpack - ns/op",
+            "value": 2469860,
+            "unit": "ns/op",
+            "extra": "961 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/msgpack - MB/s",
+            "value": 173.45,
+            "unit": "MB/s",
+            "extra": "961 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/msgpack - wire-B",
+            "value": 428404,
+            "unit": "wire-B",
+            "extra": "961 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/msgpack - B/op",
+            "value": 1153916,
+            "unit": "B/op",
+            "extra": "961 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/msgpack - allocs/op",
+            "value": 6076,
+            "unit": "allocs/op",
+            "extra": "961 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/msgpack",
+            "value": 5105704,
+            "unit": "ns/op\t  83.91 MB/s\t 1919574 B/op\t   34662 allocs/op",
+            "extra": "471 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/msgpack - ns/op",
+            "value": 5105704,
+            "unit": "ns/op",
+            "extra": "471 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/msgpack - MB/s",
+            "value": 83.91,
+            "unit": "MB/s",
+            "extra": "471 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/msgpack - B/op",
+            "value": 1919574,
+            "unit": "B/op",
+            "extra": "471 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/msgpack - allocs/op",
+            "value": 34662,
+            "unit": "allocs/op",
+            "extra": "471 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_speed",
+            "value": 1005021,
+            "unit": "ns/op\t 434.34 MB/s\t    436517 wire-B\t  618820 B/op\t      19 allocs/op",
+            "extra": "2380 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_speed - ns/op",
+            "value": 1005021,
+            "unit": "ns/op",
+            "extra": "2380 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_speed - MB/s",
+            "value": 434.34,
+            "unit": "MB/s",
+            "extra": "2380 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_speed - wire-B",
+            "value": 436517,
+            "unit": "wire-B",
+            "extra": "2380 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_speed - B/op",
+            "value": 618820,
+            "unit": "B/op",
+            "extra": "2380 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_speed - allocs/op",
+            "value": 19,
+            "unit": "allocs/op",
+            "extra": "2380 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_speed",
+            "value": 2778123,
+            "unit": "ns/op\t 157.13 MB/s\t 1478526 B/op\t   26255 allocs/op",
+            "extra": "872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_speed - ns/op",
+            "value": 2778123,
+            "unit": "ns/op",
+            "extra": "872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_speed - MB/s",
+            "value": 157.13,
+            "unit": "MB/s",
+            "extra": "872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_speed - B/op",
+            "value": 1478526,
+            "unit": "B/op",
+            "extra": "872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_speed - allocs/op",
+            "value": 26255,
+            "unit": "allocs/op",
+            "extra": "872 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_balanced",
+            "value": 2253118,
+            "unit": "ns/op\t 114.58 MB/s\t    258167 wire-B\t 1720862 B/op\t      62 allocs/op",
+            "extra": "1050 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_balanced - ns/op",
+            "value": 2253118,
+            "unit": "ns/op",
+            "extra": "1050 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_balanced - MB/s",
+            "value": 114.58,
+            "unit": "MB/s",
+            "extra": "1050 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_balanced - wire-B",
+            "value": 258167,
+            "unit": "wire-B",
+            "extra": "1050 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_balanced - B/op",
+            "value": 1720862,
+            "unit": "B/op",
+            "extra": "1050 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_balanced - allocs/op",
+            "value": 62,
+            "unit": "allocs/op",
+            "extra": "1050 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_balanced",
+            "value": 3593043,
+            "unit": "ns/op\t  71.85 MB/s\t 2926181 B/op\t   22373 allocs/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_balanced - ns/op",
+            "value": 3593043,
+            "unit": "ns/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_balanced - MB/s",
+            "value": 71.85,
+            "unit": "MB/s",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_balanced - B/op",
+            "value": 2926181,
+            "unit": "B/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_balanced - allocs/op",
+            "value": 22373,
+            "unit": "allocs/op",
+            "extra": "668 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_qpack",
+            "value": 996471,
+            "unit": "ns/op\t 438.06 MB/s\t    436517 wire-B\t  618818 B/op\t      19 allocs/op",
+            "extra": "2244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_qpack - ns/op",
+            "value": 996471,
+            "unit": "ns/op",
+            "extra": "2244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_qpack - MB/s",
+            "value": 438.06,
+            "unit": "MB/s",
+            "extra": "2244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_qpack - wire-B",
+            "value": 436517,
+            "unit": "wire-B",
+            "extra": "2244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_qpack - B/op",
+            "value": 618818,
+            "unit": "B/op",
+            "extra": "2244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_qpack - allocs/op",
+            "value": 19,
+            "unit": "allocs/op",
+            "extra": "2244 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_qpack",
+            "value": 2763236,
+            "unit": "ns/op\t 157.97 MB/s\t 1478543 B/op\t   26255 allocs/op",
+            "extra": "868 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_qpack - ns/op",
+            "value": 2763236,
+            "unit": "ns/op",
+            "extra": "868 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_qpack - MB/s",
+            "value": 157.97,
+            "unit": "MB/s",
+            "extra": "868 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_qpack - B/op",
+            "value": 1478543,
+            "unit": "B/op",
+            "extra": "868 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_qpack - allocs/op",
+            "value": 26255,
+            "unit": "allocs/op",
+            "extra": "868 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_compression",
+            "value": 4050061,
+            "unit": "ns/op\t  50.21 MB/s\t    203360 wire-B\t 2368080 B/op\t      65 allocs/op",
+            "extra": "591 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_compression - ns/op",
+            "value": 4050061,
+            "unit": "ns/op",
+            "extra": "591 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_compression - MB/s",
+            "value": 50.21,
+            "unit": "MB/s",
+            "extra": "591 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_compression - wire-B",
+            "value": 203360,
+            "unit": "wire-B",
+            "extra": "591 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_compression - B/op",
+            "value": 2368080,
+            "unit": "B/op",
+            "extra": "591 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/encode/qdf_compression - allocs/op",
+            "value": 65,
+            "unit": "allocs/op",
+            "extra": "591 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_compression",
+            "value": 5072289,
+            "unit": "ns/op\t  40.09 MB/s\t 3188160 B/op\t   22373 allocs/op",
+            "extra": "470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_compression - ns/op",
+            "value": 5072289,
+            "unit": "ns/op",
+            "extra": "470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_compression - MB/s",
+            "value": 40.09,
+            "unit": "MB/s",
+            "extra": "470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_compression - B/op",
+            "value": 3188160,
+            "unit": "B/op",
+            "extra": "470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkRTB_1024/decode/qdf_compression - allocs/op",
+            "value": 22373,
+            "unit": "allocs/op",
+            "extra": "470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/full",
+            "value": 108317,
+            "unit": "ns/op\t  214059 B/op\t      55 allocs/op",
+            "extra": "21988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/full - ns/op",
+            "value": 108317,
+            "unit": "ns/op",
+            "extra": "21988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/full - B/op",
+            "value": 214059,
+            "unit": "B/op",
+            "extra": "21988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/full - allocs/op",
+            "value": 55,
+            "unit": "allocs/op",
+            "extra": "21988 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/subset",
+            "value": 20519,
+            "unit": "ns/op\t   45665 B/op\t      30 allocs/op",
+            "extra": "116736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/subset - ns/op",
+            "value": 20519,
+            "unit": "ns/op",
+            "extra": "116736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/subset - B/op",
+            "value": 45665,
+            "unit": "B/op",
+            "extra": "116736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSelect_FullVsSubset/subset - allocs/op",
+            "value": 30,
+            "unit": "allocs/op",
+            "extra": "116736 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkVarDeltaDecode",
+            "value": 36827,
+            "unit": "ns/op\t   49293 B/op\t       6 allocs/op",
+            "extra": "66261 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkVarDeltaDecode - ns/op",
+            "value": 36827,
+            "unit": "ns/op",
+            "extra": "66261 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkVarDeltaDecode - B/op",
+            "value": 49293,
+            "unit": "B/op",
+            "extra": "66261 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkVarDeltaDecode - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "66261 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkWidePredicateEval",
+            "value": 144699,
+            "unit": "ns/op\t  205357 B/op\t      61 allocs/op",
+            "extra": "16590 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkWidePredicateEval - ns/op",
+            "value": 144699,
+            "unit": "ns/op",
+            "extra": "16590 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkWidePredicateEval - B/op",
+            "value": 205357,
+            "unit": "B/op",
+            "extra": "16590 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkWidePredicateEval - allocs/op",
+            "value": 61,
+            "unit": "allocs/op",
+            "extra": "16590 times\n4 procs"
           }
         ]
       }
