@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"errors"
 	"io"
 
 	"github.com/alex60217101990/qdf/internal/bufpool"
@@ -45,12 +46,33 @@ func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder {
 	return &StreamEncoder{w: w, enc: enc, buf: buf}
 }
 
-// Encode writes v as the next value in the stream. The encoder flushes
+// Encode writes v as the next value in the stream. Each message is framed with
+// a uvarint byte-length prefix so the decoder can buffer a whole message — of
+// any size — before decoding it. The 5-byte stream header is written once,
+// before the first frame, and is not itself framed. The encoder flushes
 // internally when its buffer crosses 16 KiB; call Flush to push earlier.
 func (s *StreamEncoder) Encode(v any) error {
+	if s.enc == nil {
+		return io.ErrClosedPipe
+	}
+	// One-per-stream header preamble, outside the frames.
+	if !s.enc.headerOut {
+		s.enc.writeHeader()
+	}
+	start := len(s.enc.buf)
 	if err := encodeReflect(s.enc, v); err != nil {
+		s.enc.buf = s.enc.buf[:start] // drop the partial body so the stream stays valid
 		return err
 	}
+	// Prefix the just-encoded body [start:] with its uvarint length: append the
+	// prefix at the tail, shift the body right to make room, then write it.
+	n := len(s.enc.buf) - start
+	var lb [10]byte
+	pre := appendUvarint(lb[:0], uint64(n))
+	m := len(pre)
+	s.enc.buf = append(s.enc.buf, pre...)               // grow by m
+	copy(s.enc.buf[start+m:], s.enc.buf[start:start+n]) // memmove body right (overlap-safe)
+	copy(s.enc.buf[start:start+m], pre)                 // write the length prefix
 	if len(s.enc.buf) >= 1<<14 {
 		return s.Flush()
 	}
@@ -59,6 +81,9 @@ func (s *StreamEncoder) Encode(v any) error {
 
 // Flush writes any buffered bytes to the underlying writer.
 func (s *StreamEncoder) Flush() error {
+	if s.enc == nil {
+		return io.ErrClosedPipe
+	}
 	if len(s.enc.buf) == 0 {
 		return nil
 	}
@@ -105,48 +130,106 @@ func NewStreamDecoder(r io.Reader) *StreamDecoder {
 	return &StreamDecoder{r: r, dec: &Decoder{buf: (*buf)[:0]}, buf: buf}
 }
 
-// SetNoCopy mirrors Decoder.SetNoCopy.
-func (s *StreamDecoder) SetNoCopy(v bool) { s.dec.noCopy = v }
+// SetNoCopy mirrors Decoder.SetNoCopy. No-op after Close.
+func (s *StreamDecoder) SetNoCopy(v bool) {
+	if s.dec != nil {
+		s.dec.noCopy = v
+	}
+}
 
-// Decode reads the next value into out. out must be a pointer.
+// maxStreamMsg bounds a single framed message so a hostile length prefix can't
+// drive an unbounded buffer read. 2 GiB is far above any realistic message.
+const maxStreamMsg = 1 << 31
+
+// Decode reads the next value into out. out must be a pointer. Returns io.EOF
+// at a clean end of stream. Each message is length-framed, so a message of any
+// size is buffered in full before decoding — no 4 KiB window limit.
 func (s *StreamDecoder) Decode(out any) error {
-	if err := s.refillIfNeeded(); err != nil {
+	if s.dec == nil {
+		return io.ErrClosedPipe
+	}
+	// Consume the one-per-stream header before the first frame.
+	if !s.dec.headerRead {
+		if err := s.fill(5, true); err != nil {
+			return err // io.EOF here means an empty stream
+		}
+		if err := s.dec.readHeader(); err != nil {
+			return err
+		}
+	}
+	// Read the frame length (io.EOF at a clean frame boundary = end of stream).
+	framelen, err := s.readFrameLen()
+	if err != nil {
 		return err
+	}
+	// Buffer the whole message body, then decode it in a single pass so a
+	// partial decode never mutates the shared dense state. Past the length
+	// prefix a short read is a truncated frame, never a clean end.
+	if err := s.fill(framelen, false); err != nil {
+		return err // ErrShortBuffer on a truncated final frame
 	}
 	return decodeReflect(s.dec, out)
 }
 
-func (s *StreamDecoder) refillIfNeeded() error {
+// readFrameLen parses the uvarint length prefix of the next message, advancing
+// the cursor past it. Returns io.EOF when no more frames remain.
+func (s *StreamDecoder) readFrameLen() (int, error) {
 	for {
-		if len(s.dec.buf)-s.dec.i >= 4096 {
-			return nil
+		if v, k := readUvarint(s.dec.buf[s.dec.i:]); k > 0 {
+			if v > maxStreamMsg {
+				return 0, ErrInvalidLength
+			}
+			s.dec.i += k
+			return int(v), nil
 		}
-		if cap(*s.buf) < len(s.dec.buf)+4096 {
+		had := len(s.dec.buf) - s.dec.i
+		if had >= 10 { // a uvarint is at most 10 bytes; longer is malformed
+			return 0, ErrInvalidLength
+		}
+		if err := s.fill(had+1, true); err != nil {
+			return 0, err // io.EOF (boundary) = clean end; ErrShortBuffer = partial length
+		}
+	}
+}
+
+// fill reads from the underlying reader until at least need unread bytes are
+// buffered. Returns io.EOF if the stream ends with nothing unread, or
+// ErrShortBuffer if it ends mid-message (fewer than need bytes available).
+// fill reads from the underlying reader until at least need unread bytes are
+// buffered. When boundary is true (reading at a message boundary — the header
+// or a frame length) an immediate clean end of stream returns io.EOF; in every
+// other case a stream that ends before need bytes returns ErrShortBuffer.
+func (s *StreamDecoder) fill(need int, boundary bool) error {
+	for len(s.dec.buf)-s.dec.i < need {
+		if cap(*s.buf)-len(s.dec.buf) == 0 {
 			grown := make([]byte, len(s.dec.buf), cap(*s.buf)*2+4096)
 			copy(grown, s.dec.buf)
 			*s.buf = grown
 			s.dec.buf = grown
 		}
 		end := len(s.dec.buf)
-		extra := cap(*s.buf) - end
-		(*s.buf) = (*s.buf)[:end+extra]
+		(*s.buf) = (*s.buf)[:cap(*s.buf)]
 		s.dec.buf = *s.buf
-		n, err := s.r.Read(s.dec.buf[end:])
+		n, rerr := s.r.Read(s.dec.buf[end:])
 		s.dec.buf = s.dec.buf[:end+n]
 		(*s.buf) = s.dec.buf
-		if err == io.EOF {
-			if len(s.dec.buf)-s.dec.i == 0 {
-				return io.EOF
-			}
-			return nil
-		}
-		if err != nil {
-			return err
-		}
 		if n == 0 {
-			return nil
+			if rerr == nil {
+				continue // no progress but no error: retry
+			}
+			if errors.Is(rerr, io.EOF) {
+				if boundary && len(s.dec.buf)-s.dec.i == 0 {
+					return io.EOF // clean end of stream at a message boundary
+				}
+				return ErrShortBuffer // truncated mid-message
+			}
+			return rerr
+		}
+		if rerr != nil && !errors.Is(rerr, io.EOF) {
+			return rerr
 		}
 	}
+	return nil
 }
 
 // Close releases the scratch buffer to the pool. The underlying reader

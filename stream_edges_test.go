@@ -445,10 +445,14 @@ func TestStream_TruncatedMessage(t *testing.T) {
 		if decodeErr == nil && got == msg {
 			t.Fatalf("truncation@%d: Decode returned nil error AND correct value — unexpected silent success", i)
 		}
-		// If it did error, it must not be io.EOF (that signals clean end-of-stream).
-		if errors.Is(decodeErr, io.EOF) {
+		// Messages are length-framed: truncating exactly to the 5-byte stream
+		// header (no frame started) is an empty stream → io.EOF is correct.
+		// Any truncation inside a frame (the length prefix or the body) must
+		// surface a non-EOF decode error, never a clean EOF.
+		const headerLen = 5
+		if errors.Is(decodeErr, io.EOF) && i != headerLen {
 			t.Fatalf("truncation@%d: got io.EOF but expected a decode error (partial message)", i)
 		}
 	}
-	t.Logf("OBSERVED truncation contract: all %d truncation points return a non-nil non-EOF error (ErrShortBuffer)", len(full)-1)
+	t.Logf("OBSERVED truncation contract: a partial message returns ErrShortBuffer; truncation exactly at the header boundary returns io.EOF (empty stream)")
 }
