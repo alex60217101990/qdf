@@ -59,20 +59,29 @@ func (s *StreamEncoder) Encode(v any) error {
 	if !s.enc.headerOut {
 		s.enc.writeHeader()
 	}
+	// Reserve one byte for the length prefix, then encode the body after it.
+	// The common case (a message under 128 bytes) needs exactly that one byte,
+	// so it is written in place with no memmove; only larger messages shift.
 	start := len(s.enc.buf)
+	s.enc.buf = append(s.enc.buf, 0)
+	bodyStart := len(s.enc.buf)
 	if err := encodeReflect(s.enc, v); err != nil {
-		s.enc.buf = s.enc.buf[:start] // drop the partial body so the stream stays valid
+		s.enc.buf = s.enc.buf[:start] // drop the reservation + any partial body
 		return err
 	}
-	// Prefix the just-encoded body [start:] with its uvarint length: append the
-	// prefix at the tail, shift the body right to make room, then write it.
-	n := len(s.enc.buf) - start
-	var lb [10]byte
-	pre := appendUvarint(lb[:0], uint64(n))
-	m := len(pre)
-	s.enc.buf = append(s.enc.buf, pre...)               // grow by m
-	copy(s.enc.buf[start+m:], s.enc.buf[start:start+n]) // memmove body right (overlap-safe)
-	copy(s.enc.buf[start:start+m], pre)                 // write the length prefix
+	n := len(s.enc.buf) - bodyStart
+	if n < 0x80 {
+		s.enc.buf[start] = byte(n) // single-byte uvarint, body already in place
+	} else {
+		// Need an m-byte prefix; one byte is reserved, so make room for m-1 more
+		// and shift the body right by m-1 (overlap-safe copy).
+		var lb [10]byte
+		pre := appendUvarint(lb[:0], uint64(n))
+		m := len(pre)
+		s.enc.buf = append(s.enc.buf, make([]byte, m-1)...)
+		copy(s.enc.buf[start+m:], s.enc.buf[bodyStart:bodyStart+n])
+		copy(s.enc.buf[start:start+m], pre)
+	}
 	if len(s.enc.buf) >= 1<<14 {
 		return s.Flush()
 	}
@@ -168,7 +177,16 @@ func (s *StreamDecoder) Decode(out any) error {
 	if err := s.fill(framelen, false); err != nil {
 		return err // ErrShortBuffer on a truncated final frame
 	}
-	return decodeReflect(s.dec, out)
+	start := s.dec.i
+	if err := decodeReflect(s.dec, out); err != nil {
+		return err
+	}
+	// The value must consume exactly the framed length; a mismatch means a
+	// corrupt or hostile frame, so reject it instead of desyncing the stream.
+	if s.dec.i-start != framelen {
+		return ErrInvalidLength
+	}
+	return nil
 }
 
 // readFrameLen parses the uvarint length prefix of the next message, advancing
