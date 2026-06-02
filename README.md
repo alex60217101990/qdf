@@ -553,6 +553,31 @@ out, err := qdf.AppendMarshal(out[:0], v)
 Pair with a goroutine-local buffer to drop the per-call allocation
 entirely.
 
+### Zero-copy decode (`WithNoCopy`)
+
+Decode is allocation-bound: copying each string/`[]byte` body out of the
+input buffer dominates. `WithNoCopy()` makes the decoded values **alias the
+input buffer** instead of copying — near-zero allocations, ~1.7× faster on
+string-heavy batches.
+
+```go
+// data must outlive `out` and must NOT be mutated/reused while `out` is in use.
+var out LogBatch
+_ = qdf.Unmarshal(data, &out, qdf.WithNoCopy())
+```
+
+> ⚠️ **Lifetime contract.** The decoded strings/bytes point INTO `data`. If
+> `data` is recycled, mutated, or freed before you finish with `out`, the
+> values silently corrupt — a use-after-free the race detector cannot catch.
+> Never use it on a pooled/reused buffer (e.g. an HTTP request body). Safe for
+> caller-owned, long-lived, immutable input (mmap, a file read into memory,
+> batch analytics). It is opt-in for this reason; the default copies.
+
+Measured on a 1000-row string-heavy batch (i7-9750H): **7002 → 3 allocs/op,
+−38 % B/op, ~1.7× faster**. It works on both the reflect path and codegen
+types (generated `UnmarshalQDFOpts` threads the flag through nested decodes).
+For a `Decoder`/`StreamDecoder` you drive yourself, use `SetNoCopy(true)`.
+
 ---
 
 ## Code generation

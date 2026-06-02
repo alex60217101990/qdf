@@ -7,8 +7,10 @@ The full encode/decode pipeline: how a caller-supplied value enters the
 dispatched to Fast or Dense mode, optionally columnar-transposed, and finally
 rANS-compressed. The decode mirror image is shown separately. Key design
 choices that appear here: reflect-once (cached `typeDesc`), pooled encoders
-(`encPool`), lazy Dense-state allocation, and the rANS pass as a final stage
-that never grows the buffer.
+(`encPool`), lazy Dense-state allocation, the rANS pass as a final stage
+that never grows the buffer, and the opt-in zero-copy decode branch
+(`WithNoCopy`) that aliases the input buffer instead of copying string/byte
+bodies.
 
 ## Encode path
 
@@ -67,6 +69,10 @@ sequenceDiagram
     Pool-->>Dec: pooled decoder
     Dec->>Dec: readHeader()\ncheck magic 'Q','D','F'\nread version + flags byte
     Note over Dec: Decoder is header-driven:\nno opts arg on Unmarshal.\nFlags auto-detect mode.
+    opt WithNoCopy() / SetNoCopy(true)
+        Dec->>Dec: set noCopy
+        Note over Dec: string/[]byte reads alias src\ninstead of copying (zero-alloc).\nValid only while src is alive\n& unmodified — opt-in.
+    end
     opt FlagRANS set
         Dec->>Dec: rANS decompress body\nrestore plain tag stream
     end

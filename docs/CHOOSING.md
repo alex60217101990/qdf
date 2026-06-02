@@ -304,6 +304,32 @@ exact opts you want.
 
 ---
 
+## When to use `WithNoCopy()` (decode)
+
+There are no encode-style "decode opts", but `Unmarshal` takes one decode
+modifier: `WithNoCopy()`. It makes decoded `string`/`[]byte` values **alias the
+input buffer** instead of copying — near-zero allocations, ~1.7× faster on
+string-heavy payloads (measured 7002 → 3 allocs/op on a 1000-row batch).
+
+Use it when **the input buffer outlives the decoded values and is never
+mutated or reused**:
+
+- a file / blob read fully into memory, decoded once, used read-only;
+- an `mmap`-ed region;
+- batch analytics over a buffer you own for the whole computation.
+
+Do **not** use it when the buffer is recycled or mutated — most importantly a
+pooled server request body. The aliased values become silent garbage once the
+buffer is reused (a use-after-free the race detector won't catch). That is why
+it is opt-in and the default copies. For a `Decoder`/`StreamDecoder` you drive
+directly, the equivalent is `SetNoCopy(true)`.
+
+Works on both the reflect path and codegen types (the generated
+`UnmarshalQDFOpts` threads the flag through nested struct decodes). It composes
+with `Select`/`Where`.
+
+---
+
 ## Anti-patterns
 
 - **`OptDense` on unique strings.** Wire identical to `OptSpeed`, just
@@ -322,10 +348,15 @@ exact opts you want.
   falls back when nothing wins, so the cost is just one comparison —
   but you can save it by passing `OptSpeed` when you know the slices
   are tiny.
-- **Different `opts` across encode/decode.** There are no "decode
-  opts" — `Unmarshal` reads the header flags and the tag stream and
-  handles every variant. The encoder opts pick what you emit; the
-  decoder reads whatever it gets.
+- **Different `opts` across encode/decode.** There are no encode-style
+  "decode opts" — `Unmarshal` reads the header flags and the tag stream
+  and handles every variant. (The one decode modifier is `WithNoCopy()`;
+  see above.) The encoder opts pick what you emit; the decoder reads
+  whatever it gets.
+- **`WithNoCopy()` on a recycled/mutated buffer.** Decoded values alias
+  the input; if it is a pooled server request body or any buffer you
+  reuse, the values silently corrupt. Use it only for owned, long-lived,
+  immutable input.
 
 ---
 
