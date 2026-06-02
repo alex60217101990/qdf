@@ -22,3 +22,26 @@ type Marshaler interface {
 type Unmarshaler interface {
 	UnmarshalQDF(src []byte) (n int, err error)
 }
+
+// UnmarshalerOpts is an optional extension of Unmarshaler that accepts the
+// noCopy flag. When noCopy is true, the implementation should decode string and
+// []byte fields as aliases of src (see WithNoCopy) instead of copying. Generated
+// code from cmd/qdfgen implements this; the plain UnmarshalQDF delegates to it
+// with noCopy=false. Decoders honor it only when the caller opted into noCopy.
+type UnmarshalerOpts interface {
+	Unmarshaler
+	UnmarshalQDFOpts(src []byte, noCopy bool) (n int, err error)
+}
+
+// UnmarshalNested decodes one nested Unmarshaler value from src, honoring noCopy
+// when u also implements UnmarshalerOpts. External Unmarshalers without the Opts
+// method fall back to a copying decode. Used by decodeUnmarshaler and by
+// cmd/qdfgen-generated code; exported for the latter.
+func UnmarshalNested(u Unmarshaler, src []byte, noCopy bool) (int, error) {
+	if noCopy {
+		if uo, ok := u.(UnmarshalerOpts); ok {
+			return uo.UnmarshalQDFOpts(src, true)
+		}
+	}
+	return u.UnmarshalQDF(src)
+}

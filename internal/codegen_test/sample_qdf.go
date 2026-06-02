@@ -46,7 +46,17 @@ func (v *Inner) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *Inner) UnmarshalQDF(src []byte) (int, error) {
+	return v.UnmarshalQDFOpts(src, false)
+}
+
+// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
+// string and []byte fields alias src instead of copying. The aliases are valid
+// only while src stays alive and is not modified (see qdf.WithNoCopy).
+func (v *Inner) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
+	if noCopy {
+		d.SetNoCopy(true)
+	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
 	}
@@ -166,7 +176,17 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *Sample) UnmarshalQDF(src []byte) (int, error) {
+	return v.UnmarshalQDFOpts(src, false)
+}
+
+// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
+// string and []byte fields alias src instead of copying. The aliases are valid
+// only while src stays alive and is not modified (see qdf.WithNoCopy).
+func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
+	if noCopy {
+		d.SetNoCopy(true)
+	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
 	}
@@ -272,7 +292,7 @@ func (v *Sample) UnmarshalQDF(src []byte) (int, error) {
 			}
 		case "inner":
 			{
-				nn34, err := (&v.Inner).UnmarshalQDF(d.RemainingBytes())
+				nn34, err := qdf.UnmarshalNested(&v.Inner, d.RemainingBytes(), noCopy)
 				if err != nil {
 					return 0, err
 				}
@@ -280,11 +300,11 @@ func (v *Sample) UnmarshalQDF(src []byte) (int, error) {
 			}
 		case "when":
 			{
-				sec35, nsec35, err := d.ReadTimestamp()
+				sec35, nsec36, err := d.ReadTimestamp()
 				if err != nil {
 					return 0, err
 				}
-				v.When = time.Unix(sec35, int64(nsec35)).UTC()
+				v.When = time.Unix(sec35, int64(nsec36)).UTC()
 			}
 		case "buf":
 			{
@@ -312,29 +332,29 @@ func (v *Sample) UnmarshalQDF(src []byte) (int, error) {
 					v.OptPtr = nil
 				} else {
 					v.OptPtr = new(Inner)
-					nn36, err := (v.OptPtr).UnmarshalQDF(d.RemainingBytes())
+					nn37, err := qdf.UnmarshalNested(v.OptPtr, d.RemainingBytes(), noCopy)
 					if err != nil {
 						return 0, err
 					}
-					d.Advance(nn36)
+					d.Advance(nn37)
 				}
 			}
 		case "counts":
 			{
-				n37, err := d.ReadArrayHeader()
+				n38, err := d.ReadArrayHeader()
 				if err != nil {
 					return 0, err
 				}
-				if n37 != 3 {
+				if n38 != 3 {
 					return 0, qdf.ErrTypeMismatch
 				}
-				for i38 := 0; i38 < 3; i38++ {
+				for i39 := 0; i39 < 3; i39++ {
 					{
-						rv39, err := d.ReadInt()
+						rv40, err := d.ReadInt()
 						if err != nil {
 							return 0, err
 						}
-						v.Counts[i38] = int32(rv39)
+						v.Counts[i39] = int32(rv40)
 					}
 				}
 			}

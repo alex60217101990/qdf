@@ -922,7 +922,7 @@ func decodeUnmarshaler(t reflect.Type) func(*Decoder, unsafe.Pointer) error {
 			return err
 		}
 		u := reflect.NewAt(t, p).Interface().(Unmarshaler)
-		n, err := u.UnmarshalQDF(d.buf[d.i:])
+		n, err := UnmarshalNested(u, d.buf[d.i:], d.noCopy)
 		if err != nil {
 			return err
 		}

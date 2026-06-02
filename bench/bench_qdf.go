@@ -57,7 +57,17 @@ func (v *LogBatch) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *LogBatch) UnmarshalQDF(src []byte) (int, error) {
+	return v.UnmarshalQDFOpts(src, false)
+}
+
+// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
+// string and []byte fields alias src instead of copying. The aliases are valid
+// only while src stays alive and is not modified (see qdf.WithNoCopy).
+func (v *LogBatch) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
+	if noCopy {
+		d.SetNoCopy(true)
+	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
 	}
@@ -87,7 +97,7 @@ func (v *LogBatch) UnmarshalQDF(src []byte) (int, error) {
 					v.Entries = make([]LogEntry, n4)
 					for i5 := 0; i5 < n4; i5++ {
 						{
-							nn6, err := (&v.Entries[i5]).UnmarshalQDF(d.RemainingBytes())
+							nn6, err := qdf.UnmarshalNested(&v.Entries[i5], d.RemainingBytes(), noCopy)
 							if err != nil {
 								return 0, err
 							}
@@ -145,7 +155,17 @@ func (v *LogEntry) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *LogEntry) UnmarshalQDF(src []byte) (int, error) {
+	return v.UnmarshalQDFOpts(src, false)
+}
+
+// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
+// string and []byte fields alias src instead of copying. The aliases are valid
+// only while src stays alive and is not modified (see qdf.WithNoCopy).
+func (v *LogEntry) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
+	if noCopy {
+		d.SetNoCopy(true)
+	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
 	}
@@ -161,83 +181,83 @@ func (v *LogEntry) UnmarshalQDF(src []byte) (int, error) {
 		switch string(kb) {
 		case "time":
 			{
-				sec17, nsec17, err := d.ReadTimestamp()
+				sec17, nsec18, err := d.ReadTimestamp()
 				if err != nil {
 					return 0, err
 				}
-				v.Time = time.Unix(sec17, int64(nsec17)).UTC()
+				v.Time = time.Unix(sec17, int64(nsec18)).UTC()
 			}
 		case "level":
-			{
-				rv18, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.Level = rv18
-			}
-		case "service":
 			{
 				rv19, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Service = rv19
+				v.Level = rv19
 			}
-		case "host":
+		case "service":
 			{
 				rv20, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Host = rv20
+				v.Service = rv20
 			}
-		case "region":
+		case "host":
 			{
 				rv21, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Region = rv21
+				v.Host = rv21
 			}
-		case "trace_id":
+		case "region":
 			{
 				rv22, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.TraceID = rv22
+				v.Region = rv22
 			}
-		case "span_id":
+		case "trace_id":
 			{
 				rv23, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.SpanID = rv23
+				v.TraceID = rv23
 			}
-		case "msg":
+		case "span_id":
 			{
 				rv24, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Msg = rv24
+				v.SpanID = rv24
+			}
+		case "msg":
+			{
+				rv25, err := d.ReadString()
+				if err != nil {
+					return 0, err
+				}
+				v.Msg = rv25
 			}
 		case "duration":
 			{
-				rv25, err := d.ReadFloat64()
+				rv26, err := d.ReadFloat64()
 				if err != nil {
 					return 0, err
 				}
-				v.Duration = rv25
+				v.Duration = rv26
 			}
 		case "status":
 			{
-				rv26, err := d.ReadInt()
+				rv27, err := d.ReadInt()
 				if err != nil {
 					return 0, err
 				}
-				v.Status = int(rv26)
+				v.Status = int(rv27)
 			}
 		default:
 			if err := d.Skip(); err != nil {
