@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -19,6 +20,61 @@ func mkQRows(n int) []qrow {
 		out[i] = qrow{TS: int64(1000 + i), Level: lv[i%3], Code: int32(200 + i%4*100)}
 	}
 	return out
+}
+
+// qrowNullCode mirrors qrow but with a nullable Code, to exercise a
+// wire/plan nullability mismatch through the columnar query (scatter) path.
+type qrowNullCode struct {
+	TS    int64  `qdf:"ts"`
+	Level string `qdf:"level"`
+	Code  *int32 `qdf:"code"`
+}
+
+func mkQRowsNull(n int) []qrowNullCode {
+	out := make([]qrowNullCode, n)
+	lv := []string{"INFO", "WARN", "ERROR"}
+	for i := range out {
+		c := int32(200 + i%4*100)
+		out[i] = qrowNullCode{TS: int64(1000 + i), Level: lv[i%3], Code: &c}
+	}
+	return out
+}
+
+// safeUnmarshalErr runs Unmarshal and converts a panic into an error so a test
+// can assert "rejected cleanly, did not panic".
+func safeUnmarshalErr(data []byte, out any, opts ...QueryOption) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New("panic: " + fmt.Sprint(r))
+		}
+	}()
+	return Unmarshal(data, out, opts...)
+}
+
+// TestQuery_NullabilityMismatchRejected pins that the columnar query (scatter)
+// path rejects a wire/plan nullability mismatch with ErrTypeMismatch instead of
+// panicking (reflect.SliceOf(nil)) or corrupting a *T field slot. The full-decode
+// path already did this; the query path used a base()-only kind compare.
+func TestQuery_NullabilityMismatchRejected(t *testing.T) {
+	// wire non-nullable Code → plan nullable *int32.
+	enc, err := Marshal(mkQRows(32), OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []qrowNullCode
+	if err := safeUnmarshalErr(enc, &out, Where("level", func(s string) bool { return s == "ERROR" })); !errors.Is(err, ErrTypeMismatch) {
+		t.Fatalf("non-nullable→nullable: err=%v, want ErrTypeMismatch (no panic/corruption)", err)
+	}
+
+	// wire nullable *int32 → plan non-nullable int32 (the panic direction).
+	enc2, err := Marshal(mkQRowsNull(32), OptBalanced|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out2 []qrow
+	if err := safeUnmarshalErr(enc2, &out2, Where("level", func(s string) bool { return s == "ERROR" })); !errors.Is(err, ErrTypeMismatch) {
+		t.Fatalf("nullable→non-nullable: err=%v, want ErrTypeMismatch (no panic)", err)
+	}
 }
 
 func TestQuery_ZeroOptionsEqualsPlainUnmarshal(t *testing.T) {
