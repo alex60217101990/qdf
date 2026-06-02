@@ -542,7 +542,14 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "// UnmarshalQDF decodes a qdf payload into v and returns the number of\n")
 	fmt.Fprintf(w, "// bytes consumed.\n")
 	fmt.Fprintf(w, "func (v *%s) UnmarshalQDF(src []byte) (int, error) {\n", typeName)
+	fmt.Fprintf(w, "\treturn v.UnmarshalQDFOpts(src, false)\n")
+	fmt.Fprintf(w, "}\n\n")
+	fmt.Fprintf(w, "// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded\n")
+	fmt.Fprintf(w, "// string and []byte fields alias src instead of copying. The aliases are valid\n")
+	fmt.Fprintf(w, "// only while src stays alive and is not modified (see qdf.WithNoCopy).\n")
+	fmt.Fprintf(w, "func (v *%s) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {\n", typeName)
 	fmt.Fprintf(w, "\td := qdf.NewDecoderOnBuf(src)\n")
+	fmt.Fprintf(w, "\tif noCopy {\n\t\td.SetNoCopy(true)\n\t}\n")
 	// If src starts with QDF magic this is a top-level decode; otherwise
 	// a nested call from a parent decoder that already consumed the
 	// header.
@@ -843,10 +850,11 @@ func (g *gen) emitDecodeNamed(w io.Writer, lhs string, n *types.Named, indent st
 		fmt.Fprintf(w, "%s}\n", indent)
 		return nil
 	case *types.Struct:
-		// Nested struct: dispatch via UnmarshalQDF on the remaining bytes.
+		// Nested struct: dispatch on the remaining bytes, threading noCopy so
+		// nested string/[]byte fields alias the buffer too when requested.
 		tmp := g.fresh("nn")
 		fmt.Fprintf(w, "%s{\n", indent)
-		fmt.Fprintf(w, "%s\t%s, err := (&%s).UnmarshalQDF(d.RemainingBytes())\n", indent, tmp, lhs)
+		fmt.Fprintf(w, "%s\t%s, err := qdf.UnmarshalNested(&%s, d.RemainingBytes(), noCopy)\n", indent, tmp, lhs)
 		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\td.Advance(%s)\n", indent, tmp)
 		fmt.Fprintf(w, "%s}\n", indent)
@@ -877,7 +885,7 @@ func (g *gen) emitDecodePointer(w io.Writer, lhs string, p *types.Pointer, inden
 		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
 			tmp := g.fresh("nn")
 			fmt.Fprintf(w, "%s\t\t%s = new(%s)\n", indent, lhs, g.typeRef(named))
-			fmt.Fprintf(w, "%s\t\t%s, err := (%s).UnmarshalQDF(d.RemainingBytes())\n", indent, tmp, lhs)
+			fmt.Fprintf(w, "%s\t\t%s, err := qdf.UnmarshalNested(%s, d.RemainingBytes(), noCopy)\n", indent, tmp, lhs)
 			fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
 			fmt.Fprintf(w, "%s\t\td.Advance(%s)\n", indent, tmp)
 		} else {
