@@ -94,6 +94,9 @@ func (v *LogBatch) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 					if err != nil {
 						return 0, err
 					}
+					if err := d.CheckLength(n4, 1); err != nil {
+						return 0, err
+					}
 					v.Entries = make([]LogEntry, n4)
 					for i5 := 0; i5 < n4; i5++ {
 						{
