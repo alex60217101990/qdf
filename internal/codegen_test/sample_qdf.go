@@ -245,6 +245,9 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 					if err != nil {
 						return 0, err
 					}
+					if err := d.CheckLength(n25, 1); err != nil {
+						return 0, err
+					}
 					v.Tags = make([]string, n25)
 					for i26 := 0; i26 < n25; i26++ {
 						{
@@ -268,6 +271,9 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 				} else {
 					n28, err := d.ReadMapHeader()
 					if err != nil {
+						return 0, err
+					}
+					if err := d.CheckLength(n28, 1); err != nil {
 						return 0, err
 					}
 					v.Meta = make(map[string]string, n28)

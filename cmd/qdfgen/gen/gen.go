@@ -926,6 +926,10 @@ func (g *gen) emitDecodeSlice(w io.Writer, lhs string, s *types.Slice, indent st
 	nVar := g.fresh("n")
 	fmt.Fprintf(w, "%s\t\t%s, err := d.ReadArrayHeader()\n", indent, nVar)
 	fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
+	// Bound the allocation by remaining input so a hostile length header
+	// can't trigger a multi-GB make before any element is read (matches the
+	// reflect decoder's CheckLength gate).
+	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, nVar, indent, indent)
 	fmt.Fprintf(w, "%s\t\t%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%s\t\tfor %s := 0; %s < %s; %s++ {\n", indent, loopVar, loopVar, nVar, loopVar)
@@ -965,6 +969,9 @@ func (g *gen) emitDecodeMap(w io.Writer, lhs string, m *types.Map, indent string
 	fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
 	keyExpr := g.typeExprFromType(m.Key())
 	valExpr := g.typeExprFromType(m.Elem())
+	// Each map entry is at least two wire bytes (key + value); CheckLength(n,1)
+	// conservatively bounds the alloc by remaining input against a hostile count.
+	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, nVar, indent, indent)
 	fmt.Fprintf(w, "%s\t\t%s = make(map[%s]%s, %s)\n", indent, lhs, keyExpr, valExpr, nVar)
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%s\t\tfor %s := 0; %s < %s; %s++ {\n", indent, loopVar, loopVar, nVar, loopVar)
