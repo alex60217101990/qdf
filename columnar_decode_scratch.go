@@ -266,15 +266,21 @@ func (d *Decoder) readPackedPForInt64SliceInto(dst *[]int64) error {
 	growI64(dst, n)
 	out := *dst
 	u := unsafe.Slice((*uint64)(unsafe.Pointer(unsafe.SliceData(out))), n)
-	if b > 0 {
-		bitpack.Unpack(u, d.buf[d.i:d.i+bodyBytes], b)
-	}
-	d.i += bodyBytes
-	if mnU != 0 {
+	if b == 0 {
+		// All base values equal mnU. Must fully overwrite the reused scratch
+		// buffer here — bitpack.Unpack is skipped, so nothing else writes u[:n].
 		for k := range u {
-			u[k] += mnU
+			u[k] = mnU
+		}
+	} else {
+		bitpack.Unpack(u, d.buf[d.i:d.i+bodyBytes], b)
+		if mnU != 0 {
+			for k := range u {
+				u[k] += mnU
+			}
 		}
 	}
+	d.i += bodyBytes
 	excN64, nr := readUvarint(d.buf[d.i:])
 	if nr <= 0 {
 		return ErrInvalidLength
@@ -557,12 +563,18 @@ func (d *Decoder) readPackedPForUint64SliceInto(dst *[]uint64) error {
 	d.i += bodyBytes
 	growU64(dst, n)
 	out := *dst
-	if b > 0 {
-		bitpack.Unpack(out, body, b)
-	}
-	if mn != 0 {
+	if b == 0 {
+		// All base values equal mn. Must fully overwrite the reused scratch
+		// buffer here — bitpack.Unpack is skipped, so nothing else writes out[:n].
 		for k := range out {
-			out[k] += mn
+			out[k] = mn
+		}
+	} else {
+		bitpack.Unpack(out, body, b)
+		if mn != 0 {
+			for k := range out {
+				out[k] += mn
+			}
 		}
 	}
 	excN64, nr := readUvarint(d.buf[d.i:])
