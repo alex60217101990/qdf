@@ -79,8 +79,10 @@ symmetric, excluded here):
   IoT float batch vs `qdf_balanced` ~1100 MB/s). Use `OptBalanced` for the
   size win without the CPU hit; reserve `OptCompression` for cold storage.
 - **protobuf and flatbuffers win raw decode throughput** — generated code and
-  zero-copy access beat qdf's reflection path. Closing that gap (codegen that
-  emits the columnar wire) is tracked in the speed backlog.
+  zero-copy access beat qdf's reflection path. `WithNoCopy()` narrows this for
+  owned-input callers (aliases the buffer like flatbuffers; ~1.7× faster,
+  near-zero allocs — see below); closing the rest (codegen that emits the
+  columnar wire) is tracked in the speed backlog.
 - Single-tiny-message size favours protobuf (schema field numbers, no columnar
   amortisation < 16 rows). qdf's win is *batches* of structured records.
 
@@ -107,6 +109,24 @@ that needs a compiled schema and does not do predicate-filtered column
 projection across a batch in one call. For "store a wide batch, read a few
 columns or filter rows later" — the columnar-warehouse access pattern — qdf is
 the only one of these formats that reads less than the whole thing.
+
+## Zero-copy decode — closing the decode-alloc gap
+
+The memory table above excluded decode as "symmetric" — every codec allocates a
+fresh target. That is only true for qdf's *default* (copying) decode. With
+`WithNoCopy()` qdf decodes string/`[]byte` fields as **aliases of the input
+buffer** — the same trick that gives flatbuffers its zero-copy reads, but over
+qdf's self-describing batch wire and into ordinary Go structs.
+
+Measured on a 1000-row string-heavy batch (i7-9750H): default decode 7002
+allocs/op → `WithNoCopy()` **3 allocs/op**, **−38 % B/op, ~1.7× faster**. Works
+on the reflect path and codegen types alike.
+
+The catch is the same as flatbuffers' zero-copy: the decoded values are valid
+only while the input buffer lives and is unmodified — so it is opt-in, not the
+default. Use it for owned, long-lived input (mmap, a file in memory, batch
+analytics); never on a recycled server request buffer. A safe arena-backed
+variant (owned copies, ~1 alloc, no lifetime caveat) is a tracked follow-up.
 
 ## When to pick which
 - **Smallest wire on batches, no schema** → qdf (`OptBalanced` for balanced

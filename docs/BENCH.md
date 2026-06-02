@@ -563,6 +563,34 @@ The intern win is biggest when:
    tracing telemetry).
 2. The Decoder is recycled via `sync.Pool` (Unmarshal already does this).
 
+### Zero-copy decode — `WithNoCopy()` / `SetNoCopy(true)`
+
+Decode is allocation/GC-bound: an `alloc_objects` profile of a string-heavy
+batch attributes **~99.85 % of all decode allocations to `ReadString`** copying
+string bodies out of the buffer. (Encode is already lean — 3 allocs/op, pooled
+output buffer; the asymmetry is that decode allocs scale with the number of
+values while encode allocs do not.)
+
+`WithNoCopy()` aliases the input buffer instead of copying. On the 1000-row
+`LogBatch` (i7-9750H, OptSpeed, count=10):
+
+| decode            | ns/op   | B/op     | allocs/op |
+| ----------------- | ------- | -------- | --------- |
+| default (copy)    | ~635 000 | 251 829 | 7002      |
+| `WithNoCopy()`    | ~371 000 | 155 813 | **3**     |
+
+≈ **1.7× faster, −38 % B/op, 7002 → 3 allocs.** On the reflect-path `Wide ×1000`
+fixture: 5003 → 4 allocs. It works on codegen types too — the generated
+`UnmarshalQDFOpts` threads the flag through nested decodes. ⚠️ Opt-in only:
+the decoded values alias the input and are invalid once it is reused/mutated
+(see [CHOOSING.md](CHOOSING.md#when-to-use-withnocopy-decode)).
+
+**Future lever (probe, not yet built):** a safe decode-arena would copy bodies
+into one owned slab (~1 alloc, lifetime-safe for the default path). Under
+concurrent + GC-pressured load (`GOGC=20`, `-cpu 8`) the copy path runs at
+~327 µs/op vs ~210 µs/op for the alloc-free path — a ~1.55× headroom an arena
+could recover safely. Tracked as a separate follow-up.
+
 ### Key intern cache (`internal/intern`)
 
 - 256-slot direct-mapped hash table, fixed size, lives in the Decoder.

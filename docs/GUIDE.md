@@ -896,6 +896,26 @@ contribution is measurable: every percentage point of
 `runtime.MemStats.PauseTotalNs` you spend in scanning intern objects
 moves into "scan one arena slab" instead.
 
+### Zero-copy decode (`WithNoCopy` / `SetNoCopy`)
+
+Decode is allocation/GC-bound: profiling attributes ~99.85 % of decode
+allocations to `ReadString` copying string bodies out of the buffer
+(encode, by contrast, is already 3 allocs/op via the pooled output
+buffer). `WithNoCopy()` on `Unmarshal` — or `SetNoCopy(true)` on a
+`Decoder`/`StreamDecoder` — returns string/`[]byte` values that **alias
+the input buffer** instead of copying. Measured ~1.7× faster, 7002 → 3
+allocs/op on a 1 000-row string batch; it threads through codegen types
+via the generated `UnmarshalQDFOpts`.
+
+**Lifetime hazard (why it is opt-in, never the default):** the returned
+values point into the input buffer. They are valid only while that buffer
+stays alive and is not modified or reused. The classic footgun is a
+pooled server request body: once the handler returns and the buffer is
+recycled, every aliased string silently corrupts — a manual-memory
+use-after-free that the race detector does **not** catch. Safe only for
+caller-owned, long-lived, immutable input (mmap, a file read into memory,
+batch analytics). When in doubt, use the default copying decode.
+
 ---
 
 ## Performance characteristics
@@ -1019,7 +1039,9 @@ go install github.com/alex60217101990/qdf/cmd/qdfgen@latest
 Emits `<package>_qdf.go` with concrete `MarshalQDF` /
 `UnmarshalQDF` for each named type. The generated code calls the
 qdf encoder / decoder API directly — no reflect, no runtime
-descriptor lookup.
+descriptor lookup. It also emits `UnmarshalQDFOpts(src, noCopy)`
+(satisfying `qdf.UnmarshalerOpts`) so `WithNoCopy()` zero-copy decode
+threads through generated types, including nested struct fields.
 
 See `cmd/qdfgen/README.md` for the flag set and supported tags.
 
