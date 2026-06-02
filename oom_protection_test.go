@@ -133,6 +133,27 @@ func TestOOM_NegativeArrayHeaderRejected(t *testing.T) {
 	// is acceptable; the failure mode is "panic" or "OOM-attempting make".
 }
 
+// TestOOM_RLEColumnarBound pins the fix for the one integer codec that could
+// bypass the columnar length bound. RLE can legitimately claim far more
+// elements than remaining bytes (a long run is 2 bytes), so its header read
+// must gate the count through colLenOK; inside a columnar column (colMaxLen
+// set) a tiny body must not be able to claim a multi-GB element count.
+func TestOOM_RLEColumnarBound(t *testing.T) {
+	// kind byte + varuint n = 1<<20 (well under the 1<<30 standalone ceiling,
+	// so only colLenOK can reject it).
+	buf := []byte{qpackKindInt64}
+	buf = appendUvarint(buf, 1<<20)
+	d := &Decoder{buf: buf, colMaxLen: 8} // columnar column of 8 rows
+	if _, err := d.readPackedRLEHeader(qpackKindInt64); err == nil {
+		t.Fatal("RLE header claiming 1<<20 elems accepted under colMaxLen=8")
+	}
+	// Standalone (colMaxLen == 0) still accepts a plausible count.
+	d2 := &Decoder{buf: buf}
+	if _, err := d2.readPackedRLEHeader(qpackKindInt64); err != nil {
+		t.Fatalf("standalone RLE header wrongly rejected: %v", err)
+	}
+}
+
 // CheckLength contract: callers must invoke it before allocating. Verify
 // it rejects clearly-impossible claims.
 func TestOOM_CheckLengthRejectsImpossible(t *testing.T) {
