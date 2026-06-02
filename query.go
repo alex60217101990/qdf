@@ -120,6 +120,12 @@ func Select(fields ...string) QueryOption {
 //
 // Safe only for caller-owned, long-lived, immutable input such as an mmap or a
 // file read fully into memory.
+//
+// Scope: WithNoCopy affects the reflect decode path. A type that implements
+// Unmarshaler (including codegen-generated UnmarshalQDF) decodes through its own
+// decoder via the byte-only UnmarshalQDF(data) interface, which cannot inherit
+// this flag, so such types still copy. Use SetNoCopy on a Decoder/StreamDecoder
+// you drive directly if you need zero-copy there.
 func WithNoCopy() QueryOption { return QueryOption{noCopy: true} }
 
 // combine builds an And/Or node from option kids, flagging any non-predicate
