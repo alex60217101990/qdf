@@ -164,11 +164,18 @@ jobs:
           restore-keys: |
             fuzz-corpus-
 
+      # GOMEMLIMIT caps per-worker RSS so the runtime GCs instead of being
+      # OOM-killed under cumulative fuzz memory growth (avoids the flaky
+      # "hung or terminated unexpectedly" environmental failure).
       - name: FuzzDecoder_NeverPanics (30s)
-        run: go test -run=^$ -fuzz=FuzzDecoder_NeverPanics -fuzztime=30s -timeout=2m
+        env:
+          GOMEMLIMIT: 2GiB
+        run: go test -run=^$ -fuzz=FuzzDecoder_NeverPanics -fuzztime=30s -timeout=2m -parallel=2
 
       - name: FuzzRoundTrip_StringSlice (30s)
-        run: go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice -fuzztime=30s -timeout=2m
+        env:
+          GOMEMLIMIT: 2GiB
+        run: go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice -fuzztime=30s -timeout=2m -parallel=2
 
       # Re-run the seed + persisted corpus as a regression check.
       - name: Fuzz corpus regression
