@@ -709,14 +709,10 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 		}
 		cv.b = s
 	case colKindString:
-		if !isByte && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
-			table, idx, err := d.readStringColumnDict(n)
+		if !isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+			s, err := d.readStringColumn(n)
 			if err != nil {
 				return cv, err
-			}
-			s := make([]string, n)
-			for i := range n {
-				s[i] = table[idx[i]]
 			}
 			cv.s = s
 			break
@@ -1233,14 +1229,14 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			*(*bool)(unsafe.Add(base, uintptr(i)*plan.stride+col.offset)) = s[i]
 		}
 	case colKindString:
-		if !col.isByte && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
-			table, idx, err := d.readStringColumnDict(n)
+		if !col.isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+			strs, err := d.readStringColumn(n)
 			if err != nil {
 				return err
 			}
 			for i := range n {
 				dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-				*(*string)(dp) = table[idx[i]]
+				*(*string)(dp) = strs[i]
 			}
 			break
 		}
@@ -1311,8 +1307,8 @@ func (d *Decoder) skipColumnValue(kind colKind, n int) error {
 		var s []bool
 		return decodeSliceBool(d, unsafe.Pointer(&s))
 	case colKindString:
-		if d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
-			_, _, err := d.readStringColumnDict(n)
+		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+			_, err := d.readStringColumn(n)
 			return err
 		}
 		for range n {
@@ -1481,14 +1477,14 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 				}
 			}
 		case colKindString:
-			if d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
-				table, idx, err := d.readStringColumnDict(n)
+			if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+				strs, err := d.readStringColumn(n)
 				if err != nil {
 					return nil, err
 				}
 				if store {
 					for i := range n {
-						out[i].(map[string]any)[name] = table[idx[i]]
+						out[i].(map[string]any)[name] = strs[i]
 					}
 				}
 				break

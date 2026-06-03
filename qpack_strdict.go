@@ -122,18 +122,24 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 }
 
 // readStringColumn decodes a string column of n values written by
-// writeStringColumn: a tagColStrDict dictionary block, or n per-value strings.
+// writeStringColumn: a tagColStrDict dictionary block, a tagColStrFSST block,
+// or n per-value strings.
 func (d *Decoder) readStringColumn(n int) ([]string, error) {
 	out := make([]string, n)
-	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
-		table, idx, err := d.readStringColumnDict(n)
-		if err != nil {
-			return nil, err
+	if n > 0 && d.i < len(d.buf) {
+		switch d.buf[d.i] {
+		case tagColStrDict:
+			table, idx, err := d.readStringColumnDict(n)
+			if err != nil {
+				return nil, err
+			}
+			for i := range n {
+				out[i] = table[idx[i]]
+			}
+			return out, nil
+		case tagColStrFSST:
+			return d.readStringColumnFSST(n)
 		}
-		for i := range n {
-			out[i] = table[idx[i]]
-		}
-		return out, nil
 	}
 	for i := range n {
 		sb, err := d.readStringBytes()
