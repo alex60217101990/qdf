@@ -93,6 +93,11 @@ type Encoder struct {
 	// never in streaming). Set from OptRANS; applied only when it shrinks.
 	rans bool
 
+	// fsst enables the FSST string codec for columnar string columns. Set
+	// from OptFSST; applied only when strictly smaller than dict/per-value.
+	// Implies qpack (columnar path requires OptQPack).
+	fsst bool
+
 	// colIndex makes encodeColumnar emit a fixed-width uint32 column-length
 	// table after the shape declaration and before the column bodies, and
 	// backpatch FlagColIndex onto the header. Set from OptColumnIndex. Lets a
@@ -146,6 +151,7 @@ func (e *Encoder) applyOpts(opts Options) {
 	e.gorillaFloat = e.qpack && opts.Has(OptGorillaFloat)
 	e.rans = opts.Has(OptRANS)
 	e.colIndex = opts.Has(OptColumnIndex)
+	e.fsst = e.qpack && opts.Has(OptFSST)
 }
 
 // DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
@@ -228,6 +234,7 @@ func (e *Encoder) Reset() {
 	e.gorillaFloat = false
 	e.rans = false
 	e.colIndex = false
+	e.fsst = false
 	// Drop any PreIntern entries — they reference caller-supplied
 	// backing pointers that are not safe to assume valid across a
 	// pool recycle.

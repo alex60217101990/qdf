@@ -198,6 +198,7 @@ const (
 	//   when d==1). Chosen by the column emitter only when the bitpacked
 	//   index body beats the per-value run cost, so it never grows the wire.
 	tagColStrDict = 0xF5
+	tagColStrFSST = 0xF6 // FSST-coded string column (inside tagColStruct)
 )
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
