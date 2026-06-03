@@ -149,6 +149,39 @@ func (t *SymbolTable) Decompress(codes, dst []byte) []byte {
 	return dst
 }
 
+// DecompressN appends the decoding of codes to dst but never lets len(dst)
+// exceed limit, returning ok=false the moment a symbol or literal would
+// overflow. The decode path pre-sizes the destination slab to limit and passes
+// limit here, so a malformed block cannot drive an append past the slab's
+// capacity (no transient over-allocation / heap-exhaustion). Never panics.
+func (t *SymbolTable) DecompressN(codes, dst []byte, limit int) ([]byte, bool) {
+	i := 0
+	for i < len(codes) {
+		c := codes[i]
+		i++
+		if c == escapeCode {
+			if i >= len(codes) {
+				break
+			}
+			if len(dst) >= limit {
+				return dst, false
+			}
+			dst = append(dst, codes[i])
+			i++
+			continue
+		}
+		if int(c) >= len(t.symbols) {
+			continue
+		}
+		s := &t.symbols[c]
+		if len(dst)+int(s.len) > limit {
+			return dst, false
+		}
+		dst = append(dst, s.bytes[:s.len]...)
+	}
+	return dst, true
+}
+
 // MarshalTo appends the serialized symbol table to dst:
 //
 //	uvarint(count) then count × [ len:1B(1..8) | bytes ].

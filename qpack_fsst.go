@@ -54,11 +54,10 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	e.state.fsstScratch = comp
 	e.state.fsstLens = compLens
 
-	tableBytes := tbl.MarshalTo(nil)
-
 	// Block size = tag + table + uvarint(n) + uvarint(decompTotal)
-	//            + sum( uvarint(compLen) + compLen ).
-	size := 1 + len(tableBytes) + uvarintLen(uint64(n)) + uvarintLen(uint64(decompTotal))
+	//            + sum( uvarint(compLen) + compLen ). SerializedSize avoids
+	//            materializing the table just to measure it.
+	size := 1 + tbl.SerializedSize() + uvarintLen(uint64(n)) + uvarintLen(uint64(decompTotal))
 	for _, cl := range compLens {
 		size += uvarintLen(uint64(cl)) + cl
 	}
@@ -70,7 +69,7 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	e.writeHeader()
 	out := e.buf
 	out = append(out, tagColStrFSST)
-	out = append(out, tableBytes...)
+	out = tbl.MarshalTo(out) // serialize the table straight into the output
 	out = appendUvarint(out, uint64(n))
 	out = appendUvarint(out, uint64(decompTotal))
 	pos := 0
@@ -131,9 +130,12 @@ func (d *Decoder) readStringColumnFSST(n int) ([]string, error) {
 		}
 		cl := int(cl64)
 		start := len(slab)
-		slab = tbl.Decompress(d.buf[d.i:d.i+cl], slab)
-		if len(slab) > int(dt64) {
-			return nil, ErrShortBuffer // declared decompTotal undershoot ⇒ malformed
+		var ok bool
+		// Bounded decode: never let the slab grow past its pre-sized capacity
+		// (dt64), so a malformed row cannot trigger a transient over-allocation.
+		slab, ok = tbl.DecompressN(d.buf[d.i:d.i+cl], slab, int(dt64))
+		if !ok {
+			return nil, ErrShortBuffer
 		}
 		d.i += cl
 		out[i] = unsafestr.String(slab[start:len(slab)])

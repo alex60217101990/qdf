@@ -69,7 +69,9 @@ func (c *counter) add(k symKey) {
 			return
 		}
 		if c.keys[i] == k {
-			c.cnt[i]++
+			if c.cnt[i] < 0x7fffffff { // saturate: 0 means empty, never wrap to it
+				c.cnt[i]++
+			}
 			return
 		}
 		i = (i + 1) & c.mask
@@ -131,12 +133,23 @@ func newSymbolTableFromKeys(keys []symKey) *SymbolTable {
 }
 
 // sampleByBytes returns the leading prefix of samples whose total length first
-// reaches budget (deterministic, bounded).
+// reaches budget, truncating the final element so the SCANNED bytes are bounded
+// by budget regardless of any single element's size (a lone multi-MB string
+// must not make training O(that string)). Deterministic; never mutates the
+// caller's backing data (it shallow-copies the small header slice only when it
+// has to trim).
 func sampleByBytes(samples [][]byte, budget int) [][]byte {
 	total := 0
 	for i := range samples {
 		total += len(samples[i])
 		if total >= budget {
+			over := total - budget
+			if over > 0 && over < len(samples[i]) {
+				trimmed := make([][]byte, i+1)
+				copy(trimmed, samples[:i+1])
+				trimmed[i] = samples[i][:len(samples[i])-over]
+				return trimmed
+			}
 			return samples[:i+1]
 		}
 	}

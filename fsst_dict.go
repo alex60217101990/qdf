@@ -40,17 +40,25 @@ func TrainFSSTDictStrings(samples []string) *FSSTDict {
 	return &FSSTDict{tbl: fsst.BuildSymbolTable(b)}
 }
 
+// fsstRequired is the option set FSST needs to actually fire: the columnar
+// prerequisites (OptDense + OptShapeIntern gate encodeColumnar; OptQPack gates
+// e.fsst) plus OptFSST itself. FSSTDict.Marshal ORs this into the caller's opts
+// so a bare FSSTDict.Marshal(v, 0) still compresses instead of silently being a
+// no-op. OptCompression / OptBalanced already include the columnar bits.
+const fsstRequired = OptDense | OptQPack | OptShapeIntern | OptFSST
+
 // Marshal encodes v using this pre-trained dictionary for FSST string columns.
-// It implies OptFSST (a dictionary is meaningful only with the FSST codec on);
-// combine with OptBalanced or OptCompression for the rest of the pipeline.
+// It enables the FSST codec and its columnar prerequisites (Dense, QPack,
+// ShapeIntern), so even FSSTDict.Marshal(v, OptSpeed) compresses; combine with
+// OptCompression to add the float codecs and rANS.
 func (d *FSSTDict) Marshal(v any, opts Options) ([]byte, error) {
-	return marshalDict(v, opts|OptFSST, d.tbl)
+	return marshalDict(v, opts|fsstRequired, d.tbl)
 }
 
 // AppendMarshal encodes v with this dictionary and appends to dst (see
-// AppendMarshal). Implies OptFSST.
+// AppendMarshal). Enables FSST and its columnar prerequisites.
 func (d *FSSTDict) AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
-	return appendMarshalDict(dst, v, opts|OptFSST, d.tbl)
+	return appendMarshalDict(dst, v, opts|fsstRequired, d.tbl)
 }
 
 // marshalDict is Marshal with an optional pre-trained FSST table (nil = train
