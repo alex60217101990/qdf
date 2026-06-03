@@ -585,8 +585,10 @@ func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn
 		strs[i] = loadStringFieldBytes(base, stride, col, i)
 	}
 	tbl := dict
+	var bld *fsst.Builder
 	if tbl == nil {
-		tbl = fsst.BuildSymbolTable(strs[:sample])
+		bld = fsstBuilderPool.Get().(*fsst.Builder)
+		tbl = bld.BuildRounds(strs[:sample], fsstProbeRounds) // coarse estimate
 	}
 	var scratch []byte
 	body := 0
@@ -594,7 +596,11 @@ func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn
 		scratch = tbl.Compress(strs[i], scratch[:0])
 		body += len(scratch) + uvarintLen(uint64(len(scratch)))
 	}
-	return body + tbl.SerializedSize()*sample/n
+	sz := body + tbl.SerializedSize()*sample/n
+	if bld != nil {
+		fsstBuilderPool.Put(bld)
+	}
+	return sz
 }
 
 // colShapeRead is the parsed columnar header: the shape (names+kinds), the row
