@@ -1,6 +1,8 @@
 package qdf
 
 import (
+	"sync"
+
 	"github.com/alex60217101990/qdf/internal/fsst"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
@@ -11,7 +13,18 @@ const (
 	// fsstMaxDecompPerByte bounds decode expansion: each compressed byte
 	// yields at most one symbol of ≤8 bytes.
 	fsstMaxDecompPerByte = 8
+	// fsstProbeRounds trains a coarser table for the columnar probe's size
+	// estimate (a rough table is enough to decide columnar-vs-row-major); the
+	// encoder still uses the full buildRounds for the table it emits. Keeps the
+	// per-column probe training off the OptCompression hot path.
+	fsstProbeRounds = 1
 )
+
+// fsstBuilderPool reuses FSST training scratch across the per-column probe
+// estimates and encode attempts, so a column where FSST is evaluated but not
+// chosen does not re-allocate the trainer's counter + first-byte index on every
+// call (the source of the OptCompression encode-allocation regression).
+var fsstBuilderPool = sync.Pool{New: func() any { return fsst.NewBuilder() }}
 
 // tryWriteStringColumnFSST trains an FSST table on strs, compresses them, and
 // emits a tagColStrFSST block — but only when the block is strictly smaller
@@ -38,7 +51,9 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 		for i, s := range strs {
 			samples[i] = unsafestr.Bytes(s) // zero-copy view; trainer only reads
 		}
-		tbl = fsst.BuildSymbolTable(samples)
+		bld := fsstBuilderPool.Get().(*fsst.Builder)
+		defer fsstBuilderPool.Put(bld)
+		tbl = bld.Build(samples) // aliases bld; used within this call only
 	}
 
 	// Compress all rows into one scratch buffer, recording per-row lengths.
