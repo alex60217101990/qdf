@@ -161,6 +161,9 @@ type encState struct {
 	colScratchStr  []string // gathered string column values
 	colDictTable   []string // distinct table for the string-dict codec
 	colMaskScratch []byte   // presence bitmap for nullable columns
+	// FSST codec scratch, reused across columns (same lifetime as colDictTable).
+	fsstScratch []byte // compressed bytes for all rows, concatenated
+	fsstLens    []int  // per-row compressed lengths
 	// strDictMap maps a string column's distinct values to dense indices
 	// while the string-dict codec decides/encodes. Reused (cleared) per
 	// column to avoid a per-column map allocation.
