@@ -267,7 +267,14 @@ const (
 	// other shapes. Sets FlagColIndex on the header.
 	OptColumnIndex
 
-	// Bits 8..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptFSST opts in to the FSST string codec for columnar string columns
+	// (high-cardinality, substring-sharing text: log lines, URLs, paths). A
+	// CPU-for-size trade (trains a per-column symbol table), so it is excluded
+	// from OptBalanced and bundled into OptCompression. Never-larger: emitted
+	// only when strictly smaller than the dictionary / per-value forms.
+	OptFSST
+
+	// Bits 10..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.
@@ -288,7 +295,7 @@ const (
 	// encode/decode CPU for wire size, so it stays out of the
 	// OptBalanced default; future heavy codecs (rANS, dictionary
 	// preloading) will land in this bundle without breaking the name.
-	OptCompression Options = OptBalanced | OptGorillaFloat | OptRANS
+	OptCompression Options = OptBalanced | OptGorillaFloat | OptRANS | OptFSST
 )
 
 // Has reports whether the named bit is set. Compiles to a single AND
