@@ -138,7 +138,7 @@ func (d *Decoder) readStringColumnFSST(n int) ([]string, error) {
 			return nil, ErrShortBuffer
 		}
 		d.i += cl
-		out[i] = unsafestr.String(slab[start:len(slab)])
+		out[i] = unsafestr.String(slab[start:])
 	}
 	return out, nil
 }

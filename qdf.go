@@ -344,6 +344,7 @@ func putEnc(enc *Encoder, pool *sync.Pool) {
 //	b, _ := qdf.Marshal(snapshot, qdf.OptCompression)   // backup
 //	b, _ := qdf.Marshal(payload,                        // tuned
 //	    qdf.OptDense|qdf.OptQPack|qdf.OptShapeIntern)
+//
 // Big-output detach (in marshalDict): cloning a multi-megabyte buffer to hand
 // the caller their own copy used to dominate Large-payload profiles
 // (slices.Clone + runtime.memmove). Above marshalDetachThreshold the pool would
