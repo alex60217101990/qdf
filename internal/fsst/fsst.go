@@ -15,10 +15,27 @@ const (
 	maxSymLen  = 8
 )
 
-// symbol holds up to 8 bytes of a table entry.
+// symbol holds up to 8 bytes of a table entry. bytes/len drive decode; val/mask
+// are the same bytes packed little-endian (plus a length mask) so the hot
+// match path is a single masked uint64 compare instead of a byte loop.
 type symbol struct {
 	bytes [8]byte
+	val   uint64 // bytes packed little-endian
+	mask  uint64 // (1<<(8*len))-1
 	len   uint8
+}
+
+// packVal returns the little-endian uint64 of b and its length mask.
+func packVal(b []byte) (val, mask uint64) {
+	for i := 0; i < len(b); i++ {
+		val |= uint64(b[i]) << (8 * i)
+	}
+	if len(b) >= 8 {
+		mask = ^uint64(0)
+	} else {
+		mask = (uint64(1) << (8 * len(b))) - 1
+	}
+	return
 }
 
 // SymbolTable maps codes 0..254 to symbols and indexes them for compression.
@@ -40,6 +57,7 @@ func newSymbolTable(raw [][]byte) *SymbolTable {
 		var s symbol
 		s.len = uint8(len(b))
 		copy(s.bytes[:], b)
+		s.val, s.mask = packVal(b)
 		code := uint8(len(t.symbols))
 		t.symbols = append(t.symbols, s)
 		t.byFirst[b[0]] = append(t.byFirst[b[0]], code)
@@ -68,12 +86,22 @@ func (t *SymbolTable) buildIndex() {
 }
 
 // match returns the code and length of the longest symbol that is a prefix of
-// s, or (0,0) if none matches.
+// s, or (0,0) if none matches. Hot path: load up to 8 input bytes once and test
+// each candidate (longest-first) with a single masked uint64 compare.
 func (t *SymbolTable) match(s []byte) (uint8, int) {
-	for _, code := range t.byFirst[s[0]] {
-		L := int(t.symbols[code].len)
-		if L <= len(s) && string(t.symbols[code].bytes[:L]) == string(s[:L]) {
-			return code, L
+	var x uint64
+	if len(s) >= 8 {
+		x = binary.LittleEndian.Uint64(s)
+	} else {
+		for i := 0; i < len(s); i++ {
+			x |= uint64(s[i]) << (8 * i)
+		}
+	}
+	avail := len(s)
+	for _, code := range t.byFirst[byte(x)] {
+		sym := &t.symbols[code]
+		if int(sym.len) <= avail && x&sym.mask == sym.val {
+			return code, int(sym.len)
 		}
 	}
 	return 0, 0

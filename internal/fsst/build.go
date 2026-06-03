@@ -116,6 +116,12 @@ func newSymbolTableFromKeys(keys []symKey) *SymbolTable {
 		for i := 0; i < int(k.n); i++ {
 			s.bytes[i] = byte(k.lo >> (8 * i))
 		}
+		s.val = k.lo // packKey already packed exactly k.n bytes
+		if k.n >= maxSymLen {
+			s.mask = ^uint64(0)
+		} else {
+			s.mask = (uint64(1) << (8 * k.n)) - 1
+		}
 		code := uint8(len(t.symbols))
 		t.symbols = append(t.symbols, s)
 		t.byFirst[s.bytes[0]] = append(t.byFirst[s.bytes[0]], code)
