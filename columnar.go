@@ -212,7 +212,7 @@ const (
 // columnarProbe samples up to columnarProbeSample elements and estimates
 // whether column-major beats row-major on those samples. Conservative: any
 // uncertainty falls back to row-major (returns false).
-func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool) bool {
+func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool, fsstDict *fsst.SymbolTable) bool {
 	sample := min(n, columnarProbeSample)
 	var rowBytes, colBytes int
 	for c := range plan.cols {
@@ -349,7 +349,7 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			// it is amortized to the sample window (× sample/n) rather than
 			// charged in full against the 32-row probe.
 			if fsstEnabled {
-				best = min(best, estimateFSSTColumnBytes(base, plan.stride, col, sample, n))
+				best = min(best, estimateFSSTColumnBytes(base, plan.stride, col, sample, n, fsstDict))
 			}
 			colBytes += best
 		default:
@@ -579,12 +579,15 @@ func loadStringFieldBytes(base unsafe.Pointer, stride uintptr, col *colColumn, i
 // column (× sample/n). Zero string copies; reuses one compress scratch buffer.
 // Called only when FSST is enabled (OptFSST), so its training cost stays off the
 // Speed/Balanced hot path.
-func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn, sample, n int) int {
+func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn, sample, n int, dict *fsst.SymbolTable) int {
 	var strs [columnarProbeSample][]byte
 	for i := 0; i < sample; i++ {
 		strs[i] = loadStringFieldBytes(base, stride, col, i)
 	}
-	tbl := fsst.BuildSymbolTable(strs[:sample])
+	tbl := dict
+	if tbl == nil {
+		tbl = fsst.BuildSymbolTable(strs[:sample])
+	}
 	var scratch []byte
 	body := 0
 	for i := 0; i < sample; i++ {

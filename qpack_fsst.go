@@ -25,13 +25,21 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 		return false
 	}
 
-	samples := make([][]byte, n)
 	rawTotal := 0
-	for i, s := range strs {
-		samples[i] = unsafestr.Bytes(s) // zero-copy view; trainer only reads
+	for _, s := range strs {
 		rawTotal += len(s)
 	}
-	tbl := fsst.BuildSymbolTable(samples)
+
+	// A pre-trained dictionary (FSSTDict.Marshal) skips the per-batch training,
+	// which is the dominant FSST encode cost; otherwise train on this column.
+	tbl := e.fsstDict
+	if tbl == nil {
+		samples := make([][]byte, n)
+		for i, s := range strs {
+			samples[i] = unsafestr.Bytes(s) // zero-copy view; trainer only reads
+		}
+		tbl = fsst.BuildSymbolTable(samples)
+	}
 
 	// Compress all rows into one scratch buffer, recording per-row lengths.
 	comp := e.state.fsstScratch[:0]

@@ -171,7 +171,6 @@
 package qdf
 
 import (
-	"slices"
 	"sync"
 )
 
@@ -345,32 +344,15 @@ func putEnc(enc *Encoder, pool *sync.Pool) {
 //	b, _ := qdf.Marshal(snapshot, qdf.OptCompression)   // backup
 //	b, _ := qdf.Marshal(payload,                        // tuned
 //	    qdf.OptDense|qdf.OptQPack|qdf.OptShapeIntern)
+// Big-output detach (in marshalDict): cloning a multi-megabyte buffer to hand
+// the caller their own copy used to dominate Large-payload profiles
+// (slices.Clone + runtime.memmove). Above marshalDetachThreshold the pool would
+// drop the buffer in putEnc anyway (cap exceeds maxPooledBuf), so handing the
+// original to the caller and leaving the pool encoder with a nil buf is
+// strictly cheaper. Small payloads stay on the clone path so the warm 4 KiB
+// pool buffer survives.
 func Marshal(v any, opts Options) ([]byte, error) {
-	enc := encPool.Get().(*Encoder)
-	enc.Reset()
-	enc.applyOpts(opts)
-	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &encPool)
-		return nil, err
-	}
-	enc.maybeApplyRANS(0)
-	// Big-output detach: cloning a multi-megabyte buffer to hand
-	// the caller their own copy used to dominate Large-payload
-	// profiles (slices.Clone + runtime.memmove). At this size the
-	// pool would drop the buffer in putEnc anyway (cap exceeds
-	// maxPooledBuf), so handing the original to the caller and
-	// leaving the pool encoder with a nil buf is strictly cheaper —
-	// it skips the copy entirely. Small payloads stay on the
-	// clone path so the warm 4 KiB pool buffer survives.
-	var out []byte
-	if cap(enc.buf) > marshalDetachThreshold {
-		out = enc.buf
-		enc.buf = nil
-	} else {
-		out = slices.Clone(enc.buf)
-	}
-	encPool.Put(enc)
-	return out, nil
+	return marshalDict(v, opts, nil)
 }
 
 // marshalDetachThreshold is the buffer capacity above which Marshal
@@ -384,20 +366,7 @@ const marshalDetachThreshold = 256 * 1024
 // returned slice as dst on the next call to avoid per-message
 // allocations.
 func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
-	enc := encPool.Get().(*Encoder)
-	enc.Reset()
-	enc.applyOpts(opts)
-	start := len(dst)
-	enc.buf = dst
-	if err := encodeReflect(enc, v); err != nil {
-		putEnc(enc, &encPool)
-		return dst, err
-	}
-	enc.maybeApplyRANS(start)
-	out := enc.buf
-	enc.buf = nil
-	encPool.Put(enc)
-	return out, nil
+	return appendMarshalDict(dst, v, opts, nil)
 }
 
 // Unmarshal decodes data into out, which must be a non-nil pointer.
