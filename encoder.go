@@ -6,6 +6,7 @@ import (
 	"slices"
 	"unsafe"
 
+	"github.com/alex60217101990/qdf/internal/fsst"
 	"github.com/alex60217101990/qdf/internal/rans"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
@@ -97,6 +98,13 @@ type Encoder struct {
 	// from OptFSST; applied only when strictly smaller than dict/per-value.
 	// Implies qpack (columnar path requires OptQPack).
 	fsst bool
+
+	// fsstDict, when non-nil, is a pre-trained FSST symbol table supplied via
+	// FSSTDict.Marshal. The encoder uses it instead of training a table per
+	// string column (the dominant FSST encode cost), so train-once-reuse-many
+	// collapses per-batch encode to compression only. The table is bounded and
+	// immutable; it is never mutated by the encoder.
+	fsstDict *fsst.SymbolTable
 
 	// colIndex makes encodeColumnar emit a fixed-width uint32 column-length
 	// table after the shape declaration and before the column bodies, and
@@ -235,6 +243,7 @@ func (e *Encoder) Reset() {
 	e.rans = false
 	e.colIndex = false
 	e.fsst = false
+	e.fsstDict = nil
 	// Drop any PreIntern entries — they reference caller-supplied
 	// backing pointers that are not safe to assume valid across a
 	// pool recycle.
