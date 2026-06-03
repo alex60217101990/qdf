@@ -44,9 +44,15 @@ func newSymbolTable(raw [][]byte) *SymbolTable {
 		t.symbols = append(t.symbols, s)
 		t.byFirst[b[0]] = append(t.byFirst[b[0]], code)
 	}
+	t.buildIndex()
+	return t
+}
+
+// buildIndex sorts each first-byte bucket longest-symbol-first (tie-break by
+// code, for determinism) so match's first prefix hit is the longest.
+func (t *SymbolTable) buildIndex() {
 	for fb := range t.byFirst {
 		cs := t.byFirst[fb]
-		// stable longest-first; tie-break by code for determinism
 		for i := 1; i < len(cs); i++ {
 			for j := i; j > 0; j-- {
 				a, b := cs[j-1], cs[j]
@@ -59,7 +65,6 @@ func newSymbolTable(raw [][]byte) *SymbolTable {
 			}
 		}
 	}
-	return t
 }
 
 // match returns the code and length of the longest symbol that is a prefix of
