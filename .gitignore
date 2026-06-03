@@ -33,3 +33,13 @@ qdf.md
 qdf-*.md
 docs/PLAN*.md
 docs/superpowers
+diagrams/png
+diagrams/render-png.sh
+medium-series
+scripts/arm64-test.sh
+*.html
+golangnews-submission.md
+dev-to-qdf.md
+PR_DESCRIPTION.md
+docs/PAGES-SETUP.md
+docs/PERF-NEXT.md
