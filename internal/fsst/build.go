@@ -287,6 +287,7 @@ func candLess(a, b candidate) bool {
 // kept. The selected SET is deterministic for a given input.
 func selectTopK(cand []candidate, k int) {
 	lo, hi := 0, len(cand)-1
+search:
 	for lo < hi {
 		pivot := cand[(lo+hi)/2]
 		i, j := lo, hi
@@ -303,12 +304,13 @@ func selectTopK(cand []candidate, k int) {
 				j--
 			}
 		}
-		if k <= j {
+		switch {
+		case k <= j:
 			hi = j
-		} else if k >= i {
+		case k >= i:
 			lo = i
-		} else {
-			break
+		default:
+			break search
 		}
 	}
 }
