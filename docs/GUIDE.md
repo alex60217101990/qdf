@@ -120,6 +120,7 @@ order:
 |  4  | `OptMTF`          | Move-to-Front rank coding              | `OptDense` |
 |  5  | `OptGorillaFloat` | Gorilla XOR codec for `[]float64` / `[]float32` (~70 % wire reduction on smooth time-series, ~10× CPU/slice) | `OptQPack` |
 |  6  | `OptRANS` | Order-0 rANS entropy pass over the whole body, applied only when it shrinks (`FlagRANS`) — never larger, ~4–6× CPU where it fires, whole-buffer (not streaming) | — |
+|  7  | `OptFSST` | FSST substring-level codec for high-cardinality columnar string columns (URLs, log lines, paths); tried after the dictionary codec bails; never larger; columnar `[]struct` only | `OptQPack` + columnar |
 
 `OptSpeed = 0`. `OptBalanced = OptDense | OptQPack | OptShapeIntern
 | OptPairPred | OptMTF`. `OptCompression = OptBalanced | OptGorillaFloat
@@ -195,9 +196,10 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xF3        tagTimestamp          int64 ns since unix epoch
 0xF4  tagPackALP        (QPack)   ALP decimal-coded []float64 slice
 0xF5  tagColStrDict     (QPack)   dictionary-coded string column (inside columnar)
+0xF6  tagColStrFSST     (QPack)   FSST-coded string column (inside columnar)
 ```
 
-Tags 0xF6..0xFF are reserved.
+Tags 0xF7..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
@@ -784,6 +786,72 @@ earlier predicates) is **deferred** (future work). Pushdown fires only on
 `tagColStruct`; a non-columnar payload returns `ErrUnsupported` (as a
 `*QueryError`). User-facing rationale, full API, and a tutorial live in
 [`PREDICATE-PUSHDOWN.md`](PREDICATE-PUSHDOWN.md).
+
+### FSST string codec — `tagColStrFSST` (`0xF6`)
+
+FSST (Fast Static Symbol Table — Boncz/Neumann/Leis, VLDB 2020) compresses
+string bytes at the **substring level**. It learns a table of up to 255
+symbols (each 1–8 bytes from the training corpus) and replaces frequent
+substrings with 1-byte codes; an escape byte (255) passes through literals.
+
+**What it does:** complements the whole-string dictionary codec
+(`tagColStrDict`, `0xF5`). The dictionary deduplicates *identical* strings —
+it wins on enum-like columns (log level, region, status). FSST wins on
+**high-cardinality** columns whose values *share substrings* — URLs, log
+lines, file paths, stack traces, request lines — exactly where the
+dictionary can't help (too many distinct values). Measured ~76–79 % wire
+reduction on URL/log-line corpora.
+
+**When it fires:** FSST is tried in the per-column string-codec picker after
+the dictionary codec bails on high cardinality, and it is emitted **only
+when strictly smaller** than the dictionary and per-value forms. Default
+tiers (`OptSpeed`, `OptBalanced` without `OptFSST`) produce byte-identical
+output to before — the codec is gated.
+
+**Gating / options:**
+
+- `OptFSST` is the individual bit; it is bundled into `OptCompression`.
+  So `qdf.Marshal(rows, qdf.OptCompression)` turns on FSST together with
+  Gorilla/ALP/rANS.
+- For FSST without the float codecs or rANS:
+  `qdf.Marshal(rows, qdf.OptBalanced|qdf.OptFSST)`.
+- **Columnar-only:** needs a `[]struct` batch that the columnar probe
+  selects; not used for single messages or the streaming API.
+
+**Decode is transparent:** a plain `Unmarshal` decodes FSST columns —
+every FSST column carries its own symbol table on the wire
+(`tagColStrFSST` is self-describing). Works with selective decode
+(`Where`/`Select`) and `WithNoCopy()` (FSST strings are materialized into
+an owned slab, valid after the input buffer is reused).
+
+**Reusable dictionary — train once, encode many:**
+
+The dominant FSST encode cost is per-batch symbol-table training. For
+repeated encodes of the same column shape, train once and reuse:
+
+```go
+// Train on representative samples (once, at startup or schema change).
+d := qdf.TrainFSSTDictStrings(samples) // []string corpus
+// or: d := qdf.TrainFSSTDict(samples) // [][]byte corpus
+
+// Encode many batches — skips per-batch training; also enables FSST and
+// its columnar prerequisites regardless of the opts passed.
+b, err := d.Marshal(rows, qdf.OptCompression)
+b, err = d.AppendMarshal(dst, rows, qdf.OptCompression)
+```
+
+The dictionary is immutable, bounded (≤255 symbols, a few KB), and safe for
+concurrent reuse from multiple goroutines. It cannot grow or leak. The wire
+stays self-describing: each column still carries its symbol table, so output
+from `d.Marshal` decodes with a plain `Unmarshal` and needs no out-of-band
+dictionary.
+
+**Cost:** encode trains a symbol table — a storage-tier CPU cost (same family
+as Gorilla ~10× and rANS ~4–6× relative to `OptBalanced`). Use the reusable
+`FSSTDict` for hot repeated encodes. Decode is cheap and low-alloc: one
+per-column slab allocation. Indicative numbers on a 1024-URL-row batch:
+per-batch encode ~1.7 ms, reusable-dict encode ~0.4 ms (≈5× faster, far fewer
+allocs), decode ~100 µs / 69 allocs; wire −76–79 % vs `OptBalanced`.
 
 ### rANS entropy pass (`OptRANS`, `FlagRANS`)
 

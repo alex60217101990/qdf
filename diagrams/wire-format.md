@@ -46,7 +46,7 @@ bit:  7   6   5   4      3            2          1          0
 | Flag | Hex | Meaning |
 |------|-----|---------|
 | `FlagDense` | `0x01` | Body uses Dense intern dialect; state-ref tags (`0xE0`–`0xEA`, `0xEC`) are present |
-| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xF5`); early hint so readers can reject unsupported codecs before parsing |
+| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xF6`); early hint so readers can reject unsupported codecs before parsing |
 | `FlagRANS` | `0x04` | Body is rANS-compressed: `varuint(origLen)` + 256-entry freq table + rANS stream. Decoder decompresses before reading tags. Set only when rANS form is strictly smaller. |
 | `FlagColIndex` | `0x08` | A `tagColStruct` payload carries a fixed-width column-length index (K × `uint32` LE) right after the shape declaration. Backpatched by the encoder; never set on non-columnar payloads. |
 
@@ -97,6 +97,7 @@ bit:  7   6   5   4      3            2          1          0
 | `tagColStruct` | `0xEF` | Columnar container for `[]struct` |
 | `tagPackALP` | `0xF4` | ALP decimal-coded `[]float64` |
 | `tagColStrDict` | `0xF5` | Dictionary-coded string column (inside `tagColStruct`) |
+| `tagColStrFSST` | `0xF6` | FSST-coded string column (symbol table + per-row code streams), inside `tagColStruct` |
 
 **Other**:
 

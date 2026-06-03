@@ -73,6 +73,7 @@ If you said *yes* to all three you've assembled `OptBalanced`.
 | `OptMTF`         | `0xE9`   | Hot subset reuse on a >128-entry intern table.          | Small intern tables.         | `OptDense`    |
 | `OptGorillaFloat`| `0xE7`   | Smooth float time-series. ~70 % wire reduction.         | Random / unrelated floats; latency-sensitive paths (10× CPU/slice). | `OptQPack`    |
 | `OptColumnIndex` | `0xEF`   | Wide columnar `[]struct` batches read column-subset.    | Consumers that read all columns; non-columnar payloads. | `OptBalanced` |
+| `OptFSST`        | `0xF6`   | High-cardinality columnar string columns (URLs, log lines, paths) where the whole-string dictionary can't help. ~76–79 % wire reduction on URL/log-line corpora. | Low-cardinality or short string columns (dict wins there); single messages; streaming. | `OptQPack` + columnar (`OptBalanced`) |
 
 Dependent bits set without their parent are no-ops — the gating code
 ignores them. Reserved bits (6..31) are reserved; never use them.
@@ -285,6 +286,54 @@ _ = qdf.Unmarshal(b, &hot,
 On a wide batch at 1% selectivity it moves ≈4× fewer bytes and runs ≈2.1×
 faster than a full decode + manual filter — and no other Go serializer can
 do it at all. Full guide: [PREDICATE-PUSHDOWN.md](PREDICATE-PUSHDOWN.md).
+
+### High-cardinality string column (URLs / log lines / paths)
+
+You have a `[]struct` batch where one or more string columns carry many
+distinct values that share substrings — request URLs, log messages, file
+paths, stack traces. The whole-string dictionary codec (`tagColStrDict`)
+can't help here (too many distinct values to win), but the values are not
+random either — they share common prefixes, hostnames, method names, etc.
+
+**Reach for `OptCompression`** (bundles `OptFSST` together with
+Gorilla/ALP/rANS):
+
+```go
+b, err := qdf.Marshal(rows, qdf.OptCompression)
+```
+
+Or use `OptFSST` alone without the float codecs or rANS:
+
+```go
+b, err := qdf.Marshal(rows, qdf.OptBalanced|qdf.OptFSST)
+```
+
+FSST is **never-larger** — it is emitted only when strictly smaller than the
+dictionary and per-value paths. Default tiers (`OptSpeed`, `OptBalanced`
+without `OptFSST`) are byte-identical to before.
+
+**If you re-encode the same column shape repeatedly** (same URL space, same
+log format), the dominant FSST cost is per-batch symbol-table training. Train
+once and reuse with `FSSTDict`:
+
+```go
+// Once, at startup or schema change:
+d := qdf.TrainFSSTDictStrings(sampleURLs)
+
+// Per batch — skips training; enables FSST + columnar prerequisites:
+b, err := d.Marshal(rows, qdf.OptCompression)
+```
+
+The reusable dictionary is ~5× faster to encode than per-batch training and
+uses far fewer allocations. It is immutable, bounded (≤255 symbols, a few KB),
+and safe for concurrent use. The wire is self-describing — each column still
+carries its symbol table — so output decodes with a plain `Unmarshal` and
+needs no out-of-band dictionary.
+
+**Trade-off:** FSST encode is a storage-tier CPU cost (same family as Gorilla
+~10× relative to `OptBalanced`). Decode is cheap and transparent —
+`Unmarshal` handles `tagColStrFSST` automatically, works with
+`Where`/`Select`, and honours `WithNoCopy()`.
 
 ### What about streaming?
 
