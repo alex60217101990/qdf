@@ -460,6 +460,18 @@ Dense streams preserve the intern table across messages — the second
 occurrence of `"region":"eu-west-1"` in the batch is a 2-byte reference
 rather than a 13-byte string.
 
+Each message is length-framed (a `uvarint` byte-count precedes its body;
+the 5-byte header is written once up front), so a message of any size
+round-trips — even across a reader that delivers one byte at a time — and
+`io.EOF` cleanly marks the end. Struct tags and all Dense/codec options
+work exactly as in one-shot `Marshal`, and `dec.SetNoCopy(true)` gives
+zero-copy decode whose aliases stay valid for the stream's lifetime. The
+encoder reuses one pooled buffer (allocation-free steady state); target a
+`*bytes.Buffer` to collect into a `[]byte`. The three whole-batch
+features — `OptColumnIndex`, `Where`/`Select` pushdown, and `OptRANS` —
+are not part of streaming (they act on a single complete batch; use
+one-shot `Marshal`/`Unmarshal` for those).
+
 ### Selective columnar decode (`OptColumnIndex`)
 
 qdf transposes a slice of flat structs into a columnar container and
