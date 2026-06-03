@@ -5,6 +5,28 @@ import (
 	"testing"
 )
 
+// FSSTDict.Marshal must enable FSST + its columnar prerequisites itself, so a
+// bare opts (even OptSpeed/0) still compresses — not silently a no-op.
+func TestFSSTDictImpliesPrerequisites(t *testing.T) {
+	rows := mkRows(genURLs(1000))
+	d := TrainFSSTDictStrings(genURLs(1000))
+	plain, _ := Marshal(rows, OptBalanced)
+	for _, opt := range []Options{0, OptSpeed, OptDense, OptCompression} {
+		b, err := d.Marshal(rows, opt)
+		if err != nil {
+			t.Fatalf("opt=%d: %v", opt, err)
+		}
+		if len(b) >= len(plain) {
+			t.Fatalf("opt=%d: dict.Marshal did not compress (%d >= OptBalanced %d) — prerequisites not applied", opt, len(b), len(plain))
+		}
+		var back []fsstRow
+		if err := Unmarshal(b, &back); err != nil {
+			t.Fatalf("opt=%d decode: %v", opt, err)
+		}
+		assertRowsEqual(t, "implies", rows, back)
+	}
+}
+
 func TestFSSTDictRoundTrip(t *testing.T) {
 	rows := mkRows(genURLs(1000))
 	d := TrainFSSTDictStrings(genURLs(1000))

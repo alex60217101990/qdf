@@ -125,21 +125,21 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 // writeStringColumn: a tagColStrDict dictionary block, a tagColStrFSST block,
 // or n per-value strings.
 func (d *Decoder) readStringColumn(n int) ([]string, error) {
+	// FSST allocates its own output slab+slice, so dispatch before the per-value
+	// make to avoid a dead []string allocation on the FSST path.
+	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrFSST {
+		return d.readStringColumnFSST(n)
+	}
 	out := make([]string, n)
-	if n > 0 && d.i < len(d.buf) {
-		switch d.buf[d.i] {
-		case tagColStrDict:
-			table, idx, err := d.readStringColumnDict(n)
-			if err != nil {
-				return nil, err
-			}
-			for i := range n {
-				out[i] = table[idx[i]]
-			}
-			return out, nil
-		case tagColStrFSST:
-			return d.readStringColumnFSST(n)
+	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
+		table, idx, err := d.readStringColumnDict(n)
+		if err != nil {
+			return nil, err
 		}
+		for i := range n {
+			out[i] = table[idx[i]]
+		}
+		return out, nil
 	}
 	for i := range n {
 		sb, err := d.readStringBytes()

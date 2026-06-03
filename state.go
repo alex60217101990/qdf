@@ -275,6 +275,13 @@ func (e *encState) reset() {
 	if cap(e.colScratchI64) > maxRetainedIDs {
 		e.colScratchI64, e.colScratchU64, e.colScratchF64, e.colScratchBool = nil, nil, nil, nil
 	}
+	// FSST compressed-bytes scratch can grow to the largest string column seen;
+	// drop it past the retention cap so the pool does not pin multi-MB buffers
+	// (mirrors the numeric scratch policy above).
+	if cap(e.fsstScratch) > maxRetainedIDs {
+		e.fsstScratch = nil
+		e.fsstLens = nil
+	}
 
 	// Ring side-cache: re-prime with sentinels so post-reset emits
 	// can't false-match a stale id 0.
