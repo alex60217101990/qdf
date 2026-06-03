@@ -128,6 +128,26 @@ func (t *SymbolTable) MarshalTo(dst []byte) []byte {
 	return dst
 }
 
+// SerializedSize returns the number of bytes MarshalTo would write, without
+// allocating. Used by the columnar probe to estimate FSST cost cheaply.
+func (t *SymbolTable) SerializedSize() int {
+	sz := uvarintSize(uint64(len(t.symbols)))
+	for i := range t.symbols {
+		sz += 1 + int(t.symbols[i].len)
+	}
+	return sz
+}
+
+// uvarintSize returns the encoded length of x as a uvarint (no allocation).
+func uvarintSize(x uint64) int {
+	n := 1
+	for x >= 0x80 {
+		x >>= 7
+		n++
+	}
+	return n
+}
+
 var errBadTable = errors.New("fsst: malformed symbol table")
 
 // UnmarshalSymbolTable parses a table from b and returns it plus the number of

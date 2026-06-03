@@ -179,7 +179,7 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		n := hdr.Len
 		if colPlan != nil && n >= columnarMinElems && e.state != nil &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) &&
-			columnarProbe(colPlan, hdr.Data, n) {
+			columnarProbe(colPlan, hdr.Data, n, e.fsst) {
 			e.writeHeader()
 			return e.encodeColumnar(colPlan, hdr.Data, n)
 		}
