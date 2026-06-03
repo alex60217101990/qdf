@@ -3,96 +3,192 @@ package fsst
 import "sort"
 
 const (
-	buildRounds  = 5    // refinement iterations
-	maxSampleStr = 8192 // cap strings scanned per round (bounded encode CPU)
+	buildRounds = 3 // refinement iterations
+
+	// maxSampleBytes caps the bytes of input scanned per training round. FSST
+	// table quality saturates well before a whole large column is consumed, so
+	// bounding the sample keeps encode cost flat regardless of column size.
+	maxSampleBytes = 1 << 13 // 8 KiB
+
+	// counterLog sizes the flat candidate counter (1<<counterLog slots). Large
+	// enough to hold the distinct symbols + adjacent pairs of an 8 KiB sample
+	// at a < 0.75 load factor; once full it stops admitting new keys (the
+	// frequent ones are already present), bounding memory and time.
+	counterLog = 13
 )
 
-// BuildSymbolTable learns a SymbolTable from samples. Deterministic: the same
-// samples always produce the same table (stable candidate ordering, fixed
-// stride sample, no RNG). The wire stores the table, so table quality affects
-// compression ratio only — never correctness.
-func BuildSymbolTable(samples [][]byte) *SymbolTable {
-	scan := sampleStride(samples, maxSampleStr)
-	t := newSymbolTable(nil) // empty: everything is an escape on round 0
-	for round := 0; round < buildRounds; round++ {
-		counts := make(map[string]int, 1024)
-		for _, s := range scan {
-			tokenizeCount(t, s, counts)
+// symKey is a fixed-size, comparable key for a candidate symbol of up to 8
+// bytes — counting it never materializes a string.
+type symKey struct {
+	lo uint64 // up to 8 bytes, packed little-endian
+	n  uint8  // length 1..8
+}
+
+func packKey(b []byte) symKey {
+	var lo uint64
+	for i := 0; i < len(b); i++ {
+		lo |= uint64(b[i]) << (8 * i)
+	}
+	return symKey{lo, uint8(len(b))}
+}
+
+// counter is a flat open-addressed frequency table for symKeys. It replaces a
+// map[symKey]int: no bucket chasing, an integer hash, and a hard capacity that
+// drops new keys once full (frequent candidates are already counted). Reused
+// across rounds via reset.
+type counter struct {
+	keys []symKey
+	cnt  []int32
+	used int
+	mask uint32
+}
+
+func newCounter() *counter {
+	n := 1 << counterLog
+	return &counter{keys: make([]symKey, n), cnt: make([]int32, n), mask: uint32(n - 1)}
+}
+
+func (c *counter) reset() {
+	clear(c.cnt) // cnt==0 marks a slot empty; stale keys are ignored
+	c.used = 0
+}
+
+// add increments the count for k, inserting it if absent and capacity remains.
+func (c *counter) add(k symKey) {
+	h := uint32(k.lo) ^ uint32(k.lo>>32)
+	h = h*2654435761 + uint32(k.n)*40503
+	i := h & c.mask
+	for {
+		if c.cnt[i] == 0 {
+			if c.used<<2 >= len(c.cnt)*3 { // load factor 0.75: stop admitting
+				return
+			}
+			c.keys[i] = k
+			c.cnt[i] = 1
+			c.used++
+			return
 		}
-		t = buildFromCounts(counts)
+		if c.keys[i] == k {
+			c.cnt[i]++
+			return
+		}
+		i = (i + 1) & c.mask
+	}
+}
+
+// BuildSymbolTable learns a SymbolTable from samples. Deterministic: identical
+// samples always yield an identical table (no RNG; total-order selection). The
+// wire stores the table, so table quality affects ratio only, never correctness.
+func BuildSymbolTable(samples [][]byte) *SymbolTable {
+	scan := sampleByBytes(samples, maxSampleBytes)
+	t := newSymbolTable(nil) // empty: round 0 is all single-byte tokens
+	c := newCounter()
+	cand := make([]candidate, 0, 2048) // reused across rounds
+	keys := make([]symKey, 0, maxSymbols)
+	for round := 0; round < buildRounds; round++ {
+		c.reset()
+		empty := len(t.symbols) == 0
+		for _, s := range scan {
+			tokenizeCount(t, s, c, empty)
+		}
+		keys = topCandidates(c, cand[:0], keys[:0])
+		t = newSymbolTableFromKeys(keys)
 	}
 	return t
 }
 
-// sampleStride returns at most maxN strings chosen at a fixed stride across
-// samples (deterministic, covers the whole corpus rather than just the head).
-func sampleStride(samples [][]byte, maxN int) [][]byte {
-	if len(samples) <= maxN {
-		return samples
+type candidate struct {
+	k    symKey
+	gain int
+}
+
+// newSymbolTableFromKeys builds a table directly from packed candidate keys,
+// writing each symbol's bytes straight into its fixed array — no intermediate
+// [][]byte and no per-symbol allocation.
+func newSymbolTableFromKeys(keys []symKey) *SymbolTable {
+	t := &SymbolTable{}
+	for _, k := range keys {
+		if k.n == 0 || k.n > maxSymLen || len(t.symbols) >= maxSymbols {
+			continue
+		}
+		var s symbol
+		s.len = k.n
+		for i := 0; i < int(k.n); i++ {
+			s.bytes[i] = byte(k.lo >> (8 * i))
+		}
+		code := uint8(len(t.symbols))
+		t.symbols = append(t.symbols, s)
+		t.byFirst[s.bytes[0]] = append(t.byFirst[s.bytes[0]], code)
 	}
-	out := make([][]byte, 0, maxN)
-	step := len(samples) / maxN
-	if step < 1 {
-		step = 1
+	t.buildIndex()
+	return t
+}
+
+// sampleByBytes returns the leading prefix of samples whose total length first
+// reaches budget (deterministic, bounded).
+func sampleByBytes(samples [][]byte, budget int) [][]byte {
+	total := 0
+	for i := range samples {
+		total += len(samples[i])
+		if total >= budget {
+			return samples[:i+1]
+		}
 	}
-	for i := 0; i < len(samples) && len(out) < maxN; i += step {
-		out = append(out, samples[i])
-	}
-	return out
+	return samples
 }
 
 // tokenizeCount greedily tokenizes s with the current table and counts each
-// emitted symbol and each adjacent-symbol pair (concatenated, ≤8 bytes).
-func tokenizeCount(t *SymbolTable, s []byte, counts map[string]int) {
+// emitted symbol and each adjacent-symbol pair. The pair is a contiguous slice
+// of s (the previous token immediately precedes the current one), so counting
+// never concatenates or allocates. When empty is set (round 0, no symbols yet)
+// every token is a single byte, so the per-position match scan is skipped.
+func tokenizeCount(t *SymbolTable, s []byte, c *counter, empty bool) {
 	i := 0
-	var prev []byte
+	prevStart, prevLen := 0, 0
 	for i < len(s) {
-		_, n := t.match(s[i:])
-		var cur []byte
-		if n == 0 {
-			cur = s[i : i+1]
-			i++
-		} else {
-			cur = s[i : i+n]
-			i += n
+		n := 1
+		if !empty {
+			if _, m := t.match(s[i:]); m != 0 {
+				n = m
+			}
 		}
-		counts[string(cur)]++
-		if prev != nil && len(prev)+len(cur) <= maxSymLen {
-			counts[string(prev)+string(cur)]++
+		c.add(packKey(s[i : i+n]))
+		if prevLen != 0 && prevLen+n <= maxSymLen {
+			c.add(packKey(s[prevStart : i+n])) // prev+cur, contiguous
 		}
-		prev = cur
+		prevStart, prevLen = i, n
+		i += n
 	}
 }
 
-// buildFromCounts selects the top-255 candidates by gain = freq*len, with a
-// deterministic total order (gain desc, len desc, bytes asc).
-func buildFromCounts(counts map[string]int) *SymbolTable {
-	type cand struct {
-		b    string
-		gain int
-	}
-	cs := make([]cand, 0, len(counts))
-	for b, c := range counts {
-		if len(b) == 0 || len(b) > maxSymLen {
+// topCandidates selects the top-255 candidate keys by gain = freq*len, with a
+// deterministic total order (gain desc, len desc, packed-bytes asc). The cand
+// and keys scratch slices are caller-owned and reused across rounds.
+func topCandidates(c *counter, cand []candidate, keys []symKey) []symKey {
+	for i := range c.cnt {
+		if c.cnt[i] == 0 {
 			continue
 		}
-		cs = append(cs, cand{b, c * len(b)})
+		k := c.keys[i]
+		if k.n == 0 || k.n > maxSymLen {
+			continue
+		}
+		cand = append(cand, candidate{k, int(c.cnt[i]) * int(k.n)})
 	}
-	sort.Slice(cs, func(i, j int) bool {
-		if cs[i].gain != cs[j].gain {
-			return cs[i].gain > cs[j].gain
+	sort.Slice(cand, func(i, j int) bool {
+		if cand[i].gain != cand[j].gain {
+			return cand[i].gain > cand[j].gain
 		}
-		if len(cs[i].b) != len(cs[j].b) {
-			return len(cs[i].b) > len(cs[j].b)
+		if cand[i].k.n != cand[j].k.n {
+			return cand[i].k.n > cand[j].k.n
 		}
-		return cs[i].b < cs[j].b
+		return cand[i].k.lo < cand[j].k.lo
 	})
-	raw := make([][]byte, 0, maxSymbols)
-	for _, c := range cs {
-		if len(raw) >= maxSymbols {
+	for i := range cand {
+		if len(keys) >= maxSymbols {
 			break
 		}
-		raw = append(raw, []byte(c.b))
+		keys = append(keys, cand[i].k)
 	}
-	return newSymbolTable(raw)
+	return keys
 }

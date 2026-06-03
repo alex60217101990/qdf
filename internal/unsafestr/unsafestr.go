@@ -15,3 +15,14 @@ func String(b []byte) string {
 	}
 	return unsafe.String(unsafe.SliceData(b), len(b))
 }
+
+// Bytes returns a []byte aliasing the input string (zero-copy). The result MUST
+// be treated as read-only — mutating it corrupts the source string.
+//
+//go:nosplit
+func Bytes(s string) []byte {
+	if len(s) == 0 {
+		return nil
+	}
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}

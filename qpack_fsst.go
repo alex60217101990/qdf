@@ -28,7 +28,7 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	samples := make([][]byte, n)
 	rawTotal := 0
 	for i, s := range strs {
-		samples[i] = []byte(s) // sample view; trainer does not retain
+		samples[i] = unsafestr.Bytes(s) // zero-copy view; trainer only reads
 		rawTotal += len(s)
 	}
 	tbl := fsst.BuildSymbolTable(samples)
@@ -39,7 +39,7 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	decompTotal := 0
 	for _, s := range strs {
 		before := len(comp)
-		comp = tbl.Compress([]byte(s), comp)
+		comp = tbl.Compress(unsafestr.Bytes(s), comp)
 		compLens = append(compLens, len(comp)-before)
 		decompTotal += len(s)
 	}
