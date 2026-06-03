@@ -8,6 +8,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/alex60217101990/qdf/internal/fsst"
 	"github.com/alex60217101990/qdf/internal/reflectutil"
 )
 
@@ -211,7 +212,7 @@ const (
 // columnarProbe samples up to columnarProbeSample elements and estimates
 // whether column-major beats row-major on those samples. Conservative: any
 // uncertainty falls back to row-major (returns false).
-func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
+func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool) bool {
 	sample := min(n, columnarProbeSample)
 	var rowBytes, colBytes int
 	for c := range plan.cols {
@@ -338,7 +339,19 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int) bool {
 				first = false
 			}
 			dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
-			colBytes += min(perValue, dictBytes)
+			best := min(perValue, dictBytes)
+			// FSST competes only when enabled (OptFSST). High-cardinality,
+			// substring-sharing columns (URLs, log lines) where dict and
+			// per-value both stay near raw are exactly where FSST wins — without
+			// this term the probe would route them to row-major and FSST, which
+			// only runs inside the columnar string-column picker, would never
+			// fire. The symbol table is a one-time cost over the whole column, so
+			// it is amortized to the sample window (× sample/n) rather than
+			// charged in full against the 32-row probe.
+			if fsstEnabled {
+				best = min(best, estimateFSSTColumnBytes(base, plan.stride, col, sample, n))
+			}
+			colBytes += best
 		default:
 			if !col.kind.isNullable() {
 				continue // unknown kind contributes nothing
@@ -547,6 +560,38 @@ func loadStringField(base unsafe.Pointer, stride uintptr, col *colColumn, i int)
 		return string(*(*[]byte)(p))
 	}
 	return *(*string)(p)
+}
+
+// loadStringFieldBytes returns a zero-copy []byte view of the i-th string field
+// (no allocation). The view aliases the caller's live struct, which is stable
+// for the duration of the encode; it is read-only (passed to FSST train/probe).
+func loadStringFieldBytes(base unsafe.Pointer, stride uintptr, col *colColumn, i int) []byte {
+	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
+	if col.isByte {
+		return *(*[]byte)(p)
+	}
+	s := *(*string)(p)
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+// estimateFSSTColumnBytes estimates the FSST-coded byte cost of a string column
+// over the probe sample, amortizing the one-time symbol table across the whole
+// column (× sample/n). Zero string copies; reuses one compress scratch buffer.
+// Called only when FSST is enabled (OptFSST), so its training cost stays off the
+// Speed/Balanced hot path.
+func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn, sample, n int) int {
+	var strs [columnarProbeSample][]byte
+	for i := 0; i < sample; i++ {
+		strs[i] = loadStringFieldBytes(base, stride, col, i)
+	}
+	tbl := fsst.BuildSymbolTable(strs[:sample])
+	var scratch []byte
+	body := 0
+	for i := 0; i < sample; i++ {
+		scratch = tbl.Compress(strs[i], scratch[:0])
+		body += len(scratch) + uvarintLen(uint64(len(scratch)))
+	}
+	return body + tbl.SerializedSize()*sample/n
 }
 
 // colShapeRead is the parsed columnar header: the shape (names+kinds), the row
