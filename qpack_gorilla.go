@@ -237,6 +237,18 @@ func (d *Decoder) readPackedGorillaHeader(expectKind byte) (n int, firstU64 uint
 		return 0, 0, nil, ErrInvalidLength
 	}
 	d.i += nr
+	// Bound the element count before make([]float, n). In a columnar column
+	// it must equal the row count (colLenOK); standalone, every element past
+	// the first costs >=1 control bit in the body, so a valid n cannot exceed
+	// the remaining bits — this stops a tiny payload from claiming billions of
+	// elements and triggering an OOM (the body-bytes check below does not
+	// bound n, which is read independently).
+	if !d.colLenOK(n64) {
+		return 0, 0, nil, ErrInvalidLength
+	}
+	if rem := uint64(len(d.buf) - d.i); n64 > rem*8+1 {
+		return 0, 0, nil, ErrShortBuffer
+	}
 	n = int(n64)
 	if n == 0 {
 		return n, 0, nil, nil
