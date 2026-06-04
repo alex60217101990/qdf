@@ -315,6 +315,7 @@ emission order. Use `OptSpeed` if you hash or sign the wire.
 | `OptPairPred`     | Markov-1 successor predictor (`tagStatePair`, `0xEA`). |
 | `OptMTF`          | Move-to-Front rank coding on state-refs (`tagStateMTF`, `0xE9`). |
 | `OptColumnIndex`  | Column-length index on columnar `[]struct` for selective decode (opt-in, ~4 B/column; default wire unchanged when off). |
+| `OptMapShape`     | Key-set interning for `map[string]V` fields (declare keys once, reuse by shape id). ~−24 % encode CPU and ~−26 % wire on recurring-key tag-maps (telemetry/logs); opt-in, default wire unchanged when off. |
 
 | Bundle | Composition |
 | ------ | ----------- |

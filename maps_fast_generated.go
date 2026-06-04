@@ -16,6 +16,13 @@ func encodeMapStringString(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteString(v)
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -32,6 +39,22 @@ func decodeMapStringString(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]string)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]string, len(names))
+		for _, k := range names {
+			v, err := d.ReadString()
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string]string)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -66,6 +89,13 @@ func encodeMapStringBool(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteBool(v)
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -82,6 +112,22 @@ func decodeMapStringBool(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]bool)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]bool, len(names))
+		for _, k := range names {
+			v, err := d.ReadBool()
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string]bool)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -116,6 +162,13 @@ func encodeMapStringInt8(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -132,6 +185,23 @@ func decodeMapStringInt8(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]int8)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]int8, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadInt()
+			if err != nil {
+				return err
+			}
+			v := int8(vWide)
+			m[k] = v
+		}
+		*(*map[string]int8)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -167,6 +237,13 @@ func encodeMapStringInt16(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -183,6 +260,23 @@ func decodeMapStringInt16(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]int16)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]int16, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadInt()
+			if err != nil {
+				return err
+			}
+			v := int16(vWide)
+			m[k] = v
+		}
+		*(*map[string]int16)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -218,6 +312,13 @@ func encodeMapStringInt32(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -234,6 +335,23 @@ func decodeMapStringInt32(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]int32)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]int32, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadInt()
+			if err != nil {
+				return err
+			}
+			v := int32(vWide)
+			m[k] = v
+		}
+		*(*map[string]int32)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -269,6 +387,13 @@ func encodeMapStringInt(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -285,6 +410,23 @@ func decodeMapStringInt(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]int)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]int, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadInt()
+			if err != nil {
+				return err
+			}
+			v := int(vWide)
+			m[k] = v
+		}
+		*(*map[string]int)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -320,6 +462,13 @@ func encodeMapStringInt64(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -336,6 +485,22 @@ func decodeMapStringInt64(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]int64)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]int64, len(names))
+		for _, k := range names {
+			v, err := d.ReadInt()
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string]int64)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -370,6 +535,13 @@ func encodeMapStringUint8(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -386,6 +558,23 @@ func decodeMapStringUint8(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]uint8)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]uint8, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadUint()
+			if err != nil {
+				return err
+			}
+			v := uint8(vWide)
+			m[k] = v
+		}
+		*(*map[string]uint8)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -421,6 +610,13 @@ func encodeMapStringUint16(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -437,6 +633,23 @@ func decodeMapStringUint16(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]uint16)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]uint16, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadUint()
+			if err != nil {
+				return err
+			}
+			v := uint16(vWide)
+			m[k] = v
+		}
+		*(*map[string]uint16)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -472,6 +685,13 @@ func encodeMapStringUint32(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -488,6 +708,23 @@ func decodeMapStringUint32(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]uint32)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]uint32, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadUint()
+			if err != nil {
+				return err
+			}
+			v := uint32(vWide)
+			m[k] = v
+		}
+		*(*map[string]uint32)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -523,6 +760,13 @@ func encodeMapStringUint(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -539,6 +783,23 @@ func decodeMapStringUint(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]uint)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]uint, len(names))
+		for _, k := range names {
+			vWide, err := d.ReadUint()
+			if err != nil {
+				return err
+			}
+			v := uint(vWide)
+			m[k] = v
+		}
+		*(*map[string]uint)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -574,6 +835,13 @@ func encodeMapStringUint64(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -590,6 +858,22 @@ func decodeMapStringUint64(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]uint64)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]uint64, len(names))
+		for _, k := range names {
+			v, err := d.ReadUint()
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string]uint64)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -624,6 +908,13 @@ func encodeMapStringFloat32(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteFloat32(v)
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -640,6 +931,22 @@ func decodeMapStringFloat32(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]float32)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]float32, len(names))
+		for _, k := range names {
+			v, err := d.ReadFloat32()
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string]float32)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -674,6 +981,13 @@ func encodeMapStringFloat64(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteFloat64(v)
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -690,6 +1004,22 @@ func decodeMapStringFloat64(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]float64)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]float64, len(names))
+		for _, k := range names {
+			v, err := d.ReadFloat64()
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string]float64)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -724,6 +1054,13 @@ func encodeMapStringBytes(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteBytes(v)
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -740,6 +1077,22 @@ func decodeMapStringBytes(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string][]byte)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string][]byte, len(names))
+		for _, k := range names {
+			v, err := d.ReadBytes()
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string][]byte)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -774,6 +1127,16 @@ func encodeMapStringStringSlice(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			e.WriteArrayHeader(len(v))
+			for _, sv := range v {
+				e.WriteString(sv)
+			}
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -793,6 +1156,33 @@ func decodeMapStringStringSlice(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string][]string)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string][]string, len(names))
+		for _, k := range names {
+			hdrN, err := d.ReadArrayHeader()
+			if err != nil {
+				return err
+			}
+			if err := d.CheckLength(hdrN, 1); err != nil {
+				return err
+			}
+			v := make([]string, hdrN)
+			for i := range hdrN {
+				sv, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v[i] = sv
+			}
+			m[k] = v
+		}
+		*(*map[string][]string)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()
@@ -838,6 +1228,15 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		for _, k := range mapStringShapeOrder(e, m) {
+			v := m[k]
+			if err := encodeReflect(e, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	e.WriteMapHeader(len(m))
 	for k, v := range m {
 		e.WriteString(k)
@@ -856,6 +1255,22 @@ func decodeMapStringAny(d *Decoder, p unsafe.Pointer) error {
 	if t == tagNil {
 		d.i++
 		*(*map[string]any)(p) = nil
+		return nil
+	}
+	if t == tagMapShape {
+		names, err := decodeMapStringShapeHeader(d)
+		if err != nil {
+			return err
+		}
+		m := make(map[string]any, len(names))
+		for _, k := range names {
+			v, err := decodeAny(d)
+			if err != nil {
+				return err
+			}
+			m[k] = v
+		}
+		*(*map[string]any)(p) = m
 		return nil
 	}
 	n, err := d.ReadMapHeader()

@@ -121,6 +121,7 @@ order:
 |  5  | `OptGorillaFloat` | Gorilla XOR codec for `[]float64` / `[]float32` (~70 % wire reduction on smooth time-series, ~10× CPU/slice) | `OptQPack` |
 |  6  | `OptRANS` | Order-0 rANS entropy pass over the whole body, applied only when it shrinks (`FlagRANS`) — never larger, ~4–6× CPU where it fires, whole-buffer (not streaming) | — |
 |  7  | `OptFSST` | FSST substring-level codec for high-cardinality columnar string columns (URLs, log lines, paths); tried after the dictionary codec bails; never larger; columnar `[]struct` only | `OptQPack` + columnar |
+|  9  | `OptMapShape` | Key-set interning for `map[string]V` fields: a recurring set of keys (telemetry tags, log labels) is declared once via `tagMapShape`; later maps emit only the shape ID + values in canonical key order. ~−24 % encode CPU and ~−26 % wire on tag-map-heavy rows; opt-in. | `OptDense` |
 
 `OptSpeed = 0`. `OptBalanced = OptDense | OptQPack | OptShapeIntern
 | OptPairPred | OptMTF`. `OptCompression = OptBalanced | OptGorillaFloat
