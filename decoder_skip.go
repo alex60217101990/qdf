@@ -199,6 +199,9 @@ func (d *Decoder) Skip() error {
 		if n <= 0 {
 			return ErrInvalidLength
 		}
+		if shapeID > uint64(^uint32(0)) {
+			return ErrUnknownStateID // would truncate on the uint32 cast below
+		}
 		d.i += n
 		if d.state == nil {
 			d.state = newDecState()
