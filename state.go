@@ -2,7 +2,9 @@ package qdf
 
 import (
 	"hash/maphash"
+	"reflect"
 	"strings"
+	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/internarena"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
@@ -13,6 +15,14 @@ import (
 // but differ across binary invocations (no semantic impact — the
 // intern table is per-encoder and reset between Marshals).
 var internHashSeed = maphash.MakeSeed()
+
+// internKeyHash hashes a single map key for the order-independent key-set hash
+// used by OptMapShape. Same seed/function as the intern table so distribution
+// matches; callers combine per-key results commutatively (sum) so key order
+// does not affect the set identity.
+func internKeyHash(s string) uint64 {
+	return maphash.String(internHashSeed, s)
+}
 
 // internSlot is one entry in the flat hash table that replaces the
 // old map[string]uint32 intern dictionary. Profiling on telemetry
@@ -147,6 +157,20 @@ type encState struct {
 	shapeCount    uint32
 	shapeBindings []shapeBinding
 
+	// mapShapes interns recurring map key-sets (OptMapShape), parallel to
+	// shapeBindings but keyed on the key-set rather than a *typeDesc. Shares
+	// the shapeCount ID space with struct shapes (shapeDeclareEnc) so the
+	// decoder's single shape table stays in lockstep.
+	mapShapes []mapShapeBinding
+	// lastMapShape* memoises the most recently used map shape so a run of
+	// homogeneous rows (the common case) verifies against it directly — no
+	// set-hash recompute, no registry scan. lastMapShapeID == 0 means none.
+	lastMapShapeID   uint32
+	lastMapShapeKeys []string
+	// mapEnc pools reflect holders for the generic (reflect) string-keyed map
+	// encode path so it does not reflect.New per map (OptMapShape).
+	mapEnc mapHolderCache
+
 	// Columnar shape table (tagColStruct). Separate from shapeBindings
 	// because columnar shapes carry field kinds. Keyed by structural
 	// identity (names + kinds) since the same struct type always produces
@@ -181,6 +205,54 @@ type encState struct {
 type shapeBinding struct {
 	td *typeDesc
 	id uint32
+}
+
+// mapShapeBinding maps a recurring map key-set to a shared shape ID.
+// setHash is an order-independent hash of the (string) keys; n is the key
+// count (disambiguates a setHash collision across different sizes); keys holds
+// the canonical (sorted) key order, cloned so it survives the caller's map. id
+// is drawn from the same sequential space as struct shapeBindings
+// (shapeDeclareEnc).
+type mapShapeBinding struct {
+	setHash uint64
+	n       int
+	keys    []string
+	id      uint32
+}
+
+// mapHolderCache pools the addressable reflect.Value scratch the generic
+// (reflect) map encode/decode path needs — a key holder + a value holder —
+// so it does not reflect.New on every map encoded/decoded. Reused across the
+// rows of a []struct (same map type every row), so a 1000-row batch pays 2
+// reflect.New total instead of 2 per row. A busy flag keeps it
+// re-entrancy-safe: a nested map (e.g. map[string]map[string]T), or any
+// acquire while the cache is already in use, falls back to a fresh local pair.
+type mapHolderCache struct {
+	kt, vt reflect.Type
+	kh, vh reflect.Value
+	vp     unsafe.Pointer
+	busy   bool
+}
+
+func (c *mapHolderCache) acquire(kt, vt reflect.Type) (kh, vh reflect.Value, vp unsafe.Pointer, pooled bool) {
+	if c.busy {
+		vh = reflect.New(vt).Elem()
+		return reflect.New(kt).Elem(), vh, unsafe.Pointer(vh.UnsafeAddr()), false
+	}
+	if c.kt != kt || c.vt != vt {
+		c.kt, c.vt = kt, vt
+		c.kh = reflect.New(kt).Elem()
+		c.vh = reflect.New(vt).Elem()
+		c.vp = unsafe.Pointer(c.vh.UnsafeAddr())
+	}
+	c.busy = true
+	return c.kh, c.vh, c.vp, true
+}
+
+func (c *mapHolderCache) release(pooled bool) {
+	if pooled {
+		c.busy = false
+	}
 }
 
 const lruInvalidID = ^uint32(0)
@@ -264,6 +336,14 @@ func (e *encState) reset() {
 	}
 	e.lastShapeTd = nil
 	e.lastShapeID = 0
+	if cap(e.mapShapes) > maxRetainedShapeCap {
+		e.mapShapes = nil
+	} else {
+		e.mapShapes = e.mapShapes[:0]
+	}
+	e.lastMapShapeID = 0
+	e.lastMapShapeKeys = nil
+	e.mapEnc = mapHolderCache{}
 
 	if cap(e.colShapeNames) > maxRetainedShapeCap {
 		e.colShapeNames = nil
@@ -322,6 +402,37 @@ func (e *encState) shapeBindType(t *typeDesc, id uint32) {
 func (e *encState) shapeDeclareEnc() uint32 {
 	e.shapeCount++
 	return e.shapeCount
+}
+
+// mapShapeFind returns the bound shape ID for a key-set identified by its
+// order-independent setHash and count n. The caller MUST still verify the
+// actual keys against the binding (mapShapeKeys) before reuse — setHash is not
+// collision-proof.
+func (e *encState) mapShapeFind(setHash uint64, n int) (uint32, bool) {
+	for i := range e.mapShapes {
+		if e.mapShapes[i].setHash == setHash && e.mapShapes[i].n == n {
+			return e.mapShapes[i].id, true
+		}
+	}
+	return 0, false
+}
+
+// mapShapeKeys returns the canonical key order for a bound shape ID, or nil.
+func (e *encState) mapShapeKeys(id uint32) []string {
+	for i := range e.mapShapes {
+		if e.mapShapes[i].id == id {
+			return e.mapShapes[i].keys
+		}
+	}
+	return nil
+}
+
+// mapShapeRegister binds a key-set to a shape ID. keys must be the canonical
+// (sorted) order; it is cloned so the binding owns its slice.
+func (e *encState) mapShapeRegister(setHash uint64, n int, keys []string, id uint32) {
+	cp := make([]string, len(keys))
+	copy(cp, keys)
+	e.mapShapes = append(e.mapShapes, mapShapeBinding{setHash: setHash, n: n, keys: cp, id: id})
 }
 
 // pairLookup reports whether the top-1 predicted successor of prev
@@ -678,6 +789,10 @@ type decState struct {
 	// colLenScratch is reused storage for the column-length index parsed from
 	// a FlagColIndex columnar payload (one uint32 byte-length per column).
 	colLenScratch []uint32
+
+	// mapDec pools reflect holders for the generic (reflect) string-keyed map
+	// decode path so it does not reflect.New per map entry (OptMapShape).
+	mapDec mapHolderCache
 }
 
 func newDecState() *decState {
@@ -736,6 +851,7 @@ func (d *decState) reset() {
 		d.mruRing[i] = mruEmpty
 	}
 	d.mruHead = 0
+	d.mapDec = mapHolderCache{}
 }
 
 // pairAtRank returns the predicted successor of prev. With top-1

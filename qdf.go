@@ -273,7 +273,17 @@ const (
 	// only when strictly smaller than the dictionary / per-value forms.
 	OptFSST
 
-	// Bits 10..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptMapShape interns map key-sets the way OptShapeIntern interns struct
+	// field-names: the first map with a given set of (string) keys declares the
+	// key ordering via tagMapShape; subsequent maps with the same key-set emit
+	// only the shape ID + values in canonical (sorted) key order. Cuts encode
+	// CPU and wire on maps with recurring keys (telemetry tags, log labels).
+	// Requires OptDense (the shape table lives on the intern side). Opt-in in
+	// v1; never-worse fallback to a plain map header when a key-set does not
+	// recur.
+	OptMapShape
+
+	// Bits 11..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.

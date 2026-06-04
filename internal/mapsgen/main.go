@@ -255,6 +255,15 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "func encode%s(e *Encoder, p unsafe.Pointer) error {\n", fnName)
 	fmt.Fprintf(buf, "\tm := *(*%s)(p)\n", mapTy)
 	fmt.Fprintf(buf, "\tif m == nil {\n\t\te.WriteNil()\n\t\treturn nil\n\t}\n")
+	if p.K.suffix == "String" {
+		// OptMapShape fast path: recurring key-sets emit a shape header +
+		// values in canonical order via the shared generic helper.
+		fmt.Fprintf(buf, "\tif len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {\n")
+		fmt.Fprintf(buf, "\t\tfor _, k := range mapStringShapeOrder(e, m) {\n")
+		fmt.Fprintf(buf, "\t\t\tv := m[k]\n")
+		fmt.Fprintf(buf, "\t\t\t%s\n", p.V.writeBlock("v"))
+		fmt.Fprintf(buf, "\t\t}\n\t\treturn nil\n\t}\n")
+	}
 	fmt.Fprintf(buf, "\te.WriteMapHeader(len(m))\n")
 	fmt.Fprintf(buf, "\tfor k, v := range m {\n")
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.writeBlock("k")))
@@ -265,6 +274,17 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "func decode%s(d *Decoder, p unsafe.Pointer) error {\n", fnName)
 	fmt.Fprintf(buf, "\tt, err := d.peekTag()\n\tif err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tif t == tagNil {\n\t\td.i++\n\t\t*(*%s)(p) = nil\n\t\treturn nil\n\t}\n", mapTy)
+	if p.K.suffix == "String" {
+		// OptMapShape decode: a tagMapShape header carries the ordered keys;
+		// read len(names) values in that order.
+		fmt.Fprintf(buf, "\tif t == tagMapShape {\n")
+		fmt.Fprintf(buf, "\t\tnames, err := decodeMapStringShapeHeader(d)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
+		fmt.Fprintf(buf, "\t\tm := make(%s, len(names))\n", mapTy)
+		fmt.Fprintf(buf, "\t\tfor _, k := range names {\n")
+		fmt.Fprintf(buf, "\t\t\t%s\n", p.V.readBlock("v"))
+		fmt.Fprintf(buf, "\t\t\tm[k] = v\n")
+		fmt.Fprintf(buf, "\t\t}\n\t\t*(*%s)(p) = m\n\t\treturn nil\n\t}\n", mapTy)
+	}
 	fmt.Fprintf(buf, "\tn, err := d.ReadMapHeader()\n\tif err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tif err := d.CheckLength(n, 2); err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tm := make(%s, n)\n", mapTy)
@@ -324,12 +344,24 @@ func main() {
 		log.Fatalf("\nformat: %v", err)
 	}
 
-	// Generator runs from internal/mapsgen — write into repo root.
+	// Locate the module root by walking up to the go.mod, so the generator
+	// works whether invoked from internal/mapsgen or via `go generate ./...`
+	// (which runs it with the repo root as the working directory).
 	wd, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
-	root := filepath.Clean(filepath.Join(wd, "..", ".."))
+	root := wd
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			log.Fatalf("could not find go.mod above %s", wd)
+		}
+		root = parent
+	}
 	out := filepath.Join(root, "maps_fast_generated.go")
 	if err := os.WriteFile(out, src, 0o600); err != nil {
 		log.Fatal(err)

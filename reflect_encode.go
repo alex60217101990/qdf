@@ -333,6 +333,7 @@ func decodeArray(elem *typeDesc, stride uintptr, n int) func(*Decoder, unsafe.Po
 func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) error {
 	keyType := t.Key()
 	valType := t.Elem()
+	stringKey := keyType.Kind() == reflect.String
 	return func(e *Encoder, p unsafe.Pointer) error {
 		rv := reflect.NewAt(t, p).Elem()
 		if rv.IsNil() {
@@ -340,6 +341,9 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 			return nil
 		}
 		n := rv.Len()
+		if stringKey && n > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+			return e.encodeStringMapShaped(rv, keyType, valType, v)
+		}
 		e.WriteMapHeader(n)
 		// MapRange beats reflect.Value.Seq2 (Go 1.26) here by ~2x on
 		// throughput and ~2x on allocations: Seq2 boxes the (k, v)
@@ -373,6 +377,107 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 	}
 }
 
+// encodeStringMapShaped emits a string-keyed map via tagMapShape (OptMapShape).
+// A recurring key-set declares once (keys interned); reuses emit only the shape
+// ID + values in canonical (sorted) key order. Collision-safe: the set-hash
+// only finds a candidate; the keys are verified present (count + membership)
+// before reuse, falling back to a fresh declaration on any mismatch. This is
+// the general reflect path; the common map[string]string/etc. types take the
+// concrete fast path in maps_fast_generated.go.
+//
+// A reusable keyHolder/valHolder avoids per-key reflect.ValueOf boxing; the hot
+// reuse path allocates nothing (no keys slice — values are fetched in the bound
+// canonical order). The keys slice is built only on a fresh declaration (rare:
+// once per distinct key-set).
+func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType reflect.Type, v *typeDesc) error {
+	// Ensure the stream header precedes the first tag (top-level map case; the
+	// plain path emits it via WriteMapHeader). Idempotent.
+	e.writeHeader()
+	n := rv.Len()
+	st := e.state
+	// Pooled, re-entrancy-safe key/value holders — avoids reflect.New per map
+	// (a 1000-row batch pays 2 reflect.New total, not 2 per row).
+	keyHolder, valHolder, vp, pooled := st.mapEnc.acquire(keyType, valType)
+	defer st.mapEnc.release(pooled)
+
+	emitValues := func(order []string) error {
+		for _, name := range order {
+			keyHolder.SetString(name)
+			valHolder.Set(rv.MapIndex(keyHolder))
+			if err := v.encode(e, vp); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	// hasAll reports whether the map's key-set equals order (caller checks
+	// len==n). Verifies via the map's own keys under MapRange — string keys do
+	// not allocate — instead of MapIndex per key, which would heap-copy a
+	// struct value type. The linear scan is O(n²) but n (a key-set) is tiny.
+	hasAll := func(order []string) bool {
+		it := rv.MapRange()
+		for it.Next() {
+			keyHolder.SetIterKey(it) // SetIterKey reuses the holder; it.Key() would alloc
+			k := keyHolder.String()
+			found := false
+			for _, name := range order {
+				if name == k {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Fast path: same key-set as the previous map — verify directly, no hash.
+	if st.lastMapShapeID != 0 && len(st.lastMapShapeKeys) == n && hasAll(st.lastMapShapeKeys) {
+		e.buf = append(e.buf, tagMapShape)
+		e.buf = appendUvarint(e.buf, uint64(st.lastMapShapeID))
+		return emitValues(st.lastMapShapeKeys)
+	}
+
+	// Key-set changed: order-independent set-hash to find an earlier shape.
+	var setHash uint64
+	iter := rv.MapRange()
+	for iter.Next() {
+		keyHolder.SetIterKey(iter) // reuse holder; iter.Key() would alloc
+		setHash += internKeyHash(keyHolder.String())
+	}
+	if id, ok := st.mapShapeFind(setHash, n); ok {
+		order := st.mapShapeKeys(id)
+		if len(order) == n && hasAll(order) {
+			st.lastMapShapeID, st.lastMapShapeKeys = id, order
+			e.buf = append(e.buf, tagMapShape)
+			e.buf = appendUvarint(e.buf, uint64(id))
+			return emitValues(order)
+		}
+		// collision / different key-set → declare a fresh shape below.
+	}
+
+	// Declare path (first sight of this key-set).
+	keys := make([]string, 0, n)
+	it2 := rv.MapRange()
+	for it2.Next() {
+		keyHolder.SetIterKey(it2) // reuse holder; it2.Key() would alloc
+		keys = append(keys, keyHolder.String())
+	}
+	slices.Sort(keys)
+	id := st.shapeDeclareEnc()
+	st.mapShapeRegister(setHash, n, keys, id)
+	st.lastMapShapeID, st.lastMapShapeKeys = id, st.mapShapes[len(st.mapShapes)-1].keys
+	e.buf = append(e.buf, tagMapShape)
+	e.buf = appendUvarint(e.buf, 0)
+	e.buf = appendUvarint(e.buf, uint64(n))
+	for _, name := range keys {
+		e.WriteString(name)
+	}
+	return emitValues(keys)
+}
+
 func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) error {
 	keyType := t.Key()
 	valType := t.Elem()
@@ -388,6 +493,30 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 		if tag == tagNil {
 			d.i++
 			reflect.NewAt(t, p).Elem().Set(reflect.Zero(t))
+			return nil
+		}
+		// tagMapShape: string-keyed map encoded via the key-set shape codec
+		// (OptMapShape). Mirrors decodeStruct's shape branch; the decoder's
+		// shape table is destination-agnostic (ordered names + N values).
+		if tag == tagMapShape && keyType.Kind() == reflect.String {
+			names, err := decodeMapStringShapeHeader(d)
+			if err != nil {
+				return err
+			}
+			reflectutil.MakeMap(t, len(names), p)
+			mapVal := reflect.NewAt(t, p).Elem()
+			// Pooled, re-entrancy-safe holders hoisted out of the loop:
+			// SetMapIndex copies key/value into the map, so one pair is reused
+			// for every entry (and across rows) — no reflect.New per entry.
+			kh, vh, vp, pooled := d.state.mapDec.acquire(keyType, valType)
+			defer d.state.mapDec.release(pooled)
+			for _, name := range names {
+				kh.SetString(name)
+				if err := v.decode(d, vp); err != nil {
+					return err
+				}
+				mapVal.SetMapIndex(kh, vh)
+			}
 			return nil
 		}
 		n, err := d.ReadMapHeader()

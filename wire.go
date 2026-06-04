@@ -153,7 +153,9 @@ const (
 	//                    encoder picks tagStatePair only when its byte cost
 	//                    is strictly smaller than every other state-ref
 	//                    variant (Repeat, MTF, raw), so the wire never grows.
-	tagMapShape = 0xEC // Struct/map shape interning for Dense mode.
+	tagMapShape = 0xEC // Struct shape interning (OptShapeIntern) and, for
+	//                    string-keyed maps, map key-set interning
+	//                    (OptMapShape). Shared sequential shape-ID space.
 	//                    Wire form:
 	//                       0xEC + varuint(shapeID)
 	//                    shapeID == 0 declares a new shape inline:

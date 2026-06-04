@@ -29,6 +29,15 @@ func FuzzDecoder_NeverPanics(f *testing.F) {
 		}
 		f.Add(bd)
 	}
+	// OptMapShape seeds so the fuzzer explores the tagMapShape-in-map path.
+	for _, v := range []any{
+		map[string]int{"a": 1, "b": 2, "c": 3},
+		[]map[string]string{{"version": "v1", "client": "go"}, {"version": "v2", "client": "go"}},
+	} {
+		if bm, err := Marshal(v, OptBalanced|OptMapShape); err == nil {
+			f.Add(bm)
+		}
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Try decoding into a few different shapes. None should panic.
 		var s string
