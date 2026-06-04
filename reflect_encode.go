@@ -356,12 +356,25 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		// iter entry into a pre-allocated addressable reflect.Value.
 		// Without them, reflectValueAddr would have to materialise a
 		// fresh reflect.New(T).Elem() per element — 2 allocs per map
-		// entry on the previous path, O(N) total. Now the two
-		// scratch Values are allocated once before the loop and reused.
-		keyHolder := reflect.New(keyType).Elem()
-		valHolder := reflect.New(valType).Elem()
-		kp := unsafe.Pointer(keyHolder.UnsafeAddr())
-		vp := unsafe.Pointer(valHolder.UnsafeAddr())
+		// entry on the previous path, O(N) total.
+		//
+		// The two scratch holders are pooled on encState (reused across the
+		// rows of a []struct — no reflect.New per map) when a state exists;
+		// re-entrancy-safe via the busy flag. Fast mode (e.state == nil) has
+		// no pool, so it falls back to a local pair.
+		var keyHolder, valHolder reflect.Value
+		var kp, vp unsafe.Pointer
+		var pooled bool
+		if e.state != nil {
+			keyHolder, valHolder, vp, pooled = e.state.mapEnc.acquire(keyType, valType)
+			kp = unsafe.Pointer(keyHolder.UnsafeAddr())
+			defer e.state.mapEnc.release(pooled)
+		} else {
+			keyHolder = reflect.New(keyType).Elem()
+			valHolder = reflect.New(valType).Elem()
+			kp = unsafe.Pointer(keyHolder.UnsafeAddr())
+			vp = unsafe.Pointer(valHolder.UnsafeAddr())
+		}
 		iter := rv.MapRange()
 		for iter.Next() {
 			keyHolder.SetIterKey(iter)
