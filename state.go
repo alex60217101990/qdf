@@ -362,6 +362,30 @@ func (e *encState) reset() {
 		e.fsstScratch = nil
 		e.fsstLens = nil
 	}
+	// String-column scratch: []string slices retain header references that pin
+	// the caller's string memory across a pool recycle, and strDictMap grows to
+	// the largest column's distinct count. clear() drops the pinned headers;
+	// the backings are dropped past the retention cap (same policy as above).
+	if cap(e.colScratchStr) > maxRetainedIDs {
+		e.colScratchStr = nil
+	} else {
+		clear(e.colScratchStr)
+		e.colScratchStr = e.colScratchStr[:0]
+	}
+	if cap(e.colDictTable) > maxRetainedIDs {
+		e.colDictTable = nil
+	} else {
+		clear(e.colDictTable)
+		e.colDictTable = e.colDictTable[:0]
+	}
+	if cap(e.colMaskScratch) > maxRetainedIDs {
+		e.colMaskScratch = nil
+	} else {
+		e.colMaskScratch = e.colMaskScratch[:0]
+	}
+	if len(e.strDictMap) > 0 {
+		clear(e.strDictMap)
+	}
 
 	// Ring side-cache: re-prime with sentinels so post-reset emits
 	// can't false-match a stale id 0.
