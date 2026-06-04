@@ -640,17 +640,25 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 		// and nothing grows the wire.
 		if e.gorillaFloat {
 			rawEst := 12 + len(s)*8
-			best := rawEst
-			gorCodec, gorEst := pickF64Codec(s)
-			if gorCodec == qpackGorilla && gorEst < best {
-				best = gorEst
-			}
-			if plan, alpEst, ok := alpPlanFloat64(s); ok && alpEst < best {
-				e.writePackedALPFloat64Slice(s, plan)
-				return nil
-			}
-			if gorCodec == qpackGorilla && gorEst < rawEst {
+			plan, alpEst, alpOK := alpPlanFloat64(s) // ALP estimate is a safe upper bound
+			alpWins := alpOK && alpEst < rawEst
+			// pickF64Codec only projects Gorilla from a sample prefix, which can
+			// be wildly optimistic on a smooth-prefix/high-entropy-tail slice.
+			// Emit Gorilla for real and measure it; keep it only when it is
+			// actually smaller than raw (and than ALP) — a true never-larger
+			// gate. The rollback re-emits raw/ALP only on the rare lose case, so
+			// the common smooth-data path still encodes Gorilla once.
+			if gorCodec, _ := pickF64Codec(s); gorCodec == qpackGorilla {
+				start := len(e.buf)
 				e.writePackedGorillaFloat64Slice(s)
+				gorActual := len(e.buf) - start
+				if gorActual < rawEst && !(alpWins && alpEst < gorActual) {
+					return nil
+				}
+				e.buf = e.buf[:start] // Gorilla did not win — roll back
+			}
+			if alpWins {
+				e.writePackedALPFloat64Slice(s, plan)
 				return nil
 			}
 		}

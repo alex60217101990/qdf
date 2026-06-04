@@ -3,6 +3,7 @@ package qdf
 import (
 	"bytes"
 	"errors"
+	"math"
 	"testing"
 )
 
@@ -73,6 +74,44 @@ func TestGorilla_RoundTrip_Smooth(t *testing.T) {
 	for i := range in {
 		if out.F[i] != in[i] {
 			t.Fatalf("idx %d: %v != %v", i, out.F[i], in[i])
+		}
+	}
+}
+
+// TestGorilla_NeverLarger: an adversarial float slice (smooth prefix, high-
+// entropy tail) must never make OptGorillaFloat output exceed the raw-float
+// encoding — the picker projected from a sample and could bloat the wire.
+func TestGorilla_NeverLarger(t *testing.T) {
+	type wrap struct {
+		F []float64 `qdf:"f"`
+	}
+	f := make([]float64, 4000)
+	for i := range f {
+		if i < 33 {
+			f[i] = 1.0
+		} else {
+			f[i] = math.Float64frombits(uint64(i) * 0x9E3779B97F4A7C15)
+		}
+	}
+	raw, err := Marshal(wrap{F: f}, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gor, err := Marshal(wrap{F: f}, OptBalanced|OptGorillaFloat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gor) > len(raw) {
+		t.Fatalf("never-larger violated: gorilla=%d > raw=%d", len(gor), len(raw))
+	}
+	// Round-trip must still be exact.
+	var out wrap
+	if err := Unmarshal(gor, &out); err != nil {
+		t.Fatal(err)
+	}
+	for i := range f {
+		if math.Float64bits(out.F[i]) != math.Float64bits(f[i]) {
+			t.Fatalf("idx %d round-trip mismatch", i)
 		}
 	}
 }
