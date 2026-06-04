@@ -652,7 +652,7 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 				start := len(e.buf)
 				e.writePackedGorillaFloat64Slice(s)
 				gorActual := len(e.buf) - start
-				if gorActual < rawEst && !(alpWins && alpEst < gorActual) {
+				if gorActual < rawEst && (!alpWins || alpEst >= gorActual) {
 					return nil
 				}
 				e.buf = e.buf[:start] // Gorilla did not win — roll back
