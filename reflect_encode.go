@@ -237,6 +237,7 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	// (or *[]any) takes.
 	elemType := t.Elem()
 	elemDynamic := elemType == reflect.TypeFor[map[string]any]() || elemType.Kind() == reflect.Interface
+	elemPF := noPointers(elemType) // gate for backing reuse (computed once per type)
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if err := d.descend(); err != nil {
 			return err
@@ -283,11 +284,9 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 		if err := d.CheckLength(n, 1); err != nil {
 			return err
 		}
-		// reflectutil.MakeSlice is swapped out under -tags qdf_reflect2
-		// for the reflect2 implementation (skips reflect.MakeSlice
-		// type checks).
-		reflectutil.MakeSlice(t, n, p)
-		base := reflectutil.SliceData(t, p)
+		// Reuse the caller's backing when pointer-free + cap suffices (decode
+		// into a pre-sized/pooled slice), else fresh MakeSlice.
+		base := reuseOrMakeSlice(t, n, p, stride, elemPF)
 		for i := range n {
 			if err := elem.decode(d, unsafe.Add(base, uintptr(i)*stride)); err != nil {
 				return err
@@ -1214,4 +1213,51 @@ type sliceHeader struct {
 	Data unsafe.Pointer
 	Len  int
 	Cap  int
+}
+
+// noPointers reports whether t contains no pointers (so a byte-clear of its
+// memory is GC-safe — no write barriers needed). Used to gate decode slice
+// backing reuse: a pointer-free element can be zeroed with clear() over a raw
+// []byte view before the values are decoded in place.
+func noPointers(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+		return true
+	case reflect.Array:
+		return noPointers(t.Elem())
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			if !noPointers(t.Field(i).Type) {
+				return false
+			}
+		}
+		return true
+	default:
+		// string, slice, map, ptr, interface, chan, func, unsafe.Pointer.
+		return false
+	}
+}
+
+// reuseOrMakeSlice sets the slice at p to length n and returns its data base.
+// When the element type is pointer-free AND the caller-provided slice already
+// has cap >= n, it reuses that backing (zeroing the n elements with a barrier
+// -free clear) instead of allocating a fresh one — eliminating the result
+// backing allocation on a decode into a pre-sized (pooled) slice, the dominant
+// decode allocation. Otherwise it allocates fresh via MakeSlice. elemPF must be
+// noPointers(t.Elem()).
+func reuseOrMakeSlice(t reflect.Type, n int, p unsafe.Pointer, stride uintptr, elemPF bool) unsafe.Pointer {
+	if elemPF {
+		if hdr := (*sliceHeader)(p); hdr.Cap >= n && hdr.Data != nil {
+			hdr.Len = n
+			// Pointer-free: a raw byte clear is GC-safe and zeroes any
+			// struct fields the wire shape does not set (schema evolution).
+			clear(unsafe.Slice((*byte)(hdr.Data), n*int(stride)))
+			return hdr.Data
+		}
+	}
+	reflectutil.MakeSlice(t, n, p)
+	return reflectutil.SliceData(t, p)
 }

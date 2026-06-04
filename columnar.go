@@ -9,7 +9,6 @@ import (
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/fsst"
-	"github.com/alex60217101990/qdf/internal/reflectutil"
 )
 
 // colKind classifies a struct field for columnar encoding. Only these kinds
@@ -1097,9 +1096,9 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 		return err
 	}
 
-	// Allocate the compacted output slice and scatter matched rows.
-	reflectutil.MakeSlice(t, len(matched), p)
-	base := reflectutil.SliceData(t, p)
+	// Allocate the compacted output slice and scatter matched rows — reuse the
+	// caller backing when pointer-free + cap suffices, else fresh.
+	base := reuseOrMakeSlice(t, len(matched), p, t.Elem().Size(), noPointers(t.Elem()))
 	for c := range sh.kinds {
 		cv := retained[c]
 		if cv == nil || want[c] == nil {
@@ -1192,8 +1191,9 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 	d.colMaxLen = n
 	defer func() { d.colMaxLen = 0 }()
 
-	reflectutil.MakeSlice(t, n, p)
-	base := reflectutil.SliceData(t, p)
+	// Reuse the caller's backing when the row struct is pointer-free and the
+	// pre-sized slice has cap >= n (decode into a pooled slice), else fresh.
+	base := reuseOrMakeSlice(t, n, p, t.Elem().Size(), noPointers(t.Elem()))
 
 	want := wantedColumns(plan, sh.names)
 	for c := range sh.kinds {
