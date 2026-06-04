@@ -33,13 +33,18 @@ func pforPlanUnsigned(s []uint64, mn uint64, forBits int) (b int, cost int, ok b
 		}
 	}
 	valLen := uvarintLen(maxDelta) // conservative upper bound per exception value
+	// Each exception is written as uvarint(i-prev) + value; the index gap is at
+	// most n, so uvarintLen(n) is a safe per-exception upper bound. Charging 1
+	// byte (as before) under-counted far-apart outliers, letting PFOR be picked
+	// while its real output exceeded the runner-up — a never-larger violation.
+	gapLen := uvarintLen(uint64(n))
 	hdr := 3 + uvarintLen(uint64(n)) + uvarintLen(mn)
 	bestB, bestCost := -1, int(^uint(0)>>1)
 	suffix := 0 // number of values with width > cand, accumulated as cand descends
 	for cand := forBits - 1; cand >= 0; cand-- {
 		suffix += hist[cand+1]
 		body := (n*cand + 7) >> 3
-		c := hdr + body + uvarintLen(uint64(suffix)) + suffix*(1+valLen)
+		c := hdr + body + uvarintLen(uint64(suffix)) + suffix*(gapLen+valLen)
 		if c < bestCost {
 			bestCost, bestB = c, cand
 		}
@@ -119,13 +124,14 @@ func pforPlanSigned(s []int64, mn int64, forBits int) (b int, cost int, ok bool)
 		}
 	}
 	valLen := uvarintLen(maxDelta)
+	gapLen := uvarintLen(uint64(n)) // uvarint(i-prev) <= uvarint(n); see pforPlanUnsigned
 	hdr := 3 + uvarintLen(uint64(n)) + uvarintLen(zigzagEncode64(mn))
 	bestB, bestCost := -1, int(^uint(0)>>1)
 	suffix := 0
 	for cand := forBits - 1; cand >= 0; cand-- {
 		suffix += hist[cand+1]
 		body := (n*cand + 7) >> 3
-		c := hdr + body + uvarintLen(uint64(suffix)) + suffix*(1+valLen)
+		c := hdr + body + uvarintLen(uint64(suffix)) + suffix*(gapLen+valLen)
 		if c < bestCost {
 			bestCost, bestB = c, cand
 		}
