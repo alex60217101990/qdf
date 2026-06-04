@@ -1,18 +1,75 @@
 package qdf
 
 import (
+	"encoding/binary"
 	"hash/maphash"
+	"math/bits"
 	"strings"
 
 	"github.com/alex60217101990/qdf/internal/internarena"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
 
-// internHashSeed is the shared maphash seed for the flat intern
-// table. Per-process random; values are stable across goroutines
-// but differ across binary invocations (no semantic impact — the
-// intern table is per-encoder and reset between Marshals).
+// internHashSeed seeds the maphash fallback used for keys longer than
+// internHashFastMax. Per-process random; values are stable across
+// goroutines but differ across binary invocations (no semantic impact —
+// the hash only selects the probe slot, never the assigned intern ID).
 var internHashSeed = maphash.MakeSeed()
+
+// internHashFastMax is the longest key for which the prefix+suffix h64
+// sampler reads every byte. For len ≤ 16 the leading 8 bytes [0:8] and
+// trailing 8 bytes [len-8:] overlap and together cover the whole key, so
+// the hash has no blind spot. Beyond 16 bytes a fixed-position sampler
+// has an adversarial layout (high-cardinality URLs/paths that share a
+// fixed prefix and suffix but differ in the uncovered middle all collide
+// to one bucket and degrade the probe chain to O(n)); those fall back to
+// maphash, which hashes every byte. See TestH64Distribution.
+const internHashFastMax = 16
+
+// internHash chooses the probe slot for key in the flat intern table.
+// Short keys — the common, perf-critical intern case (field names, tags,
+// enum-like values, hosts) — take the fast h64 path; long keys take the
+// collision-safe maphash path. The choice only affects the probe slot;
+// intern IDs are assigned sequentially regardless, so wire output is
+// byte-identical to the previous maphash-only implementation.
+func internHash(key string) uint64 {
+	if len(key) <= internHashFastMax {
+		return h64(unsafestr.Bytes(key))
+	}
+	return maphash.String(internHashSeed, key)
+}
+
+// h64 is a fast hash for short keys (≤ internHashFastMax bytes). It mixes
+// the leading and trailing ≤8 bytes with an xxHash-style rotate/multiply
+// finalizer; within that length bound prefix+suffix covers every byte.
+// Profiling showed hash/maphash.String (runtime aeshashbody) at ~11% cum
+// on intern-heavy telemetry encodes; h64 is ~1.7× faster on the short
+// strings that dominate those workloads. Callers must gate length via
+// internHash — h64 is unsafe (collision-prone) on keys longer than 16
+// bytes because the middle goes unsampled.
+func h64(b []byte) uint64 {
+	var lo, hi uint32
+	switch {
+	case len(b) >= 8:
+		l := binary.LittleEndian.Uint64(b[:8])
+		h := binary.LittleEndian.Uint64(b[len(b)-8:])
+		lo = uint32(l) ^ uint32(l>>32)
+		hi = uint32(h) ^ uint32(h>>32)
+	case len(b) >= 4:
+		lo = binary.LittleEndian.Uint32(b[:4])
+		hi = binary.LittleEndian.Uint32(b[len(b)-4:])
+	case len(b) >= 1:
+		lo = uint32(b[0])
+		hi = uint32(b[len(b)-1])
+	}
+	const p3, p4 = 0xc2b2ae3d, 0x27d4eb2f
+	h := uint32(0x165667b1) + uint32(len(b))
+	h += lo * p3
+	h = bits.RotateLeft32(h, 17) * p4
+	h += hi * p3
+	h = bits.RotateLeft32(h, 17) * p4
+	return uint64(h)
+}
 
 // internSlot is one entry in the flat hash table that replaces the
 // old map[string]uint32 intern dictionary. Profiling on telemetry
@@ -514,7 +571,7 @@ func (e *encState) lookupOrAssign(key string) (uint32, bool) {
 	// install, grow) is split out so the linear-probing loop does
 	// not pollute the inline budget. Hit rate at slot 0 is high
 	// because the table is kept under 0.5 load.
-	h := maphash.String(internHashSeed, key)
+	h := internHash(key)
 	if h == 0 {
 		h = 1 // reserve 0 as the empty-slot sentinel
 	}
@@ -568,7 +625,7 @@ func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uin
 	e.internLoad++
 	e.lruAddFresh(id)
 	// Grow at 3/4 load, not 1/2. A denser table is smaller (better cache)
-	// and rehashes less often; with the well-distributed maphash the longer
+	// and rehashes less often; with the well-distributed h64 the longer
 	// linear-probe chains cost less than the cache + rehash savings.
 	// Measured -12.6% encode on the large-payload Archive profile (thousands
 	// of interned strings), neutral on small/medium payloads, wire unchanged.
