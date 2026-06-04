@@ -400,13 +400,20 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 		// Allocate via the swappable reflectutil backend.
 		reflectutil.MakeMap(t, n, p)
 		mapVal := reflect.NewAt(t, p).Elem()
+		// Hoist the key/value holders out of the loop: SetMapIndex copies them
+		// into the map, so one addressable pair is reused for every entry.
+		// Previously this did reflect.New twice PER ENTRY (2 allocs × n);
+		// now it is 2 per map. The locals stay re-entrancy-safe — a nested map
+		// value decodes through its own decodeMap call with its own holders.
+		kv := reflect.New(keyType).Elem()
+		vv := reflect.New(valType).Elem()
+		kp := unsafe.Pointer(kv.UnsafeAddr())
+		vp := unsafe.Pointer(vv.UnsafeAddr())
 		for range n {
-			kv := reflect.New(keyType).Elem()
-			if err := k.decode(d, unsafe.Pointer(kv.UnsafeAddr())); err != nil {
+			if err := k.decode(d, kp); err != nil {
 				return err
 			}
-			vv := reflect.New(valType).Elem()
-			if err := v.decode(d, unsafe.Pointer(vv.UnsafeAddr())); err != nil {
+			if err := v.decode(d, vp); err != nil {
 				return err
 			}
 			mapVal.SetMapIndex(kv, vv)
