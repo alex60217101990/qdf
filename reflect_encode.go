@@ -1242,21 +1242,28 @@ func noPointers(t reflect.Type) bool {
 }
 
 // reuseOrMakeSlice sets the slice at p to length n and returns its data base.
-// When the element type is pointer-free AND the caller-provided slice already
-// has cap >= n, it reuses that backing (zeroing the n elements with a barrier
-// -free clear) instead of allocating a fresh one — eliminating the result
-// backing allocation on a decode into a pre-sized (pooled) slice, the dominant
-// decode allocation. Otherwise it allocates fresh via MakeSlice. elemPF must be
-// noPointers(t.Elem()).
+// When the caller-provided slice already has cap >= n it reuses that backing
+// instead of allocating a fresh one — eliminating the result backing
+// allocation on a decode into a pre-sized (pooled) slice, the dominant decode
+// allocation. The reused elements are zeroed first so a wire shape that omits
+// fields (schema evolution) cannot leak stale data: pointer-free elements
+// (elemPF) take a barrier-free byte clear; pointer-containing elements take
+// reflect.Value.Clear (a single barrier-correct typedmemclr). With no usable
+// backing it allocates fresh via MakeSlice. elemPF must be noPointers(t.Elem()).
 func reuseOrMakeSlice(t reflect.Type, n int, p unsafe.Pointer, stride uintptr, elemPF bool) unsafe.Pointer {
-	if elemPF {
-		if hdr := (*sliceHeader)(p); hdr.Cap >= n && hdr.Data != nil {
-			hdr.Len = n
-			// Pointer-free: a raw byte clear is GC-safe and zeroes any
-			// struct fields the wire shape does not set (schema evolution).
+	if hdr := (*sliceHeader)(p); hdr.Cap >= n && hdr.Data != nil {
+		hdr.Len = n
+		if elemPF {
+			// Pointer-free: a raw byte clear is GC-safe and zeroes any struct
+			// fields the wire shape does not set (schema evolution).
 			clear(unsafe.Slice((*byte)(hdr.Data), n*int(stride)))
-			return hdr.Data
+		} else {
+			// Pointer-containing: a byte clear would skip write barriers and
+			// corrupt the GC. reflect.Value.Clear bulk-zeroes the slice
+			// elements with a single barrier-correct typedmemclr.
+			reflect.NewAt(t, p).Elem().Clear()
 		}
+		return hdr.Data
 	}
 	reflectutil.MakeSlice(t, n, p)
 	return reflectutil.SliceData(t, p)

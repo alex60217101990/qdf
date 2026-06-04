@@ -98,3 +98,37 @@ func TestReuse_PointerTypeUnaffected(t *testing.T) {
 		}
 	}
 }
+
+// v2: pointer-containing element reuse must also clear stale fields the wire
+// shape omits (schema evolution) — via reflect.Value.Clear, not byte-clear.
+type smallS struct {
+	A int64 `qdf:"a"`
+}
+type bigS struct {
+	A int64  `qdf:"a"`
+	S string `qdf:"s"` // absent in the wire
+}
+
+func TestReuse_PointerStaleCleared(t *testing.T) {
+	in := make([]smallS, 50)
+	for i := range in {
+		in[i] = smallS{A: int64(i)}
+	}
+	buf, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]bigS, 50, 64)
+	for i := range out {
+		out[i] = bigS{A: -1, S: "STALE"} // sentinel pointer field
+	}
+	out = out[:0]
+	if err := Unmarshal(buf, &out); err != nil {
+		t.Fatal(err)
+	}
+	for i := range out {
+		if out[i].A != int64(i) || out[i].S != "" {
+			t.Fatalf("row %d = %+v, stale string not cleared", i, out[i])
+		}
+	}
+}
