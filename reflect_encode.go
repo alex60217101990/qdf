@@ -628,6 +628,9 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 			if n <= 0 {
 				return ErrInvalidLength
 			}
+			if shapeID > uint64(^uint32(0)) {
+				return ErrUnknownStateID // would truncate on the uint32 cast below
+			}
 			d.i += n
 			if d.state == nil {
 				d.state = newDecState()
@@ -853,6 +856,9 @@ func decodeAny(d *Decoder) (any, error) {
 		shapeID, n := readUvarint(d.buf[d.i:])
 		if n <= 0 {
 			return nil, ErrInvalidLength
+		}
+		if shapeID > uint64(^uint32(0)) {
+			return nil, ErrUnknownStateID // would truncate on the uint32 cast below
 		}
 		d.i += n
 		if d.state == nil {

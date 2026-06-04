@@ -641,6 +641,9 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
 	if k2 <= 0 {
 		return out, ErrInvalidLength
 	}
+	if idv > uint64(^uint32(0)) {
+		return out, ErrUnknownStateID // would truncate on the uint32 cast below
+	}
 	d.i += k2
 	if idv == 0 {
 		cnt64, k3 := readUvarint(d.buf[d.i:])
