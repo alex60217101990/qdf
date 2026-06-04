@@ -238,6 +238,10 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	elemType := t.Elem()
 	elemDynamic := elemType == reflect.TypeFor[map[string]any]() || elemType.Kind() == reflect.Interface
 	return func(d *Decoder, p unsafe.Pointer) error {
+		if err := d.descend(); err != nil {
+			return err
+		}
+		defer d.ascend()
 		if colPlan != nil {
 			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
 				if d.query != nil {
@@ -306,6 +310,10 @@ func encodeArray(elem *typeDesc, stride uintptr, n int) func(*Encoder, unsafe.Po
 }
 func decodeArray(elem *typeDesc, stride uintptr, n int) func(*Decoder, unsafe.Pointer) error {
 	return func(d *Decoder, p unsafe.Pointer) error {
+		if err := d.descend(); err != nil {
+			return err
+		}
+		defer d.ascend()
 		m, err := d.ReadArrayHeader()
 		if err != nil {
 			return err
@@ -369,6 +377,10 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 	keyType := t.Key()
 	valType := t.Elem()
 	return func(d *Decoder, p unsafe.Pointer) error {
+		if err := d.descend(); err != nil {
+			return err
+		}
+		defer d.ascend()
 		tag, err := d.peekTag()
 		if err != nil {
 			return err
@@ -427,6 +439,10 @@ func encodePtr(elem *typeDesc) func(*Encoder, unsafe.Pointer) error {
 }
 func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) error {
 	return func(d *Decoder, p unsafe.Pointer) error {
+		if err := d.descend(); err != nil {
+			return err
+		}
+		defer d.ascend()
 		tag, err := d.peekTag()
 		if err != nil {
 			return err
@@ -741,6 +757,10 @@ func decodeIface(d *Decoder, p unsafe.Pointer) error {
 
 // decodeAny reads the next value as a generic any, mirroring encoding/json.
 func decodeAny(d *Decoder) (any, error) {
+	if err := d.descend(); err != nil {
+		return nil, err
+	}
+	defer d.ascend()
 	tag, err := d.peekTag()
 	if err != nil {
 		return nil, err

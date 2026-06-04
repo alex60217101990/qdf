@@ -19,6 +19,15 @@ type Decoder struct {
 	// lifetime.
 	noCopy bool
 
+	// depth / maxDepth bound recursive decode nesting. The wire dictates
+	// nesting for `any`, recursive pointer/slice/map types, so without a
+	// guard a crafted deeply-nested payload overflows the goroutine stack —
+	// an UNRECOVERABLE fatal error, i.e. a remote DoS. descend/ascend
+	// (defer-balanced) cap it at maxDepth (lazily DefaultMaxDepth), returning
+	// ErrCycleDetected, symmetric to the encoder's pointer-cycle guard.
+	depth    int
+	maxDepth int
+
 	// keyCache dedupes map keys and other short repeated strings across
 	// Unmarshal calls on the same pooled decoder.
 	keyCache intern.Cache
@@ -117,10 +126,28 @@ func (d *Decoder) Advance(n int) { d.i += n }
 // next read will skip the header check.
 func (d *Decoder) MarkHeaderRead() { d.headerRead = true }
 
+// descend enters one level of recursive decode, bounding nesting depth so a
+// hostile deeply-nested payload cannot overflow the goroutine stack (an
+// unrecoverable fatal error). Pair with a deferred ascend. maxDepth is lazily
+// initialised so every Decoder construction path is covered.
+func (d *Decoder) descend() error {
+	if d.maxDepth == 0 {
+		d.maxDepth = DefaultMaxDepth
+	}
+	d.depth++
+	if d.depth > d.maxDepth {
+		return ErrCycleDetected
+	}
+	return nil
+}
+
+func (d *Decoder) ascend() { d.depth-- }
+
 // SetInput rebinds the decoder to buf, dropping any prior state table.
 func (d *Decoder) SetInput(buf []byte) {
 	d.buf = buf
 	d.i = 0
+	d.depth = 0
 	d.headerRead = false
 	d.mode = Fast
 	d.colIndex = false
