@@ -1,6 +1,35 @@
 package qdf
 
-import "testing"
+import (
+	"bytes"
+	"errors"
+	"testing"
+)
+
+type streamCycleNode struct {
+	Name string           `qdf:"name"`
+	Self *streamCycleNode `qdf:"self"`
+}
+
+// TestStream_BrokenAfterMidMessageError: a mid-message encode failure advances
+// cross-message encoder state (interned strings / shapes) that the decoder
+// never saw; emitting further frames would silently desync. The stream must
+// refuse further Encode with ErrStreamBroken instead.
+func TestStream_BrokenAfterMidMessageError(t *testing.T) {
+	var buf bytes.Buffer
+	s := NewStreamEncoder(&buf, Dense)
+	if err := s.Encode(map[string]string{"a": "1"}); err != nil {
+		t.Fatalf("first encode: %v", err)
+	}
+	cyc := &streamCycleNode{Name: "loop"}
+	cyc.Self = cyc // self-cycle → encode error after some state mutates
+	if err := s.Encode(cyc); err == nil {
+		t.Fatal("expected an error encoding a cyclic value")
+	}
+	if err := s.Encode(map[string]string{"b": "2"}); !errors.Is(err, ErrStreamBroken) {
+		t.Fatalf("after mid-message error, Encode = %v, want ErrStreamBroken", err)
+	}
+}
 
 // TestGorilla_HugeN_NoOOM: a tiny Gorilla payload claiming a huge element
 // count must error before allocating, not attempt a multi-GB make([]float64).

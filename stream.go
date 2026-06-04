@@ -14,7 +14,19 @@ type StreamEncoder struct {
 	w   io.Writer
 	enc *Encoder
 	buf *[]byte
+	// broken is set when a mid-message encode fails. The body bytes are rolled
+	// back, but the encoder's cross-message state (intern table, declared
+	// struct/map shapes, LRU, predictors) may have advanced past what the
+	// decoder saw — so every later frame's back-refs would desync. Once broken,
+	// further Encode is refused; the already-buffered valid prefix can still be
+	// Flushed.
+	broken bool
 }
+
+// ErrStreamBroken is returned by StreamEncoder.Encode after a previous Encode
+// failed mid-message: the cross-message encoder state can no longer be trusted,
+// so the stream must be abandoned (the valid prefix may still be flushed).
+var ErrStreamBroken = errors.New("qdf: stream encoder broken by a prior mid-message error")
 
 // NewStreamEncoder returns a stream encoder backed by w. Dense mode
 // activates the full balanced codec set (OptBalanced); Fast mode
@@ -55,6 +67,9 @@ func (s *StreamEncoder) Encode(v any) error {
 	if s.enc == nil {
 		return io.ErrClosedPipe
 	}
+	if s.broken {
+		return ErrStreamBroken
+	}
 	// One-per-stream header preamble, outside the frames.
 	if !s.enc.headerOut {
 		s.enc.writeHeader()
@@ -67,6 +82,10 @@ func (s *StreamEncoder) Encode(v any) error {
 	bodyStart := len(s.enc.buf)
 	if err := encodeReflect(s.enc, v); err != nil {
 		s.enc.buf = s.enc.buf[:start] // drop the reservation + any partial body
+		// The buffer is rolled back, but encoder state (intern IDs, shape
+		// declarations, predictors) may have advanced — desyncing every later
+		// frame. Poison the stream so no further frame is emitted against it.
+		s.broken = true
 		return err
 	}
 	n := len(s.enc.buf) - bodyStart
