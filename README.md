@@ -593,6 +593,34 @@ Measured on a 1000-row string-heavy batch (i7-9750H): **7002 → 3 allocs/op,
 types (generated `UnmarshalQDFOpts` threads the flag through nested decodes).
 For a `Decoder`/`StreamDecoder` you drive yourself, use `SetNoCopy(true)`.
 
+### Decode into a pooled slice (backing reuse)
+
+The decoded **result slice backing** is the dominant decode allocation. When
+you pass a `*[]T` whose slice already has enough capacity for the row count,
+the decoder **reuses that backing** instead of allocating a fresh one — ideal
+for a server that decodes many messages into a pooled slice:
+
+```go
+out := pool.Get().([]Row)[:0] // pre-sized; cap >= incoming row count
+_ = qdf.Unmarshal(data, &out)  // reuses out's backing, no result allocation
+```
+
+The reused backing is overwritten in place (elements are zeroed first, so a
+shorter/older wire schema can't leak stale data), so don't keep another live
+slice aliasing it across the call. A nil or too-small destination allocates
+fresh — **default `var out []T` usage is unchanged**, no opt-in flag needed.
+Works on the row-major and columnar decode paths, for every element type
+(pointer-free elements take a raw clear, pointer-containing ones a
+barrier-correct typed clear).
+
+Measured, decode into a pre-sized slice (2000 rows, i7-9750H):
+
+| element shape | B/op (fresh → reuse) | ns/op |
+| --- | ---: | ---: |
+| all-numeric `[]struct` (columnar) | 65,815 → 68 (**−99.9 %**) | ~−30 % |
+| all-numeric `[]struct` (row-major) | 131,000 → 162 (**−99.9 %**) | ~−9 % |
+| string-bearing telemetry `[]struct` | 393,924 → 229,948 (**−42 %**) | ~−9 % |
+
 ---
 
 ## Code generation

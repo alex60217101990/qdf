@@ -385,6 +385,15 @@ func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
 // reads any output produced by Marshal regardless of the encode-side
 // option bits.
 //
+// Slice-backing reuse: when out is a *[]T whose slice already has enough
+// capacity for the decoded element count, the decoder reuses that backing
+// array instead of allocating a new one — eliminating the result allocation
+// (the dominant decode cost) on a decode into a pooled / pre-sized slice. The
+// reused backing is overwritten in place (its elements are zeroed first, so no
+// stale data leaks), so do not share it with other live slices across the call.
+// A nil or too-small destination allocates fresh, so default usage is
+// unaffected.
+//
 // The optional QueryOptions (Where / Select) turn the call into a
 // filtering/projecting columnar decode: predicates are AND-ed and the
 // named columns projected. They apply only to a columnar []struct,
