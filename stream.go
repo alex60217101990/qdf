@@ -170,7 +170,26 @@ func NewStreamDecoder(r io.Reader) *StreamDecoder {
 	return &StreamDecoder{r: r, dec: &Decoder{buf: (*buf)[:0]}, buf: buf}
 }
 
-// SetNoCopy mirrors Decoder.SetNoCopy. No-op after Close.
+// SetNoCopy makes Decode return string / []byte values that alias the
+// decoder's internal window buffer instead of copying them — eliminating the
+// per-value copy that dominates decode allocation.
+//
+// Unlike the one-shot Decoder.SetNoCopy (which aliases the caller's input
+// buffer and is unsafe the moment that buffer is reused — the typical server
+// recycles its read buffer right after the handler returns), the stream owns
+// its window buffer, so aliasing is safe for the lifetime of the stream:
+//
+//   - A decoded value stays valid until Close. Close returns the window to a
+//     pool, after which any retained aliased value is undefined — copy
+//     (strings.Clone / append) anything you need past Close.
+//   - The window grows but is never compacted mid-stream (the Dense intern
+//     table already aliases it for cross-message back-references), so a growth
+//     does not invalidate earlier values, and noCopy adds no extra memory: the
+//     bytes are retained either way.
+//
+// Because the window is retained for the whole stream regardless, this is the
+// safe home for zero-copy decode — process or copy each value before Close and
+// you pay zero per-value allocation across every message. No-op after Close.
 func (s *StreamDecoder) SetNoCopy(v bool) {
 	if s.dec != nil {
 		s.dec.noCopy = v
