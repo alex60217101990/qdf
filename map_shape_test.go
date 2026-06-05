@@ -25,29 +25,29 @@ func TestOptMapShape_Bit(t *testing.T) {
 
 func TestEncStateMapShape_Registry(t *testing.T) {
 	st := newEncState()
-	if _, ok := st.mapShapeFind(0x1234, 2); ok {
+	if _, _, ok := st.mapShapeFindKeys(0x1234, 2); ok {
 		t.Fatal("empty registry must miss")
 	}
 	keys := []string{"client", "version"} // canonical (sorted)
 	st.mapShapeRegister(0x1234, 2, keys, 7)
-	id, ok := st.mapShapeFind(0x1234, 2)
+	id, got, ok := st.mapShapeFindKeys(0x1234, 2)
 	if !ok || id != 7 {
 		t.Fatalf("find = (%d,%v), want (7,true)", id, ok)
 	}
-	if got := st.mapShapeKeys(7); len(got) != 2 || got[0] != "client" || got[1] != "version" {
-		t.Fatalf("mapShapeKeys = %v", got)
+	if len(got) != 2 || got[0] != "client" || got[1] != "version" {
+		t.Fatalf("findKeys keys = %v", got)
 	}
 	// Length disambiguates a setHash collision across different set sizes.
-	if _, ok := st.mapShapeFind(0x1234, 3); ok {
+	if _, _, ok := st.mapShapeFindKeys(0x1234, 3); ok {
 		t.Fatal("len mismatch must miss")
 	}
 	// Register mutates nothing the caller owns: caller slice change must not leak.
 	keys[0] = "MUTATED"
-	if got := st.mapShapeKeys(7); got[0] != "client" {
+	if _, got, ok := st.mapShapeFindKeys(0x1234, 2); !ok || got[0] != "client" {
 		t.Fatal("mapShapeRegister must clone keys")
 	}
 	st.reset()
-	if _, ok := st.mapShapeFind(0x1234, 2); ok {
+	if _, _, ok := st.mapShapeFindKeys(0x1234, 2); ok {
 		t.Fatal("reset must clear the registry")
 	}
 }
