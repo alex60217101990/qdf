@@ -132,6 +132,16 @@ type Encoder struct {
 	// single branch-predicted compare) when no caller has opted
 	// in, so it does not regress the default Marshal path.
 	preIntern []preInternEntry
+
+	// wideI64 / wideU64 are reused widening scratch for the QPack slice
+	// encoders: []int32 / []uint32 must be promoted to []int64 / []uint64 so
+	// the int64/uint64 codec pickers can score them. The widen → pick → emit
+	// sequence is atomic (no nested slice encode runs between fill and the last
+	// read), so a single scratch per element type is safely reused across every
+	// narrow-int slice field in a message — turning one make per field into
+	// zero. Bounded on return to the encoder pool (putEnc).
+	wideI64 []int64
+	wideU64 []uint64
 }
 
 // applyOpts mirrors the options bitmask onto the cached mode / qpack
