@@ -71,18 +71,17 @@ func (e *Encoder) writePackedPForUint64Slice(s []uint64, mn uint64, b int) {
 	out = append(out, make([]byte, bodyBytes)...)
 	body := out[start : start+bodyBytes]
 	var chunk [64]uint64
+	excN := 0
 	for i := 0; i < n; i += len(chunk) {
 		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
-			chunk[j] = (v - mn) & mask
+			d := v - mn
+			chunk[j] = d & mask
+			if pforIsException(d, b) {
+				excN++ // counted in the pack pass — same d=v-mn, no second scan
+			}
 		}
 		bitpack.PackChunk(body, chunk[:end-i], b, i)
-	}
-	excN := 0
-	for _, v := range s {
-		if pforIsException(v-mn, b) {
-			excN++
-		}
 	}
 	out = appendUvarint(out, uint64(excN))
 	prev := 0
@@ -159,18 +158,17 @@ func (e *Encoder) writePackedPForInt64Slice(s []int64, mn int64, b int) {
 	out = append(out, make([]byte, bodyBytes)...)
 	body := out[start : start+bodyBytes]
 	var chunk [64]uint64
+	excN := 0
 	for i := 0; i < n; i += len(chunk) {
 		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
-			chunk[j] = (uint64(v) - mnU) & mask
+			d := uint64(v) - mnU
+			chunk[j] = d & mask
+			if pforIsException(d, b) {
+				excN++ // folded into the pack pass (same delta, no second scan)
+			}
 		}
 		bitpack.PackChunk(body, chunk[:end-i], b, i)
-	}
-	excN := 0
-	for _, v := range s {
-		if pforIsException(uint64(v)-mnU, b) {
-			excN++
-		}
 	}
 	out = appendUvarint(out, uint64(excN))
 	prev := 0
