@@ -27,7 +27,7 @@ type symbol struct {
 
 // packVal returns the little-endian uint64 of b and its length mask.
 func packVal(b []byte) (val, mask uint64) {
-	for i := 0; i < len(b); i++ {
+	for i := range b {
 		val |= uint64(b[i]) << (8 * i)
 	}
 	if len(b) >= 8 {
@@ -93,7 +93,7 @@ func (t *SymbolTable) match(s []byte) (uint8, int) {
 	if len(s) >= 8 {
 		x = binary.LittleEndian.Uint64(s)
 	} else {
-		for i := 0; i < len(s); i++ {
+		for i := range s {
 			x |= uint64(s[i]) << (8 * i)
 		}
 	}
@@ -226,7 +226,7 @@ func UnmarshalSymbolTable(b []byte) (*SymbolTable, int, error) {
 	}
 	off := n
 	raw := make([][]byte, 0, cnt)
-	for i := uint64(0); i < cnt; i++ {
+	for range cnt {
 		if off >= len(b) {
 			return nil, 0, errBadTable
 		}

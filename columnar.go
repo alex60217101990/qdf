@@ -580,7 +580,7 @@ func loadStringFieldBytes(base unsafe.Pointer, stride uintptr, col *colColumn, i
 // Speed/Balanced hot path.
 func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn, sample, n int, dict *fsst.SymbolTable) int {
 	var strs [columnarProbeSample][]byte
-	for i := 0; i < sample; i++ {
+	for i := range sample {
 		strs[i] = loadStringFieldBytes(base, stride, col, i)
 	}
 	tbl := dict
@@ -591,7 +591,7 @@ func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn
 	}
 	var scratch []byte
 	body := 0
-	for i := 0; i < sample; i++ {
+	for i := range sample {
 		scratch = tbl.Compress(strs[i], scratch[:0])
 		body += len(scratch) + uvarintLen(uint64(len(scratch)))
 	}

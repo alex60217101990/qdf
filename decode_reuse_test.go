@@ -20,7 +20,7 @@ func reuseRoundTrip(t *testing.T, n int) {
 		t.Fatal(err)
 	}
 	out := make([]reuseNum, 0, n) // pre-sized → reuse path
-	for k := 0; k < 3; k++ {      // multiple decodes into the SAME backing
+	for k := range 3 {            // multiple decodes into the SAME backing
 		if err := Unmarshal(buf, &out); err != nil {
 			t.Fatalf("n=%d iter=%d: %v", n, k, err)
 		}
