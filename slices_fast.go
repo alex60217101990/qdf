@@ -672,12 +672,20 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 			// the common smooth-data path still encodes Gorilla once.
 			if gorCodec, _ := pickF64Codec(s); gorCodec == qpackGorilla {
 				start := len(e.buf)
+				hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
 				e.writePackedGorillaFloat64Slice(s)
 				gorActual := len(e.buf) - start
 				if gorActual < rawEst && (!alpWins || alpEst >= gorActual) {
 					return nil
 				}
-				e.buf = e.buf[:start] // Gorilla did not win — roll back
+				// Gorilla did not win — roll back. writePackedGorilla* may have
+				// emitted the stream header (top-level first write); truncating to
+				// `start` drops those bytes, but writeHeader's headerOut latch would
+				// then suppress the fallback's header and produce a headerless,
+				// undecodable stream. Restore the pre-attempt header state so the
+				// raw/ALP fallback re-emits the header when it was rolled away.
+				e.buf = e.buf[:start]
+				e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
 			}
 			if alpWins {
 				e.writePackedALPFloat64Slice(s, plan)
