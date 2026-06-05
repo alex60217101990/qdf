@@ -306,7 +306,7 @@ func TestMapShape_Malformed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Every truncation must error, never panic.
-	for cut := 0; cut < len(b); cut++ {
+	for cut := range b {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

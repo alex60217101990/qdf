@@ -29,7 +29,7 @@ func TestCompressDecompressRoundTrip(t *testing.T) {
 
 func TestRoundTripByteRange(t *testing.T) {
 	tbl := newTestTable("ab", "abc") // arbitrary symbols
-	for n := 0; n < 256; n++ {
+	for n := range 256 {
 		in := make([]byte, n)
 		for i := range in {
 			in[i] = byte((i * 7) ^ n)
@@ -54,7 +54,7 @@ func TestRoundTripEscapeByte(t *testing.T) {
 
 func TestBuildSymbolTableShrinksAndRoundTrips(t *testing.T) {
 	samples := make([][]byte, 0, 200)
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		samples = append(samples, []byte("GET /api/v1/users/"+string(rune('a'+i%26))+" HTTP/1.1"))
 	}
 	tbl := BuildSymbolTable(samples)

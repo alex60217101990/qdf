@@ -431,13 +431,7 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 		for it.Next() {
 			keyHolder.SetIterKey(it) // SetIterKey reuses the holder; it.Key() would alloc
 			k := keyHolder.String()
-			found := false
-			for _, name := range order {
-				if name == k {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(order, k)
 			if !found {
 				return false
 			}
@@ -1229,8 +1223,8 @@ func noPointers(t reflect.Type) bool {
 	case reflect.Array:
 		return noPointers(t.Elem())
 	case reflect.Struct:
-		for i := 0; i < t.NumField(); i++ {
-			if !noPointers(t.Field(i).Type) {
+		for field := range t.Fields() {
+			if !noPointers(field.Type) {
 				return false
 			}
 		}

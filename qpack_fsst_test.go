@@ -182,7 +182,7 @@ func genURLs(n int) []string {
 	methods := []string{"GET", "POST", "PUT", "DELETE"}
 	paths := []string{"/api/v1/users/", "/api/v1/orders/", "/static/img/", "/health/"}
 	out := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = methods[i%len(methods)] + " https://service.example.com" +
 			paths[i%len(paths)] + itoaTiny(i*7%100000) +
 			"?token=" + itoaTiny(i*2654435761&0xFFFFFF) + " HTTP/1.1"
@@ -192,7 +192,7 @@ func genURLs(n int) []string {
 
 func genRandom(n int) []string {
 	out := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var b [24]byte
 		x := uint32(i)*2654435761 + 1
 		for j := range b {

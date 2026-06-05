@@ -91,11 +91,9 @@ func TestFSSTDictConcurrent(t *testing.T) {
 	rows := mkRows(genURLs(512))
 	d := TrainFSSTDictStrings(genURLs(512))
 	var wg sync.WaitGroup
-	for g := 0; g < 8; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 50; i++ {
+	for range 8 {
+		wg.Go(func() {
+			for range 50 {
 				b, err := d.Marshal(rows, OptBalanced)
 				if err != nil {
 					t.Error(err)
@@ -111,7 +109,7 @@ func TestFSSTDictConcurrent(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

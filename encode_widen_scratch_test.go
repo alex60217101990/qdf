@@ -106,7 +106,7 @@ func TestEncodeWidenScratchRoundTrip(t *testing.T) {
 		if len(out.A) != n || len(out.B) != n {
 			t.Fatalf("n=%d len mismatch: %d %d", n, len(out.A), len(out.B))
 		}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if out.A[i] != in.A[i] || out.B[i] != in.B[i] {
 				t.Fatalf("n=%d row %d: A %d!=%d  B %d!=%d", n, i, out.A[i], in.A[i], out.B[i], in.B[i])
 			}

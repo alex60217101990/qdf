@@ -26,7 +26,7 @@ type symKey struct {
 
 func packKey(b []byte) symKey {
 	var lo uint64
-	for i := 0; i < len(b); i++ {
+	for i := range b {
 		lo |= uint64(b[i]) << (8 * i)
 	}
 	return symKey{lo, uint8(len(b))}
@@ -131,7 +131,7 @@ func (b *Builder) Build(samples [][]byte) *SymbolTable {
 func (b *Builder) BuildRounds(samples [][]byte, rounds int) *SymbolTable {
 	scan := sampleByBytes(samples, maxSampleBytes)
 	b.t.reset() // empty: round 0 is all single-byte tokens
-	for round := 0; round < rounds; round++ {
+	for range rounds {
 		b.c.reset()
 		empty := len(b.t.symbols) == 0
 		for _, s := range scan {
