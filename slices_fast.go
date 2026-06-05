@@ -198,13 +198,38 @@ func decodeSliceInt(d *Decoder, p unsafe.Pointer) error {
 	*(*[]int)(p) = out
 	return nil
 }
+
+// widenI64 promotes s into the encoder's reused int64 widening scratch and
+// returns the filled slice. The result is valid only until the next widenI64
+// call on the same encoder; the QPack int32 path consumes it (pick + emit)
+// before any such call, so a single buffer serves every []int32 field.
+func (e *Encoder) widenI64(s []int32) []int64 {
+	if cap(e.wideI64) < len(s) {
+		e.wideI64 = make([]int64, len(s))
+	}
+	w := e.wideI64[:len(s)]
+	for i, v := range s {
+		w[i] = int64(v)
+	}
+	return w
+}
+
+// widenU64 is the uint32→uint64 analogue of widenI64.
+func (e *Encoder) widenU64(s []uint32) []uint64 {
+	if cap(e.wideU64) < len(s) {
+		e.wideU64 = make([]uint64, len(s))
+	}
+	w := e.wideU64[:len(s)]
+	for i, v := range s {
+		w[i] = uint64(v)
+	}
+	return w
+}
+
 func encodeSliceInt32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]int32)(p)
 	if e.qpack {
-		w := make([]int64, len(s))
-		for i, v := range s {
-			w[i] = int64(v)
-		}
+		w := e.widenI64(s)
 		codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost := pickI64Codec(w)
 		// Never-worse floor: native int32-raw is 4 B/elem vs the picker's 8 B/elem
 		// uint64-raw baseline. Emit the widened codec only when it beats native
@@ -413,10 +438,7 @@ func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceUint32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]uint32)(p)
 	if e.qpack {
-		w := make([]uint64, len(s))
-		for i, v := range s {
-			w[i] = uint64(v)
-		}
+		w := e.widenU64(s)
 		codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost := pickU64Codec(w)
 		// Never-worse floor: the picker scores codecs against the uint64-raw
 		// 8 B/elem baseline, but the native form for a uint32 is 4 B/elem. Emit

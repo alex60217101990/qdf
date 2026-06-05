@@ -194,6 +194,11 @@ const (
 	// (the maxStateEntries scale) and drops it after a one-off larger decode so
 	// the pool never pins an outlier buffer.
 	maxRetainedDeltaScratch = 1 << 14
+	// maxRetainedWideScratch bounds the int32→int64 / uint32→uint64 widening
+	// scratch a pooled encoder keeps between calls (same ~16 k-element scale as
+	// the delta scratch); a one-off larger narrow-int slice is dropped so the
+	// pool never pins an outlier buffer.
+	maxRetainedWideScratch = 1 << 14
 )
 
 // Options is a bit-mask of per-call encoder feature toggles. A zero
@@ -341,6 +346,15 @@ var (
 func putEnc(enc *Encoder, pool *sync.Pool) {
 	if cap(enc.buf) > maxPooledBuf {
 		enc.buf = nil
+	}
+	// Don't pin a spike-sized widening scratch in the pool: a single huge
+	// []int32/[]uint32 field would otherwise keep its widened []int64/[]uint64
+	// resident on every pooled encoder forever (mirrors the buffer / delta cap).
+	if cap(enc.wideI64) > maxRetainedWideScratch {
+		enc.wideI64 = nil
+	}
+	if cap(enc.wideU64) > maxRetainedWideScratch {
+		enc.wideU64 = nil
 	}
 	pool.Put(enc)
 }
