@@ -61,6 +61,7 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data
 	dec.i = 0
+	dec.depth = 0 // reset stale depth from a prior depth-overflow decode (see unmarshal)
 	dec.headerRead = false
 	dec.mode = Fast
 	// Start from a clean pooled decoder: it is shared with Unmarshal /
