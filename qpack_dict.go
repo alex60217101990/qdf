@@ -218,7 +218,13 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) {
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx := make([]uint64, n)
+	// Reuse the shared transient unpack scratch (as the Delta+FOR readers do):
+	// idx holds the bit-unpacked dictionary indices, fully written by Unpack and
+	// only read to map table->out, never aliased into the returned slice.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {
@@ -269,7 +275,12 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) {
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx := make([]uint64, n)
+	// Reuse the shared transient unpack scratch (mirrors readPackedDictUint64Slice
+	// and the Delta+FOR readers); idx is fully written then mapped into out.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {
