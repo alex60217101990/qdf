@@ -342,6 +342,14 @@ func (d *Decoder) readPackedGorillaFloat64Slice() ([]float64, error) {
 				return nil, ErrShortBuffer
 			}
 			mb := mbLen64 + 1
+			// A well-formed window always has lz + mb <= 64 (lz + mb + tz = 64).
+			// Reject a hostile stream where it exceeds the word width before the
+			// unsigned `64 - lz64 - mb` underflows: that would make the shift
+			// below collapse to 0 (silent wrong value) and poison prevTZ for the
+			// rest of the slice.
+			if lz64+mb > 64 {
+				return nil, ErrInvalidLength
+			}
 			tz := 64 - lz64 - mb
 			mbBits, ok := br.readBits(uint8(mb))
 			if !ok {
@@ -406,6 +414,11 @@ func (d *Decoder) readPackedGorillaFloat32Slice() ([]float32, error) {
 				return nil, ErrShortBuffer
 			}
 			mb := mbLen64 + 1
+			// As in the float64 path: a valid window has lz + mb <= 32; reject a
+			// hostile stream before the unsigned subtraction underflows.
+			if lz64+mb > 32 {
+				return nil, ErrInvalidLength
+			}
 			tz := 32 - lz64 - mb
 			mbBits, ok := br.readBits(uint8(mb))
 			if !ok {
