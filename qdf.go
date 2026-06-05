@@ -438,6 +438,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data
 	dec.i = 0
+	dec.depth = 0 // a prior depth-overflow decode leaks depth>0 (descend errors before its defer ascend); reset so a pooled decoder never carries a stale depth into the next decode
 	dec.headerRead = false
 	dec.mode = Fast
 	// colIndex is set fresh by readHeader; reset defensively so a pooled decoder never carries a stale flag.
@@ -467,6 +468,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data
 	dec.i = 0
+	dec.depth = 0 // a prior depth-overflow decode leaks depth>0 (descend errors before its defer ascend); reset so a pooled decoder never carries a stale depth into the next decode
 	dec.headerRead = false
 	dec.mode = Fast
 	dec.colIndex = false
