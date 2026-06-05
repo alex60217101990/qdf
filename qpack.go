@@ -129,6 +129,9 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 	if pb, pc, okp := pforPlanUnsigned(s, mn, forBits); okp && pc < bestCost {
 		codec = qpackPFor
 		pforBits = pb
+		bestCost = pc // see pickI64Codec: keep bestCost in sync with the chosen
+		// codec so encodeSliceUint32's never-worse floor picks PFOR over native
+		// uint32-raw when PFOR is actually smaller.
 	}
 	return
 }
@@ -243,6 +246,9 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 	if pb, pc, okp := pforPlanSigned(s, mn, forBits); okp && pc < bestCost {
 		codec = qpackPFor
 		pforBits = pb
+		bestCost = pc // reflect the chosen codec's cost so the caller's
+		// never-worse floor (encodeSliceInt32 vs native int32-raw) sees PFOR's
+		// real size and does not fall back to a larger native encoding.
 	}
 	return
 }
