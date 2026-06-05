@@ -28,6 +28,12 @@ type StreamEncoder struct {
 // so the stream must be abandoned (the valid prefix may still be flushed).
 var ErrStreamBroken = errors.New("qdf: stream encoder broken by a prior mid-message error")
 
+// ErrStreamDecoderBroken is returned by StreamDecoder.Decode after a previous
+// Decode failed mid-message: the read cursor and the shared dense state can no
+// longer be trusted (subsequent frames would misparse), so the stream must be
+// abandoned.
+var ErrStreamDecoderBroken = errors.New("qdf: stream decoder broken by a prior mid-message error")
+
 // NewStreamEncoder returns a stream encoder backed by w. Dense mode
 // activates the full balanced codec set (OptBalanced); Fast mode
 // emits raw tagged bytes (OptSpeed). For finer per-stream tuning,
@@ -150,6 +156,12 @@ type StreamDecoder struct {
 	r   io.Reader
 	dec *Decoder
 	buf *[]byte
+	// broken mirrors StreamEncoder.broken: a mid-frame decode error (or a frame
+	// whose body the value did not consume exactly) leaves the read cursor inside
+	// the failed frame and the shared dense state (intern table, LRU, shapes)
+	// partially advanced — every later frame would misparse. Once broken, further
+	// Decode is refused rather than returning silently wrong values.
+	broken bool
 }
 
 // NewStreamDecoder returns a stream decoder reading from r.
@@ -176,6 +188,9 @@ func (s *StreamDecoder) Decode(out any) error {
 	if s.dec == nil {
 		return io.ErrClosedPipe
 	}
+	if s.broken {
+		return ErrStreamDecoderBroken
+	}
 	// Consume the one-per-stream header before the first frame.
 	if !s.dec.headerRead {
 		if err := s.fill(5, true); err != nil {
@@ -198,11 +213,16 @@ func (s *StreamDecoder) Decode(out any) error {
 	}
 	start := s.dec.i
 	if err := decodeReflect(s.dec, out); err != nil {
+		// The cursor is left partway through the frame and the dense state is
+		// half-advanced; poison the stream so the next Decode fails cleanly
+		// instead of misparsing the rest of this frame as new frames.
+		s.broken = true
 		return err
 	}
 	// The value must consume exactly the framed length; a mismatch means a
 	// corrupt or hostile frame, so reject it instead of desyncing the stream.
 	if s.dec.i-start != framelen {
+		s.broken = true
 		return ErrInvalidLength
 	}
 	return nil
