@@ -43,8 +43,7 @@ func mapStringShapeOrder[V any](e *Encoder, m map[string]V) []string {
 	for k := range m {
 		setHash += internKeyHash(k) // commutative: order-independent
 	}
-	if id, ok := st.mapShapeFind(setHash, n); ok {
-		order := st.mapShapeKeys(id)
+	if id, order, ok := st.mapShapeFindKeys(setHash, n); ok {
 		if len(order) == n && mapHasAll(m, order) {
 			st.lastMapShapeID, st.lastMapShapeKeys = id, order
 			e.buf = append(e.buf, tagMapShape)

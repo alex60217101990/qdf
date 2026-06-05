@@ -428,27 +428,19 @@ func (e *encState) shapeDeclareEnc() uint32 {
 	return e.shapeCount
 }
 
-// mapShapeFind returns the bound shape ID for a key-set identified by its
-// order-independent setHash and count n. The caller MUST still verify the
-// actual keys against the binding (mapShapeKeys) before reuse — setHash is not
-// collision-proof.
-func (e *encState) mapShapeFind(setHash uint64, n int) (uint32, bool) {
+// mapShapeFindKeys looks up an interned map key-set by its order-independent
+// (setHash, n) identity and returns its wire id and canonical key order in a
+// single scan — callers need both, so this folds the former mapShapeFind +
+// mapShapeKeys id-keyed second pass into one. The caller still verifies the
+// actual keys against the returned order before reuse (setHash is not
+// collision-proof).
+func (e *encState) mapShapeFindKeys(setHash uint64, n int) (id uint32, keys []string, ok bool) {
 	for i := range e.mapShapes {
 		if e.mapShapes[i].setHash == setHash && e.mapShapes[i].n == n {
-			return e.mapShapes[i].id, true
+			return e.mapShapes[i].id, e.mapShapes[i].keys, true
 		}
 	}
-	return 0, false
-}
-
-// mapShapeKeys returns the canonical key order for a bound shape ID, or nil.
-func (e *encState) mapShapeKeys(id uint32) []string {
-	for i := range e.mapShapes {
-		if e.mapShapes[i].id == id {
-			return e.mapShapes[i].keys
-		}
-	}
-	return nil
+	return 0, nil, false
 }
 
 // mapShapeRegister binds a key-set to a shape ID. keys must be the canonical
