@@ -43,6 +43,12 @@ breaks any of them is a vulnerability:
   - **No silent type confusion.** Tag-byte mismatches return
     `ErrTypeMismatch`; unknown tags return `ErrBadTag`. A decoder
     that does not recognise a new wire feature fails loud.
+  - **Structurally impossible codec parameters are rejected.** A
+    Gorilla XOR float window claiming more leading-zero + meaningful
+    bits than the float width (64 / 32) — an unsatisfiable layout a
+    valid encoder never emits — returns `ErrInvalidLength` instead of
+    underflowing the bit accounting into a silently wrong value.
+    Coverage: `qpack_gorilla_hostile_test.go`.
 
 ## Known Limitations
 
