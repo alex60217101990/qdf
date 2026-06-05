@@ -304,9 +304,7 @@ func (e *encState) reset() {
 	if cap(e.internTable) > maxRetainedIDs*2 {
 		e.internTable = make([]internSlot, internTableInitSize)
 	} else {
-		for i := range e.internTable {
-			e.internTable[i] = internSlot{}
-		}
+		clear(e.internTable) // zero every slot (internSlot{} is the empty sentinel)
 	}
 	e.internLoad = 0
 	e.arena.Reset() // Arena has its own watermark, see internarena.
