@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -466,10 +467,8 @@ func (g *gen) pushPath(name string) error {
 	if len(g.path) >= maxNestingDepth {
 		return fmt.Errorf("nesting depth %d exceeds limit (cycle through value types?)", len(g.path))
 	}
-	for _, p := range g.path {
-		if p == name {
-			return fmt.Errorf("cycle detected: %s -> ... -> %s through value-typed fields; use a pointer", strings.Join(g.path, " -> "), name)
-		}
+	if slices.Contains(g.path, name) {
+		return fmt.Errorf("cycle detected: %s -> ... -> %s through value-typed fields; use a pointer", strings.Join(g.path, " -> "), name)
 	}
 	g.path = append(g.path, name)
 	return nil
