@@ -1,62 +1,83 @@
 package qdf
 
-import "testing"
+import (
+	"testing"
+	"unsafe"
+)
 
-// TestEncodeWidenScratchPooled is the RED test for pooling the int32→int64 /
-// uint32→uint64 widening scratch in the QPack slice encoders. Each []int32 /
-// []uint32 field currently allocates a fresh make([]int64,len) / make([]uint64,
-// len) before the codec picker runs; on a reused encoder that scratch must be
-// pooled so a steady-state encode of many narrow-int slices is allocation-free.
+// TestEncodeWidenScratchPooled verifies the int32→int64 / uint32→uint64 QPack
+// widening scratch is REUSED across calls rather than reallocated per field. It
+// tests the mechanism directly — the backing array must not move when a
+// later widen of equal-or-smaller length runs — instead of counting allocations
+// (which the race detector's bookkeeping makes unreliable), so it is exact and
+// runs identically under -race.
 func TestEncodeWidenScratchPooled(t *testing.T) {
-	// One- vs five-narrow-int-slice payloads. With the widening scratch pooled,
-	// both cost the SAME number of allocations per encode (only the fixed
-	// AppendMarshal overhead) — every per-field make([]int64/[]uint64,len) is
-	// gone. Comparing the two counts is robust to the constant overhead and to
-	// the race detector's extra bookkeeping allocs (an absolute bound is not).
-	type row1 struct {
-		A []int32 `qdf:"a"`
-	}
-	type row5 struct {
-		A []int32  `qdf:"a"`
-		B []int32  `qdf:"b"`
-		C []uint32 `qdf:"c"`
-		D []int32  `qdf:"d"`
-		E []uint32 `qdf:"e"`
-	}
-	seqI := func(n int) []int32 {
-		s := make([]int32, n)
-		for i := range s {
-			s[i] = int32(i)
-		}
-		return s
-	}
-	seqU := func(n int) []uint32 {
-		s := make([]uint32, n)
-		for i := range s {
-			s[i] = uint32(i)
-		}
-		return s
-	}
-	v1 := row1{A: seqI(500)}
-	v5 := row5{A: seqI(500), B: seqI(500), C: seqU(500), D: seqI(500), E: seqU(500)}
+	e := &Encoder{qpack: true}
 
-	measure := func(v any) float64 {
-		dst, err := AppendMarshal(nil, v, OptQPack) // warm scratch + grow dst
-		if err != nil {
-			t.Fatal(err)
-		}
-		return testing.AllocsPerRun(50, func() {
-			var e error
-			if dst, e = AppendMarshal(dst[:0], v, OptQPack); e != nil {
-				t.Fatal(e)
-			}
-		})
+	// First widen sizes the scratch.
+	if w := e.widenI64([]int32{10, 20, 30, 40, 50}); len(w) != 5 {
+		t.Fatalf("widenI64 len = %d, want 5", len(w))
 	}
-	a1, a5 := measure(v1), measure(v5)
-	// Four extra narrow-int slices in row5 must add ZERO allocations once the
-	// widening scratch is pooled (pre-fix this gap was 4).
-	if a5 > a1 {
-		t.Fatalf("5-slice encode = %.0f allocs/op vs 1-slice = %.0f: per-field widening not pooled (gap %.0f)", a5, a1, a5-a1)
+	backing := unsafe.SliceData(e.wideI64)
+	capacity := cap(e.wideI64)
+
+	// Every subsequent widen of length <= capacity must reuse the SAME backing
+	// array — that reuse is exactly what turns one make per narrow-int field into
+	// zero allocations on a steady-state encode.
+	for _, s := range [][]int32{{1, 2}, {3, 4, 5}, {-9, -8, -7, -6, -5}} {
+		w := e.widenI64(s)
+		if unsafe.SliceData(e.wideI64) != backing || cap(e.wideI64) != capacity {
+			t.Fatalf("widenI64 reallocated scratch for len %d (cap %d->%d): not pooled", len(s), capacity, cap(e.wideI64))
+		}
+		for i, v := range s {
+			if w[i] != int64(v) {
+				t.Fatalf("widenI64 value [%d] = %d, want %d", i, w[i], v)
+			}
+		}
+	}
+
+	// Same contract for the uint32 path.
+	if w := e.widenU64([]uint32{1, 2, 3, 4, 5}); len(w) != 5 {
+		t.Fatalf("widenU64 len = %d, want 5", len(w))
+	}
+	backingU := unsafe.SliceData(e.wideU64)
+	capacityU := cap(e.wideU64)
+	for _, s := range [][]uint32{{7, 8}, {9, 10, 11}} {
+		w := e.widenU64(s)
+		if unsafe.SliceData(e.wideU64) != backingU || cap(e.wideU64) != capacityU {
+			t.Fatalf("widenU64 reallocated scratch for len %d: not pooled", len(s))
+		}
+		for i, v := range s {
+			if w[i] != uint64(v) {
+				t.Fatalf("widenU64 value [%d] = %d, want %d", i, w[i], v)
+			}
+		}
+	}
+
+	// A widen LARGER than the current capacity must grow exactly once and then
+	// stay pooled at the new size.
+	e.widenI64(make([]int32, capacity*4))
+	grown := unsafe.SliceData(e.wideI64)
+	if e.widenI64(make([]int32, capacity*4)); unsafe.SliceData(e.wideI64) != grown {
+		t.Fatal("widenI64 reallocated on a repeat at the grown size: not pooled after growth")
+	}
+
+	// Integration: the real QPack encode path must route []int32 / []uint32
+	// through the pooled scratch (not an inline make), so the scratch is
+	// populated after an encode. Guards against the call site being un-wired.
+	type wired struct {
+		A []int32  `qdf:"a"`
+		B []uint32 `qdf:"b"`
+	}
+	enc := NewEncoderWith(OptQPack)
+	if err := enc.EncodeValue(wired{A: make([]int32, 300), B: make([]uint32, 300)}); err != nil {
+		t.Fatal(err)
+	}
+	if cap(enc.wideI64) < 300 {
+		t.Fatalf("encode did not use the pooled int32 widen scratch (cap=%d): call site not wired", cap(enc.wideI64))
+	}
+	if cap(enc.wideU64) < 300 {
+		t.Fatalf("encode did not use the pooled uint32 widen scratch (cap=%d): call site not wired", cap(enc.wideU64))
 	}
 }
 
