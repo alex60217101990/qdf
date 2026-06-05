@@ -82,6 +82,12 @@ type colColumn struct {
 type columnarPlan struct {
 	cols   []colColumn
 	stride uintptr // struct size, for base + i*stride addressing
+	// colNames / colKinds mirror cols[].name / cols[].kind as standalone slices,
+	// precomputed once at build so encodeColumnar hands them to the shape
+	// lookup/declare without rebuilding a transient pair every batch. The plan is
+	// immutable after build, so the slice the shape table retains stays valid.
+	colNames []string
+	colKinds []colKind
 }
 
 // columnarMinElems is the smallest slice length worth transposing; below it
@@ -149,7 +155,13 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 		}
 		cols = append(cols, colColumn{name: f.name, offset: f.offset, kind: ck, width: w, isByte: isByte, elemType: elemType})
 	}
-	return &columnarPlan{cols: cols, stride: td.rType.Size()}
+	names := make([]string, len(cols))
+	kinds := make([]colKind, len(cols))
+	for i := range cols {
+		names[i] = cols[i].name
+		kinds[i] = cols[i].kind
+	}
+	return &columnarPlan{cols: cols, stride: td.rType.Size(), colNames: names, colKinds: kinds}
 }
 
 // colShapeDeclare registers a new columnar shape (names + kinds) on the encoder
@@ -392,13 +404,7 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 	e.buf = append(e.buf, tagColStruct)
 	e.buf = appendUvarint(e.buf, uint64(n))
 
-	names := make([]string, len(plan.cols))
-	kinds := make([]colKind, len(plan.cols))
-	for i := range plan.cols {
-		names[i] = plan.cols[i].name
-		kinds[i] = plan.cols[i].kind
-	}
-	if id := st.colShapeFor(names, kinds); id != 0 {
+	if id := st.colShapeFor(plan.colNames, plan.colKinds); id != 0 {
 		e.buf = appendUvarint(e.buf, uint64(id))
 	} else {
 		e.buf = appendUvarint(e.buf, 0)
@@ -407,7 +413,7 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 			e.WriteString(plan.cols[i].name)
 			e.buf = append(e.buf, byte(plan.cols[i].kind))
 		}
-		st.colShapeDeclare(names, kinds)
+		st.colShapeDeclare(plan.colNames, plan.colKinds)
 	}
 
 	idxAt := -1
@@ -1457,7 +1463,8 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 		// column-length index present we advance past the whole column body
 		// without decoding (the perf path); without it we still must decode to
 		// stay in sync, but the value is simply not stored below.
-		if !d.wantField(name) && colLens != nil {
+		want := d.wantField(name)
+		if !want && colLens != nil {
 			if d.i+int(colLens[c]) > len(d.buf) {
 				return nil, ErrShortBuffer
 			}
@@ -1467,7 +1474,7 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 		// store is false only on the no-index skip path: the column body still
 		// has to be decoded to keep the cursor in sync, but its values are
 		// dropped rather than boxed into the row maps.
-		store := d.wantField(name)
+		store := want
 		if sh.kinds[c].isNullable() {
 			vals, err := d.decodeNullableColumnAny(sh.kinds[c], n)
 			if err != nil {
