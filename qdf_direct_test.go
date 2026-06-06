@@ -54,6 +54,38 @@ func TestInternCapClampedBelowSentinel(t *testing.T) {
 	}
 }
 
+// lyingUnmarshaler reports consuming more bytes than the buffer holds.
+type lyingUnmarshaler struct{}
+
+func (lyingUnmarshaler) UnmarshalQDF(src []byte) (int, error) { return len(src) + 100, nil }
+
+// negConsumeUnmarshaler reports a negative byte count.
+type negConsumeUnmarshaler struct{}
+
+func (negConsumeUnmarshaler) UnmarshalQDF([]byte) (int, error) { return -5, nil }
+
+// TestUnmarshalNested_RejectsBadConsumeCount pins that UnmarshalNested rejects a
+// nested Unmarshaler that over- or under-reports bytes consumed. Both the reflect
+// path and generated code advance the parent cursor by this count, so a bogus
+// value would push the cursor out of bounds and panic the next read.
+func TestUnmarshalNested_RejectsBadConsumeCount(t *testing.T) {
+	if _, err := UnmarshalNested(lyingUnmarshaler{}, []byte{1, 2, 3}, false); err == nil {
+		t.Fatal("UnmarshalNested accepted an over-consume count")
+	}
+	if _, err := UnmarshalNested(negConsumeUnmarshaler{}, []byte{1, 2, 3}, false); err == nil {
+		t.Fatal("UnmarshalNested accepted a negative consume count")
+	}
+	// A well-behaved count is still passed through.
+	if n, err := UnmarshalNested(okUnmarshaler{}, []byte{1, 2, 3}, false); err != nil || n != 2 {
+		t.Fatalf("well-behaved UnmarshalNested: n=%d err=%v, want 2,nil", n, err)
+	}
+}
+
+// okUnmarshaler consumes a valid prefix.
+type okUnmarshaler struct{}
+
+func (okUnmarshaler) UnmarshalQDF(src []byte) (int, error) { return 2, nil }
+
 // directSample is a minimal hand-rolled Marshaler / Unmarshaler used
 // to exercise MarshalDirect / UnmarshalDirect without pulling in the
 // separate codegen_test module. Wire layout: id varint, then a string.
