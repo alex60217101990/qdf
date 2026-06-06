@@ -685,7 +685,12 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 		// strictly beats both alternatives — pure-smooth floats keep Gorilla,
 		// and nothing grows the wire.
 		if e.gorillaFloat {
-			rawEst := 12 + len(s)*8
+			// Exact raw size (tag + kind + uvarint(n) + 8n), matching what
+			// writePackedFloat64Slice emits. A looser fixed estimate (e.g.
+			// 12+8n) over-counts raw by up to ~10 bytes and could keep Gorilla
+			// when it is marginally LARGER than raw; the exact figure makes the
+			// never-larger gate tight, mirroring the float32 path.
+			rawEst := 2 + uvarintLen(uint64(len(s))) + len(s)*8
 			plan, alpEst, alpOK := alpPlanFloat64(s) // ALP estimate is a safe upper bound
 			alpWins := alpOK && alpEst < rawEst
 			// pickF64Codec only projects Gorilla from a sample prefix, which can
