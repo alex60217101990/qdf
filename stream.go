@@ -51,7 +51,7 @@ func NewStreamEncoder(w io.Writer, mode Mode) *StreamEncoder {
 // across Encode calls so back-references span the whole stream.
 func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder {
 	buf := bufpool.Get(4096)
-	enc := &Encoder{buf: (*buf)[:0], minIntern: 4, maxStateEntries: 1 << 16, maxDepth: DefaultMaxDepth}
+	enc := &Encoder{buf: (*buf)[:0], minIntern: 4, maxStateEntries: maxInternEntries, maxDepth: DefaultMaxDepth}
 	enc.applyOpts(opts)
 	// The column index is a single-message feature: it backpatches the header
 	// flag at a fixed offset, which a stream's shared/reused buffer invalidates
