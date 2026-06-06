@@ -899,6 +899,20 @@ func encodeIface(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
+	// Bound recursion through the dynamic (interface) dispatch. encodePtr guards
+	// the static *T path, but a cycle routed through an any-typed field re-enters
+	// the reflect machinery here without touching that counter; without this a
+	// self-referential graph (a.Next = a, Next any) recurses unbounded into a
+	// fatal stack overflow. This is the interface chokepoint — every []any /
+	// map[K]any / any-field recursion funnels through it.
+	if e.maxDepth != 0 {
+		e.depth++
+		if e.depth > e.maxDepth {
+			e.depth--
+			return ErrCycleDetected
+		}
+		defer func() { e.depth-- }()
+	}
 	return encodeReflect(e, iv)
 }
 func decodeIface(d *Decoder, p unsafe.Pointer) error {
@@ -1064,8 +1078,68 @@ func decodeAny(d *Decoder) (any, error) {
 	case tagTimestamp:
 		sec, nsec, err := d.ReadTimestamp()
 		return time.Unix(sec, int64(nsec)).UTC(), err
+	case tagPackBool:
+		// A bool slice encoded under OptQPack. Decode into a typed []bool.
+		var s []bool
+		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+			return nil, err
+		}
+		return s, nil
+	case tagPackRaw, tagPackFor, tagPackDeltaFor, tagPackRLE,
+		tagPackDict, tagPackPFor, tagPackGorilla, tagPackALP:
+		// A numeric slice encoded under OptQPack/OptBalanced/OptCompression.
+		// Without these cases decodeAny fell through to ErrBadTag, so any
+		// interface{}/map[string]any value holding such a slice failed to
+		// decode. Materialise into the matching typed slice (the values
+		// round-trip; the int codecs widen to 64-bit on the wire).
+		return decodeAnyPackedSlice(d)
 	}
 	return nil, ErrBadTag
+}
+
+// decodeAnyPackedSlice materialises a QPack-encoded numeric slice into a typed
+// slice for the generic any decode path. The tag (still at d.i) is followed by a
+// one-byte kind that selects the element family/width: integer codecs widen to
+// 64-bit (Int64/Uint64), floats stay Float32/Float64 — the four kinds the
+// encoder emits for these tags. The typed decodeSlice* helper re-peeks the tag
+// and handles every pack variant for that element type.
+func decodeAnyPackedSlice(d *Decoder) (any, error) {
+	if d.i+1 >= len(d.buf) {
+		return nil, ErrShortBuffer
+	}
+	switch d.buf[d.i+1] {
+	case qpackKindInt64:
+		var s []int64
+		err := decodeSliceInt64(d, unsafe.Pointer(&s))
+		return s, err
+	case qpackKindInt32:
+		// raw-LE preserves the native width (the bit-packing codecs widen to
+		// Int64); int32 slices that don't compress land here.
+		var s []int32
+		err := decodeSliceInt32(d, unsafe.Pointer(&s))
+		return s, err
+	case qpackKindUint64:
+		var s []uint64
+		err := decodeSliceUint64(d, unsafe.Pointer(&s))
+		return s, err
+	case qpackKindUint32:
+		var s []uint32
+		err := decodeSliceUint32(d, unsafe.Pointer(&s))
+		return s, err
+	case qpackKindFloat64:
+		var s []float64
+		err := decodeSliceFloat64(d, unsafe.Pointer(&s))
+		return s, err
+	case qpackKindFloat32:
+		var s []float32
+		err := decodeSliceFloat32(d, unsafe.Pointer(&s))
+		return s, err
+	default:
+		// Narrower kinds (Int8/Int16/Uint8/Uint16) never reach a pack tag — they
+		// encode as a plain array (or []byte for uint8), handled by decodeAny's
+		// array/bin cases — so any other kind is malformed input.
+		return nil, ErrBadTag
+	}
 }
 
 func encodeTime(e *Encoder, p unsafe.Pointer) error {
