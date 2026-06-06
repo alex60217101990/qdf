@@ -257,6 +257,16 @@ func (c *mapHolderCache) release(pooled bool) {
 
 const lruInvalidID = ^uint32(0)
 
+// maxInternEntries is the hard ceiling on the intern-table size. Intern ids are
+// packed into uint16 fields in the MRU ring and the LRU prev/next links, with
+// 0xFFFF reserved as the "empty / no-neighbour" sentinel (mruEmpty,
+// lruLink16Invalid). The largest assignable id must therefore stay below 0xFFFF.
+// The assign gate is `internLoad < maxStateEntries`, so capping maxStateEntries
+// at 0xFFFF yields a max id of 0xFFFE — one below the sentinel. A larger cap
+// would let id 0xFFFF collide with the sentinel and corrupt the LRU/MRU chains
+// (silent wrong-string resolution on later state-refs).
+const maxInternEntries = 0xFFFF
+
 func newEncState() *encState {
 	// arena is zero-value initialised here — its slab is lazily
 	// allocated on first Put (see internarena.Arena.Put).
