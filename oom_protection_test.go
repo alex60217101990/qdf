@@ -168,3 +168,88 @@ func TestOOM_CheckLengthRejectsImpossible(t *testing.T) {
 		t.Fatalf("CheckLength rejected 10 bytes from 100: %v", err)
 	}
 }
+
+// TestOOM_ZeroWidthConstantCount pins the fix for the constant-value integer
+// codecs (FOR/Delta-FOR/PFor/Dict with bitsPer == 0). They carry an EMPTY
+// packed body, so the per-element byte bound that guards the bitsPer > 0 path
+// does not apply. Outside a columnar column (colMaxLen == 0) a ~14-byte header
+// must not be able to claim a multi-GB element count and drive a giant make().
+// Asserting at the reader level keeps the test safe — with the cap in place the
+// readers reject BEFORE the make, so no large allocation is attempted.
+func TestOOM_ZeroWidthConstantCount(t *testing.T) {
+	const huge = uint64(1) << 31 // > qpackMaxStandaloneCount (1<<30)
+
+	t.Run("for", func(t *testing.T) {
+		buf := []byte{qpackKindUint64, 0x00, 0x00} // kind, bits=0, min=0
+		buf = appendUvarint(buf, huge)
+		d := &Decoder{buf: buf}
+		if _, _, _, _, _, err := d.readPackedForHeader(qpackKindUint64); err == nil {
+			t.Fatal("FOR header with bits=0 accepted multi-GB standalone count")
+		}
+	})
+	t.Run("delta", func(t *testing.T) {
+		buf := []byte{qpackKindUint64, 0x00, 0x00, 0x00} // kind, bits=0, first=0, minDelta=0
+		buf = appendUvarint(buf, huge)
+		d := &Decoder{buf: buf}
+		if _, _, _, _, _, _, err := d.readPackedDeltaForHeader(qpackKindUint64); err == nil {
+			t.Fatal("Delta-FOR header with bits=0 accepted multi-GB standalone count")
+		}
+	})
+	t.Run("pfor", func(t *testing.T) {
+		buf := []byte{qpackKindInt64}
+		buf = appendUvarint(buf, huge) // n
+		buf = append(buf, 0x00, 0x00)  // b=0, min=0
+		d := &Decoder{buf: buf}
+		if _, err := d.readPackedPForInt64Slice(); err == nil {
+			t.Fatal("PFor with b=0 accepted multi-GB standalone count")
+		}
+	})
+	t.Run("dict", func(t *testing.T) {
+		buf := []byte{qpackKindUint64, 0x01, 0x00} // kind, count=1 (=> bitsPer 0), value=0
+		buf = appendUvarint(buf, huge)             // n
+		d := &Decoder{buf: buf}
+		if _, err := d.readPackedDictUint64Slice(); err == nil {
+			t.Fatal("Dict with single distinct value accepted multi-GB standalone count")
+		}
+	})
+}
+
+// TestZeroWidthConstantRoundtrip is the positive control for the cap above: a
+// SMALL constant slice (bitsPer == 0) must still decode correctly. The cap must
+// reject only the implausible count, never a legitimate constant-codec payload.
+func TestZeroWidthConstantRoundtrip(t *testing.T) {
+	const n = 4
+
+	t.Run("for", func(t *testing.T) {
+		buf := []byte{qpackKindUint64, 0x00, 0x07} // bits=0, min=7
+		buf = appendUvarint(buf, n)
+		d := &Decoder{buf: buf}
+		out, err := d.readPackedForUint64Slice()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []uint64{7, 7, 7, 7}
+		if len(out) != n {
+			t.Fatalf("len=%d want %d", len(out), n)
+		}
+		for i, v := range out {
+			if v != want[i] {
+				t.Fatalf("out[%d]=%d want 7", i, v)
+			}
+		}
+	})
+	t.Run("dict", func(t *testing.T) {
+		buf := []byte{qpackKindUint64, 0x01, 0x2A} // count=1, value=42
+		buf = appendUvarint(buf, n)
+		d := &Decoder{buf: buf}
+		out, err := d.readPackedDictUint64Slice()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, v := range out {
+			if v != 42 {
+				t.Fatalf("out[%d]=%d want 42", i, v)
+			}
+		}
+	})
+}

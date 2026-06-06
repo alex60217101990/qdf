@@ -24,6 +24,14 @@ import (
 
 const qpackForMaxBits = 56
 
+// qpackMaxStandaloneCount caps the element count a constant-value codec
+// (bitsPer == 0) may claim outside a columnar column. Such codecs carry an
+// empty body, so the per-element byte bound that guards the bitsPer > 0 path
+// does not exist; without this ceiling a ~14-byte header could drive a
+// multi-GB make(). Columnar columns are already bounded by colLenOK; this
+// mirrors the standalone cap RLE applies (qpack_rle.go).
+const qpackMaxStandaloneCount = 1 << 30
+
 // qpackForSizeUnsigned estimates the wire size, in bytes, of a FOR-packed
 // encoding for n unsigned values whose delta range needs bits per slot
 // and whose minimum value is m. Used to choose between raw and FOR.
@@ -174,8 +182,14 @@ func (d *Decoder) readPackedForHeader(expectKind byte) (bitsPer int, unsignedMin
 	// slice. Same shape as the Skip-path overflow fixed earlier;
 	// applies to the body-reading path here too.
 	rem := uint64(len(d.buf) - d.i)
-	if bitsPer > 0 && n64 > rem*8/uint64(bitsPer) {
-		return 0, 0, 0, 0, nil, ErrShortBuffer
+	if bitsPer > 0 {
+		if n64 > rem*8/uint64(bitsPer) {
+			return 0, 0, 0, 0, nil, ErrShortBuffer
+		}
+	} else if n64 > qpackMaxStandaloneCount {
+		// bitsPer == 0 (constant slice): empty body, so the per-element
+		// bound above does not apply. Cap an implausible standalone count.
+		return 0, 0, 0, 0, nil, ErrInvalidLength
 	}
 	n = int(n64)
 	bodyBytes := int((n64*uint64(bitsPer) + 7) / 8)

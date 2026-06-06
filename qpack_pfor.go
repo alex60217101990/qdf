@@ -213,8 +213,13 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 	d.i += nr
 	mnU := uint64(zigzagDecode64(mz))
 	rem := uint64(len(d.buf) - d.i)
-	if b > 0 && n64 > rem*8/uint64(b) {
-		return nil, ErrShortBuffer
+	if b > 0 {
+		if n64 > rem*8/uint64(b) {
+			return nil, ErrShortBuffer
+		}
+	} else if n64 > qpackMaxStandaloneCount {
+		// b == 0 (constant base): empty packed body, no per-element bound.
+		return nil, ErrInvalidLength
 	}
 	n := int(n64)
 	bodyBytes := (n*b + 7) >> 3
@@ -296,8 +301,13 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) {
 	}
 	d.i += nr
 	rem := uint64(len(d.buf) - d.i)
-	if b > 0 && n64 > rem*8/uint64(b) {
-		return nil, ErrShortBuffer
+	if b > 0 {
+		if n64 > rem*8/uint64(b) {
+			return nil, ErrShortBuffer
+		}
+	} else if n64 > qpackMaxStandaloneCount {
+		// b == 0 (constant base): empty packed body, no per-element bound.
+		return nil, ErrInvalidLength
 	}
 	n := int(n64)
 	bodyBytes := (n*b + 7) >> 3
