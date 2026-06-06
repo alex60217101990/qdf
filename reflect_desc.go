@@ -111,6 +111,12 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 	if td.encode != nil && td.decode != nil {
 		return nil
 	}
+	// A type may implement only ONE of Marshaler/Unmarshaler (the documented
+	// asymmetric case: encode structurally, decode via UnmarshalQDF, or vice
+	// versa). The structural switch below unconditionally sets BOTH td.encode
+	// and td.decode, so snapshot the custom codec and restore it afterward for
+	// the direction it implements — otherwise the custom method is clobbered.
+	customEnc, customDec := td.encode, td.decode
 
 	switch t.Kind() {
 	case reflect.Bool:
@@ -224,6 +230,14 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		td.decode = decodeStruct(td)
 	default:
 		return ErrUnsupported
+	}
+	// Restore a custom Marshaler/Unmarshaler for the direction it implements;
+	// the structural codec above stands in only for the missing direction.
+	if customEnc != nil {
+		td.encode = customEnc
+	}
+	if customDec != nil {
+		td.decode = customDec
 	}
 	return nil
 }

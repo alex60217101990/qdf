@@ -86,6 +86,65 @@ type okUnmarshaler struct{}
 
 func (okUnmarshaler) UnmarshalQDF(src []byte) (int, error) { return 2, nil }
 
+// marshalOnly implements ONLY Marshaler. Its MarshalQDF writes a sentinel
+// string, distinct from the map a structural encode of the struct would emit.
+type marshalOnly struct{ X int }
+
+func (marshalOnly) MarshalQDF(dst []byte) ([]byte, error) {
+	e := NewEncoderOnBuf(dst, Fast)
+	if len(dst) >= 5 && dst[0] == Magic0 && dst[1] == Magic1 && dst[2] == Magic2 {
+		e.MarkHeaderWritten()
+	} else {
+		e.EnsureHeader()
+	}
+	e.WriteString("SENTINEL-ENC")
+	return e.Bytes(), nil
+}
+
+// unmarshalOnly implements ONLY Unmarshaler (pointer receiver). Its UnmarshalQDF
+// ignores the wire and sets a sentinel, distinct from what a structural decode
+// would read.
+type unmarshalOnly struct{ X int }
+
+func (u *unmarshalOnly) UnmarshalQDF(src []byte) (int, error) {
+	u.X = 999
+	return len(src), nil
+}
+
+// TestAsymmetricMarshaler_NotOverwritten pins that a type implementing only one
+// of Marshaler/Unmarshaler keeps its custom codec for that direction. fillDesc's
+// structural switch unconditionally set both encode and decode, clobbering the
+// custom method unless both were present.
+func TestAsymmetricMarshaler_NotOverwritten(t *testing.T) {
+	// Marshaler-only: custom encode must run (writes a bare string), not the
+	// structural map encode.
+	b, err := Marshal(marshalOnly{X: 7}, OptSpeed)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var s string
+	if err := Unmarshal(b, &s); err != nil {
+		t.Fatalf("custom MarshalQDF was overwritten by structural encode: %v", err)
+	}
+	if s != "SENTINEL-ENC" {
+		t.Fatalf("custom MarshalQDF output = %q, want SENTINEL-ENC", s)
+	}
+
+	// Unmarshaler-only: structural encode (writes {x:7}), custom decode must run
+	// and set the sentinel 999 rather than reading 7 off the wire.
+	eb, err := Marshal(unmarshalOnly{X: 7}, OptSpeed)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out unmarshalOnly
+	if err := Unmarshal(eb, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.X != 999 {
+		t.Fatalf("custom UnmarshalQDF was overwritten by structural decode: X=%d, want 999", out.X)
+	}
+}
+
 // directSample is a minimal hand-rolled Marshaler / Unmarshaler used
 // to exercise MarshalDirect / UnmarshalDirect without pulling in the
 // separate codegen_test module. Wire layout: id varint, then a string.
