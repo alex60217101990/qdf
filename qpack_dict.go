@@ -202,6 +202,11 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) {
 	if !d.colLenOK(n64) {
 		return nil, ErrInvalidLength
 	}
+	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
+		// Single distinct value (count == 1 ⇒ bitsPer == 0): empty index
+		// body, so no per-element bound exists. Cap before make().
+		return nil, ErrInvalidLength
+	}
 	n := int(n64)
 	out := make([]uint64, n)
 	if bitsPer == 0 {
@@ -257,6 +262,11 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) {
 	}
 	d.i += nr
 	if !d.colLenOK(n64) {
+		return nil, ErrInvalidLength
+	}
+	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
+		// Single distinct value (count == 1 ⇒ bitsPer == 0): empty index
+		// body, so no per-element bound exists. Cap before make().
 		return nil, ErrInvalidLength
 	}
 	n := int(n64)

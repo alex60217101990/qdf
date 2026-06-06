@@ -215,8 +215,13 @@ func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsign
 	// overflow that produced a reverse-range panic in readPackedForHeader
 	// applies here.
 	rem := uint64(len(d.buf) - d.i)
-	if bitsPer > 0 && (n64-1) > rem*8/uint64(bitsPer) {
-		return 0, 0, 0, 0, 0, nil, ErrShortBuffer
+	if bitsPer > 0 {
+		if (n64 - 1) > rem*8/uint64(bitsPer) {
+			return 0, 0, 0, 0, 0, nil, ErrShortBuffer
+		}
+	} else if n64 > qpackMaxStandaloneCount {
+		// bitsPer == 0 (constant deltas): empty body, no per-element bound.
+		return 0, 0, 0, 0, 0, nil, ErrInvalidLength
 	}
 	n = int(n64)
 	bodyBytes := int(((n64-1)*uint64(bitsPer) + 7) / 8)
