@@ -112,6 +112,13 @@ type Encoder struct {
 	// reader skip columns without decoding them.
 	colIndex bool
 
+	// pairPred / mtf cache OptPairPred / OptMTF (both on in OptBalanced) so the
+	// hot Dense state-ref emit path tests a bool field instead of re-running
+	// opts.Has() several times per repeated value. Set in applyOpts, cleared in
+	// Reset — same pattern as qpack/rans/fsst/colIndex.
+	pairPred bool
+	mtf      bool
+
 	// headerFlagAt is the byte offset of the header flag byte in e.buf,
 	// recorded by writeHeader so encodeColumnar can backpatch FlagColIndex
 	// only when it actually emits a column index.
@@ -170,6 +177,8 @@ func (e *Encoder) applyOpts(opts Options) {
 	e.rans = opts.Has(OptRANS)
 	e.colIndex = opts.Has(OptColumnIndex)
 	e.fsst = e.qpack && opts.Has(OptFSST)
+	e.pairPred = opts.Has(OptPairPred)
+	e.mtf = opts.Has(OptMTF)
 }
 
 // DefaultMaxDepth caps reflect-path pointer/struct recursion. Set
@@ -203,6 +212,10 @@ func NewEncoder(mode Mode) *Encoder {
 		e.state = newEncState()
 		e.opts = OptBalanced
 		e.qpack = true
+		// OptBalanced includes OptPairPred | OptMTF; mirror them onto the cached
+		// flags this constructor sets by hand (it bypasses applyOpts).
+		e.pairPred = true
+		e.mtf = true
 	} else {
 		e.opts = OptSpeed
 	}
@@ -253,6 +266,8 @@ func (e *Encoder) Reset() {
 	e.rans = false
 	e.colIndex = false
 	e.fsst = false
+	e.pairPred = false
+	e.mtf = false
 	e.fsstDict = nil
 	// Drop any PreIntern entries — they reference caller-supplied
 	// backing pointers that are not safe to assume valid across a
@@ -515,7 +530,7 @@ func (e *Encoder) WriteString(s string) {
 						id := e.preIntern[i].id
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)
-							if e.opts.Has(OptPairPred) {
+							if e.pairPred {
 								st.pairRecord(id, id)
 							}
 							return
@@ -537,7 +552,7 @@ func (e *Encoder) WriteString(s string) {
 			// most common Dense hit avoids the non-inlinable call.
 			if st.lastID == id {
 				e.buf = append(e.buf, tagStateRepeat)
-				if e.opts.Has(OptPairPred) {
+				if e.pairPred {
 					st.pairRecord(id, id)
 				}
 				return
@@ -548,7 +563,7 @@ func (e *Encoder) WriteString(s string) {
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
-		if st.lastID != lruInvalidID && e.opts.Has(OptPairPred) {
+		if st.lastID != lruInvalidID && e.pairPred {
 			st.pairRecord(st.lastID, id)
 		}
 		st.lastID = id
@@ -580,7 +595,7 @@ func (e *Encoder) WriteString(s string) {
 // chain stays in sync.
 func (e *Encoder) emitStateRef(id uint32) {
 	st := e.state
-	pairOn := e.opts.Has(OptPairPred)
+	pairOn := e.pairPred
 	if st.lastID == id {
 		e.buf = append(e.buf, tagStateRepeat)
 		if pairOn {
@@ -635,7 +650,7 @@ func (e *Encoder) emitStateRef(id uint32) {
 	// rank is necessarily ≥ 128 so the raw form would be picked
 	// anyway; we skip the walk entirely and emit raw.
 	idLen := uvarintLen(uint64(id))
-	if e.opts.Has(OptMTF) {
+	if e.mtf {
 		if rank, ok := st.mruRank(id); ok {
 			st.lruMoveFront(id)
 			if rankLen := uvarintLen(uint64(rank)); rankLen < idLen {
@@ -708,7 +723,7 @@ func (e *Encoder) WriteBytes(b []byte) {
 		if ok {
 			if st.lastID == id {
 				e.buf = append(e.buf, tagStateRepeat)
-				if e.opts.Has(OptPairPred) {
+				if e.pairPred {
 					st.pairRecord(id, id)
 				}
 				return
@@ -719,7 +734,7 @@ func (e *Encoder) WriteBytes(b []byte) {
 		e.buf = append(e.buf, tagInternBin)
 		e.buf = appendUvarint(e.buf, uint64(len(b)))
 		e.buf = append(e.buf, b...)
-		if st.lastID != lruInvalidID && e.opts.Has(OptPairPred) {
+		if st.lastID != lruInvalidID && e.pairPred {
 			st.pairRecord(st.lastID, id)
 		}
 		st.lastID = id
