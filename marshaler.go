@@ -38,10 +38,23 @@ type UnmarshalerOpts interface {
 // method fall back to a copying decode. Used by decodeUnmarshaler and by
 // cmd/qdfgen-generated code; exported for the latter.
 func UnmarshalNested(u Unmarshaler, src []byte, noCopy bool) (int, error) {
-	if noCopy {
-		if uo, ok := u.(UnmarshalerOpts); ok {
-			return uo.UnmarshalQDFOpts(src, true)
-		}
+	var n int
+	var err error
+	if uo, ok := u.(UnmarshalerOpts); ok && noCopy {
+		n, err = uo.UnmarshalQDFOpts(src, true)
+	} else {
+		n, err = u.UnmarshalQDF(src)
 	}
-	return u.UnmarshalQDF(src)
+	if err != nil {
+		return n, err
+	}
+	// Guard the parent cursor against a misbehaving Unmarshaler. Both the
+	// reflect path (decodeUnmarshaler) and the generated code advance the
+	// parent decoder by the returned count; a count larger than the nested
+	// buffer (or negative) would push the cursor out of bounds and panic the
+	// next read. Reject it as a short/invalid buffer instead.
+	if n < 0 || n > len(src) {
+		return 0, ErrShortBuffer
+	}
+	return n, nil
 }
