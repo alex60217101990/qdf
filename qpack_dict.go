@@ -203,23 +203,28 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) {
 		return nil, ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
-		// Single distinct value (count == 1 ⇒ bitsPer == 0): empty index
-		// body, so no per-element bound exists. Cap before make().
+		// Single distinct value (count == 1 ⇒ bitsPer == 0): empty index body,
+		// no per-element bound. Cap before make() (columnar bounded by colLenOK).
 		return nil, ErrInvalidLength
 	}
 	n := int(n64)
-	out := make([]uint64, n)
 	if bitsPer == 0 {
+		out := make([]uint64, n)
 		v := table[0]
 		for i := range out {
 			out[i] = v
 		}
 		return out, nil
 	}
+	// bitsPer > 0: the index body is n*bitsPer bits. Bound n against the
+	// remaining buffer BEFORE allocating — the original order ran make() first,
+	// so a tiny header claiming a huge n drove a multi-GB allocation before this
+	// check could reject it.
 	rem := uint64(len(d.buf) - d.i)
 	if n64 > rem*8/uint64(bitsPer) {
 		return nil, ErrShortBuffer
 	}
+	out := make([]uint64, n)
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
@@ -265,23 +270,27 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) {
 		return nil, ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
-		// Single distinct value (count == 1 ⇒ bitsPer == 0): empty index
-		// body, so no per-element bound exists. Cap before make().
+		// Single distinct value (count == 1 ⇒ bitsPer == 0): empty index body,
+		// no per-element bound. Cap before make() (columnar bounded by colLenOK).
 		return nil, ErrInvalidLength
 	}
 	n := int(n64)
-	out := make([]int64, n)
 	if bitsPer == 0 {
+		out := make([]int64, n)
 		v := table[0]
 		for i := range out {
 			out[i] = v
 		}
 		return out, nil
 	}
+	// bitsPer > 0: bound n against the remaining buffer BEFORE allocating — the
+	// original order ran make() first, so a tiny header claiming a huge n drove
+	// a multi-GB allocation before this check could reject it.
 	rem := uint64(len(d.buf) - d.i)
 	if n64 > rem*8/uint64(bitsPer) {
 		return nil, ErrShortBuffer
 	}
+	out := make([]int64, n)
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
