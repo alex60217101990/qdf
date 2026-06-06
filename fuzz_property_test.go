@@ -65,6 +65,12 @@ func (r *fuzzReader) f64raw() float64 {
 	return math.Float64frombits(r.u64())
 }
 
+// f32raw returns the float32 bit-for-bit without normalising NaN/Inf/−0, so
+// float32 fuzz targets exercise the full IEEE-754 space.
+func (r *fuzzReader) f32raw() float32 {
+	return math.Float32frombits(r.u32())
+}
+
 // boundedLen takes a fuzz-driven byte and clamps it to [0, max].
 func (r *fuzzReader) boundedLen(max int) int {
 	b := r.u8()
@@ -211,6 +217,43 @@ func FuzzRoundTrip_Float64Slice(f *testing.F) {
 			if !floatSliceEqual(in, out) {
 				t.Fatalf("opts=%d []float64 bits NOT preserved:\n in =%v\n out=%v\n inbits =%x\n outbits=%x",
 					opts, in, out, floatBits64(in), floatBits64(out))
+			}
+		}
+	})
+}
+
+// FuzzRoundTrip_Float32Slice mirrors the float64 target for the float32 Gorilla
+// path: every value must survive bit-exactly under every mode, including
+// OptGorillaFloat where the new float32 Gorilla codec fires (and its
+// never-larger rollback to raw).
+func FuzzRoundTrip_Float32Slice(f *testing.F) {
+	f.Add([]byte{0})
+	f.Add(make([]byte, 64))
+	f.Add([]byte{0x00, 0x00, 0xC0, 0x7F}) // float32 quiet NaN
+	f.Add([]byte{0x00, 0x00, 0x80, 0x7F}) // +Inf
+	f.Add([]byte{0x00, 0x00, 0x80, 0xFF}) // -Inf
+	f.Add([]byte{0x00, 0x00, 0x00, 0x80}) // -0
+	f.Fuzz(func(t *testing.T, data []byte) {
+		r := newFuzzReader(data)
+		n := r.boundedLen(256)
+		in := make([]float32, n)
+		for i := range in {
+			in[i] = r.f32raw()
+		}
+		for _, opts := range []Options{OptSpeed, OptQPack, OptBalanced, OptCompression, OptQPack | OptGorillaFloat} {
+			buf, err := Marshal(in, opts)
+			if err != nil {
+				t.Fatalf("opts=%d marshal: %v", opts, err)
+			}
+			var out []float32
+			if err := Unmarshal(buf, &out); err != nil {
+				t.Fatalf("opts=%d unmarshal: %v", opts, err)
+			}
+			if n == 0 {
+				continue
+			}
+			if !f32bitsEqual(in, out) {
+				t.Fatalf("opts=%d []float32 bits NOT preserved:\n in =%v\n out=%v", opts, in, out)
 			}
 		}
 	})

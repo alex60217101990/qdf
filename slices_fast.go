@@ -606,6 +606,30 @@ func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float32)(p)
 	if e.qpack {
+		// Mirror encodeSliceFloat64's Gorilla branch (float32 has no ALP). The
+		// projection from pickF32Codec is only a hint, so emit Gorilla for real,
+		// measure it, and keep it solely when it actually beat raw — a true
+		// never-larger gate. The rollback re-emits raw only on the rare lose case,
+		// so the common smooth-data path encodes Gorilla once.
+		if e.gorillaFloat {
+			if gorCodec, _ := pickF32Codec(s); gorCodec == qpackGorilla {
+				rawExact := 2 + uvarintLen(uint64(len(s))) + len(s)*4
+				start := len(e.buf)
+				hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
+				e.writePackedGorillaFloat32Slice(s)
+				if len(e.buf)-start < rawExact {
+					return nil
+				}
+				// Gorilla did not win — roll back. writePackedGorilla* may have
+				// emitted the stream header on a top-level first write; truncating to
+				// start drops it, and writeHeader's headerOut latch would then
+				// suppress the raw fallback's header and produce a headerless,
+				// undecodable stream. Restore the pre-attempt header state so the raw
+				// fallback re-emits the header when it was rolled away.
+				e.buf = e.buf[:start]
+				e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
+			}
+		}
 		e.writePackedFloat32Slice(s)
 		return nil
 	}
