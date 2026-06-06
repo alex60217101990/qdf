@@ -24,10 +24,10 @@ var (
 	qdfFieldHdr_tags_26   = []byte{0x84, 0x74, 0x61, 0x67, 0x73}
 	qdfFieldHdr_meta_28   = []byte{0x84, 0x6d, 0x65, 0x74, 0x61}
 	qdfFieldHdr_inner_31  = []byte{0x85, 0x69, 0x6e, 0x6e, 0x65, 0x72}
-	qdfFieldHdr_when_33   = []byte{0x84, 0x77, 0x68, 0x65, 0x6e}
-	qdfFieldHdr_buf_34    = []byte{0x83, 0x62, 0x75, 0x66}
-	qdfFieldHdr_opt_35    = []byte{0x83, 0x6f, 0x70, 0x74}
-	qdfFieldHdr_counts_36 = []byte{0x86, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73}
+	qdfFieldHdr_when_32   = []byte{0x84, 0x77, 0x68, 0x65, 0x6e}
+	qdfFieldHdr_buf_33    = []byte{0x83, 0x62, 0x75, 0x66}
+	qdfFieldHdr_opt_34    = []byte{0x83, 0x6f, 0x70, 0x74}
+	qdfFieldHdr_counts_35 = []byte{0x86, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73}
 )
 
 // MarshalQDF appends a qdf-encoded representation of v to dst and returns
@@ -291,26 +291,25 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 	}
 	e.AppendBytes(qdfFieldHdr_inner_31)
 	{
-		inner32 := v.Inner
-		b2, err := (&inner32).MarshalQDF(e.Bytes())
+		b2, err := (&v.Inner).MarshalQDF(e.Bytes())
 		if err != nil {
 			return nil, err
 		}
 		e.AdoptBuffer(b2)
 		e.MarkHeaderWritten()
 	}
-	e.AppendBytes(qdfFieldHdr_when_33)
+	e.AppendBytes(qdfFieldHdr_when_32)
 	{
 		_t := (v.When).UTC()
 		e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond()))
 	}
-	e.AppendBytes(qdfFieldHdr_buf_34)
+	e.AppendBytes(qdfFieldHdr_buf_33)
 	if v.Buf == nil {
 		e.WriteNil()
 	} else {
 		e.WriteBytes([]byte(v.Buf))
 	}
-	e.AppendBytes(qdfFieldHdr_opt_35)
+	e.AppendBytes(qdfFieldHdr_opt_34)
 	if v.OptPtr == nil {
 		e.WriteNil()
 	} else {
@@ -321,10 +320,10 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 		e.AdoptBuffer(b2)
 		e.MarkHeaderWritten()
 	}
-	e.AppendBytes(qdfFieldHdr_counts_36)
+	e.AppendBytes(qdfFieldHdr_counts_35)
 	e.WriteArrayHeader(3)
-	for i37 := range v.Counts {
-		e.WriteInt(int64(v.Counts[i37]))
+	for i36 := range v.Counts {
+		e.WriteInt(int64(v.Counts[i36]))
 	}
 	return e.Bytes(), nil
 }
@@ -358,35 +357,35 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 		switch string(kb) {
 		case "name":
 			{
-				rv38, err := d.ReadString()
+				rv37, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Name = rv38
+				v.Name = rv37
 			}
 		case "age":
 			{
-				rv39, err := d.ReadInt()
+				rv38, err := d.ReadInt()
 				if err != nil {
 					return 0, err
 				}
-				v.Age = int(rv39)
+				v.Age = int(rv38)
 			}
 		case "active":
 			{
-				rv40, err := d.ReadBool()
+				rv39, err := d.ReadBool()
 				if err != nil {
 					return 0, err
 				}
-				v.Active = rv40
+				v.Active = rv39
 			}
 		case "score":
 			{
-				rv41, err := d.ReadFloat64()
+				rv40, err := d.ReadFloat64()
 				if err != nil {
 					return 0, err
 				}
-				v.Score = rv41
+				v.Score = rv40
 			}
 		case "tags":
 			{
@@ -397,21 +396,21 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 				if isNil {
 					v.Tags = nil
 				} else {
-					n42, err := d.ReadArrayHeader()
+					n41, err := d.ReadArrayHeader()
 					if err != nil {
 						return 0, err
 					}
-					if err := d.CheckLength(n42, 1); err != nil {
+					if err := d.CheckLength(n41, 1); err != nil {
 						return 0, err
 					}
-					v.Tags = make([]string, n42)
-					for i43 := 0; i43 < n42; i43++ {
+					v.Tags = make([]string, n41)
+					for i42 := 0; i42 < n41; i42++ {
 						{
-							rv44, err := d.ReadString()
+							rv43, err := d.ReadString()
 							if err != nil {
 								return 0, err
 							}
-							v.Tags[i43] = rv44
+							v.Tags[i42] = rv43
 						}
 					}
 				}
@@ -425,48 +424,48 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 				if isNil {
 					v.Meta = nil
 				} else {
-					n45, err := d.ReadMapHeader()
+					n44, err := d.ReadMapHeader()
 					if err != nil {
 						return 0, err
 					}
-					if err := d.CheckLength(n45, 1); err != nil {
+					if err := d.CheckLength(n44, 1); err != nil {
 						return 0, err
 					}
-					v.Meta = make(map[string]string, n45)
-					for i46 := 0; i46 < n45; i46++ {
-						var k47 string
-						var vv48 string
-						kb49, err := d.ReadStringBytes()
+					v.Meta = make(map[string]string, n44)
+					for i45 := 0; i45 < n44; i45++ {
+						var k46 string
+						var vv47 string
+						kb48, err := d.ReadStringBytes()
 						if err != nil {
 							return 0, err
 						}
-						k47 = string(d.InternKey(kb49))
+						k46 = string(d.InternKey(kb48))
 						{
-							rv50, err := d.ReadString()
+							rv49, err := d.ReadString()
 							if err != nil {
 								return 0, err
 							}
-							vv48 = rv50
+							vv47 = rv49
 						}
-						v.Meta[k47] = vv48
+						v.Meta[k46] = vv47
 					}
 				}
 			}
 		case "inner":
 			{
-				nn51, err := qdf.UnmarshalNested(&v.Inner, d.RemainingBytes(), noCopy)
+				nn50, err := qdf.UnmarshalNested(&v.Inner, d.RemainingBytes(), noCopy)
 				if err != nil {
 					return 0, err
 				}
-				d.Advance(nn51)
+				d.Advance(nn50)
 			}
 		case "when":
 			{
-				sec52, nsec53, err := d.ReadTimestamp()
+				sec51, nsec52, err := d.ReadTimestamp()
 				if err != nil {
 					return 0, err
 				}
-				v.When = time.Unix(sec52, int64(nsec53)).UTC()
+				v.When = time.Unix(sec51, int64(nsec52)).UTC()
 			}
 		case "buf":
 			{
@@ -494,29 +493,29 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 					v.OptPtr = nil
 				} else {
 					v.OptPtr = new(Inner)
-					nn54, err := qdf.UnmarshalNested(v.OptPtr, d.RemainingBytes(), noCopy)
+					nn53, err := qdf.UnmarshalNested(v.OptPtr, d.RemainingBytes(), noCopy)
 					if err != nil {
 						return 0, err
 					}
-					d.Advance(nn54)
+					d.Advance(nn53)
 				}
 			}
 		case "counts":
 			{
-				n55, err := d.ReadArrayHeader()
+				n54, err := d.ReadArrayHeader()
 				if err != nil {
 					return 0, err
 				}
-				if n55 != 3 {
+				if n54 != 3 {
 					return 0, qdf.ErrTypeMismatch
 				}
-				for i56 := 0; i56 < 3; i56++ {
+				for i55 := 0; i55 < 3; i55++ {
 					{
-						rv57, err := d.ReadInt()
+						rv56, err := d.ReadInt()
 						if err != nil {
 							return 0, err
 						}
-						v.Counts[i56] = int32(rv57)
+						v.Counts[i55] = int32(rv56)
 					}
 				}
 			}
