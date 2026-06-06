@@ -361,26 +361,50 @@ func precomputeFixstrHeader(name string) []byte {
 
 // fieldInfo is the per-emitted-field summary.
 type fieldInfo struct {
-	GoName  string // exported Go field name
+	GoName  string // exported Go field name (for diagnostics)
+	Access  string // Go access path from the receiver, e.g. "X" or "Base.X"
 	WireKey string // string used as the map key on the wire
 	Field   *types.Var
 	Tag     string // raw struct tag, for diagnostics
 }
 
 func collectFields(s *types.Struct) []fieldInfo {
-	out := make([]fieldInfo, 0, s.NumFields())
+	return appendFields(make([]fieldInfo, 0, s.NumFields()), s, "")
+}
+
+// appendFields walks s in declaration order, flattening anonymous embedded
+// value-struct fields into the parent's wire layout exactly as the reflect
+// path (appendStructFields in reflect_desc.go) does: the inner fields appear
+// at the parent level, a "-" tag on the embedded field opts the whole nested
+// layout out, and a pointer-typed embedded field falls through to the regular
+// path (encoded as a pointer-to-struct). prefix is the Go access path to s
+// from the receiver ("" at top level, "Base." for fields promoted out of an
+// embedded Base).
+func appendFields(out []fieldInfo, s *types.Struct, prefix string) []fieldInfo {
 	for i := 0; i < s.NumFields(); i++ {
 		f := s.Field(i)
+		tag := s.Tag(i)
+		if f.Embedded() {
+			if st, ok := f.Type().Underlying().(*types.Struct); ok {
+				// Honor a "-" tag on the embedded field itself.
+				if _, skip := wireKey(f.Name(), tag); skip {
+					continue
+				}
+				out = appendFields(out, st, prefix+f.Name()+".")
+				continue
+			}
+			// Embedded pointer/interface/etc.: regular field path below.
+		}
 		if !f.Exported() {
 			continue
 		}
-		tag := s.Tag(i)
 		key, skip := wireKey(f.Name(), tag)
 		if skip {
 			continue
 		}
 		out = append(out, fieldInfo{
 			GoName:  f.Name(),
+			Access:  prefix + f.Name(),
 			WireKey: key,
 			Field:   f,
 			Tag:     tag,
@@ -524,7 +548,7 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	for _, f := range fields {
 		hdrVar := g.fieldNameVar(f.WireKey)
 		fmt.Fprintf(w, "\te.AppendBytes(%s)\n", hdrVar)
-		expr := "v." + f.GoName
+		expr := "v." + f.Access
 		if err := g.emitEncodeValue(w, expr, f.Field.Type(), "\t"); err != nil {
 			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
 		}
@@ -563,7 +587,7 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "\t\tswitch string(kb) {\n")
 	for _, f := range fields {
 		fmt.Fprintf(w, "\t\tcase %q:\n", f.WireKey)
-		if err := g.emitDecodeValue(w, "v."+f.GoName, f.Field.Type(), "\t\t\t"); err != nil {
+		if err := g.emitDecodeValue(w, "v."+f.Access, f.Field.Type(), "\t\t\t"); err != nil {
 			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
 		}
 	}
@@ -888,8 +912,12 @@ func (g *gen) emitDecodePointer(w io.Writer, lhs string, p *types.Pointer, inden
 			fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
 			fmt.Fprintf(w, "%s\t\td.Advance(%s)\n", indent, tmp)
 		} else {
+			// Named non-struct element (e.g. *Label where type Label string):
+			// route through emitDecodeNamed so it emits the Label(tmp) conversion.
+			// Passing named.Underlying() here would assign the raw basic value to
+			// a *Label lvalue and fail to compile.
 			fmt.Fprintf(w, "%s\t\t%s = new(%s)\n", indent, lhs, g.typeRef(named))
-			if err := g.emitDecodeValue(w, "(*"+lhs+")", named.Underlying(), indent+"\t\t"); err != nil {
+			if err := g.emitDecodeNamed(w, "(*"+lhs+")", named, indent+"\t\t"); err != nil {
 				return err
 			}
 		}
@@ -984,7 +1012,10 @@ func (g *gen) emitDecodeMap(w io.Writer, lhs string, m *types.Map, indent string
 		kbVar := g.fresh("kb")
 		fmt.Fprintf(w, "%s\t\t\t%s, err := d.ReadStringBytes()\n", indent, kbVar)
 		fmt.Fprintf(w, "%s\t\t\tif err != nil { return 0, err }\n", indent)
-		fmt.Fprintf(w, "%s\t\t\t%s = d.InternKey(%s)\n", indent, kVar, kbVar)
+		// InternKey returns string; a defined string key type (e.g. type K string)
+		// needs an explicit conversion. keyExpr is "string" for a plain key, so
+		// the conversion is a harmless no-op there.
+		fmt.Fprintf(w, "%s\t\t\t%s = %s(d.InternKey(%s))\n", indent, kVar, keyExpr, kbVar)
 	} else {
 		if err := g.emitDecodeValue(w, kVar, m.Key(), indent+"\t\t\t"); err != nil {
 			return err

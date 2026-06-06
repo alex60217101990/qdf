@@ -10,20 +10,176 @@ import (
 // Pre-encoded field-name headers (fixstr / strN). Lets the hot path
 // emit a name with a single append, no per-call sizing.
 var (
-	qdfFieldHdr_x_1       = []byte{0x81, 0x78}
-	qdfFieldHdr_y_2       = []byte{0x81, 0x79}
-	qdfFieldHdr_name_5    = []byte{0x84, 0x6e, 0x61, 0x6d, 0x65}
-	qdfFieldHdr_age_6     = []byte{0x83, 0x61, 0x67, 0x65}
-	qdfFieldHdr_active_7  = []byte{0x86, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65}
-	qdfFieldHdr_score_8   = []byte{0x85, 0x73, 0x63, 0x6f, 0x72, 0x65}
-	qdfFieldHdr_tags_9    = []byte{0x84, 0x74, 0x61, 0x67, 0x73}
-	qdfFieldHdr_meta_11   = []byte{0x84, 0x6d, 0x65, 0x74, 0x61}
-	qdfFieldHdr_inner_14  = []byte{0x85, 0x69, 0x6e, 0x6e, 0x65, 0x72}
-	qdfFieldHdr_when_16   = []byte{0x84, 0x77, 0x68, 0x65, 0x6e}
-	qdfFieldHdr_buf_17    = []byte{0x83, 0x62, 0x75, 0x66}
-	qdfFieldHdr_opt_18    = []byte{0x83, 0x6f, 0x70, 0x74}
-	qdfFieldHdr_counts_19 = []byte{0x86, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73}
+	qdfFieldHdr_base_a_1  = []byte{0x86, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x61}
+	qdfFieldHdr_base_b_2  = []byte{0x86, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x62}
+	qdfFieldHdr_labels_3  = []byte{0x86, 0x6c, 0x61, 0x62, 0x65, 0x6c, 0x73}
+	qdfFieldHdr_ptr_6     = []byte{0x83, 0x70, 0x74, 0x72}
+	qdfFieldHdr_tail_7    = []byte{0x84, 0x74, 0x61, 0x69, 0x6c}
+	qdfFieldHdr_x_18      = []byte{0x81, 0x78}
+	qdfFieldHdr_y_19      = []byte{0x81, 0x79}
+	qdfFieldHdr_name_22   = []byte{0x84, 0x6e, 0x61, 0x6d, 0x65}
+	qdfFieldHdr_age_23    = []byte{0x83, 0x61, 0x67, 0x65}
+	qdfFieldHdr_active_24 = []byte{0x86, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65}
+	qdfFieldHdr_score_25  = []byte{0x85, 0x73, 0x63, 0x6f, 0x72, 0x65}
+	qdfFieldHdr_tags_26   = []byte{0x84, 0x74, 0x61, 0x67, 0x73}
+	qdfFieldHdr_meta_28   = []byte{0x84, 0x6d, 0x65, 0x74, 0x61}
+	qdfFieldHdr_inner_31  = []byte{0x85, 0x69, 0x6e, 0x6e, 0x65, 0x72}
+	qdfFieldHdr_when_33   = []byte{0x84, 0x77, 0x68, 0x65, 0x6e}
+	qdfFieldHdr_buf_34    = []byte{0x83, 0x62, 0x75, 0x66}
+	qdfFieldHdr_opt_35    = []byte{0x83, 0x6f, 0x70, 0x74}
+	qdfFieldHdr_counts_36 = []byte{0x86, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73}
 )
+
+// MarshalQDF appends a qdf-encoded representation of v to dst and returns
+// the extended slice.
+func (v *Edge) MarshalQDF(dst []byte) ([]byte, error) {
+	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
+	if hadHeader {
+		e.MarkHeaderWritten()
+	} else {
+		e.EnsureHeader()
+	}
+	e.WriteMapHeader(5)
+	e.AppendBytes(qdfFieldHdr_base_a_1)
+	e.WriteInt(int64(v.EmbeddedBase.BaseA))
+	e.AppendBytes(qdfFieldHdr_base_b_2)
+	e.WriteString(string(v.EmbeddedBase.BaseB))
+	e.AppendBytes(qdfFieldHdr_labels_3)
+	if v.Labels == nil {
+		e.WriteNil()
+	} else {
+		e.WriteMapHeader(len(v.Labels))
+		for k4, vv5 := range v.Labels {
+			e.WriteString(string(k4))
+			e.WriteInt(int64(vv5))
+		}
+	}
+	e.AppendBytes(qdfFieldHdr_ptr_6)
+	if v.Ptr == nil {
+		e.WriteNil()
+	} else {
+		e.WriteString(string((*v.Ptr)))
+	}
+	e.AppendBytes(qdfFieldHdr_tail_7)
+	e.WriteInt(int64(v.Tail))
+	return e.Bytes(), nil
+}
+
+// UnmarshalQDF decodes a qdf payload into v and returns the number of
+// bytes consumed.
+func (v *Edge) UnmarshalQDF(src []byte) (int, error) {
+	return v.UnmarshalQDFOpts(src, false)
+}
+
+// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
+// string and []byte fields alias src instead of copying. The aliases are valid
+// only while src stays alive and is not modified (see qdf.WithNoCopy).
+func (v *Edge) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	d := qdf.NewDecoderOnBuf(src)
+	if noCopy {
+		d.SetNoCopy(true)
+	}
+	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
+		d.MarkHeaderRead()
+	}
+	n, err := d.ReadMapHeader()
+	if err != nil {
+		return 0, err
+	}
+	for i := 0; i < n; i++ {
+		kb, err := d.ReadStringBytes()
+		if err != nil {
+			return 0, err
+		}
+		switch string(kb) {
+		case "base_a":
+			{
+				rv8, err := d.ReadInt()
+				if err != nil {
+					return 0, err
+				}
+				v.EmbeddedBase.BaseA = int(rv8)
+			}
+		case "base_b":
+			{
+				rv9, err := d.ReadString()
+				if err != nil {
+					return 0, err
+				}
+				v.EmbeddedBase.BaseB = rv9
+			}
+		case "labels":
+			{
+				isNil, err := d.IsNil()
+				if err != nil {
+					return 0, err
+				}
+				if isNil {
+					v.Labels = nil
+				} else {
+					n10, err := d.ReadMapHeader()
+					if err != nil {
+						return 0, err
+					}
+					if err := d.CheckLength(n10, 1); err != nil {
+						return 0, err
+					}
+					v.Labels = make(map[Label]int, n10)
+					for i11 := 0; i11 < n10; i11++ {
+						var k12 Label
+						var vv13 int
+						kb14, err := d.ReadStringBytes()
+						if err != nil {
+							return 0, err
+						}
+						k12 = Label(d.InternKey(kb14))
+						{
+							rv15, err := d.ReadInt()
+							if err != nil {
+								return 0, err
+							}
+							vv13 = int(rv15)
+						}
+						v.Labels[k12] = vv13
+					}
+				}
+			}
+		case "ptr":
+			{
+				isNil, err := d.IsNil()
+				if err != nil {
+					return 0, err
+				}
+				if isNil {
+					v.Ptr = nil
+				} else {
+					v.Ptr = new(Label)
+					{
+						nv16, err := d.ReadString()
+						if err != nil {
+							return 0, err
+						}
+						(*v.Ptr) = Label(nv16)
+					}
+				}
+			}
+		case "tail":
+			{
+				rv17, err := d.ReadInt()
+				if err != nil {
+					return 0, err
+				}
+				v.Tail = int(rv17)
+			}
+		default:
+			if err := d.Skip(); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return d.Pos(), nil
+}
 
 // MarshalQDF appends a qdf-encoded representation of v to dst and returns
 // the extended slice.
@@ -36,9 +192,9 @@ func (v *Inner) MarshalQDF(dst []byte) ([]byte, error) {
 		e.EnsureHeader()
 	}
 	e.WriteMapHeader(2)
-	e.AppendBytes(qdfFieldHdr_x_1)
+	e.AppendBytes(qdfFieldHdr_x_18)
 	e.WriteInt(int64(v.X))
-	e.AppendBytes(qdfFieldHdr_y_2)
+	e.AppendBytes(qdfFieldHdr_y_19)
 	e.WriteFloat64(float64(v.Y))
 	return e.Bytes(), nil
 }
@@ -72,19 +228,19 @@ func (v *Inner) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 		switch string(kb) {
 		case "x":
 			{
-				rv3, err := d.ReadInt()
+				rv20, err := d.ReadInt()
 				if err != nil {
 					return 0, err
 				}
-				v.X = int(rv3)
+				v.X = int(rv20)
 			}
 		case "y":
 			{
-				rv4, err := d.ReadFloat64()
+				rv21, err := d.ReadFloat64()
 				if err != nil {
 					return 0, err
 				}
-				v.Y = rv4
+				v.Y = rv21
 			}
 		default:
 			if err := d.Skip(); err != nil {
@@ -106,55 +262,55 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 		e.EnsureHeader()
 	}
 	e.WriteMapHeader(11)
-	e.AppendBytes(qdfFieldHdr_name_5)
+	e.AppendBytes(qdfFieldHdr_name_22)
 	e.WriteString(string(v.Name))
-	e.AppendBytes(qdfFieldHdr_age_6)
+	e.AppendBytes(qdfFieldHdr_age_23)
 	e.WriteInt(int64(v.Age))
-	e.AppendBytes(qdfFieldHdr_active_7)
+	e.AppendBytes(qdfFieldHdr_active_24)
 	e.WriteBool(bool(v.Active))
-	e.AppendBytes(qdfFieldHdr_score_8)
+	e.AppendBytes(qdfFieldHdr_score_25)
 	e.WriteFloat64(float64(v.Score))
-	e.AppendBytes(qdfFieldHdr_tags_9)
+	e.AppendBytes(qdfFieldHdr_tags_26)
 	if v.Tags == nil {
 		e.WriteNil()
 	} else {
 		e.WriteArrayHeader(len(v.Tags))
-		for i10 := range v.Tags {
-			e.WriteString(string(v.Tags[i10]))
+		for i27 := range v.Tags {
+			e.WriteString(string(v.Tags[i27]))
 		}
 	}
-	e.AppendBytes(qdfFieldHdr_meta_11)
+	e.AppendBytes(qdfFieldHdr_meta_28)
 	if v.Meta == nil {
 		e.WriteNil()
 	} else {
 		e.WriteMapHeader(len(v.Meta))
-		for k12, vv13 := range v.Meta {
-			e.WriteString(string(k12))
-			e.WriteString(string(vv13))
+		for k29, vv30 := range v.Meta {
+			e.WriteString(string(k29))
+			e.WriteString(string(vv30))
 		}
 	}
-	e.AppendBytes(qdfFieldHdr_inner_14)
+	e.AppendBytes(qdfFieldHdr_inner_31)
 	{
-		inner15 := v.Inner
-		b2, err := (&inner15).MarshalQDF(e.Bytes())
+		inner32 := v.Inner
+		b2, err := (&inner32).MarshalQDF(e.Bytes())
 		if err != nil {
 			return nil, err
 		}
 		e.AdoptBuffer(b2)
 		e.MarkHeaderWritten()
 	}
-	e.AppendBytes(qdfFieldHdr_when_16)
+	e.AppendBytes(qdfFieldHdr_when_33)
 	{
 		_t := (v.When).UTC()
 		e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond()))
 	}
-	e.AppendBytes(qdfFieldHdr_buf_17)
+	e.AppendBytes(qdfFieldHdr_buf_34)
 	if v.Buf == nil {
 		e.WriteNil()
 	} else {
 		e.WriteBytes([]byte(v.Buf))
 	}
-	e.AppendBytes(qdfFieldHdr_opt_18)
+	e.AppendBytes(qdfFieldHdr_opt_35)
 	if v.OptPtr == nil {
 		e.WriteNil()
 	} else {
@@ -165,10 +321,10 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 		e.AdoptBuffer(b2)
 		e.MarkHeaderWritten()
 	}
-	e.AppendBytes(qdfFieldHdr_counts_19)
+	e.AppendBytes(qdfFieldHdr_counts_36)
 	e.WriteArrayHeader(3)
-	for i20 := range v.Counts {
-		e.WriteInt(int64(v.Counts[i20]))
+	for i37 := range v.Counts {
+		e.WriteInt(int64(v.Counts[i37]))
 	}
 	return e.Bytes(), nil
 }
@@ -202,35 +358,35 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 		switch string(kb) {
 		case "name":
 			{
-				rv21, err := d.ReadString()
+				rv38, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Name = rv21
+				v.Name = rv38
 			}
 		case "age":
 			{
-				rv22, err := d.ReadInt()
+				rv39, err := d.ReadInt()
 				if err != nil {
 					return 0, err
 				}
-				v.Age = int(rv22)
+				v.Age = int(rv39)
 			}
 		case "active":
 			{
-				rv23, err := d.ReadBool()
+				rv40, err := d.ReadBool()
 				if err != nil {
 					return 0, err
 				}
-				v.Active = rv23
+				v.Active = rv40
 			}
 		case "score":
 			{
-				rv24, err := d.ReadFloat64()
+				rv41, err := d.ReadFloat64()
 				if err != nil {
 					return 0, err
 				}
-				v.Score = rv24
+				v.Score = rv41
 			}
 		case "tags":
 			{
@@ -241,21 +397,21 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 				if isNil {
 					v.Tags = nil
 				} else {
-					n25, err := d.ReadArrayHeader()
+					n42, err := d.ReadArrayHeader()
 					if err != nil {
 						return 0, err
 					}
-					if err := d.CheckLength(n25, 1); err != nil {
+					if err := d.CheckLength(n42, 1); err != nil {
 						return 0, err
 					}
-					v.Tags = make([]string, n25)
-					for i26 := 0; i26 < n25; i26++ {
+					v.Tags = make([]string, n42)
+					for i43 := 0; i43 < n42; i43++ {
 						{
-							rv27, err := d.ReadString()
+							rv44, err := d.ReadString()
 							if err != nil {
 								return 0, err
 							}
-							v.Tags[i26] = rv27
+							v.Tags[i43] = rv44
 						}
 					}
 				}
@@ -269,48 +425,48 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 				if isNil {
 					v.Meta = nil
 				} else {
-					n28, err := d.ReadMapHeader()
+					n45, err := d.ReadMapHeader()
 					if err != nil {
 						return 0, err
 					}
-					if err := d.CheckLength(n28, 1); err != nil {
+					if err := d.CheckLength(n45, 1); err != nil {
 						return 0, err
 					}
-					v.Meta = make(map[string]string, n28)
-					for i29 := 0; i29 < n28; i29++ {
-						var k30 string
-						var vv31 string
-						kb32, err := d.ReadStringBytes()
+					v.Meta = make(map[string]string, n45)
+					for i46 := 0; i46 < n45; i46++ {
+						var k47 string
+						var vv48 string
+						kb49, err := d.ReadStringBytes()
 						if err != nil {
 							return 0, err
 						}
-						k30 = d.InternKey(kb32)
+						k47 = string(d.InternKey(kb49))
 						{
-							rv33, err := d.ReadString()
+							rv50, err := d.ReadString()
 							if err != nil {
 								return 0, err
 							}
-							vv31 = rv33
+							vv48 = rv50
 						}
-						v.Meta[k30] = vv31
+						v.Meta[k47] = vv48
 					}
 				}
 			}
 		case "inner":
 			{
-				nn34, err := qdf.UnmarshalNested(&v.Inner, d.RemainingBytes(), noCopy)
+				nn51, err := qdf.UnmarshalNested(&v.Inner, d.RemainingBytes(), noCopy)
 				if err != nil {
 					return 0, err
 				}
-				d.Advance(nn34)
+				d.Advance(nn51)
 			}
 		case "when":
 			{
-				sec35, nsec36, err := d.ReadTimestamp()
+				sec52, nsec53, err := d.ReadTimestamp()
 				if err != nil {
 					return 0, err
 				}
-				v.When = time.Unix(sec35, int64(nsec36)).UTC()
+				v.When = time.Unix(sec52, int64(nsec53)).UTC()
 			}
 		case "buf":
 			{
@@ -338,29 +494,29 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 					v.OptPtr = nil
 				} else {
 					v.OptPtr = new(Inner)
-					nn37, err := qdf.UnmarshalNested(v.OptPtr, d.RemainingBytes(), noCopy)
+					nn54, err := qdf.UnmarshalNested(v.OptPtr, d.RemainingBytes(), noCopy)
 					if err != nil {
 						return 0, err
 					}
-					d.Advance(nn37)
+					d.Advance(nn54)
 				}
 			}
 		case "counts":
 			{
-				n38, err := d.ReadArrayHeader()
+				n55, err := d.ReadArrayHeader()
 				if err != nil {
 					return 0, err
 				}
-				if n38 != 3 {
+				if n55 != 3 {
 					return 0, qdf.ErrTypeMismatch
 				}
-				for i39 := 0; i39 < 3; i39++ {
+				for i56 := 0; i56 < 3; i56++ {
 					{
-						rv40, err := d.ReadInt()
+						rv57, err := d.ReadInt()
 						if err != nil {
 							return 0, err
 						}
-						v.Counts[i39] = int32(rv40)
+						v.Counts[i56] = int32(rv57)
 					}
 				}
 			}
