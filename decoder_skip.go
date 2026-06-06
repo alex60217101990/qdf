@@ -596,6 +596,19 @@ func (d *Decoder) Skip() error {
 			}
 		}
 		return nil
+	case tagColStruct:
+		// A columnar []struct payload reached Skip — an unknown struct-slice
+		// field under OptBalanced/OptCompression (schema evolution). Decode it
+		// via the any path and discard the result: that advances the cursor
+		// exactly and replays the shape-table (and any per-column) state a real
+		// decode would, keeping later state-refs in sync — a byte-only skip
+		// could not. Uses the map-path row ceiling (maxColumnarAnyElems); a
+		// skipped columnar field with more rows than that is rejected rather
+		// than skipped, which is far above any realistic schema-evolution batch.
+		if _, err := decodeColumnarAny(d); err != nil {
+			return err
+		}
+		return nil
 	}
 	return ErrBadTag
 }
