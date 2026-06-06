@@ -6,6 +6,54 @@ import (
 	"testing"
 )
 
+// TestWriteStringInline_DenseLastIDSync pins that WriteStringInline keeps the
+// Dense state machine in lockstep with the decoder. The decoder resets lastID to
+// invalid on every inline string read; the encoder must mirror that, otherwise a
+// later repeated value emits tagStateRepeat against a lastID the decoder already
+// dropped — desyncing into a wrong value or ErrUnknownStateID.
+func TestWriteStringInline_DenseLastIDSync(t *testing.T) {
+	enc := NewEncoder(Dense)
+	enc.EnsureHeader()
+	enc.WriteString("AAAAAAAA")       // intern id 0
+	enc.WriteString("BBBBBBBB")       // intern id 1, becomes lastID
+	enc.WriteStringInline("CCCCCCCC") // forced inline: must invalidate lastID
+	enc.WriteString("BBBBBBBB")       // repeat of id 1
+	buf := append([]byte(nil), enc.Bytes()...)
+
+	dec := NewDecoderOnBuf(buf)
+	want := []string{"AAAAAAAA", "BBBBBBBB", "CCCCCCCC", "BBBBBBBB"}
+	for i, w := range want {
+		got, err := dec.ReadString()
+		if err != nil {
+			t.Fatalf("ReadString[%d]: %v", i, err)
+		}
+		if got != w {
+			t.Fatalf("ReadString[%d] = %q, want %q", i, got, w)
+		}
+	}
+}
+
+// TestInternCapClampedBelowSentinel pins that the intern-table cap can never
+// admit id 0xFFFF, which the MRU ring and LRU links reserve as their
+// empty/no-neighbour sentinel. A larger cap would let the 65536th interned
+// string take id 0xFFFF and corrupt the chains.
+func TestInternCapClampedBelowSentinel(t *testing.T) {
+	e := NewEncoder(Dense)
+	e.SetIntern(0, 1<<20) // absurd cap; must clamp
+	if e.maxStateEntries > maxInternEntries {
+		t.Fatalf("SetIntern cap not clamped: %d > %d", e.maxStateEntries, maxInternEntries)
+	}
+	if e.maxStateEntries-1 >= 0xFFFF {
+		t.Fatalf("max assignable id %d collides with sentinel 0xFFFF", e.maxStateEntries-1)
+	}
+	// The stream encoder caps its own table and must obey the same ceiling.
+	var buf bytes.Buffer
+	se := NewStreamEncoder(&buf, Dense)
+	if se.enc.maxStateEntries > maxInternEntries {
+		t.Fatalf("stream encoder cap %d exceeds ceiling %d", se.enc.maxStateEntries, maxInternEntries)
+	}
+}
+
 // directSample is a minimal hand-rolled Marshaler / Unmarshaler used
 // to exercise MarshalDirect / UnmarshalDirect without pulling in the
 // separate codegen_test module. Wire layout: id varint, then a string.

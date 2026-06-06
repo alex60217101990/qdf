@@ -369,6 +369,9 @@ func (e *Encoder) SetIntern(min int, cap int) {
 		e.minIntern = min
 	}
 	if cap > 0 {
+		if cap > maxInternEntries {
+			cap = maxInternEntries // keep max id below the 0xFFFF uint16 sentinel
+		}
 		e.maxStateEntries = cap
 	}
 }
@@ -662,6 +665,14 @@ func (e *Encoder) emitStateRef(id uint32) {
 // be eligible. Use for fields known to be unique per message.
 func (e *Encoder) WriteStringInline(s string) {
 	e.writeHeader()
+	// In Dense mode the decoder resets lastID to invalid on every inline string
+	// read, so the encoder must do the same here — otherwise a later repeated
+	// value emits tagStateRepeat against a lastID the decoder has already
+	// dropped, desyncing the state tables (silent wrong value or
+	// ErrUnknownStateID). Mirrors WriteString's own inline fallthrough.
+	if e.opts.Has(OptDense) && e.state != nil {
+		e.state.lastID = lruInvalidID
+	}
 	e.writeStringInline(s)
 }
 
