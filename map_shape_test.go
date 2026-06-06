@@ -6,6 +6,80 @@ import (
 	"testing"
 )
 
+// TestDecodeMap_SliceValuesNotAliased pins that a reflect-decoded map whose
+// value type is a slice NOT in the fast-path set ([]int8 here) gives each entry
+// its own backing array. The decode value holder is reused across entries, and
+// reuseOrMakeSlice keeps a cap>=n backing, so without a per-entry reset every
+// map value aliased the last slice decoded — silent corruption.
+func TestDecodeMap_SliceValuesNotAliased(t *testing.T) {
+	in := map[int][]int8{
+		1: {1, 2, 3},
+		2: {4, 5, 6},
+		3: {7, 8, 9},
+		4: {10},
+		5: {11, 12, 13, 14, 15},
+	}
+	for _, opts := range []Options{OptSpeed, OptBalanced} {
+		b, err := Marshal(in, opts)
+		if err != nil {
+			t.Fatalf("opts=%v marshal: %v", opts, err)
+		}
+		var out map[int][]int8
+		if err := Unmarshal(b, &out); err != nil {
+			t.Fatalf("opts=%v unmarshal: %v", opts, err)
+		}
+		if !equalMapIntSlice8(in, out) {
+			t.Fatalf("opts=%v: map slice values aliased/garbled:\n in =%v\n out=%v", opts, in, out)
+		}
+	}
+}
+
+// TestDecodeMap_ShapeSliceValuesNotAliased is the same hazard through the
+// tagMapShape (OptMapShape) decode branch, which uses a pooled value holder.
+func TestDecodeMap_ShapeSliceValuesNotAliased(t *testing.T) {
+	in := map[string][]int8{"alpha": {1, 2}, "beta": {3, 4, 5}, "gamma": {6}}
+	b, err := Marshal(in, OptBalanced|OptMapShape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string][]int8
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != len(in) {
+		t.Fatalf("len %d != %d", len(out), len(in))
+	}
+	for k, av := range in {
+		bv := out[k]
+		if len(av) != len(bv) {
+			t.Fatalf("key %q len %d != %d", k, len(bv), len(av))
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				t.Fatalf("key %q [%d] = %d, want %d (aliased?)", k, i, bv[i], av[i])
+			}
+		}
+	}
+}
+
+func equalMapIntSlice8(a, b map[int][]int8) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func TestOptMapShape_Bit(t *testing.T) {
 	if OptMapShape == 0 {
 		t.Fatal("OptMapShape must be a nonzero bit")
