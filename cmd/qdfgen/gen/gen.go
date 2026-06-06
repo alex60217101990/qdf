@@ -658,11 +658,12 @@ func (g *gen) emitEncodeNamed(w io.Writer, expr string, n *types.Named, indent s
 	case *types.Struct:
 		// Nested struct: dispatch via MarshalQDF. The callee detects the
 		// non-empty parent buffer via the magic-byte prefix and skips its
-		// own header.
-		tmp := g.fresh("inner")
+		// own header. expr is always addressable (a struct field, slice/array
+		// element, map range var, or pointer deref), so take its address
+		// directly — MarshalQDF only reads the receiver, so no temp copy is
+		// needed.
 		fmt.Fprintf(w, "%s{\n", indent)
-		fmt.Fprintf(w, "%s\t%s := %s\n", indent, tmp, expr)
-		fmt.Fprintf(w, "%s\tb2, err := (&%s).MarshalQDF(e.Bytes())\n", indent, tmp)
+		fmt.Fprintf(w, "%s\tb2, err := (&%s).MarshalQDF(e.Bytes())\n", indent, expr)
 		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn nil, err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\te.AdoptBuffer(b2)\n", indent)
 		fmt.Fprintf(w, "%s\te.MarkHeaderWritten()\n", indent)
