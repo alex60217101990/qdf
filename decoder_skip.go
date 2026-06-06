@@ -1,7 +1,18 @@
 package qdf
 
 // Skip advances past one value without materializing it.
+//
+// Skip recurses through nested arrays and maps, so it bounds nesting depth via
+// descend/ascend exactly like the reflect decode path: an unknown struct field
+// whose value is a deeply-nested array is skipped here, and without this guard a
+// hostile payload of N nested arrays would overflow the goroutine stack (an
+// unrecoverable fatal error). The recursive d.Skip() calls below re-enter this
+// guard, so every level is counted.
 func (d *Decoder) Skip() error {
+	if err := d.descend(); err != nil {
+		return err
+	}
+	defer d.ascend()
 	t, err := d.peekTag()
 	if err != nil {
 		return err
