@@ -453,6 +453,45 @@ func pickF64Codec(s []float64) (qpackCodec, int) {
 	return qpackRaw, rawBytes
 }
 
+// pickF32Codec is the float32 twin of pickF64Codec: it projects Gorilla's
+// average bits-per-element from a sample prefix and recommends Gorilla only when
+// that projection is comfortably below the raw 32 bits/elem. Raw bytes are exact
+// (tag + kind + uvarint(n) + 4n); the Gorilla figure is an estimate — the caller
+// emits Gorilla for real and re-checks against raw, so this only decides whether
+// the attempt is worth making. The XOR window uses 4-bit leading-zero / 5-bit
+// meaningful-bit fields here (vs 5/6 for float64), so the per-new-window control
+// overhead is ~11 bits.
+func pickF32Codec(s []float32) (qpackCodec, int) {
+	n := len(s)
+	rawBytes := 2 + uvarintLen(uint64(n)) + n*4
+	if n < 8 {
+		// Gorilla's fixed overhead (kind + first u32 + numBits varuint) dominates
+		// on tiny slices.
+		return qpackRaw, rawBytes
+	}
+	probe := min(32, n-1)
+	var total uint64
+	prev := math.Float32bits(s[0])
+	for i := 1; i <= probe; i++ {
+		cur := math.Float32bits(s[i])
+		x := cur ^ prev
+		if x == 0 {
+			total++ // repeat: one control bit
+		} else {
+			meaningful := uint64(32 - bits.LeadingZeros32(x) - bits.TrailingZeros32(x))
+			total += meaningful + 11
+		}
+		prev = cur
+	}
+	avgBits := total / uint64(probe)
+	gorBytes := 2 + uvarintLen(uint64(n)) + 4 + (int(avgBits)*n+7)/8
+	// Keep the same 75%-of-raw threshold as float64 (48/64): 24/32.
+	if avgBits+1 < 24 {
+		return qpackGorilla, gorBytes
+	}
+	return qpackRaw, rawBytes
+}
+
 // QPack codec helpers. Each codec emits a single self-described tagged
 // payload that replaces the per-element tag stream for one slice. The
 // codecs are opt-in (Encoder.SetQPack); decoders accept the new tags
