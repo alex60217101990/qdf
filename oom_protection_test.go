@@ -169,6 +169,24 @@ func TestOOM_CheckLengthRejectsImpossible(t *testing.T) {
 	}
 }
 
+// TestOOM_InternRecordCountCapped pins the decoder-side parity of the encoder's
+// intern-table cap: a hostile stream with more than maxInternEntries interned
+// records would assign id 0xFFFF, colliding with the MRU/LRU sentinel and
+// corrupting the side caches. A conforming encoder never emits this (it caps and
+// inlines), so the records are hand-crafted as an array of empty interned
+// strings. Decode must reject, not corrupt.
+func TestOOM_InternRecordCountCapped(t *testing.T) {
+	buf := append(mkHeader(), tagArr32)
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(maxInternEntries+1))
+	for i := 0; i <= maxInternEntries; i++ {
+		buf = append(buf, tagInternStr, 0x00) // empty interned string
+	}
+	var out []string
+	if err := Unmarshal(buf, &out); err == nil {
+		t.Fatal("decoder accepted more than maxInternEntries interned records")
+	}
+}
+
 // TestOOM_ZeroWidthConstantCount pins the fix for the constant-value integer
 // codecs (FOR/Delta-FOR/PFor/Dict with bitsPer == 0). They carry an EMPTY
 // packed body, so the per-element byte bound that guards the bitsPer > 0 path

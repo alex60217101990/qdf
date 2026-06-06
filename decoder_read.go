@@ -296,6 +296,13 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		if d.state == nil {
 			d.state = newDecState()
 		}
+		// A conforming encoder caps the intern table at maxInternEntries so ids
+		// stay below the 0xFFFF MRU/LRU sentinel; a hostile stream claiming more
+		// records would assign id 0xFFFF and corrupt the side-cache chains.
+		// Reject it (mirrors the encoder-side cap).
+		if len(d.state.values) >= maxInternEntries {
+			return nil, ErrInvalidLength
+		}
 		// Register the bytes as-is; they alias the input. If the caller
 		// later turns this into a copy, the table still references the alias
 		// which is fine for the lifetime of the buffer.
