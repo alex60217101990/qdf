@@ -149,6 +149,34 @@ func TestSelectInCombinator_Unsupported(t *testing.T) {
 	}
 }
 
+// TestNotOfSelect_Unsupported pins that a Not wrapping a non-predicate option
+// (a Select, which carries no node) returns ErrUnsupported instead of panicking.
+// simplifyCond's condNot branch indexed kids[0] unconditionally, so the err-Not
+// (built with nil kids) crashed before firstCondErr could surface the error —
+// both directly and through the Not(Not(...)) double-negation unwrap.
+func TestNotOfSelect_Unsupported(t *testing.T) {
+	type Row struct {
+		A int32 `qdf:"a"`
+	}
+	rows := make([]Row, 40)
+	for i := range rows {
+		rows[i].A = int32(i)
+	}
+	buf, _ := Marshal(rows, OptBalanced|OptColumnIndex)
+	var out []Row
+
+	if err := Unmarshal(buf, &out, Not(Select("a"))); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Not(Select): want ErrUnsupported, got %v", err)
+	}
+	if err := Unmarshal(buf, &out, Not(Not(Select("a")))); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Not(Not(Select)): want ErrUnsupported, got %v", err)
+	}
+	// Also reachable nested inside a combinator.
+	if err := Unmarshal(buf, &out, And(Where("a", func(v int32) bool { return v > 0 }), Not(Select("a")))); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("And(pred, Not(Select)): want ErrUnsupported, got %v", err)
+	}
+}
+
 func TestEmptyAndNoPanic(t *testing.T) {
 	type Row struct {
 		A int32 `qdf:"a"`
