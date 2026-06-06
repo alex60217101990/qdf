@@ -225,8 +225,14 @@ func simplifyCond(n *condNode) *condNode {
 		return n
 	}
 	if n.op == condNot {
+		// An err-bearing Not built from a non-predicate option (e.g. Not(Select))
+		// carries no kid; keep it verbatim so firstCondErr surfaces its error.
+		// Indexing kids[0] here would panic.
+		if len(n.kids) == 0 {
+			return n
+		}
 		c := simplifyCond(n.kids[0])
-		if c.op == condNot { // Not(Not(x)) -> x
+		if c.op == condNot && len(c.kids) > 0 { // Not(Not(x)) -> x
 			return c.kids[0]
 		}
 		return &condNode{op: condNot, kids: []*condNode{c}, err: n.err}
