@@ -65,7 +65,7 @@
 				
 				<option value="file4">github.com/alex60217101990/qdf/decoder_read.go (83.3%)</option>
 				
-				<option value="file5">github.com/alex60217101990/qdf/decoder_skip.go (52.9%)</option>
+				<option value="file5">github.com/alex60217101990/qdf/decoder_skip.go (52.6%)</option>
 				
 				<option value="file6">github.com/alex60217101990/qdf/encoder.go (87.7%)</option>
 				
@@ -119,15 +119,15 @@
 				
 				<option value="file31">github.com/alex60217101990/qdf/qpack_delta.go (96.4%)</option>
 				
-				<option value="file32">github.com/alex60217101990/qdf/qpack_dict.go (92.7%)</option>
+				<option value="file32">github.com/alex60217101990/qdf/qpack_dict.go (92.3%)</option>
 				
-				<option value="file33">github.com/alex60217101990/qdf/qpack_for.go (97.5%)</option>
+				<option value="file33">github.com/alex60217101990/qdf/qpack_for.go (97.6%)</option>
 				
 				<option value="file34">github.com/alex60217101990/qdf/qpack_fsst.go (95.1%)</option>
 				
 				<option value="file35">github.com/alex60217101990/qdf/qpack_gorilla.go (91.1%)</option>
 				
-				<option value="file36">github.com/alex60217101990/qdf/qpack_pfor.go (87.3%)</option>
+				<option value="file36">github.com/alex60217101990/qdf/qpack_pfor.go (86.8%)</option>
 				
 				<option value="file37">github.com/alex60217101990/qdf/qpack_rle.go (91.1%)</option>
 				
@@ -137,9 +137,9 @@
 				
 				<option value="file40">github.com/alex60217101990/qdf/reflect_desc.go (79.7%)</option>
 				
-				<option value="file41">github.com/alex60217101990/qdf/reflect_encode.go (89.2%)</option>
+				<option value="file41">github.com/alex60217101990/qdf/reflect_encode.go (88.7%)</option>
 				
-				<option value="file42">github.com/alex60217101990/qdf/slices_fast.go (83.9%)</option>
+				<option value="file42">github.com/alex60217101990/qdf/slices_fast.go (83.7%)</option>
 				
 				<option value="file43">github.com/alex60217101990/qdf/state.go (88.1%)</option>
 				
@@ -236,15 +236,18 @@ func (k colKind) String() string <span class="cov1" title="2">{
 
 // colColumn is one field's columnar descriptor: where it lives in each struct
 // element and how to (de)serialize the column.
+// Fields are ordered largest-alignment-first to pack without padding (56 B on
+// 64-bit vs 64 B for a source-order layout); one colColumn per field is built
+// once per columnar struct type and scanned per batch in encodeColumnar.
 type colColumn struct {
-        name   string
-        offset uintptr
-        kind   colKind // base kind, OR'd with colKindNullable for *T columns
-        width  uintptr // element width in bytes for the scalar load/store
-        isByte bool    // true for []byte string columns (vs string)
+        name string
         // elemType is the pointed-to type for a nullable (*T) column, used to
         // allocate the present values on decode. nil for non-nullable columns.
         elemType reflect.Type
+        offset   uintptr
+        width    uintptr // element width in bytes for the scalar load/store
+        kind     colKind // base kind, OR'd with colKindNullable for *T columns
+        isByte   bool    // true for []byte string columns (vs string)
 }
 
 // columnarPlan is cached on the slice element's typeDesc. nil means the
@@ -857,9 +860,9 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) <span class="cov7
                         return out, ErrShortBuffer
                 }</span>
                 <span class="cov6" title="7723">var colLens []uint32
-                if cap(d.state.colLenScratch) &gt;= kk </span><span class="cov6" title="7565">{
+                if cap(d.state.colLenScratch) &gt;= kk </span><span class="cov6" title="7516">{
                         colLens = d.state.colLenScratch[:kk]
-                }</span> else<span class="cov4" title="158"> {
+                }</span> else<span class="cov4" title="207"> {
                         colLens = make([]uint32, kk)
                 }</span>
                 <span class="cov6" title="7723">d.state.colLenScratch = colLens
@@ -1825,33 +1828,33 @@ import (
 // ---- grow helpers ----------------------------------------------------------
 
 func growI64(dst *[]int64, n int) <span class="cov7" title="23491">{
-        if cap(*dst) &gt;= n </span><span class="cov7" title="23277">{
+        if cap(*dst) &gt;= n </span><span class="cov7" title="23205">{
                 *dst = (*dst)[:n]
-        }</span> else<span class="cov4" title="214"> {
+        }</span> else<span class="cov4" title="286"> {
                 *dst = make([]int64, n)
         }</span>
 }
 
 func growU64(dst *[]uint64, n int) <span class="cov3" title="63">{
-        if cap(*dst) &gt;= n </span><span class="cov3" title="55">{
+        if cap(*dst) &gt;= n </span><span class="cov3" title="54">{
                 *dst = (*dst)[:n]
-        }</span> else<span class="cov2" title="8"> {
+        }</span> else<span class="cov2" title="9"> {
                 *dst = make([]uint64, n)
         }</span>
 }
 
 func growF64(dst *[]float64, n int) <span class="cov3" title="30">{
-        if cap(*dst) &gt;= n </span><span class="cov2" title="18">{
+        if cap(*dst) &gt;= n </span><span class="cov2" title="17">{
                 *dst = (*dst)[:n]
-        }</span> else<span class="cov2" title="12"> {
+        }</span> else<span class="cov2" title="13"> {
                 *dst = make([]float64, n)
         }</span>
 }
 
 func growBool(dst *[]bool, n int) <span class="cov5" title="1180">{
-        if cap(*dst) &gt;= n </span><span class="cov5" title="1166">{
+        if cap(*dst) &gt;= n </span><span class="cov5" title="1170">{
                 *dst = (*dst)[:n]
-        }</span> else<span class="cov2" title="14"> {
+        }</span> else<span class="cov2" title="10"> {
                 *dst = make([]bool, n)
         }</span>
 }
@@ -1924,7 +1927,7 @@ func (d *Decoder) readPackedDeltaForInt64SliceInto(dst *[]int64) error <span cla
                 }</span>
                 <span class="cov6" title="11759">return nil</span>
         }
-        <span class="cov6" title="11107">if cap(d.deltaScratch) &lt; n-1 </span><span class="cov4" title="195">{
+        <span class="cov6" title="11107">if cap(d.deltaScratch) &lt; n-1 </span><span class="cov4" title="268">{
                 d.deltaScratch = make([]uint64, n-1)
         }</span>
         <span class="cov6" title="11107">tmp := d.deltaScratch[:n-1]
@@ -2695,7 +2698,7 @@ type Decoder struct {
 // colLenOK reports whether a slice length is acceptable in the current
 // decode context. Outside a columnar column (colMaxLen == 0) any length is
 // allowed; the row-major and standalone paths bound length by the buffer.
-func (d *Decoder) colLenOK(n uint64) bool <span class="cov6" title="34710">{
+func (d *Decoder) colLenOK(n uint64) bool <span class="cov6" title="34716">{
         return d.colMaxLen == 0 || n &lt;= uint64(d.colMaxLen)
 }</span>
 
@@ -2757,7 +2760,7 @@ func (d *Decoder) MarkHeaderRead() <span class="cov2" title="12">{ d.headerRead 
 // unrecoverable fatal error). Pair with a deferred ascend. maxDepth is lazily
 // initialised so every Decoder construction path is covered.
 func (d *Decoder) descend() error <span class="cov8" title="1479537">{
-        if d.maxDepth == 0 </span><span class="cov4" title="656">{
+        if d.maxDepth == 0 </span><span class="cov4" title="687">{
                 d.maxDepth = DefaultMaxDepth
         }</span>
         <span class="cov8" title="1479537">d.depth++
@@ -2800,24 +2803,24 @@ func (d *Decoder) Remaining() int <span class="cov0" title="0">{ return len(d.bu
 // in the remaining input. Use before allocating per-element storage.
 //
 //go:nosplit
-func (d *Decoder) CheckLength(n int, perElem int) error <span class="cov7" title="661189">{
+func (d *Decoder) CheckLength(n int, perElem int) error <span class="cov7" title="661190">{
         if n &lt; 0 </span><span class="cov1" title="1">{
                 return ErrInvalidLength
         }</span>
-        <span class="cov7" title="661188">if uint64(n)*uint64(perElem) &gt; uint64(len(d.buf)-d.i) </span><span class="cov3" title="117">{
+        <span class="cov7" title="661189">if uint64(n)*uint64(perElem) &gt; uint64(len(d.buf)-d.i) </span><span class="cov3" title="117">{
                 return ErrShortBuffer
         }</span>
-        <span class="cov7" title="661071">return nil</span>
+        <span class="cov7" title="661072">return nil</span>
 }
 
 // readHeader consumes the 5-byte header once per buffer. The hot path is the
 // already-read check; the actual parse is outlined into readHeaderSlow so this
 // (and its callers, peekTag/next) stay within the inliner budget.
-func (d *Decoder) readHeader() error <span class="cov3" title="255">{
+func (d *Decoder) readHeader() error <span class="cov3" title="256">{
         if d.headerRead </span><span class="cov0" title="0">{
                 return nil
         }</span>
-        <span class="cov3" title="255">return d.readHeaderSlow()</span>
+        <span class="cov3" title="256">return d.readHeaderSlow()</span>
 }
 
 // readHeaderSlow parses the 5-byte header (and an optional rANS body). Kept out
@@ -2825,25 +2828,25 @@ func (d *Decoder) readHeader() error <span class="cov3" title="255">{
 // path would only bloat callers.
 //
 //go:noinline
-func (d *Decoder) readHeaderSlow() error <span class="cov7" title="654432">{
+func (d *Decoder) readHeaderSlow() error <span class="cov7" title="654433">{
         if len(d.buf)-d.i &lt; 5 </span><span class="cov4" title="626">{
                 return ErrShortBuffer
         }</span>
-        <span class="cov7" title="653806">if d.buf[d.i] != Magic0 || d.buf[d.i+1] != Magic1 || d.buf[d.i+2] != Magic2 </span><span class="cov4" title="984">{
+        <span class="cov7" title="653807">if d.buf[d.i] != Magic0 || d.buf[d.i+1] != Magic1 || d.buf[d.i+2] != Magic2 </span><span class="cov4" title="984">{
                 return ErrBadMagic
         }</span>
-        <span class="cov7" title="652822">if d.buf[d.i+3] != Version1 </span><span class="cov2" title="16">{
+        <span class="cov7" title="652823">if d.buf[d.i+3] != Version1 </span><span class="cov2" title="16">{
                 return ErrBadVersion
         }</span>
-        <span class="cov7" title="652806">flags := d.buf[d.i+4]
+        <span class="cov7" title="652807">flags := d.buf[d.i+4]
         d.colIndex = flags&amp;FlagColIndex != 0
-        if flags&amp;FlagDense != 0 </span><span class="cov6" title="74367">{
+        if flags&amp;FlagDense != 0 </span><span class="cov6" title="74368">{
                 d.mode = Dense
-                if d.state == nil </span><span class="cov4" title="769">{
+                if d.state == nil </span><span class="cov4" title="851">{
                         d.state = newDecState()
                 }</span>
         }
-        <span class="cov7" title="652806">d.i += 5
+        <span class="cov7" title="652807">d.i += 5
         d.headerRead = true
         if flags&amp;FlagRANS != 0 </span><span class="cov5" title="3137">{
                 rest := d.buf[d.i:]
@@ -2866,31 +2869,31 @@ func (d *Decoder) readHeaderSlow() error <span class="cov7" title="654432">{
                 <span class="cov5" title="2768">d.buf = body
                 d.i = 0</span>
         }
-        <span class="cov7" title="652437">return nil</span>
+        <span class="cov7" title="652438">return nil</span>
 }
 
 // peekTag returns the next tag without consuming it. The header check is
 // inlined here so the common (header-already-read) path has no call; the parse
 // is taken only on the first tag of a decode.
-func (d *Decoder) peekTag() (byte, error) <span class="cov10" title="46404144">{
+func (d *Decoder) peekTag() (byte, error) <span class="cov10" title="46404305">{
         if !d.headerRead </span><span class="cov7" title="654177">{
                 if err := d.readHeaderSlow(); err != nil </span><span class="cov4" title="1995">{
                         return 0, err
                 }</span>
         }
-        <span class="cov9" title="46402149">if d.i &gt;= len(d.buf) </span><span class="cov4" title="367">{
+        <span class="cov9" title="46402310">if d.i &gt;= len(d.buf) </span><span class="cov4" title="363">{
                 return 0, ErrShortBuffer
         }</span>
-        <span class="cov9" title="46401782">return d.buf[d.i], nil</span>
+        <span class="cov9" title="46401947">return d.buf[d.i], nil</span>
 }
 
 // next returns the next tag and advances past it.
-func (d *Decoder) next() (byte, error) <span class="cov9" title="42836735">{
+func (d *Decoder) next() (byte, error) <span class="cov9" title="42836867">{
         t, err := d.peekTag()
-        if err != nil </span><span class="cov4" title="1172">{
+        if err != nil </span><span class="cov4" title="1170">{
                 return 0, err
         }</span>
-        <span class="cov9" title="42835563">d.i++
+        <span class="cov9" title="42835697">d.i++
         return t, nil</span>
 }
 </pre>
@@ -2941,11 +2944,11 @@ func (d *Decoder) ReadUint() (uint64, error) <span class="cov9" title="26332106"
         <span class="cov9" title="26332106">return d.decodeUint(t)</span>
 }
 
-func (d *Decoder) decodeUint(t byte) (uint64, error) <span class="cov10" title="27925671">{
+func (d *Decoder) decodeUint(t byte) (uint64, error) <span class="cov10" title="27925703">{
         if t &lt;= tagFixintMax </span><span class="cov9" title="13109369">{
                 return uint64(t), nil
         }</span>
-        <span class="cov9" title="14816302">switch t </span>{
+        <span class="cov9" title="14816334">switch t </span>{
         case tagUint8:<span class="cov9" title="13279703">
                 if d.i &gt;= len(d.buf) </span><span class="cov0" title="0">{
                         return 0, ErrShortBuffer
@@ -2975,27 +2978,27 @@ func (d *Decoder) decodeUint(t byte) (uint64, error) <span class="cov10" title="
                 d.i += 8
                 return v, nil</span>
         }
-        <span class="cov4" title="1885">return 0, ErrTypeMismatch</span>
+        <span class="cov4" title="1917">return 0, ErrTypeMismatch</span>
 }
 
-func (d *Decoder) ReadInt() (int64, error) <span class="cov8" title="3176104">{
+func (d *Decoder) ReadInt() (int64, error) <span class="cov8" title="3176202">{
         t, err := d.next()
-        if err != nil </span><span class="cov3" title="291">{
+        if err != nil </span><span class="cov3" title="293">{
                 return 0, err
         }</span>
-        <span class="cov8" title="3175813">return d.decodeInt(t)</span>
+        <span class="cov8" title="3175909">return d.decodeInt(t)</span>
 }
 
-func (d *Decoder) decodeInt(t byte) (int64, error) <span class="cov8" title="3175813">{
+func (d *Decoder) decodeInt(t byte) (int64, error) <span class="cov8" title="3175909">{
         // fixint positive
-        if t &lt;= tagFixintMax </span><span class="cov8" title="1578487">{
+        if t &lt;= tagFixintMax </span><span class="cov8" title="1578551">{
                 return int64(t), nil
         }</span>
         // negfixint range 0xD8..0xDF
-        <span class="cov8" title="1597326">if t &gt;= tagNegfixint &amp;&amp; t &lt;= tagNegfixint|tagNegfixintMask </span><span class="cov3" title="181">{
+        <span class="cov8" title="1597358">if t &gt;= tagNegfixint &amp;&amp; t &lt;= tagNegfixint|tagNegfixintMask </span><span class="cov3" title="181">{
                 return -int64(t&amp;tagNegfixintMask) - 1, nil
         }</span>
-        <span class="cov8" title="1597145">switch t </span>{
+        <span class="cov8" title="1597177">switch t </span>{
         case tagInt8:<span class="cov3" title="246">
                 if d.i &gt;= len(d.buf) </span><span class="cov0" title="0">{
                         return 0, ErrShortBuffer
@@ -3026,8 +3029,8 @@ func (d *Decoder) decodeInt(t byte) (int64, error) <span class="cov8" title="317
                 return v, nil</span>
         }
         // fall back to the unsigned decoder for tagUintN
-        <span class="cov8" title="1593565">u, err := d.decodeUint(t)
-        if err != nil </span><span class="cov4" title="1885">{
+        <span class="cov8" title="1593597">u, err := d.decodeUint(t)
+        if err != nil </span><span class="cov4" title="1917">{
                 return 0, err
         }</span>
         <span class="cov8" title="1591680">if u &gt; math.MaxInt64 </span><span class="cov0" title="0">{
@@ -3086,49 +3089,49 @@ func (d *Decoder) ReadFloat64() (float64, error) <span class="cov8" title="67099
 // from that path instead of allocating a fresh `string(b)` copy on
 // every state-ref hit. Inline reads (fixstr, str8/16/32) set
 // lastID = lruInvalidID, fall through, and pay the copy as before.
-func (d *Decoder) ReadString() (string, error) <span class="cov8" title="3409418">{
+func (d *Decoder) ReadString() (string, error) <span class="cov8" title="3409512">{
         b, err := d.readStringBytes()
-        if err != nil </span><span class="cov5" title="2300">{
+        if err != nil </span><span class="cov5" title="2296">{
                 return "", err
         }</span>
-        <span class="cov8" title="3407118">if d.noCopy </span><span class="cov4" title="457">{
+        <span class="cov8" title="3407216">if d.noCopy </span><span class="cov4" title="585">{
                 return unsafestr.String(b), nil
         }</span>
-        <span class="cov8" title="3406661">if d.state != nil &amp;&amp; d.state.lastID != lruInvalidID </span><span class="cov8" title="749449">{
+        <span class="cov8" title="3406631">if d.state != nil &amp;&amp; d.state.lastID != lruInvalidID </span><span class="cov8" title="749449">{
                 if s, ok := d.state.getString(d.state.lastID); ok </span><span class="cov8" title="749449">{
                         return s, nil
                 }</span>
         }
-        <span class="cov8" title="2657212">return string(b), nil</span>
+        <span class="cov8" title="2657182">return string(b), nil</span>
 }
 
 // readStringBytes returns the raw bytes of a string/bin value without
 // allocating; the returned slice aliases the input buffer or the decoder
 // state table.
-func (d *Decoder) readStringBytes() ([]byte, error) <span class="cov9" title="10054591">{
+func (d *Decoder) readStringBytes() ([]byte, error) <span class="cov9" title="10054649">{
         t, err := d.next()
-        if err != nil </span><span class="cov4" title="348">{
+        if err != nil </span><span class="cov4" title="344">{
                 return nil, err
         }</span>
         // Inline (non-intern) string / bin reads break the Markov-0 chain so
         // a subsequent tagStateRepeat cannot resurrect a stale state-ref
         // from before the inline emission. State-ref and intern branches
         // below restore the invariant explicitly.
-        <span class="cov9" title="10054243">invalidateLast := d.state != nil
+        <span class="cov9" title="10054305">invalidateLast := d.state != nil
         // fixstr
-        if t &gt;= tagFixstr &amp;&amp; t &lt;= tagFixstr|tagFixstrMask </span><span class="cov9" title="8071070">{
+        if t &gt;= tagFixstr &amp;&amp; t &lt;= tagFixstr|tagFixstrMask </span><span class="cov9" title="8071003">{
                 n := int(t &amp; tagFixstrMask)
-                if d.i+n &gt; len(d.buf) </span><span class="cov3" title="187">{
+                if d.i+n &gt; len(d.buf) </span><span class="cov3" title="183">{
                         return nil, ErrShortBuffer
                 }</span>
-                <span class="cov9" title="8070883">out := d.buf[d.i : d.i+n]
+                <span class="cov9" title="8070820">out := d.buf[d.i : d.i+n]
                 d.i += n
-                if invalidateLast </span><span class="cov8" title="3579711">{
+                if invalidateLast </span><span class="cov8" title="3555668">{
                         d.state.lastID = lruInvalidID
                 }</span>
-                <span class="cov9" title="8070883">return out, nil</span>
+                <span class="cov9" title="8070820">return out, nil</span>
         }
-        <span class="cov8" title="1983173">switch t </span>{
+        <span class="cov8" title="1983302">switch t </span>{
         case tagStr8, tagBin8:<span class="cov5" title="11509">
                 if d.i &gt;= len(d.buf) </span><span class="cov1" title="1">{
                         return nil, ErrShortBuffer
@@ -3140,7 +3143,7 @@ func (d *Decoder) readStringBytes() ([]byte, error) <span class="cov9" title="10
                 }</span>
                 <span class="cov5" title="11508">out := d.buf[d.i : d.i+n]
                 d.i += n
-                if invalidateLast </span><span class="cov5" title="11491">{
+                if invalidateLast </span><span class="cov5" title="11295">{
                         d.state.lastID = lruInvalidID
                 }</span>
                 <span class="cov5" title="11508">return out, nil</span>
@@ -3174,20 +3177,20 @@ func (d *Decoder) readStringBytes() ([]byte, error) <span class="cov9" title="10
                         d.state.lastID = lruInvalidID
                 }</span>
                 <span class="cov2" title="8">return out, nil</span>
-        case tagInternStr, tagInternBin:<span class="cov7" title="275851">
+        case tagInternStr, tagInternBin:<span class="cov7" title="275980">
                 // Read length-prefixed payload, then register it in the state table.
                 n64, n := readUvarint(d.buf[d.i:])
                 if n &lt;= 0 </span><span class="cov2" title="17">{
                         return nil, ErrInvalidLength
                 }</span>
-                <span class="cov7" title="275834">d.i += n
+                <span class="cov7" title="275963">d.i += n
                 // Length validated in uint64 to avoid the int sign-bit pitfall on a
                 // hostile varint. A 10-byte varint can encode values up to 2^64-1;
                 // our buffer is always &lt; 2^63, so the uint64 comparison is safe.
                 if n64 &gt; uint64(len(d.buf)-d.i) </span><span class="cov3" title="192">{
                         return nil, ErrShortBuffer
                 }</span>
-                <span class="cov7" title="275642">nn := int(n64)
+                <span class="cov7" title="275771">nn := int(n64)
                 out := d.buf[d.i : d.i+nn]
                 d.i += nn
                 if d.state == nil </span><span class="cov0" title="0">{
@@ -3196,11 +3199,11 @@ func (d *Decoder) readStringBytes() ([]byte, error) <span class="cov9" title="10
                 // Register the bytes as-is; they alias the input. If the caller
                 // later turns this into a copy, the table still references the alias
                 // which is fine for the lifetime of the buffer.
-                <span class="cov7" title="275642">id := d.state.append(out)
-                if d.state.lastID != lruInvalidID </span><span class="cov7" title="211737">{
+                <span class="cov7" title="275771">id := d.state.append(out)
+                if d.state.lastID != lruInvalidID </span><span class="cov7" title="211864">{
                         d.state.pairRecord(d.state.lastID, id)
                 }</span>
-                <span class="cov7" title="275642">d.state.lastID = id
+                <span class="cov7" title="275771">d.state.lastID = id
                 return out, nil</span>
         case tagStateRef:<span class="cov8" title="1681936">
                 id64, n := readUvarint(d.buf[d.i:])
@@ -3325,15 +3328,15 @@ func (d *Decoder) ReadBytes() ([]byte, error) <span class="cov5" title="10304">{
 }
 
 // ReadArrayHeader returns the element count.
-func (d *Decoder) ReadArrayHeader() (int, error) <span class="cov7" title="608731">{
+func (d *Decoder) ReadArrayHeader() (int, error) <span class="cov7" title="608707">{
         t, err := d.next()
         if err != nil </span><span class="cov3" title="244">{
                 return 0, err
         }</span>
-        <span class="cov7" title="608487">if t &gt;= tagFixarr &amp;&amp; t &lt;= tagFixarr|tagFixarrMask </span><span class="cov7" title="586044">{
+        <span class="cov7" title="608463">if t &gt;= tagFixarr &amp;&amp; t &lt;= tagFixarr|tagFixarrMask </span><span class="cov7" title="586044">{
                 return int(t &amp; tagFixarrMask), nil
         }</span>
-        <span class="cov6" title="22443">switch t </span>{
+        <span class="cov6" title="22419">switch t </span>{
         case tagArr16:<span class="cov6" title="20543">
                 if d.i+2 &gt; len(d.buf) </span><span class="cov0" title="0">{
                         return 0, ErrShortBuffer
@@ -3349,7 +3352,7 @@ func (d *Decoder) ReadArrayHeader() (int, error) <span class="cov7" title="60873
                 d.i += 4
                 return n, nil</span>
         }
-        <span class="cov4" title="1892">return 0, ErrTypeMismatch</span>
+        <span class="cov4" title="1868">return 0, ErrTypeMismatch</span>
 }
 
 // ReadMapHeader returns the key/value pair count.
@@ -3418,23 +3421,23 @@ func (d *Decoder) ReadTimestamp() (sec int64, nsec uint32, err error) <span clas
 		<pre class="file" id="file5" style="display: none">package qdf
 
 // Skip advances past one value without materializing it.
-func (d *Decoder) Skip() error <span class="cov10" title="8653">{
+func (d *Decoder) Skip() error <span class="cov10" title="8644">{
         t, err := d.peekTag()
         if err != nil </span><span class="cov6" title="219">{
                 return err
         }</span>
-        <span class="cov9" title="8434">switch </span>{
-        case t &lt;= tagFixintMax:<span class="cov6" title="369">
+        <span class="cov9" title="8425">switch </span>{
+        case t &lt;= tagFixintMax:<span class="cov6" title="366">
                 d.i++
                 return nil</span>
-        case t &gt;= tagFixstr &amp;&amp; t &lt;= tagFixstr|tagFixstrMask:<span class="cov8" title="1322">
+        case t &gt;= tagFixstr &amp;&amp; t &lt;= tagFixstr|tagFixstrMask:<span class="cov8" title="1313">
                 n := int(t &amp; tagFixstrMask)
                 if d.i+1+n &gt; len(d.buf) </span><span class="cov5" title="122">{
                         return ErrShortBuffer
                 }</span>
-                <span class="cov8" title="1200">d.i += 1 + n
+                <span class="cov8" title="1191">d.i += 1 + n
                 return nil</span>
-        case t &gt;= tagFixarr &amp;&amp; t &lt;= tagFixarr|tagFixarrMask:<span class="cov8" title="1181">
+        case t &gt;= tagFixarr &amp;&amp; t &lt;= tagFixarr|tagFixarrMask:<span class="cov8" title="1183">
                 n := int(t &amp; tagFixarrMask)
                 d.i++
                 for range n </span><span class="cov9" title="4078">{
@@ -3442,8 +3445,8 @@ func (d *Decoder) Skip() error <span class="cov10" title="8653">{
                                 return err
                         }</span>
                 }
-                <span class="cov7" title="914">return nil</span>
-        case t &gt;= tagNegfixint &amp;&amp; t &lt;= tagNegfixint|tagNegfixintMask:<span class="cov4" title="22">
+                <span class="cov7" title="916">return nil</span>
+        case t &gt;= tagNegfixint &amp;&amp; t &lt;= tagNegfixint|tagNegfixintMask:<span class="cov4" title="23">
                 d.i++
                 return nil</span>
         }
@@ -3708,25 +3711,25 @@ func (d *Decoder) Skip() error <span class="cov10" title="8653">{
                 <span class="cov6" title="307">d.i++ // skip kind
                 bitsPer := int(d.buf[d.i])
                 d.i++
-                if bitsPer &gt; qpackForMaxBits </span><span class="cov3" title="12">{
+                if bitsPer &gt; qpackForMaxBits </span><span class="cov3" title="13">{
                         return ErrBadTag
                 }</span>
                 // min varuint
-                <span class="cov6" title="295">_, nr := readUvarint(d.buf[d.i:])
+                <span class="cov6" title="294">_, nr := readUvarint(d.buf[d.i:])
                 if nr &lt;= 0 </span><span class="cov3" title="20">{
                         return ErrInvalidLength
                 }</span>
-                <span class="cov6" title="275">d.i += nr
+                <span class="cov6" title="274">d.i += nr
                 n64, nr := readUvarint(d.buf[d.i:])
                 if nr &lt;= 0 </span><span class="cov2" title="4">{
                         return ErrInvalidLength
                 }</span>
-                <span class="cov6" title="271">d.i += nr
+                <span class="cov6" title="270">d.i += nr
                 // Same overflow guard as tagPackBool. n64 elements times
                 // bitsPer bits =&gt; ceil/8 bytes; validate in uint64 to avoid the
                 // sign-bit pitfall on a hostile varuint.
                 rem := uint64(len(d.buf) - d.i)
-                if bitsPer &gt; 0 &amp;&amp; n64 &gt; rem*8/uint64(bitsPer) </span><span class="cov3" title="15">{
+                if bitsPer &gt; 0 &amp;&amp; n64 &gt; rem*8/uint64(bitsPer) </span><span class="cov3" title="14">{
                         return ErrShortBuffer
                 }</span>
                 <span class="cov6" title="256">d.i += int((n64*uint64(bitsPer) + 7) / 8)
@@ -3739,18 +3742,18 @@ func (d *Decoder) Skip() error <span class="cov10" title="8653">{
                 <span class="cov3" title="12">k := d.buf[d.i]
                 d.i++
                 w := qpackRawWidthBytes(k)
-                if w != 4 &amp;&amp; w != 8 </span><span class="cov2" title="7">{
+                if w != 4 &amp;&amp; w != 8 </span><span class="cov3" title="8">{
                         return ErrBadTag
                 }</span>
-                <span class="cov2" title="5">n64, nr := readUvarint(d.buf[d.i:])
+                <span class="cov2" title="4">n64, nr := readUvarint(d.buf[d.i:])
                 if nr &lt;= 0 </span><span class="cov0" title="0">{
                         return ErrInvalidLength
                 }</span>
-                <span class="cov2" title="5">d.i += nr
+                <span class="cov2" title="4">d.i += nr
                 if n64 == 0 </span><span class="cov0" title="0">{
                         return nil
                 }</span>
-                <span class="cov2" title="5">if d.i+w &gt; len(d.buf) </span><span class="cov1" title="1">{
+                <span class="cov2" title="4">if d.i+w &gt; len(d.buf) </span><span class="cov0" title="0">{
                         return ErrShortBuffer
                 }</span>
                 <span class="cov2" title="4">d.i += w
@@ -4160,21 +4163,21 @@ type Encoder struct {
 // also point state at a non-nil encState).
 //
 //go:nosplit
-func (e *Encoder) applyOpts(opts Options) <span class="cov8" title="916386">{
+func (e *Encoder) applyOpts(opts Options) <span class="cov8" title="916387">{
         e.opts = opts
-        if opts.Has(OptDense) </span><span class="cov7" title="148766">{
+        if opts.Has(OptDense) </span><span class="cov7" title="148767">{
                 e.mode = Dense
                 // Lazily allocate the Dense intern state. A pooled encoder starts with
                 // state == nil (set in the pool's New) and never allocates it while it
                 // only serves OptSpeed; the first Dense encode brings it up. A reused
                 // encoder keeps its state — Reset() clears it before this runs.
-                if e.state == nil </span><span class="cov4" title="614">{
+                if e.state == nil </span><span class="cov4" title="485">{
                         e.state = newEncState()
                 }</span>
         } else<span class="cov8" title="767620"> {
                 e.mode = Fast
         }</span>
-        <span class="cov8" title="916386">e.qpack = opts.Has(OptQPack)
+        <span class="cov8" title="916387">e.qpack = opts.Has(OptQPack)
         e.gorillaFloat = e.qpack &amp;&amp; opts.Has(OptGorillaFloat)
         e.rans = opts.Has(OptRANS)
         e.colIndex = opts.Has(OptColumnIndex)
@@ -4248,7 +4251,7 @@ func NewEncoderOnBuf(buf []byte, mode Mode) *Encoder <span class="cov2" title="1
 func (e *Encoder) Reset() <span class="cov8" title="916191">{
         e.buf = e.buf[:0]
         e.headerOut = false
-        if e.state != nil </span><span class="cov7" title="381226">{
+        if e.state != nil </span><span class="cov7" title="373058">{
                 e.state.reset()
         }</span>
         <span class="cov8" title="916191">e.depth = 0
@@ -4382,21 +4385,21 @@ func (e *Encoder) SetIntern(min int, cap int) <span class="cov1" title="1">{
         }</span>
 }
 
-func (e *Encoder) writeHeader() <span class="cov10" title="35455868">{
-        if e.headerOut </span><span class="cov9" title="34539317">{
+func (e *Encoder) writeHeader() <span class="cov10" title="35456189">{
+        if e.headerOut </span><span class="cov9" title="34539637">{
                 return
         }</span>
-        <span class="cov8" title="916551">flag := byte(0)
-        if e.mode == Dense </span><span class="cov7" title="148776">{
+        <span class="cov8" title="916552">flag := byte(0)
+        if e.mode == Dense </span><span class="cov7" title="148777">{
                 flag |= FlagDense
         }</span>
-        <span class="cov8" title="916551">if e.qpack </span><span class="cov7" title="251436">{
+        <span class="cov8" title="916552">if e.qpack </span><span class="cov7" title="251437">{
                 flag |= FlagQPack
         }</span>
         // FlagColIndex is NOT set here: encodeColumnar backpatches it only when it
         // actually emits a column index, so OptColumnIndex on a non-columnar
         // payload stays a true no-op (header byte unchanged).
-        <span class="cov8" title="916551">e.headerFlagAt = len(e.buf) + 4
+        <span class="cov8" title="916552">e.headerFlagAt = len(e.buf) + 4
         e.buf = append(e.buf, Magic0, Magic1, Magic2, Version1, flag)
         e.headerOut = true</span>
 }
@@ -4443,10 +4446,10 @@ func (e *Encoder) WriteBool(v bool) <span class="cov5" title="9255">{
         }</span>
 }
 
-func (e *Encoder) WriteUint(v uint64) <span class="cov9" title="27535624">{
+func (e *Encoder) WriteUint(v uint64) <span class="cov9" title="27535688">{
         e.writeHeader()
         switch </span>{
-        case v &lt;= tagFixintMax:<span class="cov9" title="13144286">
+        case v &lt;= tagFixintMax:<span class="cov9" title="13144350">
                 e.buf = append(e.buf, byte(v))</span>
         case v &lt;= math.MaxUint8:<span class="cov9" title="13116275">
                 e.buf = append(e.buf, tagUint8, byte(v))</span>
@@ -4459,9 +4462,9 @@ func (e *Encoder) WriteUint(v uint64) <span class="cov9" title="27535624">{
         }
 }
 
-func (e *Encoder) WriteInt(v int64) <span class="cov8" title="1201447">{
+func (e *Encoder) WriteInt(v int64) <span class="cov8" title="1201511">{
         e.writeHeader()
-        if v &gt;= 0 </span><span class="cov8" title="1196499">{
+        if v &gt;= 0 </span><span class="cov8" title="1196563">{
                 e.WriteUint(uint64(v))
                 return
         }</span>
@@ -4493,11 +4496,11 @@ func (e *Encoder) WriteFloat64(v float64) <span class="cov8" title="977075">{
 
 // WriteString writes s. In Dense mode (OptDense set), eligible strings
 // are intern-encoded.
-func (e *Encoder) WriteString(s string) <span class="cov8" title="2980630">{
+func (e *Encoder) WriteString(s string) <span class="cov8" title="2980758">{
         e.writeHeader()
         st := e.state
         dense := e.opts.Has(OptDense)
-        if dense &amp;&amp; st != nil &amp;&amp; len(s) &gt;= e.minIntern &amp;&amp; int(st.internLoad) &lt; e.maxStateEntries </span><span class="cov7" title="510021">{
+        if dense &amp;&amp; st != nil &amp;&amp; len(s) &gt;= e.minIntern &amp;&amp; int(st.internLoad) &lt; e.maxStateEntries </span><span class="cov7" title="510149">{
                 // PreIntern identity fast path: if the caller registered
                 // this exact backing pointer + length via Encoder.PreIntern,
                 // the cached id (after first sight on the wire) lets us
@@ -4534,30 +4537,30 @@ func (e *Encoder) WriteString(s string) <span class="cov8" title="2980630">{
                                 }
                         }
                 }
-                <span class="cov7" title="510017">id, ok := st.lookupOrAssign(s)
+                <span class="cov7" title="510145">id, ok := st.lookupOrAssign(s)
                 if preInternIdx &gt;= 0 </span><span class="cov2" title="13">{
                         e.preIntern[preInternIdx].id = id
                 }</span>
-                <span class="cov7" title="510017">if ok </span><span class="cov6" title="86137">{
+                <span class="cov7" title="510145">if ok </span><span class="cov6" title="86137">{
                         // Repeat hot path: hand-inlined out of emitStateRef so the
                         // most common Dense hit avoids the non-inlinable call.
-                        if st.lastID == id </span><span class="cov6" title="26323">{
+                        if st.lastID == id </span><span class="cov6" title="26321">{
                                 e.buf = append(e.buf, tagStateRepeat)
-                                if e.opts.Has(OptPairPred) </span><span class="cov6" title="21122">{
+                                if e.opts.Has(OptPairPred) </span><span class="cov6" title="21120">{
                                         st.pairRecord(id, id)
                                 }</span>
-                                <span class="cov6" title="26323">return</span>
+                                <span class="cov6" title="26321">return</span>
                         }
-                        <span class="cov6" title="59814">e.emitStateRef(id)
+                        <span class="cov6" title="59816">e.emitStateRef(id)
                         return</span>
                 }
-                <span class="cov7" title="423880">e.buf = append(e.buf, tagInternStr)
+                <span class="cov7" title="424008">e.buf = append(e.buf, tagInternStr)
                 e.buf = appendUvarint(e.buf, uint64(len(s)))
                 e.buf = appendString(e.buf, s)
-                if st.lastID != lruInvalidID &amp;&amp; e.opts.Has(OptPairPred) </span><span class="cov7" title="403723">{
+                if st.lastID != lruInvalidID &amp;&amp; e.opts.Has(OptPairPred) </span><span class="cov7" title="403850">{
                         st.pairRecord(st.lastID, id)
                 }</span>
-                <span class="cov7" title="423880">st.lastID = id
+                <span class="cov7" title="424008">st.lastID = id
                 return</span>
         }
         <span class="cov8" title="2470609">if dense &amp;&amp; st != nil </span><span class="cov7" title="148577">{
@@ -4584,7 +4587,7 @@ func (e *Encoder) WriteString(s string) <span class="cov8" title="2980630">{
 // Every successful emit moves id to the LRU head AND records the
 // (prev, id) transition in the pair predictor so the decoder's mirror
 // chain stays in sync.
-func (e *Encoder) emitStateRef(id uint32) <span class="cov6" title="64855">{
+func (e *Encoder) emitStateRef(id uint32) <span class="cov6" title="64857">{
         st := e.state
         pairOn := e.opts.Has(OptPairPred)
         if st.lastID == id </span><span class="cov0" title="0">{
@@ -4594,19 +4597,19 @@ func (e *Encoder) emitStateRef(id uint32) <span class="cov6" title="64855">{
                 }</span>
                 <span class="cov0" title="0">return</span>
         }
-        <span class="cov6" title="64855">prev := st.lastID
+        <span class="cov6" title="64857">prev := st.lastID
         prevValid := prev != lruInvalidID
         // Small-id fast path: id&lt;128 means the raw state-ref is already a
         // 2-byte literal (tag + 1-byte varuint). Neither MTF (rank varuint
         // ≥1 byte) nor Pair (rank varuint =1 byte) can be strictly shorter,
         // so we write the raw form directly and skip the LRU walk entirely.
-        if id &lt; 0x80 </span><span class="cov6" title="60810">{
+        if id &lt; 0x80 </span><span class="cov6" title="60812">{
                 st.lruMoveFront(id)
                 e.buf = append(e.buf, tagStateRef, byte(id))
-                if prevValid &amp;&amp; pairOn </span><span class="cov6" title="43776">{
+                if prevValid &amp;&amp; pairOn </span><span class="cov6" title="43778">{
                         st.pairRecord(prev, id)
                 }</span>
-                <span class="cov6" title="60810">st.lastID = id
+                <span class="cov6" title="60812">st.lastID = id
                 return</span>
         }
         // Pair predictor: when (prev, id) is in the predictor ring the
@@ -4791,7 +4794,7 @@ func appendU64(b []byte, v uint64) []byte <span class="cov8" title="998913">{ re
 
 // appendString uses the runtime's append-string fast path to avoid the
 // implicit []byte(s) copy.
-func appendString(b []byte, s string) []byte <span class="cov7" title="423880">{ return append(b, s...) }</span>
+func appendString(b []byte, s string) []byte <span class="cov7" title="424008">{ return append(b, s...) }</span>
 
 func readU16(b []byte) uint16 <span class="cov8" title="916523">{ return binary.LittleEndian.Uint16(b) }</span>
 func readU32(b []byte) uint32 <span class="cov7" title="627556">{ return binary.LittleEndian.Uint32(b) }</span>
@@ -9141,10 +9144,10 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
         st := e.state
         maskBytes := (n + 7) &gt;&gt; 3
         var mask []byte
-        if cap(st.colMaskScratch) &gt;= maskBytes </span><span class="cov4" title="132">{
+        if cap(st.colMaskScratch) &gt;= maskBytes </span><span class="cov4" title="131">{
                 mask = st.colMaskScratch[:maskBytes]
                 clear(mask)
-        }</span> else<span class="cov2" title="14"> {
+        }</span> else<span class="cov2" title="15"> {
                 mask = make([]byte, maskBytes)
         }</span>
         <span class="cov4" title="146">st.colMaskScratch = mask
@@ -9932,7 +9935,7 @@ const (
 // + compare. Use on the encoder hot path to gate codec emission.
 //
 //go:nosplit
-func (o Options) Has(bit Options) bool <span class="cov10" title="9813654">{ return o&amp;bit != 0 }</span>
+func (o Options) Has(bit Options) bool <span class="cov10" title="9814309">{ return o&amp;bit != 0 }</span>
 
 var (
         // encPool serves every Marshal / AppendMarshal call. Encoders are
@@ -9940,7 +9943,7 @@ var (
         // covers any Options combination; the buffer + intern table are
         // reused across calls when the cap fits maxPooledBuf.
         encPool = sync.Pool{
-                New: func() any <span class="cov5" title="1507">{
+                New: func() any <span class="cov4" title="1159">{
                         // state is left nil: Fast/OptSpeed encodes never touch the intern
                         // table, so a pooled encoder serving only OptSpeed pays no state
                         // allocation and no per-call state.reset(). applyOpts lazily
@@ -9954,7 +9957,7 @@ var (
                 }</span>,
         }
         decPool = sync.Pool{
-                New: func() any <span class="cov4" title="774">{ return &amp;Decoder{} }</span>,
+                New: func() any <span class="cov4" title="840">{ return &amp;Decoder{} }</span>,
         }
 )
 
@@ -10090,7 +10093,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool) error <span c
         dec.colIndex = false
         dec.noCopy = noCopy
         dec.selectFields = fields
-        if dec.state != nil </span><span class="cov7" title="126548">{
+        if dec.state != nil </span><span class="cov7" title="112447">{
                 dec.state.reset()
         }</span>
         <span class="cov8" title="652404">err := decodeReflect(dec, out)
@@ -10356,13 +10359,13 @@ const (
 
 func qpackRawWidthBytes(kind byte) int <span class="cov7" title="1371">{
         switch kind &amp; 0x03 </span>{
-        case qpackRawW1:<span class="cov2" title="5">
+        case qpackRawW1:<span class="cov2" title="6">
                 return 1</span>
         case qpackRawW2:<span class="cov1" title="2">
                 return 2</span>
         case qpackRawW4:<span class="cov5" title="131">
                 return 4</span>
-        case qpackRawW8:<span class="cov7" title="1233">
+        case qpackRawW8:<span class="cov7" title="1232">
                 return 8</span>
         }
         <span class="cov0" title="0">return 0</span>
@@ -10600,8 +10603,8 @@ const qpackDictMaxDistinct = 64
 // decoder broadcasts the single dictionary entry).
 //
 //go:nosplit
-func bitsForDistinct(distinct int) int <span class="cov9" title="14619">{
-        if distinct &lt;= 1 </span><span class="cov5" title="112">{
+func bitsForDistinct(distinct int) int <span class="cov9" title="14621">{
+        if distinct &lt;= 1 </span><span class="cov5" title="114">{
                 return 0
         }</span>
         <span class="cov9" title="14507">return bits.Len(uint(distinct - 1))</span>
@@ -11558,54 +11561,59 @@ func (e *Encoder) writePackedDeltaForInt64Slice(s []int64, first int64, minDelta
 // count fields after a tagPackDeltaFor tag (the tag itself already
 // consumed). signedFirst is set for signed kinds; unsignedFirst for
 // unsigned kinds.
-func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsignedFirst uint64, signedFirst int64, minDelta int64, n int, body []byte, err error) <span class="cov7" title="23712">{
+func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsignedFirst uint64, signedFirst int64, minDelta int64, n int, body []byte, err error) <span class="cov7" title="23713">{
         if d.i+2 &gt; len(d.buf) </span><span class="cov0" title="0">{
                 return 0, 0, 0, 0, 0, nil, ErrShortBuffer
         }</span>
-        <span class="cov7" title="23712">k := d.buf[d.i]
+        <span class="cov7" title="23713">k := d.buf[d.i]
         d.i++
         if k != expectKind </span><span class="cov2" title="11">{
                 return 0, 0, 0, 0, 0, nil, ErrTypeMismatch
         }</span>
-        <span class="cov7" title="23701">bp := d.buf[d.i]
+        <span class="cov7" title="23702">bp := d.buf[d.i]
         d.i++
         if int(bp) &gt; qpackForMaxBits </span><span class="cov2" title="11">{
                 return 0, 0, 0, 0, 0, nil, ErrBadTag
         }</span>
-        <span class="cov7" title="23690">bitsPer = int(bp)
+        <span class="cov7" title="23691">bitsPer = int(bp)
         first64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return 0, 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
-        <span class="cov7" title="23690">d.i += nr
+        <span class="cov7" title="23691">d.i += nr
         if k&amp;(1&lt;&lt;2) != 0 </span><span class="cov7" title="23642">{
                 signedFirst = zigzagDecode64(first64)
-        }</span> else<span class="cov3" title="48"> {
+        }</span> else<span class="cov3" title="49"> {
                 unsignedFirst = first64
         }</span>
-        <span class="cov7" title="23690">mn64, nr := readUvarint(d.buf[d.i:])
+        <span class="cov7" title="23691">mn64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return 0, 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
-        <span class="cov7" title="23690">d.i += nr
+        <span class="cov7" title="23691">d.i += nr
         minDelta = zigzagDecode64(mn64)
         n64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov2" title="12">{
                 return 0, 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
-        <span class="cov7" title="23678">d.i += nr
+        <span class="cov7" title="23679">d.i += nr
         if !d.colLenOK(n64) </span><span class="cov3" title="21">{
                 return 0, 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
-        <span class="cov7" title="23657">if n64 &lt; 2 </span><span class="cov1" title="2">{
+        <span class="cov7" title="23658">if n64 &lt; 2 </span><span class="cov1" title="2">{
                 return bitsPer, unsignedFirst, signedFirst, minDelta, int(n64), nil, nil
         }</span>
         // Validate in uint64 before the signed cast; the same body-shape
         // overflow that produced a reverse-range panic in readPackedForHeader
         // applies here.
-        <span class="cov7" title="23655">rem := uint64(len(d.buf) - d.i)
-        if bitsPer &gt; 0 &amp;&amp; (n64-1) &gt; rem*8/uint64(bitsPer) </span><span class="cov1" title="1">{
-                return 0, 0, 0, 0, 0, nil, ErrShortBuffer
+        <span class="cov7" title="23656">rem := uint64(len(d.buf) - d.i)
+        if bitsPer &gt; 0 </span><span class="cov7" title="11299">{
+                if (n64 - 1) &gt; rem*8/uint64(bitsPer) </span><span class="cov1" title="1">{
+                        return 0, 0, 0, 0, 0, nil, ErrShortBuffer
+                }</span>
+        } else<span class="cov7" title="12357"> if n64 &gt; qpackMaxStandaloneCount </span><span class="cov1" title="1">{
+                // bitsPer == 0 (constant deltas): empty body, no per-element bound.
+                return 0, 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
         <span class="cov7" title="23654">n = int(n64)
         bodyBytes := int(((n64-1)*uint64(bitsPer) + 7) / 8)
@@ -11844,60 +11852,65 @@ func buildDictIndexI64(table *[qpackDictMaxDistinct + 1]int64, count int) (hslot
 // caller walks the distinct values and the element count next, then
 // the bitsPer-packed body — distinct value parsing is caller-specific
 // because of signed zigzag, and bitsPer is derivable from count.
-func (d *Decoder) readPackedDictHeader(expectKind byte) (count int, bitsPer int, err error) <span class="cov6" title="127">{
+func (d *Decoder) readPackedDictHeader(expectKind byte) (count int, bitsPer int, err error) <span class="cov6" title="129">{
         if d.i &gt;= len(d.buf) </span><span class="cov0" title="0">{
                 return 0, 0, ErrShortBuffer
         }</span>
-        <span class="cov6" title="127">k := d.buf[d.i]
+        <span class="cov6" title="129">k := d.buf[d.i]
         d.i++
         if k != expectKind </span><span class="cov1" title="2">{
                 return 0, 0, ErrTypeMismatch
         }</span>
-        <span class="cov6" title="125">c64, nr := readUvarint(d.buf[d.i:])
+        <span class="cov6" title="127">c64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return 0, 0, ErrInvalidLength
         }</span>
-        <span class="cov6" title="125">d.i += nr
+        <span class="cov6" title="127">d.i += nr
         if c64 == 0 || c64 &gt; qpackDictMaxDistinct </span><span class="cov2" title="3">{
                 return 0, 0, ErrBadTag
         }</span>
-        <span class="cov6" title="122">count = int(c64)
+        <span class="cov6" title="124">count = int(c64)
         bitsPer = bitsForDistinct(count)
         return count, bitsPer, nil</span>
 }
 
 // readPackedDictUint64Slice consumes a tagPackDict body emitted with
 // qpackKindUint64.
-func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) <span class="cov5" title="45">{
+func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) <span class="cov5" title="47">{
         count, bitsPer, err := d.readPackedDictHeader(qpackKindUint64)
         if err != nil </span><span class="cov2" title="3">{
                 return nil, err
         }</span>
-        <span class="cov4" title="42">var table [qpackDictMaxDistinct]uint64
-        for i := range count </span><span class="cov8" title="953">{
+        <span class="cov5" title="44">var table [qpackDictMaxDistinct]uint64
+        for i := range count </span><span class="cov8" title="955">{
                 v, nr := readUvarint(d.buf[d.i:])
                 if nr &lt;= 0 </span><span class="cov1" title="1">{
                         return nil, ErrInvalidLength
                 }</span>
-                <span class="cov8" title="952">d.i += nr
+                <span class="cov8" title="954">d.i += nr
                 table[i] = v</span>
         }
-        <span class="cov4" title="41">n64, nr := readUvarint(d.buf[d.i:])
+        <span class="cov4" title="43">n64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return nil, ErrInvalidLength
         }</span>
-        <span class="cov4" title="41">d.i += nr
+        <span class="cov4" title="43">d.i += nr
         if !d.colLenOK(n64) </span><span class="cov0" title="0">{
                 return nil, ErrInvalidLength
         }</span>
-        <span class="cov4" title="41">n := int(n64)
+        <span class="cov4" title="43">if bitsPer == 0 &amp;&amp; n64 &gt; qpackMaxStandaloneCount </span><span class="cov1" title="1">{
+                // Single distinct value (count == 1 ⇒ bitsPer == 0): empty index
+                // body, so no per-element bound exists. Cap before make().
+                return nil, ErrInvalidLength
+        }</span>
+        <span class="cov4" title="42">n := int(n64)
         out := make([]uint64, n)
-        if bitsPer == 0 </span><span class="cov1" title="2">{
+        if bitsPer == 0 </span><span class="cov2" title="3">{
                 v := table[0]
-                for i := range out </span><span class="cov3" title="11">{
+                for i := range out </span><span class="cov3" title="15">{
                         out[i] = v
                 }</span>
-                <span class="cov1" title="2">return out, nil</span>
+                <span class="cov2" title="3">return out, nil</span>
         }
         <span class="cov4" title="39">rem := uint64(len(d.buf) - d.i)
         if n64 &gt; rem*8/uint64(bitsPer) </span><span class="cov0" title="0">{
@@ -11909,7 +11922,7 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) <span class="cov
         // Reuse the shared transient unpack scratch (as the Delta+FOR readers do):
         // idx holds the bit-unpacked dictionary indices, fully written by Unpack and
         // only read to map table-&gt;out, never aliased into the returned slice.
-        if cap(d.deltaScratch) &lt; n </span><span class="cov3" title="7">{
+        if cap(d.deltaScratch) &lt; n </span><span class="cov2" title="6">{
                 d.deltaScratch = make([]uint64, n)
         }</span>
         <span class="cov4" title="39">idx := d.deltaScratch[:n]
@@ -11947,6 +11960,11 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) <span class="cov5"
         if !d.colLenOK(n64) </span><span class="cov2" title="3">{
                 return nil, ErrInvalidLength
         }</span>
+        <span class="cov5" title="70">if bitsPer == 0 &amp;&amp; n64 &gt; qpackMaxStandaloneCount </span><span class="cov0" title="0">{
+                // Single distinct value (count == 1 ⇒ bitsPer == 0): empty index
+                // body, so no per-element bound exists. Cap before make().
+                return nil, ErrInvalidLength
+        }</span>
         <span class="cov5" title="70">n := int(n64)
         out := make([]int64, n)
         if bitsPer == 0 </span><span class="cov1" title="1">{
@@ -11965,7 +11983,7 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) <span class="cov5"
         d.i += bodyBytes
         // Reuse the shared transient unpack scratch (mirrors readPackedDictUint64Slice
         // and the Delta+FOR readers); idx is fully written then mapped into out.
-        if cap(d.deltaScratch) &lt; n </span><span class="cov3" title="10">{
+        if cap(d.deltaScratch) &lt; n </span><span class="cov3" title="11">{
                 d.deltaScratch = make([]uint64, n)
         }</span>
         <span class="cov5" title="69">idx := d.deltaScratch[:n]
@@ -12005,6 +12023,14 @@ import (
 // pure bit-packing kernels live in internal/bitpack.
 
 const qpackForMaxBits = 56
+
+// qpackMaxStandaloneCount caps the element count a constant-value codec
+// (bitsPer == 0) may claim outside a columnar column. Such codecs carry an
+// empty body, so the per-element byte bound that guards the bitsPer &gt; 0 path
+// does not exist; without this ceiling a ~14-byte header could drive a
+// multi-GB make(). Columnar columns are already bounded by colLenOK; this
+// mirrors the standalone cap RLE applies (qpack_rle.go).
+const qpackMaxStandaloneCount = 1 &lt;&lt; 30
 
 // qpackForSizeUnsigned estimates the wire size, in bytes, of a FOR-packed
 // encoding for n unsigned values whose delta range needs bits per slot
@@ -12115,36 +12141,36 @@ func (e *Encoder) writePackedForInt64Slice(s []int64, mn int64, bitsPer int) <sp
 // readPackedForHeader consumes the kind, bits, min, count fields after a
 // tagPackFor tag. The tag itself must already have been consumed. The
 // returned signedMin is meaningful only when the kind family is signed.
-func (d *Decoder) readPackedForHeader(expectKind byte) (bitsPer int, unsignedMin uint64, signedMin int64, n int, body []byte, err error) <span class="cov7" title="10848">{
+func (d *Decoder) readPackedForHeader(expectKind byte) (bitsPer int, unsignedMin uint64, signedMin int64, n int, body []byte, err error) <span class="cov7" title="10850">{
         if d.i+2 &gt; len(d.buf) </span><span class="cov0" title="0">{
                 return 0, 0, 0, 0, nil, ErrShortBuffer
         }</span>
-        <span class="cov7" title="10848">k := d.buf[d.i]
+        <span class="cov7" title="10850">k := d.buf[d.i]
         d.i++
         if k != expectKind </span><span class="cov1" title="2">{
                 return 0, 0, 0, 0, nil, ErrTypeMismatch
         }</span>
-        <span class="cov7" title="10846">b := d.buf[d.i]
+        <span class="cov7" title="10848">b := d.buf[d.i]
         d.i++
         if int(b) &gt; qpackForMaxBits </span><span class="cov1" title="1">{
                 return 0, 0, 0, 0, nil, ErrBadTag
         }</span>
-        <span class="cov7" title="10845">bitsPer = int(b)
+        <span class="cov7" title="10847">bitsPer = int(b)
         mn64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
-        <span class="cov7" title="10845">d.i += nr
+        <span class="cov7" title="10847">d.i += nr
         if k&amp;(1&lt;&lt;2) != 0 </span><span class="cov5" title="707">{
                 signedMin = zigzagDecode64(mn64)
-        }</span> else<span class="cov7" title="10138"> {
+        }</span> else<span class="cov7" title="10140"> {
                 unsignedMin = mn64
         }</span>
-        <span class="cov7" title="10845">n64, nr := readUvarint(d.buf[d.i:])
+        <span class="cov7" title="10847">n64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
-        <span class="cov7" title="10845">d.i += nr
+        <span class="cov7" title="10847">d.i += nr
         if !d.colLenOK(n64) </span><span class="cov1" title="2">{
                 return 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
@@ -12155,28 +12181,34 @@ func (d *Decoder) readPackedForHeader(expectKind byte) (bitsPer int, unsignedMin
         // then `d.buf[d.i : d.i+bodyBytes]` panics with a reverse-range
         // slice. Same shape as the Skip-path overflow fixed earlier;
         // applies to the body-reading path here too.
-        <span class="cov7" title="10843">rem := uint64(len(d.buf) - d.i)
-        if bitsPer &gt; 0 &amp;&amp; n64 &gt; rem*8/uint64(bitsPer) </span><span class="cov1" title="1">{
-                return 0, 0, 0, 0, nil, ErrShortBuffer
+        <span class="cov7" title="10845">rem := uint64(len(d.buf) - d.i)
+        if bitsPer &gt; 0 </span><span class="cov7" title="10763">{
+                if n64 &gt; rem*8/uint64(bitsPer) </span><span class="cov1" title="1">{
+                        return 0, 0, 0, 0, nil, ErrShortBuffer
+                }</span>
+        } else<span class="cov3" title="82"> if n64 &gt; qpackMaxStandaloneCount </span><span class="cov1" title="1">{
+                // bitsPer == 0 (constant slice): empty body, so the per-element
+                // bound above does not apply. Cap an implausible standalone count.
+                return 0, 0, 0, 0, nil, ErrInvalidLength
         }</span>
-        <span class="cov7" title="10842">n = int(n64)
+        <span class="cov7" title="10843">n = int(n64)
         bodyBytes := int((n64*uint64(bitsPer) + 7) / 8)
         body = d.buf[d.i : d.i+bodyBytes]
         d.i += bodyBytes
         return bitsPer, unsignedMin, signedMin, n, body, nil</span>
 }
 
-func (d *Decoder) readPackedForUint64Slice() ([]uint64, error) <span class="cov7" title="10092">{
+func (d *Decoder) readPackedForUint64Slice() ([]uint64, error) <span class="cov7" title="10093">{
         bitsPer, mn, _, n, body, err := d.readPackedForHeader(qpackKindUint64)
         if err != nil </span><span class="cov1" title="1">{
                 return nil, err
         }</span>
-        <span class="cov7" title="10091">out := make([]uint64, n)
-        if bitsPer == 0 </span><span class="cov3" title="27">{
-                for i := range out </span><span class="cov5" title="806">{
+        <span class="cov7" title="10092">out := make([]uint64, n)
+        if bitsPer == 0 </span><span class="cov3" title="28">{
+                for i := range out </span><span class="cov5" title="810">{
                         out[i] = mn
                 }</span>
-                <span class="cov3" title="27">return out, nil</span>
+                <span class="cov3" title="28">return out, nil</span>
         }
         <span class="cov7" title="10064">bitpack.Unpack(out, body, bitsPer)
         if mn != 0 </span><span class="cov7" title="10060">{
@@ -12239,7 +12271,7 @@ const (
 // estimates and encode attempts, so a column where FSST is evaluated but not
 // chosen does not re-allocate the trainer's counter + first-byte index on every
 // call (the source of the OptCompression encode-allocation regression).
-var fsstBuilderPool = sync.Pool{New: func() any <span class="cov2" title="8">{ return fsst.NewBuilder() }</span>}
+var fsstBuilderPool = sync.Pool{New: func() any <span class="cov2" title="10">{ return fsst.NewBuilder() }</span>}
 
 // tryWriteStringColumnFSST trains an FSST table on strs, compresses them, and
 // emits a tagColStrFSST block — but only when the block is strictly smaller
@@ -12999,36 +13031,41 @@ func (e *Encoder) writePackedPForInt64Slice(s []int64, mn int64, b int) <span cl
 
 // readPackedPForInt64Slice decodes a tagPackPFor int64 payload (tag already
 // consumed) into a []int64.
-func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) <span class="cov2" title="5">{
+func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) <span class="cov2" title="6">{
         if d.i+1 &gt; len(d.buf) || d.buf[d.i] != qpackKindInt64 </span><span class="cov0" title="0">{
                 return nil, ErrTypeMismatch
         }</span>
-        <span class="cov2" title="5">d.i++
+        <span class="cov2" title="6">d.i++
         n64, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return nil, ErrInvalidLength
         }</span>
-        <span class="cov2" title="5">d.i += nr
+        <span class="cov2" title="6">d.i += nr
         if !d.colLenOK(n64) </span><span class="cov0" title="0">{
                 return nil, ErrInvalidLength
         }</span>
-        <span class="cov2" title="5">if d.i &gt;= len(d.buf) </span><span class="cov0" title="0">{
+        <span class="cov2" title="6">if d.i &gt;= len(d.buf) </span><span class="cov0" title="0">{
                 return nil, ErrShortBuffer
         }</span>
-        <span class="cov2" title="5">b := int(d.buf[d.i])
+        <span class="cov2" title="6">b := int(d.buf[d.i])
         d.i++
         if b &gt; qpackForMaxBits </span><span class="cov0" title="0">{
                 return nil, ErrBadTag
         }</span>
-        <span class="cov2" title="5">mz, nr := readUvarint(d.buf[d.i:])
+        <span class="cov2" title="6">mz, nr := readUvarint(d.buf[d.i:])
         if nr &lt;= 0 </span><span class="cov0" title="0">{
                 return nil, ErrInvalidLength
         }</span>
-        <span class="cov2" title="5">d.i += nr
+        <span class="cov2" title="6">d.i += nr
         mnU := uint64(zigzagDecode64(mz))
         rem := uint64(len(d.buf) - d.i)
-        if b &gt; 0 &amp;&amp; n64 &gt; rem*8/uint64(b) </span><span class="cov0" title="0">{
-                return nil, ErrShortBuffer
+        if b &gt; 0 </span><span class="cov1" title="4">{
+                if n64 &gt; rem*8/uint64(b) </span><span class="cov0" title="0">{
+                        return nil, ErrShortBuffer
+                }</span>
+        } else<span class="cov1" title="2"> if n64 &gt; qpackMaxStandaloneCount </span><span class="cov1" title="1">{
+                // b == 0 (constant base): empty packed body, no per-element bound.
+                return nil, ErrInvalidLength
         }</span>
         <span class="cov2" title="5">n := int(n64)
         bodyBytes := (n*b + 7) &gt;&gt; 3
@@ -13110,8 +13147,13 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) <span class="cov
         }</span>
         <span class="cov2" title="7">d.i += nr
         rem := uint64(len(d.buf) - d.i)
-        if b &gt; 0 &amp;&amp; n64 &gt; rem*8/uint64(b) </span><span class="cov0" title="0">{
-                return nil, ErrShortBuffer
+        if b &gt; 0 </span><span class="cov2" title="7">{
+                if n64 &gt; rem*8/uint64(b) </span><span class="cov0" title="0">{
+                        return nil, ErrShortBuffer
+                }</span>
+        } else<span class="cov0" title="0"> if n64 &gt; qpackMaxStandaloneCount </span><span class="cov0" title="0">{
+                // b == 0 (constant base): empty packed body, no per-element bound.
+                return nil, ErrInvalidLength
         }</span>
         <span class="cov2" title="7">n := int(n64)
         bodyBytes := (n*b + 7) &gt;&gt; 3
@@ -13376,10 +13418,10 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool <span class="cov5
                 return false
         }</span>
         <span class="cov5" title="568">m := e.state.strDictMap
-        if m == nil </span><span class="cov3" title="68">{
+        if m == nil </span><span class="cov3" title="73">{
                 m = make(map[string]uint32, qpackStrDictMaxDistinct)
                 e.state.strDictMap = m
-        }</span> else<span class="cov4" title="500"> {
+        }</span> else<span class="cov4" title="495"> {
                 clear(m)
         }</span>
         <span class="cov5" title="568">table := e.state.colDictTable[:0]
@@ -14083,23 +14125,23 @@ type buildCtx struct {
 // is safe to call from concurrent goroutines. The fast path is a single
 // sync.Map.Load; the slow path constructs a builder ctx and recurses
 // through descBuild.
-func descOf(t reflect.Type) (*typeDesc, error) <span class="cov10" title="1599643">{
-        if v, ok := typeCache.Load(t); ok </span><span class="cov9" title="1599391">{
+func descOf(t reflect.Type) (*typeDesc, error) <span class="cov10" title="1599771">{
+        if v, ok := typeCache.Load(t); ok </span><span class="cov9" title="1599516">{
                 return v.(*typeDesc), nil
         }</span>
-        <span class="cov4" title="252">return descBuild(t, &amp;buildCtx{inProgress: make(map[reflect.Type]*typeDesc)})</span>
+        <span class="cov4" title="255">return descBuild(t, &amp;buildCtx{inProgress: make(map[reflect.Type]*typeDesc)})</span>
 }
 
 // descBuild is the recursion-safe lookup used from inside fillDesc. It
 // MUST be called with a non-nil ctx so type cycles can be broken.
-func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) <span class="cov5" title="997">{
-        if v, ok := typeCache.Load(t); ok </span><span class="cov5" title="588">{
+func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) <span class="cov5" title="1009">{
+        if v, ok := typeCache.Load(t); ok </span><span class="cov5" title="597">{
                 return v.(*typeDesc), nil
         }</span>
-        <span class="cov4" title="409">if td, ok := ctx.inProgress[t]; ok </span><span class="cov2" title="8">{
+        <span class="cov4" title="412">if td, ok := ctx.inProgress[t]; ok </span><span class="cov2" title="8">{
                 return td, nil
         }</span>
-        <span class="cov4" title="401">td := &amp;typeDesc{rType: t, kind: t.Kind()}
+        <span class="cov4" title="404">td := &amp;typeDesc{rType: t, kind: t.Kind()}
         ctx.inProgress[t] = td
         err := fillDesc(td, t, ctx)
         delete(ctx.inProgress, t)
@@ -14110,7 +14152,7 @@ func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) <span class="co
         // type while we were building, prefer theirs; our td stays alive only
         // as long as our caller's closures keep it referenced. Either way,
         // both descriptors encode identical wire output.
-        <span class="cov4" title="401">actual, _ := typeCache.LoadOrStore(t, td)
+        <span class="cov4" title="404">actual, _ := typeCache.LoadOrStore(t, td)
         return actual.(*typeDesc), nil</span>
 }
 
@@ -14118,7 +14160,7 @@ func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) <span class="co
 // under the same buildCtx so cycles in t are broken via ctx.inProgress.
 // Encoders/decoders captured during this pass dereference td.encode /
 // td.decode at runtime — by then fillDesc has assigned them.
-func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error <span class="cov4" title="401">{
+func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error <span class="cov4" title="404">{
         // Special-case time.Time → timestamp tag.
         if t == reflect.TypeFor[time.Time]() </span><span class="cov1" title="1">{
                 td.encode = encodeTime
@@ -14126,20 +14168,20 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error <span class="co
                 return nil
         }</span>
         // Marshaler interface check (pointer receiver too).
-        <span class="cov4" title="400">marshalerType := reflect.TypeFor[Marshaler]()
+        <span class="cov4" title="403">marshalerType := reflect.TypeFor[Marshaler]()
         unmarshalerType := reflect.TypeFor[Unmarshaler]()
         if reflect.PointerTo(t).Implements(marshalerType) </span><span class="cov1" title="1">{
                 td.marshalerKind = 1
                 td.encode = encodeMarshaler(t)
         }</span>
-        <span class="cov4" title="400">if reflect.PointerTo(t).Implements(unmarshalerType) </span><span class="cov1" title="1">{
+        <span class="cov4" title="403">if reflect.PointerTo(t).Implements(unmarshalerType) </span><span class="cov1" title="1">{
                 td.decode = decodeUnmarshaler(t)
         }</span>
-        <span class="cov4" title="400">if td.encode != nil &amp;&amp; td.decode != nil </span><span class="cov1" title="1">{
+        <span class="cov4" title="403">if td.encode != nil &amp;&amp; td.decode != nil </span><span class="cov1" title="1">{
                 return nil
         }</span>
 
-        <span class="cov4" title="399">switch t.Kind() </span>{
+        <span class="cov4" title="402">switch t.Kind() </span>{
         case reflect.Bool:<span class="cov1" title="2">
                 td.encode = encodeBool
                 td.decode = decodeBool</span>
@@ -14241,21 +14283,21 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error <span class="co
         case reflect.Interface:<span class="cov1" title="1">
                 td.encode = encodeIface
                 td.decode = decodeIface</span>
-        case reflect.Struct:<span class="cov4" title="216">
+        case reflect.Struct:<span class="cov4" title="219">
                 fields, err := buildStructFields(t, ctx)
                 if err != nil </span><span class="cov0" title="0">{
                         return err
                 }</span>
-                <span class="cov4" title="216">td.fields = fields
+                <span class="cov4" title="219">td.fields = fields
                 td.encode = encodeStruct(td)
                 td.decode = decodeStruct(td)</span>
         default:<span class="cov0" title="0">
                 return ErrUnsupported</span>
         }
-        <span class="cov4" title="399">return nil</span>
+        <span class="cov4" title="402">return nil</span>
 }
 
-func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) <span class="cov4" title="216">{
+func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) <span class="cov4" title="219">{
         return appendStructFields(nil, t, 0, ctx)
 }</span>
 
@@ -14265,11 +14307,11 @@ func buildStructFields(t reflect.Type, ctx *buildCtx) ([]fieldDesc, error) <span
 // recursively into the parent's wire layout — their inner fields
 // appear at the parent level just like encoding/json. A field with
 // an explicit qdf / json tag of "-" is skipped at any depth.
-func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buildCtx) ([]fieldDesc, error) <span class="cov4" title="220">{
-        if out == nil </span><span class="cov4" title="216">{
+func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buildCtx) ([]fieldDesc, error) <span class="cov4" title="223">{
+        if out == nil </span><span class="cov4" title="219">{
                 out = make([]fieldDesc, 0, t.NumField())
         }</span>
-        <span class="cov4" title="220">for sf := range t.Fields() </span><span class="cov5" title="616">{
+        <span class="cov4" title="223">for sf := range t.Fields() </span><span class="cov5" title="625">{
                 // Anonymous embedded struct → flatten. This covers the
                 // common encoding/json idiom where an unexported lower-case
                 // type with exported fields is embedded; silently dropping
@@ -14293,19 +14335,19 @@ func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buil
                         <span class="cov1" title="4">out = nested
                         continue</span>
                 }
-                <span class="cov5" title="612">if !sf.IsExported() </span><span class="cov0" title="0">{
+                <span class="cov5" title="621">if !sf.IsExported() </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov5" title="612">name := sf.Name
-                if tag, ok := sf.Tag.Lookup("qdf"); ok </span><span class="cov4" title="555">{
+                <span class="cov5" title="621">name := sf.Name
+                if tag, ok := sf.Tag.Lookup("qdf"); ok </span><span class="cov4" title="563">{
                         if tag == "-" </span><span class="cov1" title="1">{
                                 continue</span>
                         }
-                        <span class="cov4" title="554">parts := strings.Split(tag, ",")
-                        if parts[0] != "" </span><span class="cov4" title="554">{
+                        <span class="cov4" title="562">parts := strings.Split(tag, ",")
+                        if parts[0] != "" </span><span class="cov4" title="562">{
                                 name = parts[0]
                         }</span>
-                } else<span class="cov3" title="57"> if tag, ok := sf.Tag.Lookup("json"); ok </span><span class="cov1" title="1">{
+                } else<span class="cov3" title="58"> if tag, ok := sf.Tag.Lookup("json"); ok </span><span class="cov1" title="1">{
                         parts := strings.Split(tag, ",")
                         if parts[0] == "-" </span><span class="cov0" title="0">{
                                 continue</span>
@@ -14314,11 +14356,11 @@ func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buil
                                 name = parts[0]
                         }</span>
                 }
-                <span class="cov5" title="611">fd, err := descBuild(sf.Type, ctx)
+                <span class="cov5" title="620">fd, err := descBuild(sf.Type, ctx)
                 if err != nil </span><span class="cov0" title="0">{
                         return nil, err
                 }</span>
-                <span class="cov5" title="611">out = append(out, fieldDesc{
+                <span class="cov5" title="620">out = append(out, fieldDesc{
                         name:         name,
                         offset:       base + sf.Offset,
                         desc:         fd,
@@ -14328,13 +14370,13 @@ func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buil
         }
         // stable order = source order (no sort) — matches encoding/json behavior
         // for fixed-layout decode.
-        <span class="cov4" title="220">return out, nil</span>
+        <span class="cov4" title="223">return out, nil</span>
 }
 
-func precomputeFixstrHeader(name string) []byte <span class="cov5" title="611">{
+func precomputeFixstrHeader(name string) []byte <span class="cov5" title="620">{
         n := len(name)
         switch </span>{
-        case n &lt;= int(tagFixstrMask):<span class="cov5" title="611">
+        case n &lt;= int(tagFixstrMask):<span class="cov5" title="620">
                 out := make([]byte, 1+n)
                 out[0] = tagFixstr | byte(n)
                 copy(out[1:], name)
@@ -14364,7 +14406,7 @@ func precomputeFixstrHeader(name string) []byte <span class="cov5" title="611">{
         }
 }
 
-func precomputeInternStrHeader(name string) []byte <span class="cov5" title="611">{
+func precomputeInternStrHeader(name string) []byte <span class="cov5" title="620">{
         out := []byte{tagInternStr}
         out = appendUvarint(out, uint64(len(name)))
         out = append(out, name...)
@@ -14411,7 +14453,7 @@ func encodeIntN(sz int) func(*Encoder, unsafe.Pointer) error <span class="cov2" 
         case 4:<span class="cov1" title="1">
                 return func(e *Encoder, p unsafe.Pointer) error </span><span class="cov3" title="52">{ e.WriteInt(int64(*(*int32)(p))); return nil }</span>
         default:<span class="cov1" title="4">
-                return func(e *Encoder, p unsafe.Pointer) error </span><span class="cov8" title="973591">{ e.WriteInt(*(*int64)(p)); return nil }</span>
+                return func(e *Encoder, p unsafe.Pointer) error </span><span class="cov8" title="973655">{ e.WriteInt(*(*int64)(p)); return nil }</span>
         }
 }
 func decodeIntN(sz int) func(*Decoder, unsafe.Pointer) error <span class="cov2" title="7">{
@@ -14444,12 +14486,12 @@ func decodeIntN(sz int) func(*Decoder, unsafe.Pointer) error <span class="cov2" 
                         return nil</span>
                 }
         default:<span class="cov1" title="4">
-                return func(d *Decoder, p unsafe.Pointer) error </span><span class="cov8" title="2955045">{
+                return func(d *Decoder, p unsafe.Pointer) error </span><span class="cov8" title="2955143">{
                         v, err := d.ReadInt()
-                        if err != nil </span><span class="cov5" title="2173">{
+                        if err != nil </span><span class="cov5" title="2207">{
                                 return err
                         }</span>
-                        <span class="cov8" title="2952872">*(*int64)(p) = v
+                        <span class="cov8" title="2952936">*(*int64)(p) = v
                         return nil</span>
                 }
         }
@@ -14527,13 +14569,13 @@ func decodeF64(d *Decoder, p unsafe.Pointer) error <span class="cov7" title="561
         return nil</span>
 }
 
-func encodeString(e *Encoder, p unsafe.Pointer) error <span class="cov8" title="997471">{ e.WriteString(*(*string)(p)); return nil }</span>
-func decodeString(d *Decoder, p unsafe.Pointer) error <span class="cov8" title="2039910">{
+func encodeString(e *Encoder, p unsafe.Pointer) error <span class="cov8" title="997599">{ e.WriteString(*(*string)(p)); return nil }</span>
+func decodeString(d *Decoder, p unsafe.Pointer) error <span class="cov8" title="2040004">{
         s, err := d.ReadString()
-        if err != nil </span><span class="cov5" title="2116">{
+        if err != nil </span><span class="cov5" title="2112">{
                 return err
         }</span>
-        <span class="cov8" title="2037794">*(*string)(p) = s
+        <span class="cov8" title="2037892">*(*string)(p) = s
         return nil</span>
 }
 
@@ -14738,11 +14780,11 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
                 var keyHolder, valHolder reflect.Value
                 var kp, vp unsafe.Pointer
                 var pooled bool
-                if e.state != nil </span><span class="cov3" title="163">{
+                if e.state != nil </span><span class="cov3" title="164">{
                         keyHolder, valHolder, vp, pooled = e.state.mapEnc.acquire(keyType, valType)
                         kp = unsafe.Pointer(keyHolder.UnsafeAddr())
                         defer e.state.mapEnc.release(pooled)
-                }</span> else<span class="cov1" title="1"> {
+                }</span> else<span class="cov0" title="0"> {
                         keyHolder = reflect.New(keyType).Elem()
                         valHolder = reflect.New(valType).Elem()
                         kp = unsafe.Pointer(keyHolder.UnsafeAddr())
@@ -14802,7 +14844,7 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
         // struct value type. The linear scan is O(n²) but n (a key-set) is tiny.
         <span class="cov4" title="316">hasAll := func(order []string) bool </span><span class="cov4" title="304">{
                 it := rv.MapRange()
-                for it.Next() </span><span class="cov4" title="679">{
+                for it.Next() </span><span class="cov4" title="673">{
                         keyHolder.SetIterKey(it) // SetIterKey reuses the holder; it.Key() would alloc
                         k := keyHolder.String()
                         found := slices.Contains(order, k)
@@ -14977,9 +15019,9 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
         }
 }
 
-func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error <span class="cov3" title="216">{
+func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error <span class="cov3" title="219">{
         fields := td.fields
-        return func(e *Encoder, p unsafe.Pointer) error </span><span class="cov8" title="994867">{
+        return func(e *Encoder, p unsafe.Pointer) error </span><span class="cov8" title="994931">{
                 e.writeHeader()
                 n := len(fields)
                 // Dense mode: route through the tagMapShape path when
@@ -14990,29 +15032,29 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error <span class
                 // falls back to the tagMap8/16/32 encoding so the rest of the
                 // state stack (intern + Markov / MTF / Pair) still applies
                 // per-field.
-                if e.opts.Has(OptDense) &amp;&amp; e.state != nil &amp;&amp; e.opts.Has(OptShapeIntern) </span><span class="cov7" title="186839">{
-                        if id := e.state.shapeForType(td); id != 0 </span><span class="cov6" title="48927">{
+                if e.opts.Has(OptDense) &amp;&amp; e.state != nil &amp;&amp; e.opts.Has(OptShapeIntern) </span><span class="cov7" title="186903">{
+                        if id := e.state.shapeForType(td); id != 0 </span><span class="cov6" title="48990">{
                                 e.buf = append(e.buf, tagMapShape)
                                 e.buf = appendUvarint(e.buf, uint64(id))
-                                for i := range fields </span><span class="cov7" title="144460">{
+                                for i := range fields </span><span class="cov7" title="144649">{
                                         f := &amp;fields[i]
                                         if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil </span><span class="cov5" title="10000">{
                                                 return err
                                         }</span>
                                 }
-                                <span class="cov6" title="38927">return nil</span>
+                                <span class="cov6" title="38990">return nil</span>
                         }
                         // First time: declare and emit keys via the standard intern path.
-                        <span class="cov7" title="137912">shapeID := e.state.shapeDeclareEnc()
+                        <span class="cov7" title="137913">shapeID := e.state.shapeDeclareEnc()
                         e.state.shapeBindType(td, shapeID)
                         st := e.state
                         e.buf = append(e.buf, tagMapShape)
                         e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
                         e.buf = appendUvarint(e.buf, uint64(n))
                         pairOn := e.opts.Has(OptPairPred)
-                        for i := range fields </span><span class="cov7" title="533762">{
+                        for i := range fields </span><span class="cov7" title="533765">{
                                 f := &amp;fields[i]
-                                if len(f.name) &gt;= e.minIntern &amp;&amp; int(st.internLoad) &lt; e.maxStateEntries </span><span class="cov7" title="386778">{
+                                if len(f.name) &gt;= e.minIntern &amp;&amp; int(st.internLoad) &lt; e.maxStateEntries </span><span class="cov7" title="386779">{
                                         if id, ok := st.lookupOrAssign(f.name); ok </span><span class="cov0" title="0">{
                                                 if st.lastID == id </span><span class="cov0" title="0">{
                                                         e.buf = append(e.buf, tagStateRepeat)
@@ -15022,25 +15064,25 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error <span class
                                                 } else<span class="cov0" title="0"> {
                                                         e.emitStateRef(id)
                                                 }</span>
-                                        } else<span class="cov7" title="386778"> {
+                                        } else<span class="cov7" title="386779"> {
                                                 e.buf = append(e.buf, f.preInternStr...)
                                                 if st.lastID != lruInvalidID &amp;&amp; pairOn </span><span class="cov7" title="257199">{
                                                         st.pairRecord(st.lastID, id)
                                                 }</span>
-                                                <span class="cov7" title="386778">st.lastID = id</span>
+                                                <span class="cov7" title="386779">st.lastID = id</span>
                                         }
-                                } else<span class="cov7" title="146984"> {
+                                } else<span class="cov7" title="146986"> {
                                         e.buf = append(e.buf, f.preFast...)
                                         st.lastID = lruInvalidID
                                 }</span>
                         }
-                        <span class="cov7" title="137912">for i := range fields </span><span class="cov7" title="533762">{
+                        <span class="cov7" title="137913">for i := range fields </span><span class="cov7" title="533765">{
                                 f := &amp;fields[i]
                                 if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil </span><span class="cov1" title="1">{
                                         return err
                                 }</span>
                         }
-                        <span class="cov7" title="137911">return nil</span>
+                        <span class="cov7" title="137912">return nil</span>
                 }
                 // Dense without OptShapeIntern: tagMap8/16/32 header + per-field
                 // intern via WriteString. Keys still go through the intern
@@ -15093,7 +15135,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error <span class
         }
 }
 
-func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error <span class="cov3" title="216">{
+func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error <span class="cov3" title="219">{
         // Build a name → field-index lookup so decode order doesn't have to
         // match encode order. Sorted lookup keeps it cache-friendly.
         type idx struct {
@@ -15101,12 +15143,12 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error <span class
                 f    *fieldDesc
         }
         indexed := make([]idx, len(td.fields))
-        for i := range td.fields </span><span class="cov4" title="611">{
+        for i := range td.fields </span><span class="cov4" title="620">{
                 indexed[i] = idx{td.fields[i].name, &amp;td.fields[i]}
         }</span>
         // Linear scan is fine for ≤16 fields; for wide structs (rare), we use a
         // small map.
-        <span class="cov3" title="216">useMap := len(indexed) &gt; 16
+        <span class="cov3" title="219">useMap := len(indexed) &gt; 16
         var byName map[string]*fieldDesc
         if useMap </span><span class="cov1" title="2">{
                 byName = make(map[string]*fieldDesc, len(indexed))
@@ -15115,57 +15157,57 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error <span class
                 }</span>
         }
 
-        <span class="cov3" title="216">resolveField := func(name string) *fieldDesc </span><span class="cov5" title="2925">{
+        <span class="cov3" title="219">resolveField := func(name string) *fieldDesc </span><span class="cov5" title="2856">{
                 if useMap </span><span class="cov0" title="0">{
                         return byName[name]
                 }</span>
-                <span class="cov5" title="2925">for j := range indexed </span><span class="cov5" title="8146">{
-                        if indexed[j].name == name </span><span class="cov3" title="114">{
+                <span class="cov5" title="2856">for j := range indexed </span><span class="cov5" title="7973">{
+                        if indexed[j].name == name </span><span class="cov3" title="54">{
                                 return indexed[j].f
                         }</span>
                 }
-                <span class="cov5" title="2811">return nil</span>
+                <span class="cov5" title="2802">return nil</span>
         }
 
-        <span class="cov3" title="216">return func(d *Decoder, p unsafe.Pointer) error </span><span class="cov8" title="2040758">{
+        <span class="cov3" title="219">return func(d *Decoder, p unsafe.Pointer) error </span><span class="cov8" title="2040822">{
                 tag, err := d.peekTag()
                 if err != nil </span><span class="cov4" title="298">{
                         return err
                 }</span>
-                <span class="cov8" title="2040460">if tag == tagNil </span><span class="cov0" title="0">{
+                <span class="cov8" title="2040524">if tag == tagNil </span><span class="cov0" title="0">{
                         d.i++
                         return nil
                 }</span>
                 // tagMapShape path: structs encoded via the Dense shape codec.
-                <span class="cov8" title="2040460">if tag == tagMapShape </span><span class="cov6" title="61994">{
+                <span class="cov8" title="2040524">if tag == tagMapShape </span><span class="cov6" title="62058">{
                         d.i++
                         shapeID, n := readUvarint(d.buf[d.i:])
                         if n &lt;= 0 </span><span class="cov1" title="4">{
                                 return ErrInvalidLength
                         }</span>
-                        <span class="cov6" title="61990">if shapeID &gt; uint64(^uint32(0)) </span><span class="cov0" title="0">{
+                        <span class="cov6" title="62054">if shapeID &gt; uint64(^uint32(0)) </span><span class="cov0" title="0">{
                                 return ErrUnknownStateID // would truncate on the uint32 cast below
                         }</span>
-                        <span class="cov6" title="61990">d.i += n
+                        <span class="cov6" title="62054">d.i += n
                         if d.state == nil </span><span class="cov0" title="0">{
                                 d.state = newDecState()
                         }</span>
-                        <span class="cov6" title="61990">var fieldNames []string
-                        if shapeID == 0 </span><span class="cov6" title="35231">{
+                        <span class="cov6" title="62054">var fieldNames []string
+                        if shapeID == 0 </span><span class="cov6" title="35232">{
                                 // Declaration: read count, then N keys, then N values.
                                 cnt64, n := readUvarint(d.buf[d.i:])
                                 if n &lt;= 0 </span><span class="cov1" title="4">{
                                         return ErrInvalidLength
                                 }</span>
-                                <span class="cov6" title="35227">d.i += n
+                                <span class="cov6" title="35228">d.i += n
                                 cnt := int(cnt64)
                                 if err := d.CheckLength(cnt, 1); err != nil </span><span class="cov2" title="8">{
                                         return err
                                 }</span>
-                                <span class="cov6" title="35219">sh := d.state.shapeDeclare()
+                                <span class="cov6" title="35220">sh := d.state.shapeDeclare()
                                 sh.keyIDs = make([]uint32, 0, cnt)
                                 keys := make([]string, 0, cnt)
-                                for range cnt </span><span class="cov7" title="122955">{
+                                for range cnt </span><span class="cov7" title="122958">{
                                         kb, err := d.readStringBytes()
                                         if err != nil </span><span class="cov3" title="75">{
                                                 return err
@@ -15175,45 +15217,45 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error <span class
                                         // variants, so we capture it as the key's intern ID
                                         // when available (purely informational; we look up
                                         // by name string anyway).
-                                        <span class="cov7" title="122880">keys = append(keys, d.keyCache.Make(kb))
-                                        if d.state.lastID != lruInvalidID </span><span class="cov6" title="78917">{
+                                        <span class="cov7" title="122883">keys = append(keys, d.keyCache.Make(kb))
+                                        if d.state.lastID != lruInvalidID </span><span class="cov6" title="78918">{
                                                 sh.keyIDs = append(sh.keyIDs, d.state.lastID)
-                                        }</span> else<span class="cov6" title="43963"> {
+                                        }</span> else<span class="cov6" title="43965"> {
                                                 sh.keyIDs = append(sh.keyIDs, 0)
                                         }</span>
                                 }
                                 // Attach the field name slice to the shape entry by
                                 // stashing it after keyIDs: we reuse a small parallel
                                 // slice (the names) keyed by index.
-                                <span class="cov6" title="35144">sh.names = keys
+                                <span class="cov6" title="35145">sh.names = keys
                                 fieldNames = keys</span>
-                        } else<span class="cov6" title="26759"> {
+                        } else<span class="cov6" title="26822"> {
                                 sh := d.state.shapeLookup(uint32(shapeID))
                                 if sh == nil </span><span class="cov0" title="0">{
                                         return ErrUnknownStateID
                                 }</span>
-                                <span class="cov6" title="26759">fieldNames = sh.names</span>
+                                <span class="cov6" title="26822">fieldNames = sh.names</span>
                         }
-                        <span class="cov6" title="61903">cur := 0
-                        for _, name := range fieldNames </span><span class="cov7" title="223139">{
+                        <span class="cov6" title="61967">cur := 0
+                        for _, name := range fieldNames </span><span class="cov7" title="223331">{
                                 var fd *fieldDesc
-                                if cur &lt; len(indexed) &amp;&amp; indexed[cur].name == name </span><span class="cov7" title="222275">{
+                                if cur &lt; len(indexed) &amp;&amp; indexed[cur].name == name </span><span class="cov7" title="222467">{
                                         fd = indexed[cur].f
                                         cur++
                                 }</span> else<span class="cov4" title="864"> {
                                         fd = resolveField(name)
                                 }</span>
-                                <span class="cov7" title="223139">if fd == nil </span><span class="cov4" title="864">{
+                                <span class="cov7" title="223331">if fd == nil </span><span class="cov4" title="864">{
                                         if err := d.Skip(); err != nil </span><span class="cov3" title="134">{
                                                 return err
                                         }</span>
                                         <span class="cov4" title="730">continue</span>
                                 }
-                                <span class="cov7" title="222275">if err := fd.desc.decode(d, unsafe.Add(p, fd.offset)); err != nil </span><span class="cov2" title="15">{
+                                <span class="cov7" title="222467">if err := fd.desc.decode(d, unsafe.Add(p, fd.offset)); err != nil </span><span class="cov2" title="15">{
                                         return err
                                 }</span>
                         }
-                        <span class="cov6" title="61754">return nil</span>
+                        <span class="cov6" title="61818">return nil</span>
                 }
                 // tagMap8/16/32 path — used by Fast mode, by Dense without
                 // OptShapeIntern, and by any external encoder that does not
@@ -15228,26 +15270,26 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error <span class
                 // no map access. cur is left unchanged on a miss so a skipped unknown
                 // field doesn't desync the cursor for the following in-order fields.
                 <span class="cov8" title="1978183">cur := 0
-                for range n </span><span class="cov9" title="6447494">{
+                for range n </span><span class="cov9" title="6447455">{
                         kb, err := d.readStringBytes()
-                        if err != nil </span><span class="cov3" title="176">{
+                        if err != nil </span><span class="cov3" title="172">{
                                 return err
                         }</span>
-                        <span class="cov9" title="6447318">name := unsafestr.String(kb)
+                        <span class="cov9" title="6447283">name := unsafestr.String(kb)
                         var fd *fieldDesc
-                        if cur &lt; len(indexed) &amp;&amp; indexed[cur].name == name </span><span class="cov9" title="6445257">{
+                        if cur &lt; len(indexed) &amp;&amp; indexed[cur].name == name </span><span class="cov9" title="6445291">{
                                 fd = indexed[cur].f
                                 cur++
-                        }</span> else<span class="cov5" title="2061"> {
+                        }</span> else<span class="cov5" title="1992"> {
                                 fd = resolveField(name)
                         }</span>
-                        <span class="cov9" title="6447318">if fd == nil </span><span class="cov4" title="1947">{
+                        <span class="cov9" title="6447283">if fd == nil </span><span class="cov4" title="1938">{
                                 if err := d.Skip(); err != nil </span><span class="cov3" title="266">{
                                         return err
                                 }</span>
-                                <span class="cov4" title="1681">continue</span>
+                                <span class="cov4" title="1672">continue</span>
                         }
-                        <span class="cov9" title="6445371">if err := fd.desc.decode(d, unsafe.Add(p, fd.offset)); err != nil </span><span class="cov3" title="187">{
+                        <span class="cov9" title="6445345">if err := fd.desc.decode(d, unsafe.Add(p, fd.offset)); err != nil </span><span class="cov3" title="191">{
                                 return err
                         }</span>
                 }
@@ -15492,14 +15534,14 @@ func decodeUnmarshaler(t reflect.Type) func(*Decoder, unsafe.Pointer) error <spa
 }
 
 // encodeReflect is the entry point from Marshal. v can be any.
-func encodeReflect(e *Encoder, v any) error <span class="cov8" title="932882">{
+func encodeReflect(e *Encoder, v any) error <span class="cov8" title="932946">{
         if v == nil </span><span class="cov0" title="0">{
                 e.WriteNil()
                 return nil
         }</span>
         // Fast path for common primitive top-level encodings: skip the
         // descriptor lookup and the reflect.New copy.
-        <span class="cov8" title="932882">switch tv := v.(type) </span>{
+        <span class="cov8" title="932946">switch tv := v.(type) </span>{
         case bool:<span class="cov2" title="20">
                 e.WriteBool(tv)
                 return nil</span>
@@ -15525,7 +15567,7 @@ func encodeReflect(e *Encoder, v any) error <span class="cov8" title="932882">{
                 e.WriteBytes(tv)
                 return nil</span>
         }
-        <span class="cov8" title="929482">rv := reflect.ValueOf(v)
+        <span class="cov8" title="929546">rv := reflect.ValueOf(v)
         t := rv.Type()
         // Unwrap pointer once to match encoding/json behavior for *T. When the
         // caller passes a pointer we can skip the reflect.New copy because
@@ -15542,23 +15584,23 @@ func encodeReflect(e *Encoder, v any) error <span class="cov8" title="932882">{
                 }</span>
                 <span class="cov3" title="74">return td.encode(e, unsafe.Pointer(rv.Pointer()))</span>
         }
-        <span class="cov8" title="929399">td, err := descOf(t)
+        <span class="cov8" title="929463">td, err := descOf(t)
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
         // Value passed by-value: must copy to an addressable location to take
         // unsafe.Pointer of. One allocation.
-        <span class="cov8" title="929399">ptr := reflect.New(t)
+        <span class="cov8" title="929463">ptr := reflect.New(t)
         ptr.Elem().Set(rv)
         return td.encode(e, unsafe.Pointer(ptr.Pointer()))</span>
 }
 
-func decodeReflect(d *Decoder, out any) error <span class="cov8" title="669692">{
+func decodeReflect(d *Decoder, out any) error <span class="cov8" title="669756">{
         rv := reflect.ValueOf(out)
         if rv.Kind() != reflect.Pointer || rv.IsNil() </span><span class="cov0" title="0">{
                 return ErrTypeMismatch
         }</span>
-        <span class="cov8" title="669692">t := rv.Type().Elem()
+        <span class="cov8" title="669756">t := rv.Type().Elem()
         // A query (predicate pushdown / projection) is only meaningful for a
         // columnar slice payload. A non-slice target (single struct, scalar, map)
         // can never be columnar, so reject it before decoding. Non-columnar slice
@@ -15566,11 +15608,11 @@ func decodeReflect(d *Decoder, out any) error <span class="cov8" title="669692">
         if d.query != nil &amp;&amp; t.Kind() != reflect.Slice </span><span class="cov0" title="0">{
                 return &amp;QueryError{Op: "predicate pushdown", Err: ErrUnsupported}
         }</span>
-        <span class="cov8" title="669692">td, err := descOf(t)
+        <span class="cov8" title="669756">td, err := descOf(t)
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov8" title="669692">return td.decode(d, unsafe.Pointer(rv.Pointer()))</span>
+        <span class="cov8" title="669756">return td.decode(d, unsafe.Pointer(rv.Pointer()))</span>
 }
 
 // sliceHeader mirrors reflect.SliceHeader using unsafe.Pointer instead of
@@ -16336,12 +16378,12 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error <span class="cov5" t
         }
         <span class="cov4" title="211">return encodeSliceFloat64Impl(e, s)</span>
 }
-func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error <span class="cov4" title="544">{
+func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error <span class="cov4" title="518">{
         t, err := d.peekTag()
-        if err != nil </span><span class="cov1" title="2">{
+        if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov4" title="542">if t == tagPackRaw </span><span class="cov4" title="289">{
+        <span class="cov4" title="518">if t == tagPackRaw </span><span class="cov4" title="289">{
                 d.i++
                 v, err := d.readPackedFloat64Slice()
                 if err != nil </span><span class="cov0" title="0">{
@@ -16350,7 +16392,7 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error <span class="cov4" t
                 <span class="cov4" title="289">*(*[]float64)(p) = v
                 return nil</span>
         }
-        <span class="cov4" title="253">if t == tagPackGorilla </span><span class="cov1" title="3">{
+        <span class="cov4" title="229">if t == tagPackGorilla </span><span class="cov1" title="3">{
                 d.i++
                 v, err := d.readPackedGorillaFloat64Slice()
                 if err != nil </span><span class="cov0" title="0">{
@@ -16359,7 +16401,7 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error <span class="cov4" t
                 <span class="cov1" title="3">*(*[]float64)(p) = v
                 return nil</span>
         }
-        <span class="cov4" title="250">if t == tagPackALP </span><span class="cov3" title="36">{
+        <span class="cov4" title="226">if t == tagPackALP </span><span class="cov3" title="36">{
                 d.i++
                 v, err := d.readPackedALPFloat64Slice()
                 if err != nil </span><span class="cov0" title="0">{
@@ -16368,8 +16410,8 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error <span class="cov4" t
                 <span class="cov3" title="36">*(*[]float64)(p) = v
                 return nil</span>
         }
-        <span class="cov4" title="214">n, err := d.ReadArrayHeader()
-        if err != nil </span><span class="cov3" title="51">{
+        <span class="cov4" title="190">n, err := d.ReadArrayHeader()
+        if err != nil </span><span class="cov3" title="27">{
                 return err
         }</span>
         <span class="cov4" title="163">if err := d.CheckLength(n, 1); err != nil </span><span class="cov0" title="0">{
@@ -16671,30 +16713,30 @@ type mapHolderCache struct {
         busy   bool
 }
 
-func (c *mapHolderCache) acquire(kt, vt reflect.Type) (kh, vh reflect.Value, vp unsafe.Pointer, pooled bool) <span class="cov4" title="791">{
+func (c *mapHolderCache) acquire(kt, vt reflect.Type) (kh, vh reflect.Value, vp unsafe.Pointer, pooled bool) <span class="cov4" title="792">{
         if c.busy </span><span class="cov1" title="6">{
                 vh = reflect.New(vt).Elem()
                 return reflect.New(kt).Elem(), vh, unsafe.Pointer(vh.UnsafeAddr()), false
         }</span>
-        <span class="cov4" title="785">if c.kt != kt || c.vt != vt </span><span class="cov3" title="80">{
+        <span class="cov4" title="786">if c.kt != kt || c.vt != vt </span><span class="cov3" title="81">{
                 c.kt, c.vt = kt, vt
                 c.kh = reflect.New(kt).Elem()
                 c.vh = reflect.New(vt).Elem()
                 c.vp = unsafe.Pointer(c.vh.UnsafeAddr())
         }</span>
-        <span class="cov4" title="785">c.busy = true
+        <span class="cov4" title="786">c.busy = true
         return c.kh, c.vh, c.vp, true</span>
 }
 
-func (c *mapHolderCache) release(pooled bool) <span class="cov4" title="791">{
-        if pooled </span><span class="cov4" title="785">{
+func (c *mapHolderCache) release(pooled bool) <span class="cov4" title="792">{
+        if pooled </span><span class="cov4" title="786">{
                 c.busy = false
         }</span>
 }
 
 const lruInvalidID = ^uint32(0)
 
-func newEncState() *encState <span class="cov4" title="806">{
+func newEncState() *encState <span class="cov4" title="678">{
         // arena is zero-value initialised here — its slab is lazily
         // allocated on first Put (see internarena.Arena.Put).
         e := &amp;encState{
@@ -16704,10 +16746,10 @@ func newEncState() *encState <span class="cov4" title="806">{
         }
         // Prime ring with sentinels so a scan never matches id 0 by
         // accident before the ring has been written.
-        for i := range e.mruRing </span><span class="cov6" title="103168">{
+        for i := range e.mruRing </span><span class="cov6" title="86784">{
                 e.mruRing[i] = mruEmpty
         }</span>
-        <span class="cov4" title="806">return e</span>
+        <span class="cov4" title="678">return e</span>
 }
 
 // Soft caps on per-encoder state retention across Reset(). A single
@@ -16726,7 +16768,7 @@ const (
         maxRetainedShapeCap = 1024
 )
 
-func (e *encState) reset() <span class="cov7" title="381232">{
+func (e *encState) reset() <span class="cov7" title="373064">{
         // Intern table shrink. The flat hash table doubles when load
         // exceeds 0.5; long-running services that occasionally take a
         // burst payload would otherwise pin the high-water-mark table
@@ -16740,60 +16782,60 @@ func (e *encState) reset() <span class="cov7" title="381232">{
         // surviving aliased key would read garbage.
         if cap(e.internTable) &gt; maxRetainedIDs*2 </span><span class="cov0" title="0">{
                 e.internTable = make([]internSlot, internTableInitSize)
-        }</span> else<span class="cov7" title="381232"> {
+        }</span> else<span class="cov7" title="373064"> {
                 clear(e.internTable) // zero every slot (internSlot{} is the empty sentinel)
         }</span>
-        <span class="cov7" title="381232">e.internLoad = 0
+        <span class="cov7" title="373064">e.internLoad = 0
         e.arena.Reset() // Arena has its own watermark, see internarena.
 
         e.lastID = lruInvalidID
         e.lruHead = lruInvalidID
         if cap(e.lruLink) &gt; maxRetainedLRUCap </span><span class="cov1" title="4">{
                 e.lruLink = nil
-        }</span> else<span class="cov7" title="381228"> {
+        }</span> else<span class="cov7" title="373060"> {
                 e.lruLink = e.lruLink[:0]
         }</span>
 
         // pairPred slice: clear in place if under the cap (memclr-fast
         // because the empty sentinel is zero), drop the backing array
         // otherwise.
-        <span class="cov7" title="381232">if cap(e.pairPred) &gt; maxRetainedPairCap </span><span class="cov1" title="2">{
+        <span class="cov7" title="373064">if cap(e.pairPred) &gt; maxRetainedPairCap </span><span class="cov1" title="2">{
                 e.pairPred = nil
-        }</span> else<span class="cov7" title="381230"> {
+        }</span> else<span class="cov7" title="373062"> {
                 clear(e.pairPred)
         }</span>
 
-        <span class="cov7" title="381232">e.shapeCount = 0
+        <span class="cov7" title="373064">e.shapeCount = 0
         if cap(e.shapeBindings) &gt; maxRetainedShapeCap </span><span class="cov0" title="0">{
                 e.shapeBindings = nil
-        }</span> else<span class="cov7" title="381232"> {
+        }</span> else<span class="cov7" title="373064"> {
                 e.shapeBindings = e.shapeBindings[:0]
         }</span>
-        <span class="cov7" title="381232">e.lastShapeTd = nil
+        <span class="cov7" title="373064">e.lastShapeTd = nil
         e.lastShapeID = 0
         if cap(e.mapShapes) &gt; maxRetainedShapeCap </span><span class="cov0" title="0">{
                 e.mapShapes = nil
-        }</span> else<span class="cov7" title="381232"> {
+        }</span> else<span class="cov7" title="373064"> {
                 e.mapShapes = e.mapShapes[:0]
         }</span>
-        <span class="cov7" title="381232">e.lastMapShapeID = 0
+        <span class="cov7" title="373064">e.lastMapShapeID = 0
         e.lastMapShapeKeys = nil
         e.mapEnc = mapHolderCache{}
 
         if cap(e.colShapeNames) &gt; maxRetainedShapeCap </span><span class="cov0" title="0">{
                 e.colShapeNames = nil
                 e.colShapeKinds = nil
-        }</span> else<span class="cov7" title="381232"> {
+        }</span> else<span class="cov7" title="373064"> {
                 e.colShapeNames = e.colShapeNames[:0]
                 e.colShapeKinds = e.colShapeKinds[:0]
         }</span>
-        <span class="cov7" title="381232">if cap(e.colScratchI64) &gt; maxRetainedIDs </span><span class="cov1" title="3">{
+        <span class="cov7" title="373064">if cap(e.colScratchI64) &gt; maxRetainedIDs </span><span class="cov1" title="2">{
                 e.colScratchI64, e.colScratchU64, e.colScratchF64, e.colScratchBool = nil, nil, nil, nil
         }</span>
         // FSST compressed-bytes scratch can grow to the largest string column seen;
         // drop it past the retention cap so the pool does not pin multi-MB buffers
         // (mirrors the numeric scratch policy above).
-        <span class="cov7" title="381232">if cap(e.fsstScratch) &gt; maxRetainedIDs </span><span class="cov4" title="370">{
+        <span class="cov7" title="373064">if cap(e.fsstScratch) &gt; maxRetainedIDs </span><span class="cov4" title="370">{
                 e.fsstScratch = nil
                 e.fsstLens = nil
         }</span>
@@ -16801,44 +16843,44 @@ func (e *encState) reset() <span class="cov7" title="381232">{
         // the caller's string memory across a pool recycle, and strDictMap grows to
         // the largest column's distinct count. clear() drops the pinned headers;
         // the backings are dropped past the retention cap (same policy as above).
-        <span class="cov7" title="381232">if cap(e.colScratchStr) &gt; maxRetainedIDs </span><span class="cov1" title="3">{
+        <span class="cov7" title="373064">if cap(e.colScratchStr) &gt; maxRetainedIDs </span><span class="cov1" title="2">{
                 e.colScratchStr = nil
-        }</span> else<span class="cov7" title="381229"> {
+        }</span> else<span class="cov7" title="373062"> {
                 clear(e.colScratchStr)
                 e.colScratchStr = e.colScratchStr[:0]
         }</span>
-        <span class="cov7" title="381232">if cap(e.colDictTable) &gt; maxRetainedIDs </span><span class="cov0" title="0">{
+        <span class="cov7" title="373064">if cap(e.colDictTable) &gt; maxRetainedIDs </span><span class="cov0" title="0">{
                 e.colDictTable = nil
-        }</span> else<span class="cov7" title="381232"> {
+        }</span> else<span class="cov7" title="373064"> {
                 clear(e.colDictTable)
                 e.colDictTable = e.colDictTable[:0]
         }</span>
-        <span class="cov7" title="381232">if cap(e.colMaskScratch) &gt; maxRetainedIDs </span><span class="cov1" title="2">{
+        <span class="cov7" title="373064">if cap(e.colMaskScratch) &gt; maxRetainedIDs </span><span class="cov1" title="1">{
                 e.colMaskScratch = nil
-        }</span> else<span class="cov7" title="381230"> {
+        }</span> else<span class="cov7" title="373063"> {
                 e.colMaskScratch = e.colMaskScratch[:0]
         }</span>
-        <span class="cov7" title="381232">if len(e.strDictMap) &gt; 0 </span><span class="cov4" title="459">{
+        <span class="cov7" title="373064">if len(e.strDictMap) &gt; 0 </span><span class="cov4" title="457">{
                 clear(e.strDictMap)
         }</span>
 
         // Ring side-cache: re-prime with sentinels so post-reset emits
         // can't false-match a stale id 0.
-        <span class="cov7" title="381232">for i := range e.mruRing </span><span class="cov10" title="48797696">{
+        <span class="cov7" title="373064">for i := range e.mruRing </span><span class="cov10" title="47752192">{
                 e.mruRing[i] = mruEmpty
         }</span>
-        <span class="cov7" title="381232">e.mruHead = 0</span>
+        <span class="cov7" title="373064">e.mruHead = 0</span>
 }
 
 // shapeForType returns the wire shape ID bound to t in this encoder's
 // state, or 0 if none. Pair with shapeBindType after a declaration.
 //
 //go:nosplit
-func (e *encState) shapeForType(t *typeDesc) uint32 <span class="cov7" title="186839">{
-        if e.lastShapeTd == t &amp;&amp; e.lastShapeID != 0 </span><span class="cov6" title="48114">{
+func (e *encState) shapeForType(t *typeDesc) uint32 <span class="cov7" title="186903">{
+        if e.lastShapeTd == t &amp;&amp; e.lastShapeID != 0 </span><span class="cov6" title="48177">{
                 return e.lastShapeID
         }</span>
-        <span class="cov7" title="138725">for i := range e.shapeBindings </span><span class="cov4" title="1307">{
+        <span class="cov7" title="138726">for i := range e.shapeBindings </span><span class="cov4" title="1307">{
                 if e.shapeBindings[i].td == t </span><span class="cov4" title="813">{
                         id := e.shapeBindings[i].id
                         e.lastShapeTd = t
@@ -16846,10 +16888,10 @@ func (e *encState) shapeForType(t *typeDesc) uint32 <span class="cov7" title="18
                         return id
                 }</span>
         }
-        <span class="cov7" title="137912">return 0</span>
+        <span class="cov7" title="137913">return 0</span>
 }
 
-func (e *encState) shapeBindType(t *typeDesc, id uint32) <span class="cov7" title="137912">{
+func (e *encState) shapeBindType(t *typeDesc, id uint32) <span class="cov7" title="137913">{
         e.shapeBindings = append(e.shapeBindings, shapeBinding{td: t, id: id})
         e.lastShapeTd = t
         e.lastShapeID = id
@@ -16858,7 +16900,7 @@ func (e *encState) shapeBindType(t *typeDesc, id uint32) <span class="cov7" titl
 // shapeDeclareEnc reserves the next sequential wire ID and returns
 // it. Caller emits the keys on the wire; this side only tracks the
 // count to keep IDs aligned with the decoder.
-func (e *encState) shapeDeclareEnc() uint32 <span class="cov7" title="138135">{
+func (e *encState) shapeDeclareEnc() uint32 <span class="cov7" title="138136">{
         e.shapeCount++
         return e.shapeCount
 }</span>
@@ -16904,8 +16946,8 @@ func (e *encState) pairLookup(prev, curr uint32) bool <span class="cov5" title="
 // zero-fill — no extra initialisation needed.
 //
 //go:nosplit
-func (e *encState) pairEnsure(prev uint32) <span class="cov7" title="730325">{
-        for uint32(len(e.pairPred)) &lt;= prev </span><span class="cov6" title="19843">{
+func (e *encState) pairEnsure(prev uint32) <span class="cov7" title="730452">{
+        for uint32(len(e.pairPred)) &lt;= prev </span><span class="cov6" title="19318">{
                 e.pairPred = append(e.pairPred, pairPredEmpty)
         }</span>
 }
@@ -16915,7 +16957,7 @@ func (e *encState) pairEnsure(prev uint32) <span class="cov7" title="730325">{
 // only.
 //
 //go:nosplit
-func (e *encState) pairRecord(prev, curr uint32) <span class="cov7" title="730325">{
+func (e *encState) pairRecord(prev, curr uint32) <span class="cov7" title="730452">{
         e.pairEnsure(prev)
         e.pairPred[prev] = curr + 1
 }</span>
@@ -16926,7 +16968,7 @@ func (e *encState) pairRecord(prev, curr uint32) <span class="cov7" title="73032
 // guarantees id &lt; mruEmpty (maxStateEntries cap ensures this).
 //
 //go:nosplit
-func (e *encState) mruPush(id uint32) <span class="cov7" title="893924">{
+func (e *encState) mruPush(id uint32) <span class="cov7" title="894055">{
         e.mruRing[e.mruHead&amp;mruRingMask] = uint16(id)
         e.mruHead++
 }</span>
@@ -16989,35 +17031,35 @@ const lruLinkInvalid uint32 = 0xFFFF | (0xFFFF &lt;&lt; 16)
 const lruLink16Invalid uint32 = 0xFFFF // 16-bit sentinel masked into a uint32
 
 //go:nosplit
-func linkPrev(link uint32) uint32 <span class="cov8" title="1730771">{ return link &amp; 0xFFFF }</span>
+func linkPrev(link uint32) uint32 <span class="cov8" title="1730773">{ return link &amp; 0xFFFF }</span>
 
 //go:nosplit
-func linkNext(link uint32) uint32 <span class="cov8" title="1730771">{ return link &gt;&gt; 16 }</span>
+func linkNext(link uint32) uint32 <span class="cov8" title="1730773">{ return link &gt;&gt; 16 }</span>
 
 //go:nosplit
-func setLinkPrev(link, prev uint32) uint32 <span class="cov8" title="3811970">{ return (link &amp;^ 0xFFFF) | (prev &amp; 0xFFFF) }</span>
+func setLinkPrev(link, prev uint32) uint32 <span class="cov8" title="3812230">{ return (link &amp;^ 0xFFFF) | (prev &amp; 0xFFFF) }</span>
 
 //go:nosplit
-func setLinkNext(link, next uint32) uint32 <span class="cov8" title="1730771">{ return (link &amp; 0xFFFF) | ((next &amp; 0xFFFF) &lt;&lt; 16) }</span>
+func setLinkNext(link, next uint32) uint32 <span class="cov8" title="1730773">{ return (link &amp; 0xFFFF) | ((next &amp; 0xFFFF) &lt;&lt; 16) }</span>
 
 // lruAddFresh inserts a brand-new ID (just assigned) at the head of
 // the LRU. Caller must have ensured id == len(ids)-1 (i.e. ids assigns
 // sequentially starting from 0). Also records the emit in the MRU
 // ring so the rank-discovery side-cache reflects the new chain head.
-func (e *encState) lruAddFresh(id uint32) <span class="cov7" title="829069">{
-        for uint32(len(e.lruLink)) &lt;= id </span><span class="cov7" title="829069">{
+func (e *encState) lruAddFresh(id uint32) <span class="cov7" title="829198">{
+        for uint32(len(e.lruLink)) &lt;= id </span><span class="cov7" title="829198">{
                 e.lruLink = append(e.lruLink, lruLinkInvalid)
         }</span>
-        <span class="cov7" title="829069">head := e.lruHead
+        <span class="cov7" title="829198">head := e.lruHead
         // id.prev = invalid, id.next = head
-        if head == lruInvalidID </span><span class="cov7" title="147985">{
+        if head == lruInvalidID </span><span class="cov7" title="147986">{
                 e.lruLink[id] = lruLinkInvalid
-        }</span> else<span class="cov7" title="681084"> {
+        }</span> else<span class="cov7" title="681212"> {
                 e.lruLink[id] = lruLink16Invalid | (head &lt;&lt; 16)
                 // head.prev = id
                 e.lruLink[head] = setLinkPrev(e.lruLink[head], id)
         }</span>
-        <span class="cov7" title="829069">e.lruHead = id
+        <span class="cov7" title="829198">e.lruHead = id
         e.mruPush(id)</span>
 }
 
@@ -17028,22 +17070,22 @@ func (e *encState) lruAddFresh(id uint32) <span class="cov7" title="829069">{
 // head update.
 //
 //go:nosplit
-func (e *encState) lruMoveFront(id uint32) <span class="cov6" title="64855">{
+func (e *encState) lruMoveFront(id uint32) <span class="cov6" title="64857">{
         if e.lruHead == id </span><span class="cov5" title="10032">{
                 e.mruPush(id)
                 return
         }</span>
-        <span class="cov6" title="54823">link := e.lruLink[id]
+        <span class="cov6" title="54825">link := e.lruLink[id]
         p := linkPrev(link)
         n := linkNext(link)
         // p is always valid here (id was not head). Patch p.next = n.
         e.lruLink[p] = setLinkNext(e.lruLink[p], n)
-        if n != lruLink16Invalid </span><span class="cov6" title="52413">{
+        if n != lruLink16Invalid </span><span class="cov6" title="52415">{
                 // Patch n.prev = p.
                 e.lruLink[n] = setLinkPrev(e.lruLink[n], p)
         }</span>
         // Insert id at head: id.prev=invalid, id.next=head.
-        <span class="cov6" title="54823">head := e.lruHead
+        <span class="cov6" title="54825">head := e.lruHead
         e.lruLink[id] = lruLink16Invalid | (head &lt;&lt; 16)
         // head.prev = id (head is always valid here — id was in chain).
         e.lruLink[head] = setLinkPrev(e.lruLink[head], id)
@@ -17070,7 +17112,7 @@ func (e *encState) lruMoveFront(id uint32) <span class="cov6" title="64855">{
 // crash the encoder.
 //
 //go:nosplit
-func (e *encState) lookupOrAssign(key string) (uint32, bool) <span class="cov7" title="920245">{
+func (e *encState) lookupOrAssign(key string) (uint32, bool) <span class="cov7" title="920374">{
         // Hot-path fast lookup: hash + one slot probe. Inlinable (no
         // loop, no allocs); the slow tail (collision probing, miss-
         // install, grow) is split out so the linear-probing loop does
@@ -17080,31 +17122,31 @@ func (e *encState) lookupOrAssign(key string) (uint32, bool) <span class="cov7" 
         if h == 0 </span><span class="cov0" title="0">{
                 h = 1 // reserve 0 as the empty-slot sentinel
         }</span>
-        <span class="cov7" title="920245">i := h &amp; uint64(len(e.internTable)-1)
+        <span class="cov7" title="920374">i := h &amp; uint64(len(e.internTable)-1)
         slot := &amp;e.internTable[i]
-        if slot.hash == h &amp;&amp; slot.key == key </span><span class="cov6" title="78758">{
+        if slot.hash == h &amp;&amp; slot.key == key </span><span class="cov6" title="83077">{
                 return slot.id, true
         }</span>
-        <span class="cov7" title="841487">if slot.hash == 0 </span><span class="cov7" title="684923">{
+        <span class="cov7" title="837297">if slot.hash == 0 </span><span class="cov7" title="813904">{
                 // Empty first slot: direct install.
                 return e.installInternSlot(slot, h, key), false
         }</span>
         // Collision at first slot — fall to the probing loop.
-        <span class="cov7" title="156564">return e.lookupOrAssignSlow(h, key, i)</span>
+        <span class="cov6" title="23393">return e.lookupOrAssignSlow(h, key, i)</span>
 }
 
 // lookupOrAssignSlow handles the collision case: probe past startIdx
 // looking for either an empty slot (install) or a matching entry
 // (hit). Separated from lookupOrAssign so the inliner keeps the
 // fast path tight.
-func (e *encState) lookupOrAssignSlow(h uint64, key string, startIdx uint64) (uint32, bool) <span class="cov7" title="156564">{
+func (e *encState) lookupOrAssignSlow(h uint64, key string, startIdx uint64) (uint32, bool) <span class="cov6" title="23393">{
         mask := uint64(len(e.internTable) - 1)
-        for i := (startIdx + 1) &amp; mask; ; i = (i + 1) &amp; mask </span><span class="cov7" title="202552">{
+        for i := (startIdx + 1) &amp; mask; ; i = (i + 1) &amp; mask </span><span class="cov6" title="70536">{
                 slot := &amp;e.internTable[i]
-                if slot.hash == 0 </span><span class="cov7" title="144146">{
+                if slot.hash == 0 </span><span class="cov5" title="15294">{
                         return e.installInternSlot(slot, h, key), false
                 }</span>
-                <span class="cov6" title="58406">if slot.hash == h &amp;&amp; slot.key == key </span><span class="cov5" title="12418">{
+                <span class="cov6" title="55242">if slot.hash == h &amp;&amp; slot.key == key </span><span class="cov5" title="8099">{
                         return slot.id, true
                 }</span>
         }
@@ -17115,16 +17157,16 @@ func (e *encState) lookupOrAssignSlow(h uint64, key string, startIdx uint64) (ui
 // lifetime), bumps the LRU + intern counters, and grows the table
 // when the load crosses 3/4. The slot pointer can be invalidated
 // by the grow; callers must not touch it after this returns.
-func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uint32 <span class="cov7" title="829069">{
+func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uint32 <span class="cov7" title="829198">{
         id := e.internLoad
         var stored string
-        if len(key) &lt;= internarena.MaxStringLen </span><span class="cov7" title="829066">{
+        if len(key) &lt;= internarena.MaxStringLen </span><span class="cov7" title="829195">{
                 arenaID := e.arena.Put(key)
                 stored = unsafestr.String(e.arena.Get(arenaID))
         }</span> else<span class="cov1" title="3"> {
                 stored = strings.Clone(key)
         }</span>
-        <span class="cov7" title="829069">slot.hash = h
+        <span class="cov7" title="829198">slot.hash = h
         slot.key = stored
         slot.id = id
         e.internLoad++
@@ -17134,10 +17176,10 @@ func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uin
         // linear-probe chains cost less than the cache + rehash savings.
         // Measured -12.6% encode on the large-payload Archive profile (thousands
         // of interned strings), neutral on small/medium payloads, wire unchanged.
-        if e.internLoad*4 &gt;= uint32(len(e.internTable))*3 </span><span class="cov3" title="82">{
+        if e.internLoad*4 &gt;= uint32(len(e.internTable))*3 </span><span class="cov3" title="84">{
                 e.internTableGrow()
         }</span>
-        <span class="cov7" title="829069">return id</span>
+        <span class="cov7" title="829198">return id</span>
 }
 
 // internTableGrow doubles the flat hash table and rehashes every
@@ -17145,20 +17187,20 @@ func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uin
 // reaches 3/4. Amortised insert stays O(1); the denser table trades
 // slightly longer probe chains for fewer rehashes and a smaller cache
 // footprint (a net encode win on large, intern-heavy payloads).
-func (e *encState) internTableGrow() <span class="cov3" title="82">{
+func (e *encState) internTableGrow() <span class="cov3" title="84">{
         old := e.internTable
         newSize := len(old) * 2
         if newSize == 0 </span><span class="cov0" title="0">{
                 newSize = internTableInitSize
         }</span>
-        <span class="cov3" title="82">e.internTable = make([]internSlot, newSize)
+        <span class="cov3" title="84">e.internTable = make([]internSlot, newSize)
         mask := uint64(newSize - 1)
-        for i := range old </span><span class="cov6" title="49344">{
-                if old[i].hash == 0 </span><span class="cov5" title="12336">{
+        for i := range old </span><span class="cov6" title="49536">{
+                if old[i].hash == 0 </span><span class="cov5" title="12384">{
                         continue</span>
                 }
-                <span class="cov6" title="37008">for j := old[i].hash &amp; mask; ; j = (j + 1) &amp; mask </span><span class="cov6" title="48536">{
-                        if e.internTable[j].hash == 0 </span><span class="cov6" title="37008">{
+                <span class="cov6" title="37152">for j := old[i].hash &amp; mask; ; j = (j + 1) &amp; mask </span><span class="cov6" title="48358">{
+                        if e.internTable[j].hash == 0 </span><span class="cov6" title="37152">{
                                 e.internTable[j] = old[i]
                                 break</span>
                         }
@@ -17246,62 +17288,62 @@ type decState struct {
         mapDec mapHolderCache
 }
 
-func newDecState() *decState <span class="cov4" title="772">{
+func newDecState() *decState <span class="cov4" title="854">{
         d := &amp;decState{
                 values:       make([][]byte, 0, 64),
                 stringValues: make([]string, 0, 64),
                 lruHead:      lruInvalidID,
                 lastID:       lruInvalidID,
         }
-        for i := range d.mruRing </span><span class="cov6" title="98816">{
+        for i := range d.mruRing </span><span class="cov6" title="109312">{
                 d.mruRing[i] = mruEmpty
         }</span>
-        <span class="cov4" title="772">return d</span>
+        <span class="cov4" title="854">return d</span>
 }
 
-func (d *decState) reset() <span class="cov6" title="127318">{
+func (d *decState) reset() <span class="cov6" title="113217">{
         // Symmetric to encState.reset's water-mark policy: shrink
         // excess capacity back when a prior cycle grew past the soft
         // cap, otherwise reuse the existing slices in place.
         if cap(d.values) &gt; maxRetainedIDs </span><span class="cov1" title="1">{
                 d.values = nil
                 d.stringValues = nil
-        }</span> else<span class="cov6" title="127317"> {
+        }</span> else<span class="cov6" title="113216"> {
                 d.values = d.values[:0]
                 d.stringValues = d.stringValues[:0]
         }</span>
-        <span class="cov6" title="127318">d.lastID = lruInvalidID
+        <span class="cov6" title="113217">d.lastID = lruInvalidID
         d.lruHead = lruInvalidID
         if cap(d.lruLink) &gt; maxRetainedLRUCap </span><span class="cov1" title="1">{
                 d.lruLink = nil
-        }</span> else<span class="cov6" title="127317"> {
+        }</span> else<span class="cov6" title="113216"> {
                 d.lruLink = d.lruLink[:0]
         }</span>
-        <span class="cov6" title="127318">if cap(d.pairPred) &gt; maxRetainedPairCap </span><span class="cov0" title="0">{
+        <span class="cov6" title="113217">if cap(d.pairPred) &gt; maxRetainedPairCap </span><span class="cov0" title="0">{
                 d.pairPred = nil
-        }</span> else<span class="cov6" title="127318"> {
+        }</span> else<span class="cov6" title="113217"> {
                 clear(d.pairPred)
         }</span>
-        <span class="cov6" title="127318">if cap(d.shapes) &gt; maxRetainedShapeCap </span><span class="cov0" title="0">{
+        <span class="cov6" title="113217">if cap(d.shapes) &gt; maxRetainedShapeCap </span><span class="cov0" title="0">{
                 d.shapes = nil
-        }</span> else<span class="cov6" title="127318"> {
+        }</span> else<span class="cov6" title="113217"> {
                 d.shapes = d.shapes[:0]
         }</span>
-        <span class="cov6" title="127318">if cap(d.colShapes) &gt; maxRetainedShapeCap </span><span class="cov0" title="0">{
+        <span class="cov6" title="113217">if cap(d.colShapes) &gt; maxRetainedShapeCap </span><span class="cov0" title="0">{
                 d.colShapes = nil
-        }</span> else<span class="cov6" title="127318"> {
+        }</span> else<span class="cov6" title="113217"> {
                 d.colShapes = d.colShapes[:0]
         }</span>
-        <span class="cov6" title="127318">if cap(d.colScratchI64) &gt; maxRetainedIDs </span><span class="cov1" title="1">{
+        <span class="cov6" title="113217">if cap(d.colScratchI64) &gt; maxRetainedIDs </span><span class="cov1" title="1">{
                 d.colScratchI64, d.colScratchU64, d.colScratchF64, d.colScratchBool = nil, nil, nil, nil
         }</span>
-        <span class="cov6" title="127318">if cap(d.colLenScratch) &gt; maxRetainedIDs </span><span class="cov0" title="0">{
+        <span class="cov6" title="113217">if cap(d.colLenScratch) &gt; maxRetainedIDs </span><span class="cov0" title="0">{
                 d.colLenScratch = nil
         }</span>
-        <span class="cov6" title="127318">for i := range d.mruRing </span><span class="cov9" title="16296704">{
+        <span class="cov6" title="113217">for i := range d.mruRing </span><span class="cov9" title="14491776">{
                 d.mruRing[i] = mruEmpty
         }</span>
-        <span class="cov6" title="127318">d.mruHead = 0
+        <span class="cov6" title="113217">d.mruHead = 0
         d.mapDec = mapHolderCache{}</span>
 }
 
@@ -17322,8 +17364,8 @@ func (d *decState) pairAtRank(prev uint32, rank uint8) (uint32, bool) <span clas
 }
 
 //go:nosplit
-func (d *decState) pairEnsure(prev uint32) <span class="cov8" title="1344855">{
-        for uint32(len(d.pairPred)) &lt;= prev </span><span class="cov5" title="6575">{
+func (d *decState) pairEnsure(prev uint32) <span class="cov8" title="1344982">{
+        for uint32(len(d.pairPred)) &lt;= prev </span><span class="cov5" title="6472">{
                 d.pairPred = append(d.pairPred, pairPredEmpty)
         }</span>
 }
@@ -17332,7 +17374,7 @@ func (d *decState) pairEnsure(prev uint32) <span class="cov8" title="1344855">{
 // stored successor — top-1 keeps only the most recent transition.
 //
 //go:nosplit
-func (d *decState) pairRecord(prev, curr uint32) <span class="cov8" title="1344855">{
+func (d *decState) pairRecord(prev, curr uint32) <span class="cov8" title="1344982">{
         d.pairEnsure(prev)
         d.pairPred[prev] = curr + 1
 }</span>
@@ -17341,18 +17383,18 @@ func (d *decState) pairRecord(prev, curr uint32) <span class="cov8" title="13448
 // and returns a pointer to its slot. The wire ID equals
 // len(d.shapes) after the append; callers do not need it returned
 // because the encoder hands shape IDs out in the same order.
-func (d *decState) shapeDeclare() *decShape <span class="cov6" title="36054">{
+func (d *decState) shapeDeclare() *decShape <span class="cov6" title="36055">{
         d.shapes = append(d.shapes, decShape{})
         return &amp;d.shapes[len(d.shapes)-1]
 }</span>
 
 // shapeLookup returns the shape with the given wire ID (≥ 1). nil
 // means an unknown ID — the stream is malformed.
-func (d *decState) shapeLookup(id uint32) *decShape <span class="cov6" title="26912">{
+func (d *decState) shapeLookup(id uint32) *decShape <span class="cov6" title="26975">{
         if id == 0 || id &gt; uint32(len(d.shapes)) </span><span class="cov0" title="0">{
                 return nil
         }</span>
-        <span class="cov6" title="26912">return &amp;d.shapes[id-1]</span>
+        <span class="cov6" title="26975">return &amp;d.shapes[id-1]</span>
 }
 
 // mruPush records id as the newest entry in the decoder side-cache.
@@ -17361,7 +17403,7 @@ func (d *decState) shapeLookup(id uint32) *decShape <span class="cov6" title="26
 // cap).
 //
 //go:nosplit
-func (d *decState) mruPush(id uint32) <span class="cov8" title="1965782">{
+func (d *decState) mruPush(id uint32) <span class="cov8" title="1965911">{
         d.mruRing[d.mruHead&amp;mruRingMask] = uint16(id)
         d.mruHead++
 }</span>
@@ -17384,18 +17426,18 @@ func (d *decState) mruIDAtRank(rank uint32) (uint32, bool) <span class="cov2" ti
         <span class="cov2" title="35">return uint32(id), true</span>
 }
 
-func (d *decState) lruAddFresh(id uint32) <span class="cov7" title="279802">{
-        for uint32(len(d.lruLink)) &lt;= id </span><span class="cov7" title="279802">{
+func (d *decState) lruAddFresh(id uint32) <span class="cov7" title="279931">{
+        for uint32(len(d.lruLink)) &lt;= id </span><span class="cov7" title="279931">{
                 d.lruLink = append(d.lruLink, lruLinkInvalid)
         }</span>
-        <span class="cov7" title="279802">head := d.lruHead
-        if head == lruInvalidID </span><span class="cov6" title="63245">{
+        <span class="cov7" title="279931">head := d.lruHead
+        if head == lruInvalidID </span><span class="cov6" title="63246">{
                 d.lruLink[id] = lruLinkInvalid
-        }</span> else<span class="cov7" title="216557"> {
+        }</span> else<span class="cov7" title="216685"> {
                 d.lruLink[id] = lruLink16Invalid | (head &lt;&lt; 16)
                 d.lruLink[head] = setLinkPrev(d.lruLink[head], id)
         }</span>
-        <span class="cov7" title="279802">d.lruHead = id
+        <span class="cov7" title="279931">d.lruHead = id
         d.mruPush(id)</span>
 }
 
@@ -17451,7 +17493,7 @@ func (d *decState) lruMoveToFront(id uint32) <span class="cov8" title="1685980">
 // the cache slot never gets re-read; lazy population matches what
 // the old direct-string(b) path did on first sight and adds zero
 // alloc on subsequent reads.
-func (d *decState) append(b []byte) uint32 <span class="cov7" title="279802">{
+func (d *decState) append(b []byte) uint32 <span class="cov7" title="279931">{
         id := uint32(len(d.values))
         d.values = append(d.values, b)
         d.stringValues = append(d.stringValues, "")
@@ -17532,18 +17574,18 @@ var ErrStreamDecoderBroken = errors.New("qdf: stream decoder broken by a prior m
 // activates the full balanced codec set (OptBalanced); Fast mode
 // emits raw tagged bytes (OptSpeed). For finer per-stream tuning,
 // build the StreamEncoder via NewStreamEncoderWith.
-func NewStreamEncoder(w io.Writer, mode Mode) *StreamEncoder <span class="cov5" title="165">{
+func NewStreamEncoder(w io.Writer, mode Mode) *StreamEncoder <span class="cov5" title="166">{
         opts := OptSpeed
-        if mode == Dense </span><span class="cov5" title="148">{
+        if mode == Dense </span><span class="cov5" title="149">{
                 opts = OptBalanced
         }</span>
-        <span class="cov5" title="165">return NewStreamEncoderWith(w, opts)</span>
+        <span class="cov5" title="166">return NewStreamEncoderWith(w, opts)</span>
 }
 
 // NewStreamEncoderWith returns a stream encoder with the given
 // Options bit-mask. The intern table (when OptDense is set) survives
 // across Encode calls so back-references span the whole stream.
-func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder <span class="cov5" title="191">{
+func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder <span class="cov5" title="192">{
         buf := bufpool.Get(4096)
         enc := &amp;Encoder{buf: (*buf)[:0], minIntern: 4, maxStateEntries: 1 &lt;&lt; 16, maxDepth: DefaultMaxDepth}
         enc.applyOpts(opts)
@@ -17552,10 +17594,10 @@ func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder <span class=
         // after the first Flush. Like the whole-body rANS pass, it is not emitted in
         // streaming mode.
         enc.colIndex = false
-        if opts.Has(OptDense) </span><span class="cov5" title="172">{
+        if opts.Has(OptDense) </span><span class="cov5" title="173">{
                 enc.state = newEncState()
         }</span>
-        <span class="cov5" title="191">return &amp;StreamEncoder{w: w, enc: enc, buf: buf}</span>
+        <span class="cov5" title="192">return &amp;StreamEncoder{w: w, enc: enc, buf: buf}</span>
 }
 
 // Encode writes v as the next value in the stream. Each message is framed with
@@ -17563,21 +17605,21 @@ func NewStreamEncoderWith(w io.Writer, opts Options) *StreamEncoder <span class=
 // any size — before decoding it. The 5-byte stream header is written once,
 // before the first frame, and is not itself framed. The encoder flushes
 // internally when its buffer crosses 16 KiB; call Flush to push earlier.
-func (s *StreamEncoder) Encode(v any) error <span class="cov9" title="16829">{
+func (s *StreamEncoder) Encode(v any) error <span class="cov9" title="16893">{
         if s.enc == nil </span><span class="cov1" title="1">{
                 return io.ErrClosedPipe
         }</span>
-        <span class="cov9" title="16828">if s.broken </span><span class="cov1" title="1">{
+        <span class="cov9" title="16892">if s.broken </span><span class="cov1" title="1">{
                 return ErrStreamBroken
         }</span>
         // One-per-stream header preamble, outside the frames.
-        <span class="cov9" title="16827">if !s.enc.headerOut </span><span class="cov5" title="191">{
+        <span class="cov9" title="16891">if !s.enc.headerOut </span><span class="cov5" title="192">{
                 s.enc.writeHeader()
         }</span>
         // Reserve one byte for the length prefix, then encode the body after it.
         // The common case (a message under 128 bytes) needs exactly that one byte,
         // so it is written in place with no memmove; only larger messages shift.
-        <span class="cov9" title="16827">start := len(s.enc.buf)
+        <span class="cov9" title="16891">start := len(s.enc.buf)
         s.enc.buf = append(s.enc.buf, 0)
         bodyStart := len(s.enc.buf)
         if err := encodeReflect(s.enc, v); err != nil </span><span class="cov1" title="1">{
@@ -17588,10 +17630,10 @@ func (s *StreamEncoder) Encode(v any) error <span class="cov9" title="16829">{
                 s.broken = true
                 return err
         }</span>
-        <span class="cov9" title="16826">n := len(s.enc.buf) - bodyStart
+        <span class="cov9" title="16890">n := len(s.enc.buf) - bodyStart
         if n &lt; 0x80 </span><span class="cov9" title="16800">{
                 s.enc.buf[start] = byte(n) // single-byte uvarint, body already in place
-        }</span> else<span class="cov3" title="26"> {
+        }</span> else<span class="cov5" title="90"> {
                 // Need an m-byte prefix; one byte is reserved, so make room for m-1 more
                 // and shift the body right by m-1 (overlap-safe copy).
                 var lb [10]byte
@@ -17601,38 +17643,38 @@ func (s *StreamEncoder) Encode(v any) error <span class="cov9" title="16829">{
                 copy(s.enc.buf[start+m:], s.enc.buf[bodyStart:bodyStart+n])
                 copy(s.enc.buf[start:start+m], pre)
         }</span>
-        <span class="cov9" title="16826">if len(s.enc.buf) &gt;= 1&lt;&lt;14 </span><span class="cov3" title="17">{
+        <span class="cov9" title="16890">if len(s.enc.buf) &gt;= 1&lt;&lt;14 </span><span class="cov3" title="19">{
                 return s.Flush()
         }</span>
-        <span class="cov9" title="16809">return nil</span>
+        <span class="cov9" title="16871">return nil</span>
 }
 
 // Flush writes any buffered bytes to the underlying writer.
-func (s *StreamEncoder) Flush() error <span class="cov5" title="211">{
+func (s *StreamEncoder) Flush() error <span class="cov5" title="214">{
         if s.enc == nil </span><span class="cov0" title="0">{
                 return io.ErrClosedPipe
         }</span>
-        <span class="cov5" title="211">if len(s.enc.buf) == 0 </span><span class="cov2" title="8">{
+        <span class="cov5" title="214">if len(s.enc.buf) == 0 </span><span class="cov2" title="8">{
                 return nil
         }</span>
-        <span class="cov5" title="203">if _, err := s.w.Write(s.enc.buf); err != nil </span><span class="cov0" title="0">{
+        <span class="cov5" title="206">if _, err := s.w.Write(s.enc.buf); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov5" title="203">s.enc.buf = s.enc.buf[:0]
+        <span class="cov5" title="206">s.enc.buf = s.enc.buf[:0]
         return nil</span>
 }
 
 // Close flushes pending data and releases the scratch buffer to the
 // pool. The underlying writer is not closed. Idempotent: subsequent
 // calls are a safe no-op.
-func (s *StreamEncoder) Close() error <span class="cov5" title="190">{
+func (s *StreamEncoder) Close() error <span class="cov5" title="191">{
         if s.enc == nil </span><span class="cov1" title="1">{
                 return nil
         }</span>
-        <span class="cov5" title="189">if err := s.Flush(); err != nil </span><span class="cov0" title="0">{
+        <span class="cov5" title="190">if err := s.Flush(); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov5" title="189">*s.buf = s.enc.buf
+        <span class="cov5" title="190">*s.buf = s.enc.buf
         bufpool.Put(s.buf)
         s.buf = nil
         s.enc = nil
@@ -17659,14 +17701,33 @@ type StreamDecoder struct {
 }
 
 // NewStreamDecoder returns a stream decoder reading from r.
-func NewStreamDecoder(r io.Reader) *StreamDecoder <span class="cov6" title="255">{
+func NewStreamDecoder(r io.Reader) *StreamDecoder <span class="cov6" title="256">{
         buf := bufpool.Get(4096)
         return &amp;StreamDecoder{r: r, dec: &amp;Decoder{buf: (*buf)[:0]}, buf: buf}
 }</span>
 
-// SetNoCopy mirrors Decoder.SetNoCopy. No-op after Close.
-func (s *StreamDecoder) SetNoCopy(v bool) <span class="cov1" title="2">{
-        if s.dec != nil </span><span class="cov1" title="1">{
+// SetNoCopy makes Decode return string / []byte values that alias the
+// decoder's internal window buffer instead of copying them — eliminating the
+// per-value copy that dominates decode allocation.
+//
+// Unlike the one-shot Decoder.SetNoCopy (which aliases the caller's input
+// buffer and is unsafe the moment that buffer is reused — the typical server
+// recycles its read buffer right after the handler returns), the stream owns
+// its window buffer, so aliasing is safe for the lifetime of the stream:
+//
+//   - A decoded value stays valid until Close. Close returns the window to a
+//     pool, after which any retained aliased value is undefined — copy
+//     (strings.Clone / append) anything you need past Close.
+//   - The window grows but is never compacted mid-stream (the Dense intern
+//     table already aliases it for cross-message back-references), so a growth
+//     does not invalidate earlier values, and noCopy adds no extra memory: the
+//     bytes are retained either way.
+//
+// Because the window is retained for the whole stream regardless, this is the
+// safe home for zero-copy decode — process or copy each value before Close and
+// you pay zero per-value allocation across every message. No-op after Close.
+func (s *StreamDecoder) SetNoCopy(v bool) <span class="cov1" title="3">{
+        if s.dec != nil </span><span class="cov1" title="2">{
                 s.dec.noCopy = v
         }</span>
 }
@@ -17678,34 +17739,34 @@ const maxStreamMsg = 1 &lt;&lt; 31
 // Decode reads the next value into out. out must be a pointer. Returns io.EOF
 // at a clean end of stream. Each message is length-framed, so a message of any
 // size is buffered in full before decoding — no 4 KiB window limit.
-func (s *StreamDecoder) Decode(out any) error <span class="cov9" title="16814">{
+func (s *StreamDecoder) Decode(out any) error <span class="cov9" title="16878">{
         if s.dec == nil </span><span class="cov1" title="1">{
                 return io.ErrClosedPipe
         }</span>
-        <span class="cov9" title="16813">if s.broken </span><span class="cov1" title="1">{
+        <span class="cov9" title="16877">if s.broken </span><span class="cov1" title="1">{
                 return ErrStreamDecoderBroken
         }</span>
         // Consume the one-per-stream header before the first frame.
-        <span class="cov9" title="16812">if !s.dec.headerRead </span><span class="cov6" title="254">{
+        <span class="cov9" title="16876">if !s.dec.headerRead </span><span class="cov6" title="255">{
                 if err := s.fill(5, true); err != nil </span><span class="cov2" title="8">{
                         return err // io.EOF here means an empty stream
                 }</span>
-                <span class="cov5" title="246">if err := s.dec.readHeader(); err != nil </span><span class="cov0" title="0">{
+                <span class="cov5" title="247">if err := s.dec.readHeader(); err != nil </span><span class="cov0" title="0">{
                         return err
                 }</span>
         }
         // Read the frame length (io.EOF at a clean frame boundary = end of stream).
-        <span class="cov9" title="16804">framelen, err := s.readFrameLen()
+        <span class="cov9" title="16868">framelen, err := s.readFrameLen()
         if err != nil </span><span class="cov3" title="26">{
                 return err
         }</span>
         // Buffer the whole message body, then decode it in a single pass so a
         // partial decode never mutates the shared dense state. Past the length
         // prefix a short read is a truncated frame, never a clean end.
-        <span class="cov9" title="16778">if err := s.fill(framelen, false); err != nil </span><span class="cov4" title="59">{
+        <span class="cov9" title="16842">if err := s.fill(framelen, false); err != nil </span><span class="cov4" title="59">{
                 return err // ErrShortBuffer on a truncated final frame
         }</span>
-        <span class="cov9" title="16719">start := s.dec.i
+        <span class="cov9" title="16783">start := s.dec.i
         if err := decodeReflect(s.dec, out); err != nil </span><span class="cov1" title="1">{
                 // The cursor is left partway through the frame and the dense state is
                 // half-advanced; poison the stream so the next Decode fails cleanly
@@ -17715,22 +17776,22 @@ func (s *StreamDecoder) Decode(out any) error <span class="cov9" title="16814">{
         }</span>
         // The value must consume exactly the framed length; a mismatch means a
         // corrupt or hostile frame, so reject it instead of desyncing the stream.
-        <span class="cov9" title="16718">if s.dec.i-start != framelen </span><span class="cov0" title="0">{
+        <span class="cov9" title="16782">if s.dec.i-start != framelen </span><span class="cov0" title="0">{
                 s.broken = true
                 return ErrInvalidLength
         }</span>
-        <span class="cov9" title="16718">return nil</span>
+        <span class="cov9" title="16782">return nil</span>
 }
 
 // readFrameLen parses the uvarint length prefix of the next message, advancing
 // the cursor past it. Returns io.EOF when no more frames remain.
-func (s *StreamDecoder) readFrameLen() (int, error) <span class="cov9" title="16804">{
-        for </span><span class="cov9" title="16817">{
-                if v, k := readUvarint(s.dec.buf[s.dec.i:]); k &gt; 0 </span><span class="cov9" title="16778">{
+func (s *StreamDecoder) readFrameLen() (int, error) <span class="cov9" title="16868">{
+        for </span><span class="cov9" title="16881">{
+                if v, k := readUvarint(s.dec.buf[s.dec.i:]); k &gt; 0 </span><span class="cov9" title="16842">{
                         if v &gt; maxStreamMsg </span><span class="cov0" title="0">{
                                 return 0, ErrInvalidLength
                         }</span>
-                        <span class="cov9" title="16778">s.dec.i += k
+                        <span class="cov9" title="16842">s.dec.i += k
                         return int(v), nil</span>
                 }
                 <span class="cov4" title="39">had := len(s.dec.buf) - s.dec.i
@@ -17750,15 +17811,15 @@ func (s *StreamDecoder) readFrameLen() (int, error) <span class="cov9" title="16
 // buffered. When boundary is true (reading at a message boundary — the header
 // or a frame length) an immediate clean end of stream returns io.EOF; in every
 // other case a stream that ends before need bytes returns ErrShortBuffer.
-func (s *StreamDecoder) fill(need int, boundary bool) error <span class="cov9" title="17071">{
-        for len(s.dec.buf)-s.dec.i &lt; need </span><span class="cov10" title="20615">{
-                if cap(*s.buf)-len(s.dec.buf) == 0 </span><span class="cov4" title="29">{
+func (s *StreamDecoder) fill(need int, boundary bool) error <span class="cov9" title="17136">{
+        for len(s.dec.buf)-s.dec.i &lt; need </span><span class="cov10" title="20618">{
+                if cap(*s.buf)-len(s.dec.buf) == 0 </span><span class="cov4" title="31">{
                         grown := make([]byte, len(s.dec.buf), cap(*s.buf)*2+4096)
                         copy(grown, s.dec.buf)
                         *s.buf = grown
                         s.dec.buf = grown
                 }</span>
-                <span class="cov10" title="20615">end := len(s.dec.buf)
+                <span class="cov10" title="20618">end := len(s.dec.buf)
                 (*s.buf) = (*s.buf)[:cap(*s.buf)]
                 s.dec.buf = *s.buf
                 n, rerr := s.r.Read(s.dec.buf[end:])
@@ -17776,20 +17837,20 @@ func (s *StreamDecoder) fill(need int, boundary bool) error <span class="cov9" t
                         }
                         <span class="cov0" title="0">return rerr</span>
                 }
-                <span class="cov9" title="20522">if rerr != nil &amp;&amp; !errors.Is(rerr, io.EOF) </span><span class="cov0" title="0">{
+                <span class="cov9" title="20525">if rerr != nil &amp;&amp; !errors.Is(rerr, io.EOF) </span><span class="cov0" title="0">{
                         return rerr
                 }</span>
         }
-        <span class="cov9" title="16978">return nil</span>
+        <span class="cov9" title="17043">return nil</span>
 }
 
 // Close releases the scratch buffer to the pool. The underlying reader
 // is not closed. Idempotent: subsequent calls are a safe no-op.
-func (s *StreamDecoder) Close() error <span class="cov5" title="233">{
+func (s *StreamDecoder) Close() error <span class="cov5" title="234">{
         if s.dec == nil </span><span class="cov1" title="1">{
                 return nil
         }</span>
-        <span class="cov5" title="232">*s.buf = s.dec.buf
+        <span class="cov5" title="233">*s.buf = s.dec.buf
         bufpool.Put(s.buf)
         s.buf = nil
         s.dec = nil
@@ -18007,25 +18068,25 @@ const (
 // length so the caller can advance its cursor.
 
 //go:nosplit
-func appendUvarint(b []byte, x uint64) []byte <span class="cov9" title="1012422">{
+func appendUvarint(b []byte, x uint64) []byte <span class="cov9" title="1012694">{
         // 3-byte unrolled fast path. Covers values up to 2^21 = 2 097 151
         // which is well past the default maxStateEntries (16 384) and
         // covers every state-ref / shape ID / fixstr length in practical
         // payloads. Multi-byte values fall through to the loop.
-        if x &lt; 0x80 </span><span class="cov9" title="994273">{
+        if x &lt; 0x80 </span><span class="cov9" title="994413">{
                 return append(b, byte(x))
         }</span>
-        <span class="cov6" title="18149">if x &lt; 0x4000 </span><span class="cov6" title="12837">{
+        <span class="cov6" title="18281">if x &lt; 0x4000 </span><span class="cov6" title="12965">{
                 return append(b, byte(x)|0x80, byte(x&gt;&gt;7))
         }</span>
-        <span class="cov6" title="5312">if x &lt; 0x200000 </span><span class="cov5" title="1716">{
+        <span class="cov6" title="5316">if x &lt; 0x200000 </span><span class="cov5" title="1716">{
                 return append(b, byte(x)|0x80, byte(x&gt;&gt;7)|0x80, byte(x&gt;&gt;14))
         }</span>
-        <span class="cov5" title="3596">for x &gt;= 0x80 </span><span class="cov6" title="15952">{
+        <span class="cov5" title="3600">for x &gt;= 0x80 </span><span class="cov6" title="15968">{
                 b = append(b, byte(x)|0x80)
                 x &gt;&gt;= 7
         }</span>
-        <span class="cov5" title="3596">return append(b, byte(x))</span>
+        <span class="cov5" title="3600">return append(b, byte(x))</span>
 }
 
 // readUvarint decodes a ULEB128 and returns value, bytes-consumed. n==0 means
@@ -18038,20 +18099,20 @@ func appendUvarint(b []byte, x uint64) []byte <span class="cov9" title="1012422"
 // path keeps its inline budget.
 //
 //go:nosplit
-func readUvarint(b []byte) (uint64, int) <span class="cov10" title="2897731">{
-        if len(b) &gt; 0 &amp;&amp; b[0] &lt; 0x80 </span><span class="cov9" title="2861843">{
+func readUvarint(b []byte) (uint64, int) <span class="cov10" title="2898001">{
+        if len(b) &gt; 0 &amp;&amp; b[0] &lt; 0x80 </span><span class="cov9" title="2861980">{
                 return uint64(b[0]), 1
         }</span>
-        <span class="cov7" title="35888">var x uint64
+        <span class="cov7" title="36021">var x uint64
         var shift uint
-        for i, c := range b </span><span class="cov7" title="90294">{
+        for i, c := range b </span><span class="cov7" title="90573">{
                 if i &gt;= 10 </span><span class="cov2" title="13">{
                         return 0, -1
                 }</span>
-                <span class="cov7" title="90281">if c &lt; 0x80 </span><span class="cov7" title="35619">{
+                <span class="cov7" title="90560">if c &lt; 0x80 </span><span class="cov7" title="35752">{
                         return x | uint64(c)&lt;&lt;shift, i + 1
                 }</span>
-                <span class="cov7" title="54662">x |= uint64(c&amp;0x7F) &lt;&lt; shift
+                <span class="cov7" title="54808">x |= uint64(c&amp;0x7F) &lt;&lt; shift
                 shift += 7</span>
         }
         <span class="cov4" title="256">return 0, 0</span>
@@ -18076,7 +18137,7 @@ func zigzagEncode64(v int64) uint64 <span class="cov6" title="10815">{
 }</span>
 
 // zigzagDecode64 reverses zigzagEncode64.
-func zigzagDecode64(u uint64) int64 <span class="cov7" title="50465">{
+func zigzagDecode64(u uint64) int64 <span class="cov7" title="50467">{
         return int64((u &gt;&gt; 1) ^ -(u &amp; 1))
 }</span>
 </pre>
