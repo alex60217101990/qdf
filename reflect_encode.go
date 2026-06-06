@@ -646,7 +646,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			e.buf = append(e.buf, tagMapShape)
 			e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
 			e.buf = appendUvarint(e.buf, uint64(n))
-			pairOn := e.opts.Has(OptPairPred)
+			pairOn := e.pairPred
 			for i := range fields {
 				f := &fields[i]
 				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
@@ -686,7 +686,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 		if e.opts.Has(OptDense) && e.state != nil {
 			e.WriteMapHeader(n)
 			st := e.state
-			pairOn := e.opts.Has(OptPairPred)
+			pairOn := e.pairPred
 			for i := range fields {
 				f := &fields[i]
 				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
