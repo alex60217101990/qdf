@@ -66,15 +66,18 @@ func (k colKind) String() string {
 
 // colColumn is one field's columnar descriptor: where it lives in each struct
 // element and how to (de)serialize the column.
+// Fields are ordered largest-alignment-first to pack without padding (56 B on
+// 64-bit vs 64 B for a source-order layout); one colColumn per field is built
+// once per columnar struct type and scanned per batch in encodeColumnar.
 type colColumn struct {
-	name   string
-	offset uintptr
-	kind   colKind // base kind, OR'd with colKindNullable for *T columns
-	width  uintptr // element width in bytes for the scalar load/store
-	isByte bool    // true for []byte string columns (vs string)
+	name string
 	// elemType is the pointed-to type for a nullable (*T) column, used to
 	// allocate the present values on decode. nil for non-nullable columns.
 	elemType reflect.Type
+	offset   uintptr
+	width    uintptr // element width in bytes for the scalar load/store
+	kind     colKind // base kind, OR'd with colKindNullable for *T columns
+	isByte   bool    // true for []byte string columns (vs string)
 }
 
 // columnarPlan is cached on the slice element's typeDesc. nil means the
