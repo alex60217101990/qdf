@@ -517,6 +517,12 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 			defer d.state.mapDec.release(pooled)
 			for _, name := range names {
 				kh.SetString(name)
+				// Reset the value holder each entry: a slice-backed value type
+				// would otherwise have its backing array reused across entries
+				// (reuseOrMakeSlice keeps a cap>=n backing), so every map value
+				// would alias the last one decoded. Zeroing forces a fresh
+				// MakeSlice per entry. Keys can't contain slices (comparable).
+				vh.SetZero()
 				if err := v.decode(d, vp); err != nil {
 					return err
 				}
@@ -547,6 +553,11 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 			if err := k.decode(d, kp); err != nil {
 				return err
 			}
+			// Reset the value holder each entry so a slice-backed value type does
+			// not reuse the previous entry's backing array (reuseOrMakeSlice keeps
+			// a cap>=n backing) and alias every map value onto the last one. Keys
+			// can't contain slices (map keys are comparable), so kv needs no reset.
+			vv.SetZero()
 			if err := v.decode(d, vp); err != nil {
 				return err
 			}
