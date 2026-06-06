@@ -31,7 +31,7 @@ func MarshalDirect[T Marshaler](v T) ([]byte, error) {
 	}
 	cloned := slices.Clone(out)
 	enc.buf = out[:0]
-	encPool.Put(enc)
+	putEnc(enc, &encPool) // cap a spike-sized buffer/scratch before pooling
 	return cloned, nil
 }
 
@@ -47,11 +47,11 @@ func AppendMarshalDirect[T Marshaler](dst []byte, v T) ([]byte, error) {
 	out, err := v.MarshalQDF(enc.buf)
 	if err != nil {
 		enc.buf = nil
-		encPool.Put(enc)
+		putEnc(enc, &encPool)
 		return dst, err
 	}
 	enc.buf = nil
-	encPool.Put(enc)
+	putEnc(enc, &encPool) // out is the caller's; cap any spike-sized scratch
 	return out, nil
 }
 
