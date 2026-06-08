@@ -736,6 +736,14 @@ func decodeSliceBoolInto(d *Decoder, dst *[]bool) error {
 			return ErrInvalidLength
 		}
 		d.i += nr
+		// Bound the claimed element count by the columnar row count (colMaxLen)
+		// before allocating, mirroring every other columnar codec reader. The
+		// body-byte bound below alone would still admit up to 8× the remaining
+		// buffer in bool scratch (8 bits/byte); colLenOK ties it to the actual
+		// row count so a bool column claiming n >> rows is rejected, not allocated.
+		if !d.colLenOK(n64) {
+			return ErrInvalidLength
+		}
 		if n64 > uint64(len(d.buf)-d.i)*8 {
 			return ErrShortBuffer
 		}

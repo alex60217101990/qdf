@@ -224,6 +224,85 @@ func TestHybridRandomizedRoundTrip(t *testing.T) {
 	}
 }
 
+// Schema-evolution skip + dynamic/any decode of a hybrid payload. These hit
+// Skip(), decodeAny() and the elemDynamic ([]map[string]any) paths, which must
+// all recognize tagHybridColStruct (parallel to tagColStruct).
+func TestHybridSkipAndAny(t *testing.T) {
+	in := mkHybridRecs(50)
+
+	// (1) Skip: a parent struct carrying a hybrid-slice field, decoded into a
+	// struct that lacks it → the unknown field must be skipped cleanly.
+	type withField struct {
+		Tag     string
+		Recs    []hybridRec
+		Trailer int64
+	}
+	type without struct {
+		Tag     string
+		Trailer int64
+	}
+	b, err := Marshal(withField{Tag: "x", Recs: in, Trailer: 99}, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var w without
+	if err := Unmarshal(b, &w); err != nil {
+		t.Fatalf("skip hybrid field: %v", err)
+	}
+	if w.Tag != "x" || w.Trailer != 99 {
+		t.Fatalf("skip desynced state: %+v", w)
+	}
+
+	// (2) any field holding a hybrid slice.
+	type anyHolder struct{ V any }
+	ab, err := Marshal(anyHolder{V: in}, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ah anyHolder
+	if err := Unmarshal(ab, &ah); err != nil {
+		t.Fatalf("decodeAny hybrid: %v", err)
+	}
+	rows, ok := ah.V.([]any)
+	if !ok || len(rows) != len(in) {
+		t.Fatalf("any hybrid: got %T len=%d", ah.V, len(rows))
+	}
+
+	// (3) elemDynamic: decode straight into []map[string]any.
+	db, err := Marshal(in, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dyn []map[string]any
+	if err := Unmarshal(db, &dyn); err != nil {
+		t.Fatalf("dynamic hybrid: %v", err)
+	}
+	if len(dyn) != len(in) {
+		t.Fatalf("dynamic hybrid len=%d want %d", len(dyn), len(in))
+	}
+	// Spot-check an eligible column + a residual field survived.
+	if dyn[3]["Level"] != in[3].Level {
+		t.Fatalf("dynamic eligible mismatch: %v vs %v", dyn[3]["Level"], in[3].Level)
+	}
+}
+
+// A columnar bool column must bound its claimed element count by the row count
+// (colMaxLen), like every other columnar codec — not just by the body bytes
+// (which admit up to 8× the buffer). n=128 with colMaxLen=16 passes the
+// body-byte bound (128 <= 16*8) but exceeds the rows and must be rejected
+// before allocating.
+func TestColumnarBoolColLenGuard(t *testing.T) {
+	buf := []byte{tagPackBool}
+	buf = appendUvarint(buf, 128)
+	buf = append(buf, make([]byte, 16)...) // 128 bits of body
+	d := NewDecoderOnBuf(buf)
+	d.colMaxLen = 16
+	var out []bool
+	if err := decodeSliceBoolInto(d, &out); err == nil {
+		t.Fatalf("bool column n=128 with colMaxLen=16 must be rejected, got nil (len=%d)", len(out))
+	}
+}
+
 // A small slice (< columnarMinElems) must fall back to row-major.
 func TestHybridSmallSliceFallback(t *testing.T) {
 	in := mkHybridRecs(8)
