@@ -1381,7 +1381,7 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 // readHybridColShape consumes tagHybridColStruct + N + the hybrid shape
 // (declare-inline or reuse-by-ID against the SEPARATE hybrid shape table). No
 // colIndex (hybrid v1 does not emit one). Mirrors readColShape otherwise.
-func (d *Decoder) readHybridColShape() (int, *decColShape, error) {
+func (d *Decoder) readHybridColShape(maxN int) (int, *decColShape, error) {
 	d.i++ // consume tagHybridColStruct
 	n64, k := readUvarint(d.buf[d.i:])
 	if k <= 0 {
@@ -1391,6 +1391,9 @@ func (d *Decoder) readHybridColShape() (int, *decColShape, error) {
 	n := int(n64)
 	if err := checkColumnarN(n); err != nil {
 		return 0, nil, err
+	}
+	if maxN > 0 && n > maxN {
+		return 0, nil, ErrInvalidLength
 	}
 	if d.state == nil {
 		d.state = newDecState()
@@ -1461,7 +1464,7 @@ func findResidual(plan *columnarPlan, name string) *residualField {
 // like decodeColumnar: an eligible wire column the target struct lacks is
 // skipped; a residual wire field with no target is consumed via d.Skip.
 func decodeHybridColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
-	n, sh, err := d.readHybridColShape()
+	n, sh, err := d.readHybridColShape(0)
 	if err != nil {
 		return err
 	}
@@ -1872,6 +1875,166 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			}
 		default:
 			return nil, ErrBadTag
+		}
+	}
+	return out, nil
+}
+
+// decodeColumnBodyAny decodes one eligible column body into the per-row maps
+// (or discards it when store is false). Mirrors the per-kind switch in
+// decodeColumnarAny; used by the hybrid any/skip path (decodeHybridColumnarAny).
+func (d *Decoder) decodeColumnBodyAny(kind colKind, name string, n int, store bool, out []any) error {
+	if kind.isNullable() {
+		vals, err := d.decodeNullableColumnAny(kind, n)
+		if err != nil {
+			return err
+		}
+		if store {
+			for i := range n {
+				out[i].(map[string]any)[name] = vals[i]
+			}
+		}
+		return nil
+	}
+	switch kind {
+	case colKindInt:
+		var s []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		if store {
+			for i := range n {
+				out[i].(map[string]any)[name] = s[i]
+			}
+		}
+	case colKindUint:
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		if store {
+			for i := range n {
+				out[i].(map[string]any)[name] = s[i]
+			}
+		}
+	case colKindFloat:
+		var s []float64
+		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		if store {
+			for i := range n {
+				out[i].(map[string]any)[name] = s[i]
+			}
+		}
+	case colKindBool:
+		var s []bool
+		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		if store {
+			for i := range n {
+				out[i].(map[string]any)[name] = s[i]
+			}
+		}
+	case colKindString:
+		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+			strs, err := d.readStringColumn(n)
+			if err != nil {
+				return err
+			}
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = strs[i]
+				}
+			}
+			return nil
+		}
+		for i := range n {
+			sb, err := d.readStringBytes()
+			if err != nil {
+				return err
+			}
+			if store {
+				out[i].(map[string]any)[name] = string(sb)
+			}
+		}
+	case colKindTime:
+		var sec []int64
+		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+			return err
+		}
+		if len(sec) != n {
+			return ErrTypeMismatch
+		}
+		var nsec []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+			return err
+		}
+		if len(nsec) != n {
+			return ErrTypeMismatch
+		}
+		if store {
+			for i := range n {
+				out[i].(map[string]any)[name] = time.Unix(sec[i], int64(nsec[i])).UTC()
+			}
+		}
+	default:
+		return ErrBadTag
+	}
+	return nil
+}
+
+// decodeHybridColumnarAny decodes a tagHybridColStruct payload into a []any of
+// map[string]any rows — the dynamic / any / Skip path (parallel to
+// decodeColumnarAny). It fully decodes (not a byte-skip) so the intern + shape
+// tables stay in sync for later state-refs. Eligible columns scatter into the
+// row maps; each residual field decodes per row via the generic any decoder.
+func decodeHybridColumnarAny(d *Decoder) (any, error) {
+	n, sh, err := d.readHybridColShape(maxColumnarAnyElems)
+	if err != nil {
+		return nil, err
+	}
+	d.colMaxLen = n
+	defer func() { d.colMaxLen = 0 }()
+
+	out := make([]any, n)
+	for i := range out {
+		out[i] = make(map[string]any, len(sh.names))
+	}
+	// Eligible columns (residualKind entries have no column body — handled below).
+	for c := range sh.kinds {
+		if sh.kinds[c] == residualKind {
+			continue
+		}
+		if err := d.decodeColumnBodyAny(sh.kinds[c], sh.names[c], n, true, out); err != nil {
+			return nil, err
+		}
+	}
+	// Residual block: per row, each residual field in shape order via decodeAny.
+	for i := range n {
+		row := out[i].(map[string]any)
+		for c := range sh.kinds {
+			if sh.kinds[c] != residualKind {
+				continue
+			}
+			v, err := decodeAny(d)
+			if err != nil {
+				return nil, err
+			}
+			row[sh.names[c]] = v
 		}
 	}
 	return out, nil

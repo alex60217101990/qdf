@@ -283,12 +283,18 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 			}
 		}
 		if elemDynamic {
-			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
+			if tag, err := d.peekTag(); err == nil && (tag == tagColStruct || tag == tagHybridColStruct) {
 				var rows any
 				var err error
-				if d.query != nil {
+				switch {
+				case tag == tagHybridColStruct:
+					if d.query != nil {
+						return ErrUnsupported // v1: query over a hybrid payload
+					}
+					rows, err = decodeHybridColumnarAny(d)
+				case d.query != nil:
 					rows, err = decodeColumnarQueryAny(d)
-				} else {
+				default:
 					rows, err = decodeColumnarAny(d)
 				}
 				if err != nil {
@@ -1106,6 +1112,8 @@ func decodeAny(d *Decoder) (any, error) {
 		return out, nil
 	case tagColStruct:
 		return decodeColumnarAny(d)
+	case tagHybridColStruct:
+		return decodeHybridColumnarAny(d)
 	case tagTimestamp:
 		sec, nsec, err := d.ReadTimestamp()
 		return time.Unix(sec, int64(nsec)).UTC(), err
