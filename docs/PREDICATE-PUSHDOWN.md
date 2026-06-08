@@ -255,6 +255,7 @@ both categorize (`errors.Is`) and inspect (`errors.As`):
 | Condition | Wrapped sentinel |
 | --- | --- |
 | Payload is not columnar (single struct, or the columnar probe declined) | `ErrUnsupported` |
+| Payload is **hybrid columnar** (`tagHybridColStruct` — a mixed struct under `OptCompression`); pushdown over hybrid is a v1 follow-up | `ErrUnsupported` |
 | A `Where`/`Select` names a field that is not on the wire | `ErrFieldNotFound` |
 | A predicate's `T` does not match the column's kind | `ErrTypeMismatch` |
 
