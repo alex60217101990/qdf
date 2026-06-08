@@ -898,6 +898,15 @@ func (d *decState) reset() {
 		d.values = nil
 		d.stringValues = nil
 	} else {
+		// Retain the backing, but clear() first: d.values entries are []byte
+		// aliasing the previous message's input (wire) buffer, and
+		// stringValues entries are prior decoded-string headers. A bare [:0]
+		// keeps those headers live in the tail, pinning the previous caller's
+		// input buffer (and decoded strings) from GC for the lifetime of the
+		// pooled decoder. clear() drops the headers before reuse — mirrors the
+		// encoder's colScratchStr treatment. memclr only, no allocation.
+		clear(d.values)
+		clear(d.stringValues)
 		d.values = d.values[:0]
 		d.stringValues = d.stringValues[:0]
 	}
