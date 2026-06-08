@@ -531,93 +531,136 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 	colStart := len(e.buf)
 	for c := range plan.cols {
 		col := &plan.cols[c]
-		if col.kind.isNullable() {
-			if err := e.encodeNullableColumn(base, plan, col, n); err != nil {
-				return err
-			}
-			if e.colIndex {
-				end := len(e.buf)
-				binary.LittleEndian.PutUint32(e.buf[idxAt+4*c:], uint32(end-colStart))
-				colStart = end
-			}
-			continue
-		}
-		switch col.kind {
-		case colKindInt:
-			s := st.colScratchI64[:0]
-			for i := range n {
-				s = append(s, int64(loadScalarU64Signed(base, plan.stride, col, i)))
-			}
-			st.colScratchI64 = s
-			if err := encodeSliceInt64(e, unsafe.Pointer(&s)); err != nil {
-				return err
-			}
-		case colKindUint:
-			s := st.colScratchU64[:0]
-			for i := range n {
-				s = append(s, loadScalarU64(base, plan.stride, col, i))
-			}
-			st.colScratchU64 = s
-			if err := encodeSliceUint64(e, unsafe.Pointer(&s)); err != nil {
-				return err
-			}
-		case colKindFloat:
-			s := st.colScratchF64[:0]
-			for i := range n {
-				s = append(s, loadFloat64Field(base, plan.stride, col, i))
-			}
-			st.colScratchF64 = s
-			if err := encodeSliceFloat64(e, unsafe.Pointer(&s)); err != nil {
-				return err
-			}
-		case colKindBool:
-			s := st.colScratchBool[:0]
-			for i := range n {
-				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-				s = append(s, *(*bool)(p))
-			}
-			st.colScratchBool = s
-			if err := encodeSliceBool(e, unsafe.Pointer(&s)); err != nil {
-				return err
-			}
-		case colKindString:
-			if col.isByte {
-				for i := range n {
-					p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-					e.WriteBytes(*(*[]byte)(p))
-				}
-				break
-			}
-			s := st.colScratchStr[:0]
-			for i := range n {
-				s = append(s, loadStringField(base, plan.stride, col, i))
-			}
-			st.colScratchStr = s
-			e.writeStringColumn(s)
-		case colKindTime:
-			// Encode as two sub-columns: sec ([]int64) + nsec ([]uint64).
-			// Delta+FOR on sec compresses monotonic timestamp series efficiently.
-			sec := st.colScratchI64[:0]
-			nsec := st.colScratchU64[:0]
-			for i := range n {
-				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-				t := (*time.Time)(p).UTC()
-				sec = append(sec, t.Unix())
-				nsec = append(nsec, uint64(t.Nanosecond()))
-			}
-			st.colScratchI64 = sec
-			st.colScratchU64 = nsec
-			if err := encodeSliceInt64(e, unsafe.Pointer(&sec)); err != nil {
-				return err
-			}
-			if err := encodeSliceUint64(e, unsafe.Pointer(&nsec)); err != nil {
-				return err
-			}
+		if err := e.encodeOneColumn(plan, base, col, n); err != nil {
+			return err
 		}
 		if e.colIndex {
 			end := len(e.buf)
 			binary.LittleEndian.PutUint32(e.buf[idxAt+4*c:], uint32(end-colStart))
 			colStart = end
+		}
+	}
+	return nil
+}
+
+// encodeOneColumn emits a single eligible column's body using the pooled
+// transpose scratch. It does NO colIndex bookkeeping — the caller backpatches
+// the per-column length. Shared by encodeColumnar (tagColStruct) and
+// encodeHybridColumnar (tagHybridColStruct) so both get the identical
+// per-column encoding (constant/FOR/dict/FSST/Gorilla/bitpack).
+func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *colColumn, n int) error {
+	st := e.state
+	if col.kind.isNullable() {
+		return e.encodeNullableColumn(base, plan, col, n)
+	}
+	switch col.kind {
+	case colKindInt:
+		s := st.colScratchI64[:0]
+		for i := range n {
+			s = append(s, int64(loadScalarU64Signed(base, plan.stride, col, i)))
+		}
+		st.colScratchI64 = s
+		return encodeSliceInt64(e, unsafe.Pointer(&s))
+	case colKindUint:
+		s := st.colScratchU64[:0]
+		for i := range n {
+			s = append(s, loadScalarU64(base, plan.stride, col, i))
+		}
+		st.colScratchU64 = s
+		return encodeSliceUint64(e, unsafe.Pointer(&s))
+	case colKindFloat:
+		s := st.colScratchF64[:0]
+		for i := range n {
+			s = append(s, loadFloat64Field(base, plan.stride, col, i))
+		}
+		st.colScratchF64 = s
+		return encodeSliceFloat64(e, unsafe.Pointer(&s))
+	case colKindBool:
+		s := st.colScratchBool[:0]
+		for i := range n {
+			p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+			s = append(s, *(*bool)(p))
+		}
+		st.colScratchBool = s
+		return encodeSliceBool(e, unsafe.Pointer(&s))
+	case colKindString:
+		if col.isByte {
+			for i := range n {
+				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+				e.WriteBytes(*(*[]byte)(p))
+			}
+			return nil
+		}
+		s := st.colScratchStr[:0]
+		for i := range n {
+			s = append(s, loadStringField(base, plan.stride, col, i))
+		}
+		st.colScratchStr = s
+		e.writeStringColumn(s)
+		return nil
+	case colKindTime:
+		// Two sub-columns: sec ([]int64) + nsec ([]uint64). Delta+FOR on sec
+		// compresses monotonic timestamp series efficiently.
+		sec := st.colScratchI64[:0]
+		nsec := st.colScratchU64[:0]
+		for i := range n {
+			p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+			t := (*time.Time)(p).UTC()
+			sec = append(sec, t.Unix())
+			nsec = append(nsec, uint64(t.Nanosecond()))
+		}
+		st.colScratchI64 = sec
+		st.colScratchU64 = nsec
+		if err := encodeSliceInt64(e, unsafe.Pointer(&sec)); err != nil {
+			return err
+		}
+		return encodeSliceUint64(e, unsafe.Pointer(&nsec))
+	}
+	return nil
+}
+
+// encodeHybridColumnar emits a slice of mixed structs as tagHybridColStruct:
+// the eligible columns transposed (identical per-column encoding to
+// tagColStruct, via encodeOneColumn) followed by a per-row residual block where
+// the non-columnar fields are encoded row-major using their own codecs. The
+// never-larger decision is made by the caller's columnarProbe (it measures the
+// eligible columns; the residual block is byte-identical to what row-major
+// would emit, so it does not affect the columnar-vs-row-major comparison).
+// No FlagColIndex is emitted for hybrid in v1.
+func (e *Encoder) encodeHybridColumnar(plan *columnarPlan, base unsafe.Pointer, n int) error {
+	st := e.state
+	e.buf = append(e.buf, tagHybridColStruct)
+	e.buf = appendUvarint(e.buf, uint64(n))
+
+	// Shape: ALL fields in declaration order; residualKind marks residual ones.
+	if id := st.hybridShapeFor(plan.hybridNames, plan.hybridKinds); id != 0 {
+		e.buf = appendUvarint(e.buf, uint64(id))
+	} else {
+		e.buf = appendUvarint(e.buf, 0)
+		e.buf = appendUvarint(e.buf, uint64(len(plan.hybridNames)))
+		for i := range plan.hybridNames {
+			e.WriteString(plan.hybridNames[i])
+			e.buf = append(e.buf, byte(plan.hybridKinds[i]))
+		}
+		st.hybridShapeDeclare(plan.hybridNames, plan.hybridKinds)
+	}
+
+	// Eligible columns, transposed.
+	for c := range plan.cols {
+		if err := e.encodeOneColumn(plan, base, &plan.cols[c], n); err != nil {
+			return err
+		}
+	}
+
+	// Residual block: for each row, its non-columnar fields in declaration
+	// order, via the field's own (row-major) encoder.
+	for i := range n {
+		rowPtr := unsafe.Add(base, uintptr(i)*plan.stride)
+		for r := range plan.residual {
+			rf := &plan.residual[r]
+			if err := rf.desc.encode(e, unsafe.Add(rowPtr, rf.offset)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1330,6 +1373,147 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 		}
 		if err := d.decodeColumnInto(base, plan, col, n); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// readHybridColShape consumes tagHybridColStruct + N + the hybrid shape
+// (declare-inline or reuse-by-ID against the SEPARATE hybrid shape table). No
+// colIndex (hybrid v1 does not emit one). Mirrors readColShape otherwise.
+func (d *Decoder) readHybridColShape() (int, *decColShape, error) {
+	d.i++ // consume tagHybridColStruct
+	n64, k := readUvarint(d.buf[d.i:])
+	if k <= 0 {
+		return 0, nil, ErrInvalidLength
+	}
+	d.i += k
+	n := int(n64)
+	if err := checkColumnarN(n); err != nil {
+		return 0, nil, err
+	}
+	if d.state == nil {
+		d.state = newDecState()
+	}
+	idv, k2 := readUvarint(d.buf[d.i:])
+	if k2 <= 0 {
+		return 0, nil, ErrInvalidLength
+	}
+	if idv > uint64(^uint32(0)) {
+		return 0, nil, ErrUnknownStateID
+	}
+	d.i += k2
+	if idv == 0 {
+		cnt64, k3 := readUvarint(d.buf[d.i:])
+		if k3 <= 0 {
+			return 0, nil, ErrInvalidLength
+		}
+		d.i += k3
+		cnt := int(cnt64)
+		if err := d.CheckLength(cnt, 1); err != nil {
+			return 0, nil, err
+		}
+		names := make([]string, cnt)
+		kinds := make([]colKind, cnt)
+		for i := range cnt {
+			s, err := d.readStringBytes()
+			if err != nil {
+				return 0, nil, err
+			}
+			names[i] = string(s)
+			if d.i >= len(d.buf) {
+				return 0, nil, ErrShortBuffer
+			}
+			kinds[i] = colKind(d.buf[d.i])
+			d.i++
+		}
+		return n, d.state.hybridShapeDeclareDec(names, kinds), nil
+	}
+	sh := d.state.hybridShapeLookup(uint32(idv))
+	if sh == nil {
+		return 0, nil, ErrUnknownStateID
+	}
+	return n, sh, nil
+}
+
+func findCol(plan *columnarPlan, name string) *colColumn {
+	for c := range plan.cols {
+		if plan.cols[c].name == name {
+			return &plan.cols[c]
+		}
+	}
+	return nil
+}
+
+func findResidual(plan *columnarPlan, name string) *residualField {
+	for r := range plan.residual {
+		if plan.residual[r].name == name {
+			return &plan.residual[r]
+		}
+	}
+	return nil
+}
+
+// decodeHybridColumnar decodes a tagHybridColStruct payload: the eligible
+// columns (transposed) scatter into the result structs exactly as
+// decodeColumnar does, then the per-row residual block decodes each
+// non-columnar field row-major via its own codec. Schema evolution is handled
+// like decodeColumnar: an eligible wire column the target struct lacks is
+// skipped; a residual wire field with no target is consumed via d.Skip.
+func decodeHybridColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
+	n, sh, err := d.readHybridColShape()
+	if err != nil {
+		return err
+	}
+	// Bound every eligible column codec's claimed length to n.
+	d.colMaxLen = n
+	defer func() { d.colMaxLen = 0 }()
+
+	base := reuseOrMakeSlice(t, n, p, t.Elem().Size(), noPointers(t.Elem()))
+
+	// Eligible columns: shape entries with a real colKind, in wire order
+	// (which equals struct declaration order on the encode side). Matched by
+	// name to the target plan column.
+	for c := range sh.kinds {
+		if sh.kinds[c] == residualKind {
+			continue
+		}
+		col := findCol(plan, sh.names[c])
+		if col == nil {
+			// Wire has an eligible column the target struct lacks → skip its body.
+			if err := d.skipColumnValue(sh.kinds[c], n); err != nil {
+				return err
+			}
+			continue
+		}
+		if sh.kinds[c] != col.kind {
+			return ErrTypeMismatch
+		}
+		if err := d.decodeColumnInto(base, plan, col, n); err != nil {
+			return err
+		}
+	}
+
+	// Residual block. Precompute the wire-residual → target mapping once
+	// (nil target = a residual field the struct lacks, consumed via Skip).
+	var targets []*residualField
+	for c := range sh.kinds {
+		if sh.kinds[c] == residualKind {
+			targets = append(targets, findResidual(plan, sh.names[c]))
+		}
+	}
+	for i := range n {
+		rowPtr := unsafe.Add(base, uintptr(i)*plan.stride)
+		for _, rf := range targets {
+			if rf == nil {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := rf.desc.decode(d, unsafe.Add(rowPtr, rf.offset)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

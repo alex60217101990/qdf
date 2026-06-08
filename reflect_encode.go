@@ -177,16 +177,33 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 	return func(e *Encoder, p unsafe.Pointer) error {
 		hdr := (*sliceHeader)(p)
 		n := hdr.Len
-		// Pure-columnar path. A hybrid plan (residual != nil) is built but stays
-		// inert here until the hybrid encode path is wired (it would otherwise
-		// route to encodeColumnar, which only handles the eligible columns and
-		// would silently drop the residual fields). Hybrid plans fall through to
-		// row-major — byte-identical to pre-feature behavior.
-		if colPlan != nil && colPlan.residual == nil && n >= columnarMinElems && e.state != nil &&
-			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) &&
-			columnarProbe(colPlan, hdr.Data, n, e.fsst, e.fsstDict) {
-			e.writeHeader()
-			return e.encodeColumnar(colPlan, hdr.Data, n)
+		// Columnar / hybrid-columnar path.
+		//
+		// Pure plan (every field eligible): transpose under the columnarProbe
+		// gate, as before — tagColStruct.
+		//
+		// Hybrid plan (some residual fields): only auto-fire when FSST is enabled
+		// (OptFSST / OptCompression). The per-column probe cannot see the
+		// cross-field / cross-row string deduplication that row-major Dense gets
+		// from the global intern table (e.g. two columns holding the same string,
+		// or a high-cardinality column whose values repeat across rows), so on a
+		// string-heavy mixed struct it can mispredict and produce a LARGER wire
+		// than row-major under plain Balanced. With FSST the eligible string
+		// columns are compressed by the symbol table, which reliably beats
+		// row-major — that is where hybrid's measured win lives (AD/log/RTB at
+		// OptCompression). Without FSST a hybrid plan falls through to row-major,
+		// byte-identical to today (no regression). Intern-aware Balanced hybrid is
+		// a follow-up.
+		if colPlan != nil && n >= columnarMinElems && e.state != nil &&
+			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
+			pure := colPlan.residual == nil
+			if (pure || e.fsst) && columnarProbe(colPlan, hdr.Data, n, e.fsst, e.fsstDict) {
+				e.writeHeader()
+				if pure {
+					return e.encodeColumnar(colPlan, hdr.Data, n)
+				}
+				return e.encodeHybridColumnar(colPlan, hdr.Data, n)
+			}
 		}
 		e.WriteArrayHeader(n)
 		base := hdr.Data
@@ -248,15 +265,21 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 			return err
 		}
 		defer d.ascend()
-		// Pure-columnar decode. A hybrid plan (residual != nil) stays inert until
-		// the hybrid decode path is wired; a hybrid struct currently encodes
-		// row-major, so its wire never carries tagColStruct here.
-		if colPlan != nil && colPlan.residual == nil {
-			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
-				if d.query != nil {
-					return decodeColumnarQuery(d, t, colPlan, p)
+		// Columnar / hybrid-columnar decode dispatch.
+		if colPlan != nil {
+			if tag, err := d.peekTag(); err == nil {
+				switch tag {
+				case tagColStruct:
+					if d.query != nil {
+						return decodeColumnarQuery(d, t, colPlan, p)
+					}
+					return decodeColumnar(d, t, colPlan, p)
+				case tagHybridColStruct:
+					if d.query != nil {
+						return ErrUnsupported // v1: query/Select over a hybrid payload
+					}
+					return decodeHybridColumnar(d, t, colPlan, p)
 				}
-				return decodeColumnar(d, t, colPlan, p)
 			}
 		}
 		if elemDynamic {
