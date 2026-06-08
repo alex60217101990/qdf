@@ -209,6 +209,46 @@ func TestShrink_BurstThenSteadyState(t *testing.T) {
 	}
 }
 
+// No-regression guard: a SMALL steady workload (internLoad always under the
+// soft cap) must behave exactly as before the adaptive-retention change — the
+// table is reused in place across resets, never reallocated and never released
+// to the init size. The retain/release branches added by the change only fire
+// for over-cap arrays, so for small messages the policy is inert.
+func TestShrink_SmallSteadyIsInert(t *testing.T) {
+	st := newEncState()
+	const perMsg = 200 // well under maxRetainedIDs
+	fill := func(cycle int) {
+		for i := range perMsg {
+			st.lookupOrAssign(fmt.Sprintf("c%02d-small-%04d", cycle, i))
+		}
+	}
+	// Warm up to the steady-state table size.
+	fill(0)
+	st.reset()
+	fill(1)
+	warmCap := cap(st.internTable)
+	warmLRU := cap(st.lruLink)
+	if warmCap > maxRetainedIDs*2 {
+		t.Fatalf("test premise: small workload should stay under cap, got internTable cap=%d", warmCap)
+	}
+
+	// Many cycles: cap must stay put — no realloc churn, no drop-to-init,
+	// no streak-driven release (the arrays never exceeded the cap).
+	for c := range 30 {
+		st.reset()
+		fill(c + 2)
+		if got := cap(st.internTable); got != warmCap {
+			t.Fatalf("cycle %d: internTable cap changed (realloc/drop churn): warm=%d got=%d", c, warmCap, got)
+		}
+		if got := cap(st.lruLink); got != warmLRU {
+			t.Fatalf("cycle %d: lruLink cap changed: warm=%d got=%d", c, warmLRU, got)
+		}
+	}
+	if st.internTable == nil || st.lruLink == nil {
+		t.Fatal("small steady workload wrongly released under-cap backings")
+	}
+}
+
 // Helper exported only for this test — internarena.DefaultRetainBytes
 // is the public const; alias here for readability inside the package.
 func internarenaRetainBytes() int { return internarenaDefaultRetainBytes }
