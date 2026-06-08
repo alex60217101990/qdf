@@ -193,6 +193,10 @@ type encState struct {
 	// column to avoid a per-column map allocation.
 	strDictMap map[string]uint32
 
+	// retainStreak counts consecutive small (sub-cap) messages for the
+	// adaptive-retention policy in reset(). Cold — touched once per reset.
+	retainStreak uint8
+
 	// arena owns the byte storage that backs every intern key the
 	// encoder allocates — accessed only on intern miss, kept at the
 	// end so the hot fields above share earlier cache lines.
@@ -297,54 +301,90 @@ const (
 	maxRetainedLRUCap   = 4096
 	maxRetainedPairCap  = 4096
 	maxRetainedShapeCap = 1024
+
+	// retainReleaseStreak governs adaptive retention (see encState.reset /
+	// decState.reset). A pooled state RETAINS oversized backing arrays —
+	// clearing them in place instead of dropping them to nil — while
+	// consecutive messages stay large, so a steady high-cardinality /
+	// large-batch workload amortizes the table allocation instead of
+	// reallocating every single message (the dominant encode-alloc cost on
+	// AD/log/telemetry batches). Only after this many consecutive SMALL
+	// (sub-cap) messages does it conclude the burst subsided and release the
+	// memory. sync.Pool's GC-driven eviction bounds idle retention regardless.
+	retainReleaseStreak = 8
+
+	// maxRetainedColScratch hard-caps the row-count-scaled columnar scratch
+	// arrays (colScratch*, colDictTable, colMaskScratch, fsstScratch): a
+	// backing larger than this is dropped even mid-streak, bounding worst-case
+	// pooled memory after a one-off giant columnar batch. The intern/LRU/pair
+	// arrays need no such ceiling — maxStateEntries (≤ 0xFFFF) already bounds
+	// them to ~1-4 MB.
+	maxRetainedColScratch = 1 << 20
 )
 
 func (e *encState) reset() {
-	// Intern table shrink. The flat hash table doubles when load
-	// exceeds 0.5; long-running services that occasionally take a
-	// burst payload would otherwise pin the high-water-mark table
-	// to the pool forever. Drop oversized backing arrays here; in
-	// the steady-state path the table fits below the cap and only
-	// gets memcleared (cheap), which keeps the slot pages warm.
+	// Adaptive retention. A pooled encoder that just handled a large
+	// (high-cardinality / wide-batch) message would, under a fixed cap, drop
+	// its grown backing arrays and reallocate them from scratch on the very
+	// next message — so a STEADY large workload (AD / log / telemetry sync)
+	// never amortizes the table allocation and pays a full table regrow every
+	// message (the dominant encode-alloc cost measured on such batches).
+	// Instead we keep the intern/LRU/pair/shape backings (clearing them in
+	// place) while messages stay large, releasing only after
+	// retainReleaseStreak consecutive small messages. The decision is driven
+	// by internLoad — the count of strings interned THIS message, a true
+	// per-message demand signal (the retained cap would stay large forever
+	// and never let the streak advance). The row-scaled columnar scratch is
+	// governed separately by a hard ceiling (maxRetainedColScratch): retained
+	// up to it, dropped above, so a one-off giant batch can't pin unbounded
+	// memory. The intern/LRU/pair arrays are already bounded by
+	// maxStateEntries; sync.Pool's GC eviction caps idle retention regardless.
+	if int(e.internLoad) > maxRetainedIDs {
+		e.retainStreak = 0
+	} else if e.retainStreak < retainReleaseStreak {
+		e.retainStreak++
+	}
+	release := e.retainStreak >= retainReleaseStreak
+
+	// Intern table. Clear (zero every slot — internSlot{} is the empty
+	// sentinel) to reuse in place; drop the backing only when releasing.
 	//
-	// Order: clear / rebuild BEFORE arena.Reset. The slot.key
-	// fields alias arena bytes; arena.Reset rolls cursors back and
-	// the next Put overwrites the prior payload area, so any
-	// surviving aliased key would read garbage.
-	if cap(e.internTable) > maxRetainedIDs*2 {
+	// Order: clear / rebuild BEFORE arena.Reset. The slot.key fields alias
+	// arena bytes; arena.Reset rolls cursors back and the next Put overwrites
+	// the prior payload area, so any surviving aliased key would read garbage.
+	if cap(e.internTable) > maxRetainedIDs*2 && release {
 		e.internTable = make([]internSlot, internTableInitSize)
 	} else {
-		clear(e.internTable) // zero every slot (internSlot{} is the empty sentinel)
+		clear(e.internTable)
 	}
 	e.internLoad = 0
 	e.arena.Reset() // Arena has its own watermark, see internarena.
 
 	e.lastID = lruInvalidID
 	e.lruHead = lruInvalidID
-	if cap(e.lruLink) > maxRetainedLRUCap {
+	if cap(e.lruLink) > maxRetainedLRUCap && release {
 		e.lruLink = nil
 	} else {
 		e.lruLink = e.lruLink[:0]
 	}
 
-	// pairPred slice: clear in place if under the cap (memclr-fast
-	// because the empty sentinel is zero), drop the backing array
-	// otherwise.
-	if cap(e.pairPred) > maxRetainedPairCap {
+	// pairPred slice: clear in place (memclr-fast because the empty sentinel
+	// is zero); drop the backing array only when releasing.
+	if cap(e.pairPred) > maxRetainedPairCap && release {
 		e.pairPred = nil
 	} else {
 		clear(e.pairPred)
 	}
 
 	e.shapeCount = 0
-	if cap(e.shapeBindings) > maxRetainedShapeCap {
+	if cap(e.shapeBindings) > maxRetainedShapeCap && release {
 		e.shapeBindings = nil
 	} else {
 		e.shapeBindings = e.shapeBindings[:0]
 	}
 	e.lastShapeTd = nil
 	e.lastShapeID = 0
-	if cap(e.mapShapes) > maxRetainedShapeCap {
+	if cap(e.mapShapes) > maxRetainedShapeCap && release {
 		e.mapShapes = nil
 	} else {
 		e.mapShapes = e.mapShapes[:0]
@@ -353,40 +393,40 @@ func (e *encState) reset() {
 	e.lastMapShapeKeys = nil
 	e.mapEnc = mapHolderCache{}
 
-	if cap(e.colShapeNames) > maxRetainedShapeCap {
+	if cap(e.colShapeNames) > maxRetainedShapeCap && release {
 		e.colShapeNames = nil
 		e.colShapeKinds = nil
 	} else {
 		e.colShapeNames = e.colShapeNames[:0]
 		e.colShapeKinds = e.colShapeKinds[:0]
 	}
-	if cap(e.colScratchI64) > maxRetainedIDs {
+	// Row-scaled columnar scratch: retained across batches (amortizes a steady
+	// columnar workload, whose row count is independent of internLoad), dropped
+	// only past the hard ceiling so a one-off giant batch can't pin unbounded
+	// memory. sync.Pool's GC eviction reclaims it when the encoder goes idle.
+	if cap(e.colScratchI64) > maxRetainedColScratch {
 		e.colScratchI64, e.colScratchU64, e.colScratchF64, e.colScratchBool = nil, nil, nil, nil
 	}
-	// FSST compressed-bytes scratch can grow to the largest string column seen;
-	// drop it past the retention cap so the pool does not pin multi-MB buffers
-	// (mirrors the numeric scratch policy above).
-	if cap(e.fsstScratch) > maxRetainedIDs {
+	if cap(e.fsstScratch) > maxRetainedColScratch {
 		e.fsstScratch = nil
 		e.fsstLens = nil
 	}
 	// String-column scratch: []string slices retain header references that pin
-	// the caller's string memory across a pool recycle, and strDictMap grows to
-	// the largest column's distinct count. clear() drops the pinned headers;
-	// the backings are dropped past the retention cap (same policy as above).
-	if cap(e.colScratchStr) > maxRetainedIDs {
+	// the caller's string memory across a pool recycle. clear() drops those
+	// headers while keeping the backing; drop the backing only past the ceiling.
+	if cap(e.colScratchStr) > maxRetainedColScratch {
 		e.colScratchStr = nil
 	} else {
 		clear(e.colScratchStr)
 		e.colScratchStr = e.colScratchStr[:0]
 	}
-	if cap(e.colDictTable) > maxRetainedIDs {
+	if cap(e.colDictTable) > maxRetainedColScratch {
 		e.colDictTable = nil
 	} else {
 		clear(e.colDictTable)
 		e.colDictTable = e.colDictTable[:0]
 	}
-	if cap(e.colMaskScratch) > maxRetainedIDs {
+	if cap(e.colMaskScratch) > maxRetainedColScratch {
 		e.colMaskScratch = nil
 	} else {
 		e.colMaskScratch = e.colMaskScratch[:0]
@@ -817,6 +857,10 @@ type decState struct {
 	// mapDec pools reflect holders for the generic (reflect) string-keyed map
 	// decode path so it does not reflect.New per map entry (OptMapShape).
 	mapDec mapHolderCache
+
+	// retainStreak counts consecutive small (sub-cap) messages for the
+	// adaptive-retention policy in reset(). Cold — touched once per reset.
+	retainStreak uint8
 }
 
 func newDecState() *decState {
@@ -833,10 +877,23 @@ func newDecState() *decState {
 }
 
 func (d *decState) reset() {
-	// Symmetric to encState.reset's water-mark policy: shrink
-	// excess capacity back when a prior cycle grew past the soft
-	// cap, otherwise reuse the existing slices in place.
-	if cap(d.values) > maxRetainedIDs {
+	// Symmetric to encState.reset's adaptive-retention policy: retain grown
+	// backing arrays (reuse in place) while messages stay large so a steady
+	// large-batch decode workload amortizes the table allocation, releasing
+	// only after retainReleaseStreak consecutive small messages. The decision
+	// is driven by len(d.values) — the count of intern records decoded THIS
+	// message, a true per-message demand signal (the retained cap would stay
+	// large forever and never let the streak advance). Row-scaled columnar
+	// scratch is governed by the hard ceiling; the id-bounded tables are
+	// already bounded by maxStateEntries. See encState.reset for rationale.
+	if len(d.values) > maxRetainedIDs {
+		d.retainStreak = 0
+	} else if d.retainStreak < retainReleaseStreak {
+		d.retainStreak++
+	}
+	release := d.retainStreak >= retainReleaseStreak
+
+	if cap(d.values) > maxRetainedIDs && release {
 		d.values = nil
 		d.stringValues = nil
 	} else {
@@ -845,30 +902,32 @@ func (d *decState) reset() {
 	}
 	d.lastID = lruInvalidID
 	d.lruHead = lruInvalidID
-	if cap(d.lruLink) > maxRetainedLRUCap {
+	if cap(d.lruLink) > maxRetainedLRUCap && release {
 		d.lruLink = nil
 	} else {
 		d.lruLink = d.lruLink[:0]
 	}
-	if cap(d.pairPred) > maxRetainedPairCap {
+	if cap(d.pairPred) > maxRetainedPairCap && release {
 		d.pairPred = nil
 	} else {
 		clear(d.pairPred)
 	}
-	if cap(d.shapes) > maxRetainedShapeCap {
+	if cap(d.shapes) > maxRetainedShapeCap && release {
 		d.shapes = nil
 	} else {
 		d.shapes = d.shapes[:0]
 	}
-	if cap(d.colShapes) > maxRetainedShapeCap {
+	if cap(d.colShapes) > maxRetainedShapeCap && release {
 		d.colShapes = nil
 	} else {
 		d.colShapes = d.colShapes[:0]
 	}
-	if cap(d.colScratchI64) > maxRetainedIDs {
+	// Row-scaled columnar scratch: ceiling-only (independent of the intern
+	// streak), reclaimed when idle by sync.Pool GC.
+	if cap(d.colScratchI64) > maxRetainedColScratch {
 		d.colScratchI64, d.colScratchU64, d.colScratchF64, d.colScratchBool = nil, nil, nil, nil
 	}
-	if cap(d.colLenScratch) > maxRetainedIDs {
+	if cap(d.colLenScratch) > maxRetainedColScratch {
 		d.colLenScratch = nil
 	}
 	for i := range d.mruRing {
