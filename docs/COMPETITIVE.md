@@ -72,6 +72,36 @@ symmetric, excluded here):
   qdf's built-in pooling vs protobuf's pool-less default call, **not** a format
   intrinsic, so the fair reuse table above is the one to trust.
 
+## Active-Directory export — mixed structs (hybrid columnar)
+
+A realistic LDAP/AD user export: 5 000 `ADUser` records, each a *mixed* struct —
+~14 scalar/string columns (objectGUID, UPN, mail, names, department, title,
+timestamps, enabled flag) plus a `[]string` group-membership field and a
+`map[string]string` extra-attributes field. Cardinality mirrors a real org:
+GUID/UPN/email unique, names occasionally repeating, groups/departments
+moderately repeating. The two multi-valued fields are exactly what used to force
+the whole struct down the row-major path; **hybrid columnar** (under
+`OptCompression`) now transposes the eligible columns and keeps the rest
+row-major. Same data through each library (i7-9750H · Go 1.26, 5 000 rows):
+
+| 5 000 AD users | wire | encode | decode |
+| --- | ---: | ---: | ---: |
+| `encoding/json` | 3 833 KB | 14.1 ms | 57.8 ms |
+| `msgpack` | 3 370 KB | 8.7 ms | 16.7 ms |
+| **qdf `OptBalanced`** (default) | **1 830 KB** | **6.6 ms** | **7.9 ms** |
+| **qdf `OptCompression`** | **616 KB** | 32.1 ms | 13.2 ms |
+
+- **`OptBalanced` is a clean sweep**: smaller *and* faster than json and msgpack
+  on every axis — 2.1× smaller than json / 1.8× than msgpack on wire, 2.1× faster
+  encode than json, and **≈7× faster decode than json** (≈2× faster than msgpack),
+  at roughly half their allocations.
+- **`OptCompression`** is **6.2× smaller than json / 5.5× smaller than msgpack**
+  and still decodes faster than both; it pays encode CPU (rANS + FSST + hybrid
+  transpose) for the bytes — the backup/cold-storage trade.
+- protobuf/flatbuffers are not in this row: they need a generated schema for
+  `ADUser`, which an ad-hoc Go struct doesn't carry. On the five schema-fixtures
+  above qdf is already smaller than protobuf at the compression tier.
+
 ## Honest caveats
 - **`qdf_speed` wire ≈ msgpack** — the speed tier skips columnar compression; it
   is the drop-in `encoding/json` replacement, not the size play.

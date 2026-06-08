@@ -78,6 +78,19 @@ If you said *yes* to all three you've assembled `OptBalanced`.
 Dependent bits set without their parent are no-ops — the gating code
 ignores them. Reserved bits (6..31) are reserved; never use them.
 
+**Hybrid columnar (`tagHybridColStruct`, `0xF7`) — no bit of its own.** A slice
+of *mixed* structs (mostly scalar/string columns plus one or two `map` / slice /
+nested fields — the common log / AD / span / RTB record) used to fall back to
+fully row-major. With **`OptFSST` enabled (so, `OptCompression`)** qdf now
+transposes the eligible columns and keeps the ineligible fields as a per-row
+residual tail. It is gated on FSST on purpose: without it the per-column probe
+can't see row-major's global string-interning, so on a high-cardinality
+string-heavy struct it could emit a *larger* wire — FSST compresses those
+columns and makes the win reliable. Under plain `OptBalanced` a mixed struct
+stays row-major, byte-identical to before (no regression). Measured on a 5 000-row
+AD export: `OptCompression` wire is 6.2× smaller than json and still decodes
+faster than json *and* msgpack (see `docs/COMPETITIVE.md`).
+
 ---
 
 ## Scenario recipes
@@ -215,6 +228,25 @@ long-lived and the same payload encodes 100× with the same keys,
 For map-heavy payloads, qdf decode is consistently faster than
 msgpack thanks to the per-decoder key intern cache (1.7× faster on
 the config fixture).
+
+### Batch of mixed records (AD users / log records with a map or slice field)
+
+A `[]Struct` where each record is mostly scalar/string columns but also carries
+a `map[string]string` (attributes / labels) or a `[]string` (group membership /
+tags) — directory exports, structured logs, OTLP spans, RTB bids.
+
+**Recipe:** `qdf.OptCompression` (so hybrid columnar fires). `OptBalanced` is
+already a clean win over json/msgpack here (smaller + faster on every axis), but
+`OptCompression` adds hybrid columnar + FSST + rANS for the big wire reduction.
+
+```go
+b, err := qdf.Marshal(adUsers, qdf.OptCompression) // hybrid columnar transposes the eligible columns
+```
+
+Result on 5 000 AD users: wire 616 KB vs json 3 833 KB (6.2×) vs msgpack
+3 370 KB (5.5×); decode still faster than both. At `OptBalanced` (no hybrid),
+wire is 1 830 KB and decode ≈7× faster than json. Full table in
+`docs/COMPETITIVE.md`.
 
 ### Backup / archive
 

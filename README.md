@@ -57,7 +57,7 @@ the practical subset of that idea:
 | ------------------------ | ---------------------------- |
 | **State set** — the discrete values a position can take. | The Dense-mode intern table. The first occurrence of a string or `[]byte` value writes it in full and assigns it a stable ID. |
 | **Wavefunction collapse** — a single observation picks one state. | Every subsequent occurrence emits a `state_ref` tag plus a varint ID. Decoding "collapses" the reference back to its stored value. |
-| **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Numeric and bool slices use QPack codecs (FOR, Delta+FOR, RLE, dictionary, Gorilla XOR, ALP decimal, raw-LE bulk) that auto-select the smallest predicted form per slice; slices of homogeneous structs transpose to per-column codecs, and an enum-like string column is dictionary-coded (distinct table + bit-packed index per row) when that beats per-value interning. High-cardinality string columns (URLs, log lines, paths) where the whole-string dictionary can't help are eligible for FSST (`tagColStrFSST`, `0xF6`), which learns a symbol table of up to 255 substrings and compresses at the byte level — emitted only when strictly smaller. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
+| **Density** — keep only what carries information; minimise entropy `H(D \| C)` against the existing context. | Repeated keys / values across a message (and across a Dense stream) cost 1–3 bytes rather than their full length. Numeric and bool slices use QPack codecs (FOR, Delta+FOR, RLE, dictionary, Gorilla XOR, ALP decimal, raw-LE bulk) that auto-select the smallest predicted form per slice; slices of homogeneous structs transpose to per-column codecs, and an enum-like string column is dictionary-coded (distinct table + bit-packed index per row) when that beats per-value interning. A *mixed* struct — mostly scalar/string columns with one or two `map` / slice / nested fields (the common log / AD / span / RTB record shape) — transposes its eligible columns and keeps the rest as a per-row residual tail (**hybrid columnar**, `tagHybridColStruct`, `0xF7`), under `OptCompression`, instead of falling back to fully row-major. High-cardinality string columns (URLs, log lines, paths) where the whole-string dictionary can't help are eligible for FSST (`tagColStrFSST`, `0xF6`), which learns a symbol table of up to 255 substrings and compresses at the byte level — emitted only when strictly smaller. Field-name headers in generated code are pre-encoded once per type and concatenated without further work. |
 | **Probabilistic / residual coding** — predict, then store only the deviation. | QPack's Delta+FOR codec is exactly this for monotonic integer sequences: encode the first value plus the bit-packed residual against a `aᵢ = aᵢ₋₁ + minΔ` predictor. Gorilla does the same for floats by XOR-ing each sample against the previous one and storing the differing bits only. |
 | **Entanglement** — correlated values that constrain each other (e.g. `city = "Vilnius"` ⇒ `country = "Lithuania"`). | Three stacked predictors on the Dense state stream. **Markov-0** (`tagStateRepeat`, `0xE8`) collapses an immediate repeat of the previously emitted state-ref to a single byte. **MTF rank** (`tagStateMTF`, `0xE9`) encodes the LRU rank of the touched ID when that varuint is shorter than the raw id. **Markov-1 pair** (`tagStatePair`, `0xEA`) stores the most-recent successor observed after each prev ID (top-1, K=1) and encodes a hit as `0xEA + 0x00` (rank always 0) — wins when the prev → curr transition is predictable and the raw id needs a multi-byte varuint. The encoder picks the shortest of the four variants per emission, so the wire is never larger than the plain `tagStateRef` encoding. A full conditional-probability table beyond order-1 stays in the reserved `0xEB / 0xED..0xEF` block. |
 | **Shape interning** — repeated structure means the *layout* itself is information. | Dense mode emits structs (and `map[string]any` of stable shape via the reflect-struct path) through `tagMapShape` (`0xEC`). First occurrence declares the shape inline: `0xEC, 0, varuint(N), N × key`. Subsequent occurrences of the same shape emit `0xEC + varuint(shapeID) + N × value` — keys are *not* re-emitted. Per-record saving on an array of identical-shape structs is `N × 2` bytes for the elided state-refs plus the map header. The shape table is per-stream, addressed by `*typeDesc` on the encoder and by sequential ID on the wire. Shapes never collide across types because the encoder keys the binding on the descriptor pointer. |
@@ -127,6 +127,26 @@ vs protobuf 385). Honest trade-offs: `qdf_speed` wire ≈ msgpack;
 raw decode throughput and single-tiny-message size. Full tables (json /
 msgpack / protobuf / flatbuffers × five fixtures, wire + memory) and the
 reproduction recipe are in **[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
+
+A concrete head-to-head on a realistic **Active-Directory export** (5 000
+mixed `ADUser` records — unique GUID/UPN/email, occasionally-repeating
+names, moderately-repeating groups/departments; i7-9750H, same data through
+each library):
+
+| 5 000 AD users | wire | encode | decode |
+| --- | ---: | ---: | ---: |
+| `encoding/json` | 3 833 KB | 14.1 ms | 57.8 ms |
+| `msgpack` | 3 370 KB | 8.7 ms | 16.7 ms |
+| **qdf — `OptBalanced`** (default) | **1 830 KB** | **6.6 ms** | **7.9 ms** |
+| **qdf — `OptCompression`** | **616 KB** | 32.1 ms | 13.2 ms |
+
+`OptBalanced` is a clean sweep — smaller **and** faster than both json and
+msgpack on every axis (decode ≈ **7× faster than json**, ≈ 2× faster than
+msgpack; ≈ half the allocations). `OptCompression` is **6.2× smaller than
+json / 5.5× smaller than msgpack** and still decodes faster than both, paying
+encode CPU for it. The mixed-struct shape (a map + a slice field amid the
+scalars) is exactly what **hybrid columnar** (`OptCompression`) unlocks —
+without it those records would never have been transposed at all.
 
 ### Wire layout
 
@@ -246,7 +266,7 @@ convenience bundles cover the common tradeoffs:
 | ------------------ | ------------------------------------------------------------ |
 | `qdf.OptSpeed`     | Fast path. Tightest CPU cost; size comparable to msgpack. Drop-in for `encoding/json` behaviour. |
 | `qdf.OptBalanced`  | Repetitive payloads — logs, telemetry, columnar rows. Strings intern once; numeric and bool slices use QPack codecs; struct shapes intern; Markov-1 + MTF run on state-refs. |
-| `qdf.OptCompression` | `OptBalanced` plus the heavier wire-size codecs: Gorilla XOR for smooth float series, ALP for quantized/decimal `[]float64`, FSST substring-level compression for high-cardinality string columns (URLs, log lines, paths), and a final order-0 rANS entropy pass over the whole body (never larger). Trades encode CPU for smaller wire — pick it for backup / cold storage. |
+| `qdf.OptCompression` | `OptBalanced` plus the heavier wire-size codecs: Gorilla XOR for smooth float series, ALP for quantized/decimal `[]float64`, FSST substring-level compression for high-cardinality string columns (URLs, log lines, paths), **hybrid columnar** (transposes the eligible columns of a *mixed* struct — one with a map / slice / nested field — keeping the rest row-major, so log / AD / span records get columnar treatment they otherwise couldn't), and a final order-0 rANS entropy pass over the whole body (never larger). Trades encode CPU for smaller wire — pick it for backup / cold storage. |
 | custom mix         | Or-combine individual bits (`OptDense \| OptQPack \| OptShapeIntern …`) when one of the bundles is one click off the desired tradeoff. |
 
 ```go
