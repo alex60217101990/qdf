@@ -315,11 +315,12 @@ const (
 
 	// maxRetainedColScratch hard-caps the row-count-scaled columnar scratch
 	// arrays (colScratch*, colDictTable, colMaskScratch, fsstScratch): a
-	// backing larger than this is dropped even mid-streak, bounding worst-case
-	// pooled memory after a one-off giant columnar batch. The intern/LRU/pair
-	// arrays need no such ceiling — maxStateEntries (≤ 0xFFFF) already bounds
-	// them to ~1-4 MB.
-	maxRetainedColScratch = 1 << 20
+	// backing larger than this is dropped, bounding worst-case pooled memory
+	// after a one-off giant columnar batch. 1<<17 (131072 rows) covers any
+	// realistic batch while capping the per-encoder pin at ~2 MB for the
+	// []string scratch (16 B/elem). The intern/LRU/pair arrays need no such
+	// ceiling — maxStateEntries (≤ 0xFFFF) already bounds them to ~1-4 MB.
+	maxRetainedColScratch = 1 << 17
 )
 
 func (e *encState) reset() {

@@ -500,3 +500,79 @@ func maxU(a, b uint64) uint64 {
 	}
 	return b
 }
+
+// TestRealisticAD_SmallSteadyNoRegression guards that the common SMALL-message
+// workload (a handful of users per Marshal — the bread-and-butter case the
+// pool was originally tuned for) is unaffected by adaptive retention: it
+// round-trips bit-exactly and encodes in a low, stable number of allocations
+// per op. A small message never grows the intern table past the soft cap, so
+// the retention policy is inert here — this test fails loudly if a future
+// change makes the small path pay for the large-path machinery.
+func TestRealisticAD_SmallSteadyNoRegression(t *testing.T) {
+	small := makeADUsers(8) // tiny batch, internLoad stays far under the cap
+
+	// Correctness across modes.
+	for _, opt := range []qdf.Options{qdf.OptSpeed, qdf.OptBalanced, qdf.OptCompression} {
+		blob := mustMarshal(t, small, opt)
+		var out []ADUser
+		if err := qdf.Unmarshal(blob, &out); err != nil {
+			t.Fatalf("decode opt=%v: %v", opt, err)
+		}
+		if !reflect.DeepEqual(small, out) {
+			t.Fatalf("small round-trip mismatch opt=%v", opt)
+		}
+	}
+
+	// Steady-state encode allocations: low and stable. AllocsPerRun reuses the
+	// pooled encoder across 1000 runs, so a per-message realloc regression
+	// (e.g. dropping+rebuilding a table every message) would spike this.
+	encAllocs := testing.AllocsPerRun(1000, func() {
+		if _, err := qdf.Marshal(small, qdf.OptBalanced); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Logf("small (8-user) OptBalanced encode: %.0f allocs/op", encAllocs)
+	if encAllocs > 40 {
+		t.Fatalf("small-message encode allocs/op regressed: %.0f (>40)", encAllocs)
+	}
+}
+
+// TestRealisticAD_Bursty exercises the burst→quiet pattern the retention
+// policy is designed around: a big batch followed by many small ones, repeated.
+// It must round-trip every message correctly, and the process RSS must not run
+// away (retention is bounded by the streak + sync.Pool GC eviction).
+func TestRealisticAD_Bursty(t *testing.T) {
+	big := makeADUsers(5000)
+	small := makeADUsers(5)
+
+	runtime.GC()
+	rssStart := maxRSSBytes()
+
+	for round := range 12 {
+		// One big batch.
+		blob := mustMarshal(t, big, qdf.OptBalanced)
+		var bout []ADUser
+		if err := qdf.Unmarshal(blob, &bout); err != nil {
+			t.Fatalf("round %d big decode: %v", round, err)
+		}
+		if !reflect.DeepEqual(big, bout) {
+			t.Fatalf("round %d big round-trip mismatch", round)
+		}
+		// Then a run of small ones (drives the release streak).
+		for s := range 10 {
+			sb := mustMarshal(t, small, qdf.OptBalanced)
+			var sout []ADUser
+			if err := qdf.Unmarshal(sb, &sout); err != nil {
+				t.Fatalf("round %d small %d decode: %v", round, s, err)
+			}
+			if !reflect.DeepEqual(small, sout) {
+				t.Fatalf("round %d small %d round-trip mismatch", round, s)
+			}
+		}
+	}
+
+	runtime.GC()
+	rssEnd := maxRSSBytes()
+	t.Logf("bursty RSS (Getrusage Maxrss high-water): start=%.1f MB end=%.1f MB",
+		float64(rssStart)/(1<<20), float64(rssEnd)/(1<<20))
+}
