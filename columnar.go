@@ -283,6 +283,40 @@ func (d *decState) colShapeLookup(id uint32) *decColShape {
 	return &d.colShapes[id-1]
 }
 
+// hybridShapeDeclare / hybridShapeFor / hybridShapeDeclareDec / hybridShapeLookup
+// mirror the colShape* helpers but operate on the SEPARATE hybrid shape table
+// (hybridShapeNames/hybridShapeKinds on the encoder, hybridShapes on the
+// decoder). Keeping a distinct ID space means a stream can interleave
+// tagColStruct and tagHybridColStruct payloads without ID aliasing: hybrid
+// shape ID 3 and columnar shape ID 3 are independent. The kinds slice carries
+// residualKind (0xFF) for residual fields and a real colKind for eligible ones.
+func (e *encState) hybridShapeDeclare(names []string, kinds []colKind) uint32 {
+	e.hybridShapeNames = append(e.hybridShapeNames, names)
+	e.hybridShapeKinds = append(e.hybridShapeKinds, kinds)
+	return uint32(len(e.hybridShapeNames)) // ids start at 1
+}
+
+func (e *encState) hybridShapeFor(names []string, kinds []colKind) uint32 {
+	for i := range e.hybridShapeNames {
+		if colShapeEq(e.hybridShapeNames[i], e.hybridShapeKinds[i], names, kinds) {
+			return uint32(i + 1)
+		}
+	}
+	return 0
+}
+
+func (d *decState) hybridShapeDeclareDec(names []string, kinds []colKind) *decColShape {
+	d.hybridShapes = append(d.hybridShapes, decColShape{names: names, kinds: kinds})
+	return &d.hybridShapes[len(d.hybridShapes)-1]
+}
+
+func (d *decState) hybridShapeLookup(id uint32) *decColShape {
+	if id == 0 || id > uint32(len(d.hybridShapes)) {
+		return nil
+	}
+	return &d.hybridShapes[id-1]
+}
+
 const (
 	columnarProbeSample = 32
 	// columnarMinGainPct is the minimum estimated wire reduction (percent of

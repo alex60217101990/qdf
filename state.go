@@ -177,6 +177,11 @@ type encState struct {
 	// the same columnar shape.
 	colShapeNames [][]string
 	colShapeKinds [][]colKind
+	// Hybrid columnar shape table (tagHybridColStruct). Separate ID space from
+	// colShapeNames/colShapeKinds so hybrid and pure-columnar shapes never alias
+	// within a stream. kinds carry residualKind (0xFF) for residual fields.
+	hybridShapeNames [][]string
+	hybridShapeKinds [][]colKind
 	// Pooled transpose scratch, reused across columns and across calls.
 	colScratchI64  []int64
 	colScratchU64  []uint64
@@ -400,6 +405,13 @@ func (e *encState) reset() {
 	} else {
 		e.colShapeNames = e.colShapeNames[:0]
 		e.colShapeKinds = e.colShapeKinds[:0]
+	}
+	if cap(e.hybridShapeNames) > maxRetainedShapeCap && release {
+		e.hybridShapeNames = nil
+		e.hybridShapeKinds = nil
+	} else {
+		e.hybridShapeNames = e.hybridShapeNames[:0]
+		e.hybridShapeKinds = e.hybridShapeKinds[:0]
 	}
 	// Row-scaled columnar scratch: retained across batches (amortizes a steady
 	// columnar workload, whose row count is independent of internLoad), dropped
@@ -845,7 +857,10 @@ type decState struct {
 
 	// Columnar shape table (tagColStruct). colShapes[i] is the columnar
 	// shape with wire-ID i+1. Parallel to encState's colShapeNames/colShapeKinds.
-	colShapes      []decColShape
+	colShapes []decColShape
+	// Hybrid columnar shape table (tagHybridColStruct), separate ID space from
+	// colShapes. kinds carry residualKind (0xFF) for residual fields.
+	hybridShapes   []decColShape
 	colScratchI64  []int64
 	colScratchU64  []uint64
 	colScratchF64  []float64
@@ -931,6 +946,11 @@ func (d *decState) reset() {
 		d.colShapes = nil
 	} else {
 		d.colShapes = d.colShapes[:0]
+	}
+	if cap(d.hybridShapes) > maxRetainedShapeCap && release {
+		d.hybridShapes = nil
+	} else {
+		d.hybridShapes = d.hybridShapes[:0]
 	}
 	// Row-scaled columnar scratch: ceiling-only (independent of the intern
 	// streak), reclaimed when idle by sync.Pool GC.
