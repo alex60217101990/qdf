@@ -1,6 +1,8 @@
 package qdf
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"testing"
 )
@@ -116,5 +118,141 @@ func TestHybridShapeIDIndependence(t *testing.T) {
 	}
 	if got := d.hybridShapeLookup(1); got == nil || got.kinds[1] != residualKind {
 		t.Fatalf("hybridShapeLookup(1) wrong (want residualKind at [1]): %+v", got)
+	}
+}
+
+type hybridRec struct {
+	Level  string            // eligible, low-card → dict
+	Seq    int64             // eligible, monotonic → Delta+FOR
+	Active bool              // eligible → bitpack
+	Region string            // eligible, low-card → dict
+	Tags   []string          // residual (slice)
+	Attrs  map[string]string // residual (map)
+}
+
+func mkHybridRecs(n int) []hybridRec {
+	levels := []string{"INFO", "WARN", "ERROR", "DEBUG"}
+	regions := []string{"us-east", "eu-west", "ap-south"}
+	out := make([]hybridRec, n)
+	for i := range out {
+		out[i] = hybridRec{
+			Level:  levels[i%len(levels)],
+			Seq:    int64(i),
+			Active: i%2 == 0,
+			Region: regions[i%len(regions)],
+			Tags:   []string{"a", fmt.Sprintf("t%d", i%7)},
+			Attrs:  map[string]string{"k1": fmt.Sprintf("v%d", i%5), "k2": "const"},
+		}
+	}
+	return out
+}
+
+// Phase 3+4: hybrid encode+decode round-trips bit-exactly across every tier,
+// and the hybrid tag fires on the Balanced tier for a compressible mixed struct.
+func TestHybridRoundTrip(t *testing.T) {
+	in := mkHybridRecs(200)
+	opts := []Options{
+		OptSpeed,
+		OptBalanced,
+		OptBalanced | OptMapShape,
+		OptBalanced | OptColumnIndex,
+		OptBalanced | OptFSST,
+		OptCompression,
+	}
+	for _, opt := range opts {
+		b, err := Marshal(in, opt)
+		if err != nil {
+			t.Fatalf("opt=%d encode: %v", opt, err)
+		}
+		var out []hybridRec
+		if err := Unmarshal(b, &out); err != nil {
+			t.Fatalf("opt=%d decode: %v", opt, err)
+		}
+		if !reflect.DeepEqual(in, out) {
+			t.Fatalf("opt=%d round-trip mismatch", opt)
+		}
+	}
+
+	// Hybrid auto-fires when FSST is enabled. OptBalanced|OptFSST has no rANS to
+	// wrap/hide the tag, so the tag is directly observable — proving the eligible
+	// columns are transposed rather than the whole struct falling to row-major.
+	b, _ := Marshal(in, OptBalanced|OptFSST)
+	if !containsByte(b, tagHybridColStruct) {
+		t.Fatalf("OptBalanced|OptFSST: mixed struct must use hybrid, got %x...", b[:min(48, len(b))])
+	}
+	// Without FSST, hybrid must NOT fire (no Balanced regression guarantee).
+	bb, _ := Marshal(in, OptBalanced)
+	if containsByte(bb, tagHybridColStruct) {
+		t.Fatal("OptBalanced (no FSST): hybrid must not auto-fire in v1")
+	}
+}
+
+// Randomized round-trip stress: varied cardinality and edge eligible values
+// (negative/zero/large ints, empty/unicode strings, both bools) through the
+// hybrid (FSST) and row-major (Balanced) paths. Residual collections stay
+// non-empty to avoid the orthogonal nil-vs-empty slice semantics.
+func TestHybridRandomizedRoundTrip(t *testing.T) {
+	r := rand.New(rand.NewPCG(0x68796272, 0x69647a7a)) // "hybr","idzz"
+	strs := []string{"", "x", "INFO", "héllo-Ω", "a-fairly-long-token-value", "INFO"}
+	for iter := range 40 {
+		n := 16 + r.IntN(300)
+		card := 1 + r.IntN(8) // eligible string cardinality this batch
+		in := make([]hybridRec, n)
+		for i := range in {
+			in[i] = hybridRec{
+				Level:  strs[r.IntN(min(card, len(strs)))],
+				Seq:    int64(r.Uint64()) - (1 << 62), // negative, zero, large
+				Active: r.IntN(2) == 0,
+				Region: strs[r.IntN(min(card, len(strs)))],
+				Tags:   []string{strs[r.IntN(len(strs))]},
+				Attrs:  map[string]string{"k": strs[r.IntN(len(strs))]},
+			}
+		}
+		for _, opt := range []Options{OptBalanced, OptBalanced | OptFSST, OptCompression} {
+			b, err := Marshal(in, opt)
+			if err != nil {
+				t.Fatalf("iter %d opt=%d encode: %v", iter, opt, err)
+			}
+			var out []hybridRec
+			if err := Unmarshal(b, &out); err != nil {
+				t.Fatalf("iter %d opt=%d decode: %v", iter, opt, err)
+			}
+			if !reflect.DeepEqual(in, out) {
+				t.Fatalf("iter %d opt=%d round-trip mismatch (n=%d card=%d)", iter, opt, n, card)
+			}
+		}
+	}
+}
+
+// A small slice (< columnarMinElems) must fall back to row-major.
+func TestHybridSmallSliceFallback(t *testing.T) {
+	in := mkHybridRecs(8)
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsByte(b, tagHybridColStruct) {
+		t.Fatal("below columnarMinElems must not use hybrid")
+	}
+	var out []hybridRec
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatal("small-slice fallback round-trip mismatch")
+	}
+}
+
+// Query/Select over a hybrid payload returns ErrUnsupported in v1.
+func TestHybridQueryUnsupported(t *testing.T) {
+	in := mkHybridRecs(200)
+	b, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []hybridRec
+	err = Unmarshal(b, &out, Where("Seq", func(v int64) bool { return v > 100 }))
+	if err == nil {
+		t.Fatal("query over hybrid payload must error in v1")
 	}
 }
