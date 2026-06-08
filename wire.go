@@ -201,6 +201,19 @@ const (
 	//   index body beats the per-value run cost, so it never grows the wire.
 	tagColStrDict = 0xF5
 	tagColStrFSST = 0xF6 // FSST-coded string column (inside tagColStruct)
+
+	// tagHybridColStruct is a columnar container for a slice of MIXED structs:
+	// the columnar-eligible scalar/string fields are transposed into columns
+	// (same per-column encoding as tagColStruct) while the remaining fields
+	// (maps, non-[]byte slices, nested structs, interfaces) are kept row-major
+	// in a per-row residual block. Wire:
+	//   0xF7, varuint(N),
+	//   varuint(shapeID)  // 0 = declare inline: varuint(K), K×(WriteString(name),
+	//                     //   byte(colKind | 0xFF=residual)); else reuse by ID
+	//   [K_eligible column bodies, same layout as tagColStruct],
+	//   N × (K_residual values in field order, existing per-value tags).
+	// A decoder that does not implement it sees an unknown tag → ErrBadTag.
+	tagHybridColStruct = 0xF7
 )
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload

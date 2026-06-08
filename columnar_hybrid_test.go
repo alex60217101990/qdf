@@ -74,3 +74,47 @@ func TestBuildColumnarPlanHybrid(t *testing.T) {
 		t.Fatalf("allResidual: want nil plan, got %#v", p)
 	}
 }
+
+// Phase 2: the hybrid shape table is a separate ID space from the pure-columnar
+// table — a stream interleaving tagColStruct and tagHybridColStruct payloads
+// must not alias shape IDs.
+func TestHybridShapeIDIndependence(t *testing.T) {
+	names := []string{"a", "b", "c"}
+	colKinds := []colKind{colKindInt, colKindString, colKindBool}
+	hybKinds := []colKind{colKindInt, residualKind, colKindBool}
+
+	e := newEncState()
+	// Declaring in each table starts independently at ID 1.
+	if id := e.colShapeDeclare(names, colKinds); id != 1 {
+		t.Fatalf("colShapeDeclare first id = %d, want 1", id)
+	}
+	if id := e.hybridShapeDeclare(names, hybKinds); id != 1 {
+		t.Fatalf("hybridShapeDeclare first id = %d, want 1", id)
+	}
+	// Lookups stay within their own table.
+	if got := e.hybridShapeFor(names, hybKinds); got != 1 {
+		t.Fatalf("hybridShapeFor reuse = %d, want 1", got)
+	}
+	// A hybrid kinds set must NOT match a columnar shape with the same names
+	// (different kinds — residualKind sentinel differs).
+	if got := e.colShapeFor(names, hybKinds); got != 0 {
+		t.Fatalf("colShapeFor must not match hybrid kinds, got %d", got)
+	}
+	if got := e.hybridShapeFor(names, colKinds); got != 0 {
+		t.Fatalf("hybridShapeFor must not match columnar kinds, got %d", got)
+	}
+
+	d := newDecState()
+	dc := d.colShapeDeclareDec(names, colKinds)
+	dh := d.hybridShapeDeclareDec(names, hybKinds)
+	if dc == nil || dh == nil {
+		t.Fatal("decoder declare returned nil")
+	}
+	// Same wire ID (1) resolves to the correct, independent table entry.
+	if got := d.colShapeLookup(1); got == nil || got.kinds[1] != colKindString {
+		t.Fatalf("colShapeLookup(1) wrong: %+v", got)
+	}
+	if got := d.hybridShapeLookup(1); got == nil || got.kinds[1] != residualKind {
+		t.Fatalf("hybridShapeLookup(1) wrong (want residualKind at [1]): %+v", got)
+	}
+}
