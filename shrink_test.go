@@ -6,14 +6,19 @@ import (
 	"testing"
 )
 
-// shrink_test.go pins the bounded-memory contract added with the
-// arena + state shrink-on-Reset machinery. The encoder / decoder
-// pools must NOT pin spike memory forever; a long-running service
-// with bursty traffic stays at the steady-state working set, not
-// at the historical peak.
+// shrink_test.go pins the ADAPTIVE-retention contract of the encoder /
+// decoder state pools (state.go reset()).
+//
+// The contract changed from "drop oversized backings on the very next
+// reset" to "retain them while the workload stays large, release only
+// after retainReleaseStreak consecutive small messages." This lets a
+// STEADY high-cardinality / large-batch workload (AD / log / telemetry
+// sync) amortize the table allocation instead of reallocating every
+// message, while a one-off burst followed by quiet still returns to the
+// steady-state working set (and sync.Pool's GC eviction bounds idle
+// retention regardless).
 
-// Encoder Reset after a spike must drop the over-cap state. Verify
-// at the encState level (the lowest layer that holds the buckets).
+// A single small lookup still registers after a burst+release cycle.
 func TestShrink_EncStateRebuildsBigMap(t *testing.T) {
 	st := newEncState()
 	for i := range maxRetainedIDs + 100 {
@@ -27,58 +32,92 @@ func TestShrink_EncStateRebuildsBigMap(t *testing.T) {
 	if int(st.internLoad) != 0 {
 		t.Fatalf("reset did not clear ids: %d", int(st.internLoad))
 	}
-	// After shrink the map header was replaced with a fresh one;
-	// adding a single entry should not grow the buckets back to
-	// the pre-shrink size in a single step.
 	st.lookupOrAssign("post-shrink")
 	if int(st.internLoad) != 1 {
 		t.Fatalf("post-shrink lookup did not register: %d", int(st.internLoad))
 	}
 }
 
-// LRU slices must shrink when their cap exceeded the threshold.
-func TestShrink_EncStateDropsLRUOverCap(t *testing.T) {
+// Core amortization guarantee: under a SUSTAINED large workload the intern
+// table is retained across resets (cleared in place), never rebuilt to the
+// init size — so steady-state encoding pays no per-message table regrow.
+func TestShrink_SteadyLargeRetainsInternTable(t *testing.T) {
+	st := newEncState()
+	var capAfterFirst int
+	for cycle := range 20 {
+		for i := range maxRetainedIDs + 200 { // large every cycle
+			st.lookupOrAssign(fmt.Sprintf("c%02d-key-%05d", cycle, i))
+		}
+		st.reset()
+		if cycle == 0 {
+			capAfterFirst = cap(st.internTable)
+		}
+	}
+	if cap(st.internTable) <= internTableInitSize {
+		t.Fatalf("steady-large intern table was rebuilt to init size (no amortization): cap=%d", cap(st.internTable))
+	}
+	if cap(st.internTable) < capAfterFirst {
+		t.Fatalf("steady-large intern table shrank under sustained load: first=%d last=%d",
+			capAfterFirst, cap(st.internTable))
+	}
+}
+
+// LRU slice: retained on the first post-burst reset, released after the
+// workload stays small for retainReleaseStreak consecutive messages.
+func TestShrink_EncStateReleasesLRUAfterStreak(t *testing.T) {
 	st := newEncState()
 	for i := range maxRetainedLRUCap + 64 {
 		st.lookupOrAssign(fmt.Sprintf("lru-%05d", i))
 	}
 	if cap(st.lruLink) <= maxRetainedLRUCap {
-		t.Fatalf("test premise: lruPrev should exceed cap (%d), got %d",
+		t.Fatalf("test premise: lruLink should exceed cap (%d), got %d",
 			maxRetainedLRUCap, cap(st.lruLink))
 	}
+	burstCap := cap(st.lruLink)
+
+	// First reset right after the burst RETAINS (internLoad was large).
 	st.reset()
-	if st.lruLink != nil {
-		t.Fatalf("reset did not drop oversized lruPrev: cap=%d", cap(st.lruLink))
+	if cap(st.lruLink) != burstCap {
+		t.Fatalf("lruLink dropped on first post-burst reset (should retain): burst=%d post=%d",
+			burstCap, cap(st.lruLink))
+	}
+	// After retainReleaseStreak small (internLoad==0) resets, release.
+	for range retainReleaseStreak {
+		st.reset()
 	}
 	if st.lruLink != nil {
-		t.Fatalf("reset did not drop oversized lruNext: cap=%d", cap(st.lruLink))
+		t.Fatalf("lruLink not released after %d small resets: cap=%d", retainReleaseStreak, cap(st.lruLink))
 	}
 }
 
-// pairPred slice shrink — same contract as LRU.
-func TestShrink_EncStateDropsPairPredOverCap(t *testing.T) {
+// pairPred slice — same retain-then-release contract as LRU.
+func TestShrink_EncStateReleasesPairPredAfterStreak(t *testing.T) {
 	st := newEncState()
-	// Drive pairPred to grow past the cap by interning many keys
-	// and recording pair transitions between them.
 	for i := range maxRetainedPairCap + 64 {
 		st.lookupOrAssign(fmt.Sprintf("pair-%05d", i))
 	}
-	// Force pair records — record a pair for the highest prev id
-	// so pairPred slice is grown to that length.
 	last := uint32(int(st.internLoad) - 1)
 	st.pairRecord(last, last-1)
 	if cap(st.pairPred) <= maxRetainedPairCap {
 		t.Fatalf("test premise: pairPred should exceed cap (%d), got %d",
 			maxRetainedPairCap, cap(st.pairPred))
 	}
+	burstCap := cap(st.pairPred)
+
 	st.reset()
+	if cap(st.pairPred) != burstCap {
+		t.Fatalf("pairPred dropped on first post-burst reset (should retain): burst=%d post=%d",
+			burstCap, cap(st.pairPred))
+	}
+	for range retainReleaseStreak {
+		st.reset()
+	}
 	if st.pairPred != nil {
-		t.Fatalf("reset did not drop oversized pairPred: cap=%d", cap(st.pairPred))
+		t.Fatalf("pairPred not released after %d small resets: cap=%d", retainReleaseStreak, cap(st.pairPred))
 	}
 }
 
-// Steady-state workload must NOT trigger shrink. Encoder pool stays
-// warm without the per-Reset reallocation cost.
+// Steady-state SMALL workload must not grow caps unexpectedly (reuse in place).
 func TestShrink_EncStateKeepsCapsUnderThreshold(t *testing.T) {
 	st := newEncState()
 	for i := range 100 {
@@ -87,34 +126,21 @@ func TestShrink_EncStateKeepsCapsUnderThreshold(t *testing.T) {
 	preIDs := int(st.internLoad)
 	preLRU := cap(st.lruLink)
 	st.reset()
-	// After reset the map must still be the same instance (no
-	// rebuild because we were under the cap). Test this indirectly:
-	// the underlying buckets keep their capacity, so the cap hint
-	// for a future insert is the same.
 	if preIDs > maxRetainedIDs {
 		t.Skipf("steady-state breached maxRetainedIDs (%d > %d)", preIDs, maxRetainedIDs)
 	}
 	st.lookupOrAssign("after-reset")
-	// A clear()'d Go map keeps its allocation count under
-	// lightweight reuse — re-running the steady-state loop after
-	// reset should not trigger any new bucket growth past the
-	// pre-existing cap.
 	for i := range 100 {
 		st.lookupOrAssign(fmt.Sprintf("steady-after-%05d", i))
 	}
 	if cap(st.lruLink) > preLRU*2 {
-		t.Fatalf("lruPrev cap grew unexpectedly: pre=%d post=%d", preLRU, cap(st.lruLink))
+		t.Fatalf("lruLink cap grew unexpectedly: pre=%d post=%d", preLRU, cap(st.lruLink))
 	}
 }
 
-// Decoder Reset must shrink symmetrically. Drive the values slice
-// past the cap by decoding a huge intern-heavy buffer, then verify
-// reset drops the backing array.
-func TestShrink_DecStateDropsValuesOverCap(t *testing.T) {
+// Decoder values slice — retain-then-release, driven by len(d.values).
+func TestShrink_DecStateReleasesValuesAfterStreak(t *testing.T) {
 	d := newDecState()
-	// Manually pump value entries past the cap. Append until the
-	// slice exceeds maxRetainedIDs in capacity, mirroring what the
-	// decoder does when reading a stream with many interned items.
 	for i := range maxRetainedIDs + 64 {
 		d.append(fmt.Appendf(nil, "dec-val-%05d", i))
 	}
@@ -122,51 +148,56 @@ func TestShrink_DecStateDropsValuesOverCap(t *testing.T) {
 		t.Fatalf("test premise: values cap should exceed %d, got %d",
 			maxRetainedIDs, cap(d.values))
 	}
+	burstCap := cap(d.values)
+
 	d.reset()
+	if cap(d.values) != burstCap {
+		t.Fatalf("values dropped on first post-burst reset (should retain): burst=%d post=%d",
+			burstCap, cap(d.values))
+	}
+	for range retainReleaseStreak {
+		d.reset()
+	}
 	if d.values != nil {
-		t.Fatalf("decoder reset did not drop oversized values: cap=%d", cap(d.values))
+		t.Fatalf("decoder values not released after %d small resets: cap=%d", retainReleaseStreak, cap(d.values))
 	}
 	if d.lruLink != nil {
-		t.Fatalf("decoder reset did not drop lruPrev under oversized cap")
+		t.Fatalf("decoder lruLink not released after streak")
 	}
 }
 
-// Integration view of the shrink contract: a SAME encState that
-// went through a burst-grow → reset → steady-state cycle MUST come
-// out of reset with caps no larger than the soft caps. The pool's
-// eviction policy (sync.Pool drops items at GC time) makes a
-// HeapAlloc-based assertion unreliable; instead, inspect the
-// state directly across one full cycle.
+// Integration view: a SAME encState through burst-grow → retain → quiet →
+// release. Memory is held across the first quiet reset (amortization) and
+// returned only after the streak elapses.
 func TestShrink_BurstThenSteadyState(t *testing.T) {
 	st := newEncState()
-	// Burst phase: blow past every threshold.
 	for i := range maxRetainedIDs + 64 {
 		st.lookupOrAssign(fmt.Sprintf("burst-%05d-%s", i, strings.Repeat("z", 16)))
 	}
-	st.pairRecord(uint32(int(st.internLoad)-1), 0) // grow pairPred too
+	st.pairRecord(uint32(int(st.internLoad)-1), 0)
 
-	// Snapshot the burst-peak state.
-	burstIDs := int(st.internLoad)
 	burstLRUCap := cap(st.lruLink)
 	burstPairCap := cap(st.pairPred)
 	burstArena := st.arena.BytesUsed()
 	t.Logf("burst peak: ids=%d lruCap=%d pairCap=%d arenaUsed=%d KiB",
-		burstIDs, burstLRUCap, burstPairCap, burstArena/1024)
+		int(st.internLoad), burstLRUCap, burstPairCap, burstArena/1024)
 
-	// Reset — must shrink at least one of the over-cap structures.
+	// First post-burst reset retains the grown LRU/pair backings.
 	st.reset()
-
-	// Steady-state phase: small workload, must not regrow.
-	for i := range 100 {
-		st.lookupOrAssign(fmt.Sprintf("steady-%05d", i))
+	if burstLRUCap > maxRetainedLRUCap && cap(st.lruLink) != burstLRUCap {
+		t.Fatalf("lruLink dropped on first post-burst reset: burst=%d post=%d", burstLRUCap, cap(st.lruLink))
 	}
 
-	// Post-shrink invariants. The map and slices may NOT carry the
-	// burst-time capacity any longer; either they were rebuilt to
-	// a small size or they grew naturally to fit the steady-state
-	// workload only.
+	// Quiet phase: small messages for the full streak → release.
+	for range retainReleaseStreak {
+		for i := range 100 {
+			st.lookupOrAssign(fmt.Sprintf("steady-%05d", i))
+		}
+		st.reset()
+	}
+
 	if cap(st.lruLink) >= burstLRUCap && burstLRUCap > maxRetainedLRUCap {
-		t.Fatalf("lruPrev cap did not shrink after burst→reset: burst=%d post=%d",
+		t.Fatalf("lruLink cap did not shrink after burst→quiet: burst=%d post=%d",
 			burstLRUCap, cap(st.lruLink))
 	}
 	if cap(st.pairPred) >= burstPairCap && burstPairCap > maxRetainedPairCap {
