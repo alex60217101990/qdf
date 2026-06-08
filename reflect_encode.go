@@ -177,7 +177,12 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 	return func(e *Encoder, p unsafe.Pointer) error {
 		hdr := (*sliceHeader)(p)
 		n := hdr.Len
-		if colPlan != nil && n >= columnarMinElems && e.state != nil &&
+		// Pure-columnar path. A hybrid plan (residual != nil) is built but stays
+		// inert here until the hybrid encode path is wired (it would otherwise
+		// route to encodeColumnar, which only handles the eligible columns and
+		// would silently drop the residual fields). Hybrid plans fall through to
+		// row-major — byte-identical to pre-feature behavior.
+		if colPlan != nil && colPlan.residual == nil && n >= columnarMinElems && e.state != nil &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) &&
 			columnarProbe(colPlan, hdr.Data, n, e.fsst, e.fsstDict) {
 			e.writeHeader()
@@ -243,7 +248,10 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 			return err
 		}
 		defer d.ascend()
-		if colPlan != nil {
+		// Pure-columnar decode. A hybrid plan (residual != nil) stays inert until
+		// the hybrid decode path is wired; a hybrid struct currently encodes
+		// row-major, so its wire never carries tagColStruct here.
+		if colPlan != nil && colPlan.residual == nil {
 			if tag, err := d.peekTag(); err == nil && tag == tagColStruct {
 				if d.query != nil {
 					return decodeColumnarQuery(d, t, colPlan, p)

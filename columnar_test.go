@@ -63,12 +63,33 @@ func TestColumnar_Eligibility(t *testing.T) {
 		t.Fatalf("kind classification wrong: %+v", plan.cols)
 	}
 
+	// A struct mixing an eligible scalar with a slice field is now HYBRID
+	// (the eligible column is transposed, the slice kept as a residual field)
+	// instead of disqualifying the whole struct.
 	inTd, err := descOf(reflect.TypeFor[colInelig]())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if buildColumnarPlan(inTd) != nil {
-		t.Fatal("struct with a slice field must be ineligible")
+	hp := buildColumnarPlan(inTd)
+	if hp == nil {
+		t.Fatal("mixed scalar+slice struct must be hybrid-eligible, got nil")
+	}
+	if len(hp.cols) != 1 || len(hp.residual) != 1 {
+		t.Fatalf("colInelig: want 1 eligible col (A) + 1 residual (B), got cols=%d residual=%d",
+			len(hp.cols), len(hp.residual))
+	}
+
+	// A struct with NO eligible field is still ineligible (nil → row-major).
+	type noElig struct {
+		M map[string]int
+		S []string
+	}
+	nTd, err := descOf(reflect.TypeFor[noElig]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildColumnarPlan(nTd) != nil {
+		t.Fatal("struct with no eligible field must be ineligible (nil plan)")
 	}
 }
 
