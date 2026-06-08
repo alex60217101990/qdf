@@ -80,8 +80,29 @@ type colColumn struct {
 	isByte   bool    // true for []byte string columns (vs string)
 }
 
+// residualField describes one struct field that is NOT columnar-eligible
+// (map, non-[]byte slice, nested struct, interface, nullable []byte). In a
+// hybrid columnar payload these fields are kept row-major — encoded/decoded
+// per row via the field's existing typeDesc codecs — instead of disqualifying
+// the whole struct from columnar transposition.
+type residualField struct {
+	name   string
+	offset uintptr
+	desc   *typeDesc // the field's encode/decode closures (row-major path)
+}
+
+// residualKind is a shape-byte sentinel marking a residual field in a hybrid
+// columnar shape. It is outside the valid colKind range (base kinds 0x00-0x05,
+// nullable-OR'd 0x80-0x85), so it can never be mistaken for a real column kind.
+const residualKind colKind = 0xFF
+
 // columnarPlan is cached on the slice element's typeDesc. nil means the
 // element type is not columnar-eligible.
+//
+// Three shapes:
+//   - residual == nil          : pure columnar (every field eligible) — tagColStruct
+//   - residual != nil          : hybrid (some fields eligible, some residual) — tagHybridColStruct
+//   - (buildColumnarPlan nil)  : no eligible field at all — full row-major
 type columnarPlan struct {
 	cols   []colColumn
 	stride uintptr // struct size, for base + i*stride addressing
@@ -91,6 +112,15 @@ type columnarPlan struct {
 	// immutable after build, so the slice the shape table retains stays valid.
 	colNames []string
 	colKinds []colKind
+
+	// residual holds the non-columnar fields (in struct declaration order) for a
+	// hybrid plan; nil for a pure-columnar plan. hybridNames / hybridKinds are the
+	// full field list (ALL fields, declaration order) for the hybrid shape, with
+	// residualKind marking the residual entries — built once so the hybrid encode
+	// path hands them to the shape lookup/declare without rebuilding per batch.
+	residual    []residualField
+	hybridNames []string
+	hybridKinds []colKind
 }
 
 // columnarMinElems is the smallest slice length worth transposing; below it
@@ -121,14 +151,39 @@ func checkColumnarN(n int) error {
 	return nil
 }
 
-// buildColumnarPlan returns a plan if td is a struct whose every field is a
-// columnar-eligible scalar/string, else nil. Called once at fillDesc time;
-// the result is cached so the hot path never reflects.
+// buildColumnarPlan classifies a struct's fields into columnar-eligible columns
+// and (hybrid) residual fields. Called once at fillDesc time; the result is
+// cached so the hot path never reflects.
+//
+// Returns:
+//   - nil                      if td is not a struct, has no fields, or has NO
+//     columnar-eligible field (nothing to transpose → full row-major).
+//   - plan with residual == nil if EVERY field is eligible (pure columnar).
+//   - plan with residual != nil if some fields are eligible and some are not
+//     (hybrid: transpose the eligible columns, keep the rest row-major).
+//
+// A field that classifyColKind rejects (map, non-[]byte slice, nested struct,
+// interface) — or a nullable []byte — becomes residual instead of
+// disqualifying the whole struct, which is what unlocks columnar for the common
+// "mostly-scalar struct with one map/slice field" shape (AD/log/RTB records).
 func buildColumnarPlan(td *typeDesc) *columnarPlan {
 	if td.kind != reflect.Struct || len(td.fields) == 0 {
 		return nil
 	}
 	cols := make([]colColumn, 0, len(td.fields))
+	var residual []residualField
+	// hybridNames/hybridKinds record EVERY field in declaration order (with
+	// residualKind for the non-columnar ones) so a hybrid shape can reconstruct
+	// the struct on decode. Only retained on the plan if it turns out hybrid.
+	hybridNames := make([]string, 0, len(td.fields))
+	hybridKinds := make([]colKind, 0, len(td.fields))
+
+	addResidual := func(f *fieldDesc) {
+		residual = append(residual, residualField{name: f.name, offset: f.offset, desc: f.desc})
+		hybridNames = append(hybridNames, f.name)
+		hybridKinds = append(hybridKinds, residualKind)
+	}
+
 	for i := range td.fields {
 		f := &td.fields[i]
 		fd := f.desc
@@ -138,25 +193,30 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 		nullable := false
 		if fd.kind == reflect.Pointer {
 			if fd.elem == nil {
-				return nil
+				addResidual(f) // pointer to an undescribable type — keep row-major
+				continue
 			}
 			nullable = true
 			elemType = fd.rType.Elem()
 			fd = fd.elem
 		}
 		ck, w, isByte, ok := classifyColKind(fd)
-		if !ok {
-			return nil
+		// Not columnar-eligible (or a nullable []byte, still unsupported as a
+		// column) → residual rather than disqualifying the whole struct.
+		if !ok || (nullable && isByte) {
+			addResidual(f)
+			continue
 		}
 		if nullable {
-			// Nullable scalar/bool/string pointers are columnar; nullable
-			// []byte still falls back to row-major.
-			if isByte { // nullable []byte still unsupported; nullable string now allowed
-				return nil
-			}
 			ck |= colKindNullable
 		}
 		cols = append(cols, colColumn{name: f.name, offset: f.offset, kind: ck, width: w, isByte: isByte, elemType: elemType})
+		hybridNames = append(hybridNames, f.name)
+		hybridKinds = append(hybridKinds, ck)
+	}
+
+	if len(cols) == 0 {
+		return nil // no eligible column — nothing to transpose, full row-major
 	}
 	names := make([]string, len(cols))
 	kinds := make([]colKind, len(cols))
@@ -164,7 +224,14 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 		names[i] = cols[i].name
 		kinds[i] = cols[i].kind
 	}
-	return &columnarPlan{cols: cols, stride: td.rType.Size(), colNames: names, colKinds: kinds}
+	plan := &columnarPlan{cols: cols, stride: td.rType.Size(), colNames: names, colKinds: kinds}
+	if len(residual) > 0 {
+		// Hybrid: keep the full ordered field list for the hybrid shape.
+		plan.residual = residual
+		plan.hybridNames = hybridNames
+		plan.hybridKinds = hybridKinds
+	}
+	return plan
 }
 
 // colShapeDeclare registers a new columnar shape (names + kinds) on the encoder
