@@ -175,6 +175,19 @@ func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 
 func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
+		// Depth guard mirroring Decoder.descend in decodeSlice: count this
+		// container level so the encoder refuses a payload nested deeper than the
+		// decoder will accept, instead of emitting bytes that then fail to decode
+		// (slice/map/array-carried recursion was previously unbounded on encode
+		// while the decoder caps it at maxDepth).
+		if e.maxDepth != 0 {
+			e.depth++
+			if e.depth > e.maxDepth {
+				e.depth--
+				return ErrCycleDetected
+			}
+			defer func() { e.depth-- }()
+		}
 		hdr := (*sliceHeader)(p)
 		n := hdr.Len
 		// Columnar / hybrid-columnar path.
@@ -335,6 +348,15 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 
 func encodeArray(elem *typeDesc, stride uintptr, n int) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
+		// Depth guard mirroring Decoder.descend in decodeArray (see encodeSlice).
+		if e.maxDepth != 0 {
+			e.depth++
+			if e.depth > e.maxDepth {
+				e.depth--
+				return ErrCycleDetected
+			}
+			defer func() { e.depth-- }()
+		}
 		e.WriteArrayHeader(n)
 		for i := range n {
 			if err := elem.encode(e, unsafe.Add(p, uintptr(i)*stride)); err != nil {
@@ -371,6 +393,15 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 	valType := t.Elem()
 	stringKey := keyType.Kind() == reflect.String
 	return func(e *Encoder, p unsafe.Pointer) error {
+		// Depth guard mirroring Decoder.descend in decodeMap (see encodeSlice).
+		if e.maxDepth != 0 {
+			e.depth++
+			if e.depth > e.maxDepth {
+				e.depth--
+				return ErrCycleDetected
+			}
+			defer func() { e.depth-- }()
+		}
 		rv := reflect.NewAt(t, p).Elem()
 		if rv.IsNil() {
 			e.WriteNil()
