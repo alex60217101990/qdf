@@ -27,27 +27,142 @@ func installSliceFastPath(t reflect.Type) (
 	dec func(*Decoder, unsafe.Pointer) error,
 	ok bool,
 ) {
+	// The *Nil variants preserve the nil-vs-empty distinction at the FIELD level
+	// (a nil slice → tagNil) while the bare encodeSlice*/decodeSlice* stay
+	// nil-agnostic for their internal direct callers (dense columns). Each *Nil
+	// adds an inline nil check then a DIRECT call to the bare codec — no wrapping
+	// closure, so a slice field encode/decode costs no extra indirect call.
 	switch t {
 	case sliceStringType:
-		return encodeSliceString, decodeSliceString, true
+		return encodeSliceStringNil, decodeSliceStringNil, true
 	case sliceIntType:
-		return encodeSliceInt, decodeSliceInt, true
+		return encodeSliceIntNil, decodeSliceIntNil, true
 	case sliceInt32Type:
-		return encodeSliceInt32, decodeSliceInt32, true
+		return encodeSliceInt32Nil, decodeSliceInt32Nil, true
 	case sliceInt64Type:
-		return encodeSliceInt64, decodeSliceInt64, true
+		return encodeSliceInt64Nil, decodeSliceInt64Nil, true
 	case sliceUint32Type:
-		return encodeSliceUint32, decodeSliceUint32, true
+		return encodeSliceUint32Nil, decodeSliceUint32Nil, true
 	case sliceUint64Type:
-		return encodeSliceUint64, decodeSliceUint64, true
+		return encodeSliceUint64Nil, decodeSliceUint64Nil, true
 	case sliceFloat32Type:
-		return encodeSliceFloat32, decodeSliceFloat32, true
+		return encodeSliceFloat32Nil, decodeSliceFloat32Nil, true
 	case sliceFloat64Type:
-		return encodeSliceFloat64, decodeSliceFloat64, true
+		return encodeSliceFloat64Nil, decodeSliceFloat64Nil, true
 	case sliceBoolType:
-		return encodeSliceBool, decodeSliceBool, true
+		return encodeSliceBoolNil, decodeSliceBoolNil, true
 	}
 	return nil, nil, false
+}
+
+// Nil-aware field variants: inline nil check + DIRECT call to the bare codec.
+func encodeSliceStringNil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceString(e, p)
+}
+func decodeSliceStringNil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceString(d, p)
+}
+func encodeSliceIntNil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceInt(e, p)
+}
+func decodeSliceIntNil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceInt(d, p)
+}
+func encodeSliceInt32Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceInt32(e, p)
+}
+func decodeSliceInt32Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceInt32(d, p)
+}
+func encodeSliceInt64Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceInt64(e, p)
+}
+func decodeSliceInt64Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceInt64(d, p)
+}
+func encodeSliceUint32Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceUint32(e, p)
+}
+func decodeSliceUint32Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceUint32(d, p)
+}
+func encodeSliceUint64Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceUint64(e, p)
+}
+func decodeSliceUint64Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceUint64(d, p)
+}
+func encodeSliceFloat32Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceFloat32(e, p)
+}
+func decodeSliceFloat32Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceFloat32(d, p)
+}
+func encodeSliceFloat64Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceFloat64(e, p)
+}
+func decodeSliceFloat64Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceFloat64(d, p)
+}
+func encodeSliceBoolNil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceBool(e, p)
+}
+func decodeSliceBoolNil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceBool(d, p)
 }
 
 // ----- []string -----

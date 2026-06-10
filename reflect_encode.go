@@ -163,8 +163,17 @@ func decodeString(d *Decoder, p unsafe.Pointer) error {
 	return nil
 }
 
-func encodeBytes(e *Encoder, p unsafe.Pointer) error { e.WriteBytes(*(*[]byte)(p)); return nil }
+func encodeBytes(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) { // nil []byte → tagNil (distinct from empty)
+		return nil
+	}
+	e.WriteBytes(*(*[]byte)(p))
+	return nil
+}
 func decodeBytes(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
 	b, err := d.ReadBytes()
 	if err != nil {
 		return err
@@ -175,6 +184,9 @@ func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 
 func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
+		if e.encodeNilSlice(p) { // nil slice → tagNil (distinct from empty)
+			return nil
+		}
 		// Depth guard mirroring Decoder.descend in decodeSlice: count this
 		// container level so the encoder refuses a payload nested deeper than the
 		// decoder will accept, instead of emitting bytes that then fail to decode
@@ -274,6 +286,9 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	elemDynamic := elemType == reflect.TypeFor[map[string]any]() || elemType.Kind() == reflect.Interface
 	elemPF := noPointers(elemType) // gate for backing reuse (computed once per type)
 	return func(d *Decoder, p unsafe.Pointer) error {
+		if d.decodeNilSlice(p) { // tagNil → nil slice (distinct from empty)
+			return nil
+		}
 		if err := d.descend(); err != nil {
 			return err
 		}
@@ -1424,50 +1439,38 @@ type sliceHeader struct {
 	Cap  int
 }
 
-// preserveNilSliceEncode wraps a slice-FIELD encoder so a nil slice emits tagNil,
-// distinct from an empty (non-nil, len-0) slice's array header — the nil-vs-empty
+// encodeNilSlice emits tagNil and returns true when the slice at p is nil
+// (Data==nil), distinct from an empty (non-nil, len-0) slice — the nil-vs-empty
 // distinction maps and pointers already keep, and encoding/json keeps as null vs
-// []. An empty non-nil slice has a non-nil backing pointer (runtime.zerobase), so
-// Data==nil identifies exactly the nil case. Applied ONLY at descriptor build for
-// a slice-typed field, so the shared encodeSlice* functions stay nil-agnostic for
-// their internal direct callers (nullable/columnar dense columns), which must
-// still emit a real header for an empty/nil dense slice.
-func preserveNilSliceEncode(inner func(*Encoder, unsafe.Pointer) error) func(*Encoder, unsafe.Pointer) error {
-	return func(e *Encoder, p unsafe.Pointer) error {
-		if (*sliceHeader)(p).Data == nil {
-			e.WriteNil()
-			return nil
-		}
-		return inner(e, p)
+// []. Called as the first line of the nil-aware slice FIELD encoders so a nil
+// slice round-trips as nil. A small direct (inlinable) call, NOT a wrapping
+// closure, so the hot slice paths pay no extra indirection; the shared
+// encodeSlice* funcs stay nil-agnostic for their internal direct callers
+// (nullable/columnar dense columns), which must still emit a real header.
+func (e *Encoder) encodeNilSlice(p unsafe.Pointer) bool {
+	if (*sliceHeader)(p).Data == nil {
+		e.WriteNil()
+		return true
 	}
+	return false
 }
 
-// preserveNilSliceDecode mirrors preserveNilSliceEncode: a tagNil restores a nil
-// slice; any other tag decodes via inner (which yields a non-nil slice).
-func preserveNilSliceDecode(inner func(*Decoder, unsafe.Pointer) error) func(*Decoder, unsafe.Pointer) error {
-	return func(d *Decoder, p unsafe.Pointer) error {
-		// headerRead is true for the common struct-field/element path (the 5-byte
-		// header is already consumed), so a direct buffer-index check avoids a
-		// peekTag call; the cold top-level path reads the header first.
-		if d.headerRead {
-			if d.i < len(d.buf) && d.buf[d.i] == tagNil {
-				d.i++
-				*(*sliceHeader)(p) = sliceHeader{}
-				return nil
-			}
-			return inner(d, p)
+// decodeNilSlice consumes a tagNil nil-slice marker, zeroes the destination, and
+// returns true. The first line of the nil-aware slice decoders. The header is
+// read first on a top-level decode (headerRead==false); the common struct-field/
+// element path is a bounds test + tag compare.
+func (d *Decoder) decodeNilSlice(p unsafe.Pointer) bool {
+	if !d.headerRead {
+		if err := d.readHeaderSlow(); err != nil {
+			return false // the caller's normal decode re-surfaces the error
 		}
-		tag, err := d.peekTag()
-		if err != nil {
-			return err
-		}
-		if tag == tagNil {
-			d.i++
-			*(*sliceHeader)(p) = sliceHeader{}
-			return nil
-		}
-		return inner(d, p)
 	}
+	if d.i < len(d.buf) && d.buf[d.i] == tagNil {
+		d.i++
+		*(*sliceHeader)(p) = sliceHeader{}
+		return true
+	}
+	return false
 }
 
 // noPointers reports whether t contains no pointers (so a byte-clear of its
