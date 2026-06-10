@@ -183,6 +183,12 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 			td.encode = encodeSlice(elem, t.Elem().Size(), td.colPlan)
 			td.decode = decodeSlice(t, elem, t.Elem().Size(), td.colPlan)
 		}
+		// Preserve the nil-vs-empty distinction for every slice-typed FIELD
+		// (bytes / typed-fast-path / reflect), consistent with maps and pointers.
+		// Wrapping at the field descriptor keeps the shared encodeSlice* funcs
+		// nil-agnostic for their internal direct callers (dense columns).
+		td.encode = preserveNilSliceEncode(td.encode)
+		td.decode = preserveNilSliceDecode(td.decode)
 	case reflect.Array:
 		elem, err := descBuild(t.Elem(), ctx)
 		if err != nil {

@@ -414,6 +414,17 @@ func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
 // []map[string]any or []any payload; on any other shape a query call
 // returns a *QueryError wrapping ErrUnsupported. With no options the
 // behavior is exactly the plain decode above.
+//
+// Round-trip fidelity: decoding into the same concrete Go type reproduces the
+// value exactly, including the nil-vs-empty distinction for slices, maps and
+// pointers (a nil []T decodes as nil, an empty []T{} as empty — like
+// encoding/json's null vs []). Two deliberate normalizations are NOT bit-exact:
+// decoding into an interface (any / map[string]any) canonicalizes integers to
+// int64 / uint64 and structs to map[string]any (the schemaless type contract),
+// and a time.Time loses any monotonic-clock reading on encode (as the standard
+// library strips it for transport). Values nested deeper than the configured
+// max depth, and maps with both int and uint keys of the same small value, are
+// the documented exceptions.
 func Unmarshal(data []byte, out any, opts ...QueryOption) error {
 	if len(opts) == 0 {
 		return unmarshal(data, out, nil, false)

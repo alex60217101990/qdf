@@ -1424,6 +1424,52 @@ type sliceHeader struct {
 	Cap  int
 }
 
+// preserveNilSliceEncode wraps a slice-FIELD encoder so a nil slice emits tagNil,
+// distinct from an empty (non-nil, len-0) slice's array header — the nil-vs-empty
+// distinction maps and pointers already keep, and encoding/json keeps as null vs
+// []. An empty non-nil slice has a non-nil backing pointer (runtime.zerobase), so
+// Data==nil identifies exactly the nil case. Applied ONLY at descriptor build for
+// a slice-typed field, so the shared encodeSlice* functions stay nil-agnostic for
+// their internal direct callers (nullable/columnar dense columns), which must
+// still emit a real header for an empty/nil dense slice.
+func preserveNilSliceEncode(inner func(*Encoder, unsafe.Pointer) error) func(*Encoder, unsafe.Pointer) error {
+	return func(e *Encoder, p unsafe.Pointer) error {
+		if (*sliceHeader)(p).Data == nil {
+			e.WriteNil()
+			return nil
+		}
+		return inner(e, p)
+	}
+}
+
+// preserveNilSliceDecode mirrors preserveNilSliceEncode: a tagNil restores a nil
+// slice; any other tag decodes via inner (which yields a non-nil slice).
+func preserveNilSliceDecode(inner func(*Decoder, unsafe.Pointer) error) func(*Decoder, unsafe.Pointer) error {
+	return func(d *Decoder, p unsafe.Pointer) error {
+		// headerRead is true for the common struct-field/element path (the 5-byte
+		// header is already consumed), so a direct buffer-index check avoids a
+		// peekTag call; the cold top-level path reads the header first.
+		if d.headerRead {
+			if d.i < len(d.buf) && d.buf[d.i] == tagNil {
+				d.i++
+				*(*sliceHeader)(p) = sliceHeader{}
+				return nil
+			}
+			return inner(d, p)
+		}
+		tag, err := d.peekTag()
+		if err != nil {
+			return err
+		}
+		if tag == tagNil {
+			d.i++
+			*(*sliceHeader)(p) = sliceHeader{}
+			return nil
+		}
+		return inner(d, p)
+	}
+}
+
 // noPointers reports whether t contains no pointers (so a byte-clear of its
 // memory is GC-safe — no write barriers needed). Used to gate decode slice
 // backing reuse: a pointer-free element can be zeroed with clear() over a raw
