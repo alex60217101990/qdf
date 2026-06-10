@@ -207,7 +207,15 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
 	idx = make([]uint32, n)
-	tmp := make([]uint64, n)
+	// Reuse the shared transient unpack scratch (as readPackedDictUint64Slice
+	// does): tmp holds the bit-unpacked dictionary indices, fully written by
+	// Unpack below before any read, and only mapped into idx — never aliased
+	// into the returned slices. count >= 2 ⇒ bits >= 1 (checked above), so
+	// Unpack always writes all n slots; no stale-tail under-fill is possible.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	tmp := d.deltaScratch[:n]
 	bitpack.Unpack(tmp, body, bits)
 	for i, v := range tmp {
 		if v >= c64 {

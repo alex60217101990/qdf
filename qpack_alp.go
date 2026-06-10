@@ -234,7 +234,15 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 	out := make([]float64, n)
 	if width > 0 {
 		bodyBytes := int((n64*uint64(width) + 7) / 8)
-		packed := make([]uint64, n)
+		// Reuse the shared transient unpack scratch (as readPackedDictUint64Slice
+		// does): packed is fully written by Unpack before any read, only consumed
+		// into out, never aliased into the returned slice. This branch runs only
+		// when width > 0, so Unpack always writes all n slots — the width == 0
+		// constant path below never touches deltaScratch, so no stale-tail leak.
+		if cap(d.deltaScratch) < n {
+			d.deltaScratch = make([]uint64, n)
+		}
+		packed := d.deltaScratch[:n]
 		bitpack.Unpack(packed, d.buf[d.i:d.i+bodyBytes], width)
 		d.i += bodyBytes
 		for i := range out {
