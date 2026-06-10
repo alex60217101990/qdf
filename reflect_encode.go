@@ -962,6 +962,22 @@ func decodeIface(d *Decoder, p unsafe.Pointer) error {
 }
 
 // decodeAny reads the next value as a generic any, mirroring encoding/json.
+// isStringKeyTag reports whether tag begins a string value — i.e. a map key
+// that d.readStringBytes can consume. Mirrors decodeAny's string-producing
+// cases. Used to tell a string-keyed map (→ map[string]any) from a non-string-
+// keyed one (→ map[any]any) when decoding a map schemalessly.
+func isStringKeyTag(tag byte) bool {
+	if tag >= tagFixstr && tag <= tagFixstr|tagFixstrMask {
+		return true
+	}
+	switch tag {
+	case tagStr8, tagStr16, tagStr32, tagInternStr,
+		tagStateRef, tagStateRepeat, tagStateMTF, tagStatePair:
+		return true
+	}
+	return false
+}
+
 func decodeAny(d *Decoder) (any, error) {
 	if err := d.descend(); err != nil {
 		return nil, err
@@ -1040,6 +1056,41 @@ func decodeAny(d *Decoder) (any, error) {
 		}
 		if err := d.CheckLength(n, 2); err != nil {
 			return nil, err
+		}
+		if n == 0 {
+			return map[string]any{}, nil
+		}
+		// Peek the first key's tag. A string-keyed map (the common case)
+		// decodes to map[string]any with interned keys. A non-string-keyed map
+		// (e.g. map[int]V boxed in an any/interface, whose keys were written via
+		// WriteInt/WriteUint) must NOT be read as string keys — doing so
+		// returned ErrTypeMismatch and silently lost data that round-trips fine
+		// into a typed destination. The wire cannot distinguish int from uint
+		// for small (fixint) keys, so the only lossless schemaless form is
+		// map[any]any, each key decoded via decodeAny (int64/uint64/etc.).
+		ktag, err := d.peekTag()
+		if err != nil {
+			return nil, err
+		}
+		if !isStringKeyTag(ktag) {
+			out := make(map[any]any, n)
+			for range n {
+				k, err := decodeAny(d)
+				if err != nil {
+					return nil, err
+				}
+				// A valid map key type is always comparable; reject a hostile
+				// wire whose "key" decodes to a slice/map so out[k] cannot panic.
+				if k != nil && !reflect.TypeOf(k).Comparable() {
+					return nil, ErrBadTag
+				}
+				v, err := decodeAny(d)
+				if err != nil {
+					return nil, err
+				}
+				out[k] = v
+			}
+			return out, nil
 		}
 		out := make(map[string]any, n)
 		for range n {
