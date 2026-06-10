@@ -1068,32 +1068,42 @@ func decodeAny(d *Decoder) (any, error) {
 		// into a typed destination. The wire cannot distinguish int from uint
 		// for small (fixint) keys, so the only lossless schemaless form is
 		// map[any]any, each key decoded via decodeAny (int64/uint64/etc.).
-		ktag, err := d.peekTag()
-		if err != nil {
-			return nil, err
-		}
-		if !isStringKeyTag(ktag) {
-			out := make(map[any]any, n)
-			for range n {
-				k, err := decodeAny(d)
-				if err != nil {
-					return nil, err
-				}
-				// A valid map key type is always comparable; reject a hostile
-				// wire whose "key" decodes to a slice/map so out[k] cannot panic.
-				if k != nil && !reflect.TypeOf(k).Comparable() {
-					return nil, ErrBadTag
-				}
-				v, err := decodeAny(d)
-				if err != nil {
-					return nil, err
-				}
-				out[k] = v
-			}
-			return out, nil
-		}
+		// Peek EACH key's tag, not just the first: a map[any]any can carry mixed
+		// key types in any order. Stay on the fast string-keyed path (→
+		// map[string]any) as long as keys are strings; the moment a non-string
+		// key appears, migrate the string keys decoded so far into map[any]any
+		// and finish via decodeAny (which handles string and non-string keys
+		// alike). map[any]any is the only lossless schemaless form — the wire
+		// can't tell int from uint for small (fixint) keys.
 		out := make(map[string]any, n)
-		for range n {
+		for idx := 0; idx < n; idx++ {
+			ktag, err := d.peekTag()
+			if err != nil {
+				return nil, err
+			}
+			if !isStringKeyTag(ktag) {
+				anyOut := make(map[any]any, n)
+				for k, v := range out {
+					anyOut[k] = v
+				}
+				for ; idx < n; idx++ {
+					k, err := decodeAny(d)
+					if err != nil {
+						return nil, err
+					}
+					// A valid map key is always comparable; reject a hostile wire
+					// whose "key" decodes to a slice/map so anyOut[k] can't panic.
+					if k != nil && !reflect.TypeOf(k).Comparable() {
+						return nil, ErrBadTag
+					}
+					v, err := decodeAny(d)
+					if err != nil {
+						return nil, err
+					}
+					anyOut[k] = v
+				}
+				return anyOut, nil
+			}
 			kb, err := d.readStringBytes()
 			if err != nil {
 				return nil, err
