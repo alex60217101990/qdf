@@ -48,6 +48,35 @@ func TestDecodeAnyNonStringKeyedMap(t *testing.T) {
 	}
 }
 
+// Regression: a map[any]any with MIXED key types (string + int) must round-trip
+// regardless of Go's randomized map iteration order. The decode path used to
+// peek only the FIRST key's tag and commit the whole map to one path, so a
+// string key sorting first sent an int key into the string reader →
+// ErrTypeMismatch ~85% of the time. decodeAny now peeks per key and migrates to
+// map[any]any the moment a non-string key appears.
+func TestDecodeAnyMixedKeyMap(t *testing.T) {
+	for _, opt := range []Options{OptSpeed, OptBalanced} {
+		for i := 0; i < 50; i++ { // many trials: hit both iteration orders
+			var top any = map[any]any{"strkey": "v1", int(42): "v2", "k3": int64(7)}
+			b, err := Marshal(top, opt)
+			if err != nil {
+				t.Fatalf("opt=%v marshal: %v", opt, err)
+			}
+			var got any
+			if err := Unmarshal(b, &got); err != nil {
+				t.Fatalf("opt=%v trial %d unmarshal: %v", opt, i, err)
+			}
+			m, ok := got.(map[any]any)
+			if !ok {
+				t.Fatalf("opt=%v want map[any]any got %T", opt, got)
+			}
+			if len(m) != 3 || m["strkey"] != "v1" || m[uint64(42)] != "v2" || m["k3"] != uint64(7) {
+				t.Fatalf("opt=%v trial %d content wrong: %#v", opt, i, m)
+			}
+		}
+	}
+}
+
 // String-keyed maps in `any` must keep decoding to map[string]any (no regression
 // from the new non-string-key branch).
 func TestDecodeAnyStringKeyedMapUnchanged(t *testing.T) {
