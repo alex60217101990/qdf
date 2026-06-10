@@ -216,6 +216,12 @@ func (s *StreamDecoder) Decode(out any) error {
 			return err // io.EOF here means an empty stream
 		}
 		if err := s.dec.readHeader(); err != nil {
+			// A corrupt header may have half-advanced the decoder (readHeaderSlow
+			// sets headerRead/cursor before a failing rANS-body pass), so latch
+			// the stream broken — like a mid-frame decode error below — to uphold
+			// the "once broken, further Decode is refused" invariant instead of
+			// silently resuming at the next byte.
+			s.broken = true
 			return err
 		}
 	}
