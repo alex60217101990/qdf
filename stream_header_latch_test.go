@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ func TestStreamHeaderErrorLatchesBroken(t *testing.T) {
 	if err := sd.Decode(&got); err == nil {
 		t.Fatal("expected first decode to fail on the corrupt header")
 	}
-	if err := sd.Decode(&got); err != ErrStreamDecoderBroken {
+	if err := sd.Decode(&got); !errors.Is(err, ErrStreamDecoderBroken) {
 		t.Fatalf("after a header error the decoder must latch broken; got %v want ErrStreamDecoderBroken", err)
 	}
 }
