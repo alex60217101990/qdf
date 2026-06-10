@@ -1505,6 +1505,13 @@ func decodeHybridColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsa
 			targets = append(targets, findResidual(plan, sh.names[c]))
 		}
 	}
+	// Residual fields are row-major, not columnar columns: their slice/map/
+	// nested values may legitimately hold any number of elements, unrelated to
+	// the row count n. Clear the per-column length bound (set to n above for the
+	// eligible columns) before decoding them, or a residual collection longer
+	// than n is wrongly rejected by colLenOK as ErrInvalidLength. (A nested
+	// columnar residual sets and restores its own colMaxLen.)
+	d.colMaxLen = 0
 	for i := range n {
 		rowPtr := unsafe.Add(base, uintptr(i)*plan.stride)
 		for _, rf := range targets {
@@ -2024,6 +2031,10 @@ func decodeHybridColumnarAny(d *Decoder) (any, error) {
 		}
 	}
 	// Residual block: per row, each residual field in shape order via decodeAny.
+	// Residual fields are row-major; clear the columnar length bound so a
+	// residual collection longer than n is not rejected by colLenOK (see
+	// decodeHybridColumnar for the detailed rationale).
+	d.colMaxLen = 0
 	for i := range n {
 		row := out[i].(map[string]any)
 		for c := range sh.kinds {
