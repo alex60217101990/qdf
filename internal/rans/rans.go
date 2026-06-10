@@ -82,15 +82,16 @@ func buildFreqs(src []byte) (freq [256]uint32, cum [257]uint32) {
 	return freq, cum
 }
 
-// buildSlot returns the 4096-entry slot->symbol lookup for decode.
-func buildSlot(cum *[257]uint32) *[scale]byte {
-	var slot [scale]byte
+// buildSlot fills the 4096-entry slot->symbol lookup for decode into the
+// caller-provided array. Taking the destination by pointer (rather than
+// returning a fresh array) lets the caller keep slot on its stack frame: a
+// returned &slot would force the 4 KiB array to the heap on every Decode.
+func buildSlot(cum *[257]uint32, slot *[scale]byte) {
 	for s := range 256 {
 		for c := cum[s]; c < cum[s+1]; c++ {
 			slot[c] = byte(s)
 		}
 	}
-	return &slot
 }
 
 // encodeStream rANS-encodes src and returns the stream: 4-byte little-endian
@@ -195,8 +196,9 @@ func Decode(src []byte, n int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	slot := buildSlot(&cum)
-	return decodeStream(src[used:], &freq, slot, &cum, n)
+	var slot [scale]byte
+	buildSlot(&cum, &slot)
+	return decodeStream(src[used:], &freq, &slot, &cum, n)
 }
 
 // appendUvarint / uvarint are local LEB128 helpers (kept self-contained so the
