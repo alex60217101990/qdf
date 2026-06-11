@@ -1430,15 +1430,6 @@ func decodeReflect(d *Decoder, out any) error {
 	return td.decode(d, unsafe.Pointer(rv.Pointer()))
 }
 
-// sliceHeader mirrors reflect.SliceHeader using unsafe.Pointer instead of
-// uintptr so the GC can see the data pointer. Required for taking pointers
-// out of a slice without losing it to the GC.
-type sliceHeader struct {
-	Data unsafe.Pointer
-	Len  int
-	Cap  int
-}
-
 // encodeNilSlice emits tagNil and returns true when the slice at p is nil
 // (Data==nil), distinct from an empty (non-nil, len-0) slice — the nil-vs-empty
 // distinction maps and pointers already keep, and encoding/json keeps as null vs
@@ -1473,56 +1464,3 @@ func (d *Decoder) decodeNilSlice(p unsafe.Pointer) bool {
 	return false
 }
 
-// noPointers reports whether t contains no pointers (so a byte-clear of its
-// memory is GC-safe — no write barriers needed). Used to gate decode slice
-// backing reuse: a pointer-free element can be zeroed with clear() over a raw
-// []byte view before the values are decoded in place.
-func noPointers(t reflect.Type) bool {
-	switch t.Kind() {
-	case reflect.Bool,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
-		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
-		return true
-	case reflect.Array:
-		return noPointers(t.Elem())
-	case reflect.Struct:
-		for field := range t.Fields() {
-			if !noPointers(field.Type) {
-				return false
-			}
-		}
-		return true
-	default:
-		// string, slice, map, ptr, interface, chan, func, unsafe.Pointer.
-		return false
-	}
-}
-
-// reuseOrMakeSlice sets the slice at p to length n and returns its data base.
-// When the caller-provided slice already has cap >= n it reuses that backing
-// instead of allocating a fresh one — eliminating the result backing
-// allocation on a decode into a pre-sized (pooled) slice, the dominant decode
-// allocation. The reused elements are zeroed first so a wire shape that omits
-// fields (schema evolution) cannot leak stale data: pointer-free elements
-// (elemPF) take a barrier-free byte clear; pointer-containing elements take
-// reflect.Value.Clear (a single barrier-correct typedmemclr). With no usable
-// backing it allocates fresh via MakeSlice. elemPF must be noPointers(t.Elem()).
-func reuseOrMakeSlice(t reflect.Type, n int, p unsafe.Pointer, stride uintptr, elemPF bool) unsafe.Pointer {
-	if hdr := (*sliceHeader)(p); hdr.Cap >= n && hdr.Data != nil {
-		hdr.Len = n
-		if elemPF {
-			// Pointer-free: a raw byte clear is GC-safe and zeroes any struct
-			// fields the wire shape does not set (schema evolution).
-			clear(unsafe.Slice((*byte)(hdr.Data), n*int(stride)))
-		} else {
-			// Pointer-containing: a byte clear would skip write barriers and
-			// corrupt the GC. reflect.Value.Clear bulk-zeroes the slice
-			// elements with a single barrier-correct typedmemclr.
-			reflect.NewAt(t, p).Elem().Clear()
-		}
-		return hdr.Data
-	}
-	reflectutil.MakeSlice(t, n, p)
-	return reflectutil.SliceData(t, p)
-}
