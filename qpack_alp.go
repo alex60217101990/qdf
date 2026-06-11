@@ -152,8 +152,15 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 	ie := alpInv10[plan.d]
 
 	if plan.width > 0 {
-		// Pack I_i - forMin; exceptions occupy a 0 slot.
-		packed := make([]uint64, n)
+		// Pack I_i - forMin; exceptions occupy a 0 slot. Reuse pooled scratch
+		// instead of a per-call make; clear is REQUIRED because exception slots
+		// are never written in the loop below and must read back as 0 (a reused
+		// buffer would otherwise leak a prior column's mantissa into them).
+		if cap(e.alpScratch) < n {
+			e.alpScratch = make([]uint64, n)
+		}
+		packed := e.alpScratch[:n]
+		clear(packed)
 		for i, v := range s {
 			I := int64(math.RoundToEven(v * pe))
 			if math.Float64bits(float64(I)*ie) == math.Float64bits(v) {
