@@ -50,6 +50,34 @@ func TestRoundTripEscapeByte(t *testing.T) {
 	}
 }
 
+// CompressedLen must equal len(Compress) for every input: the columnar size
+// probe relies on it to pick a codec, so any divergence would mis-size FSST
+// columns and could keep an actually-larger block.
+func TestCompressedLenMatchesCompress(t *testing.T) {
+	tables := []*SymbolTable{
+		newTestTable("http://", "www.", ".com", "/index"),
+		newTestTable("x"),
+		BuildSymbolTable(func() [][]byte {
+			s := make([][]byte, 0, 200)
+			for i := range 200 {
+				s = append(s, []byte("GET /api/v1/users/"+string(rune('a'+i%26))+" HTTP/1.1"))
+			}
+			return s
+		}()),
+	}
+	for ti, tbl := range tables {
+		for n := range 300 {
+			in := make([]byte, n)
+			for i := range in {
+				in[i] = byte((i*7 ^ n*13) & 0xFF) // includes 0xFF escape byte
+			}
+			if got, want := tbl.CompressedLen(in), len(tbl.Compress(in, nil)); got != want {
+				t.Fatalf("table %d n=%d: CompressedLen=%d len(Compress)=%d", ti, n, got, want)
+			}
+		}
+	}
+}
+
 // --- Phase 2 tests (appended) ---
 
 func TestBuildSymbolTableShrinksAndRoundTrips(t *testing.T) {
