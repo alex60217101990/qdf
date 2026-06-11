@@ -63,6 +63,11 @@ type Encoder struct {
 	state     *encState
 	headerOut bool
 
+	// alpScratch is a reused FOR-mantissa staging buffer for the ALP float
+	// writer (mirrors the decoder's deltaScratch). Lives on the Encoder, not
+	// encState, so the row-major float path reuses it without needing a state.
+	alpScratch []uint64
+
 	// opts is the bit-mask of feature toggles. mode and qpack are
 	// derived from it at configure time so the hot path can stay on
 	// fast bool / Mode compares; the rest of the codecs (MTF, Pair,
@@ -251,6 +256,12 @@ func NewEncoderOnBuf(buf []byte, mode Mode) *Encoder {
 // SetQPack after Reset.
 func (e *Encoder) Reset() {
 	e.buf = e.buf[:0]
+	// Row-scaled ALP staging scratch: retain across batches, drop only past the
+	// hard ceiling so a one-off giant float slice can't pin unbounded memory.
+	// Pure []uint64 (no pointers) so no clear is needed.
+	if cap(e.alpScratch) > maxRetainedColScratch {
+		e.alpScratch = nil
+	}
 	e.headerOut = false
 	if e.state != nil {
 		e.state.reset()
