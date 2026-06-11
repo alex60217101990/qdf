@@ -236,6 +236,11 @@ func (s *StreamDecoder) Decode(out any) error {
 	if err := s.fill(framelen, false); err != nil {
 		return err // ErrShortBuffer on a truncated final frame
 	}
+	// Each frame is an independent target: drop any maps the previous frame
+	// harvested but did not reuse, so a recycled map never crosses frames. Runs
+	// BEFORE decode, so this frame's own harvest (into the same out — the common
+	// streaming reuse) still recycles normally.
+	clear(s.dec.mapFreeList)
 	start := s.dec.i
 	if err := decodeReflect(s.dec, out); err != nil {
 		// The cursor is left partway through the frame and the dense state is
