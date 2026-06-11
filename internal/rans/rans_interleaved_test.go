@@ -23,3 +23,15 @@ func TestTagRoundTripSingle(t *testing.T) {
 		t.Fatalf("expected tag 0, got %d", enc[0])
 	}
 }
+
+func TestAppendInterleavedStructure(t *testing.T) {
+	src := []byte("the quick brown fox jumps over the lazy dog, again and again")
+	freq, cum := buildFreqs(src)
+	for _, N := range []int{2, 4} {
+		blob := appendInterleaved(nil, src, &freq, &cum, N)
+		// blob = N*4 states + (N-1) uvarint lengths + substream bytes; must be non-empty.
+		if len(blob) < N*4 {
+			t.Fatalf("N=%d: blob too short (%d)", N, len(blob))
+		}
+	}
+}
