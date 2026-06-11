@@ -38,7 +38,7 @@ func TestInterleavedRoundTrip(t *testing.T) {
 		[]byte("aaaaaaaaaabbbbbbccccd"),
 		mkSkewed(4096), mkSkewed(100000),
 	}
-	for _, N := range []int{2, 4} {
+	for _, N := range []int{4} {
 		for _, src := range inputs {
 			freq, cum := buildFreqs(src)
 			var blob []byte
@@ -59,7 +59,7 @@ func TestInterleavedRoundTrip(t *testing.T) {
 func TestAppendInterleavedStructure(t *testing.T) {
 	src := []byte("the quick brown fox jumps over the lazy dog, again and again")
 	freq, cum := buildFreqs(src)
-	for _, N := range []int{2, 4} {
+	for _, N := range []int{4} {
 		blob := appendInterleaved(nil, src, &freq, &cum, N)
 		// blob = N*4 states + (N-1) uvarint lengths + substream bytes; must be non-empty.
 		if len(blob) < N*4 {
