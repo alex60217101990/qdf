@@ -42,6 +42,8 @@ func TestDecode_RejectsGarbage(t *testing.T) {
 func FuzzRoundTrip(f *testing.F) {
 	f.Add([]byte("quantum density format"))
 	f.Add(bytes.Repeat([]byte{1, 2, 3}, 100))
+	f.Add(bytes.Repeat([]byte{1, 2, 3}, 5000))                // ≥ interleaveMinBytes → interleaved path
+	f.Add(bytes.Repeat([]byte("the quick brown fox "), 1000)) // skewed, large → interleaved
 	f.Fuzz(func(t *testing.T, src []byte) {
 		enc := Encode(nil, src)
 		got, err := Decode(enc, len(src))
@@ -56,6 +58,7 @@ func FuzzRoundTrip(f *testing.F) {
 
 func FuzzDecode_NeverPanics(f *testing.F) {
 	f.Add([]byte{0x00, 0x10, 0x00, 0x00}, 5)
+	f.Add(Encode(nil, bytes.Repeat([]byte{4, 5, 6}, 4000)), 12000) // interleaved blob seed
 	f.Fuzz(func(t *testing.T, src []byte, n int) {
 		if n < 0 || n > 1<<20 {
 			return

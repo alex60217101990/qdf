@@ -68,6 +68,43 @@ func TestAppendInterleavedStructure(t *testing.T) {
 	}
 }
 
+func TestInterleavedHostile(t *testing.T) {
+	src := mkSkewed(50000)
+	good := Encode(nil, src) // adaptive → interleaved (≥ interleaveMinBytes)
+	if good[0] != ransTagInter4 {
+		t.Fatalf("setup: expected interleaved blob, tag=%d", good[0])
+	}
+	// (a) bad tag
+	bad := append([]byte{9}, good[1:]...)
+	if _, err := Decode(bad, len(src)); err == nil {
+		t.Fatal("bad tag must error")
+	}
+	// (b) truncation at every length must never panic
+	for cut := 1; cut < len(good); cut += 7 {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic on truncation at %d: %v", cut, r)
+				}
+			}()
+			_, _ = Decode(good[:cut], len(src))
+		}()
+	}
+	// (c) flipping framing bytes must error/return, never OOB-panic
+	for i := 1; i < min(len(good), 64); i++ {
+		flipped := append([]byte(nil), good...)
+		flipped[i] ^= 0xFF
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic on flip at %d: %v", i, r)
+				}
+			}()
+			_, _ = Decode(flipped, len(src))
+		}()
+	}
+}
+
 func TestEncodeAdaptiveTag(t *testing.T) {
 	small := bytes.Repeat([]byte("ab"), 8) // below threshold
 	large := mkSkewed(200000)              // above threshold
