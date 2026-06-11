@@ -20,12 +20,12 @@ type Queryable interface {
 // evaluation is a direct typed call with zero per-value interface boxing.
 type predTerm struct {
 	field string
-	want  colKind
 	pI64  func(int64) bool
 	pU64  func(uint64) bool
 	pF64  func(float64) bool
 	pStr  func(string) bool
 	pBool func(bool) bool
+	want  colKind // 1-byte tail: kept last to avoid padding before the func pointers
 }
 
 // QueryOption configures a filtering/projecting Unmarshal. Construct with Where,
@@ -52,10 +52,10 @@ const (
 // construction misuse (e.g. a Select passed into a combinator) surfaced at
 // buildQueryPlan time.
 type condNode struct {
-	op   condOp
 	term *predTerm
 	kids []*condNode
 	err  error
+	op   condOp // 1-byte tail: kept last to avoid padding before the pointer fields
 }
 
 // Where keeps only rows whose field column satisfies pred. T must match the
@@ -347,11 +347,11 @@ func matchedIndices(b []uint64, n int, dst []int) []int {
 // indexed by int, avoiding the per-node allocations and pointer hashing a
 // map[*condNode]… would cost on a small tree.
 type cnode struct {
-	op   condOp
 	term *predTerm // leaf only
 	kids []int     // child ids (And/Or: n; Not: 1)
 	col  int       // leaf only: resolved wire column index (-1 until resolved)
 	cv   *colVals  // leaf only: decoded column values (nil until bound)
+	op   condOp    // 1-byte tails kept last to avoid padding before the pointers above
 	unk  bool      // subtree can produce SQL UNKNOWN (contains a nullable leaf)
 }
 

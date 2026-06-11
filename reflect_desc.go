@@ -11,7 +11,6 @@ import (
 // typeDesc is the compiled descriptor for a reflect.Type. Looked up via the
 // typeCache map keyed by the Type's runtime pointer (cheap and stable).
 type typeDesc struct {
-	kind    reflect.Kind
 	rType   reflect.Type
 	fields  []fieldDesc   // structs only
 	elem    *typeDesc     // slice/array/map-value/ptr
@@ -24,6 +23,9 @@ type typeDesc struct {
 	encode func(e *Encoder, p unsafe.Pointer) error
 	decode func(d *Decoder, p unsafe.Pointer) error
 
+	// kind / marshalerKind are 1-byte tails kept last so they share one word
+	// instead of forcing padding ahead of the 8-byte pointer fields above.
+	kind reflect.Kind
 	// marshalerKind: 0=none, 1=Marshaler interface, 2=encoding.TextMarshaler-ish (future)
 	marshalerKind uint8
 }
