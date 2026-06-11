@@ -259,11 +259,12 @@ func Decode(src []byte, n int) ([]byte, error) {
 		}
 		var slot [scale]byte
 		buildSlot(&cum, &slot)
-		states, regions, err := parseInterleavedRegions(src[used:], int(tag))
-		if err != nil {
+		var states [maxInterleaveN]uint32
+		var regions [maxInterleaveN][]byte
+		if err := parseInterleavedRegions(src[used:], int(tag), &states, &regions); err != nil {
 			return nil, err
 		}
-		return decodeInterleaved4(states, regions, &freq, &slot, &cum, n)
+		return decodeInterleaved4(states[:tag], regions[:tag], &freq, &slot, &cum, n)
 	default:
 		return nil, ErrCorrupt
 	}
