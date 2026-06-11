@@ -627,19 +627,33 @@ _ = qdf.Unmarshal(data, &out)  // reuses out's backing, no result allocation
 
 The reused backing is overwritten in place (elements are zeroed first, so a
 shorter/older wire schema can't leak stale data), so don't keep another live
-slice aliasing it across the call. A nil or too-small destination allocates
-fresh — **default `var out []T` usage is unchanged**, no opt-in flag needed.
-Works on the row-major and columnar decode paths, for every element type
-(pointer-free elements take a raw clear, pointer-containing ones a
-barrier-correct typed clear).
+slice **or map reference** from the target aliasing it across the call. A nil or
+too-small destination allocates fresh — **default `var out []T` usage is
+unchanged**, no opt-in flag needed. Works on the row-major and columnar decode
+paths, for every element type (pointer-free elements take a raw clear,
+pointer-containing ones a barrier-correct typed clear).
 
-Measured, decode into a pre-sized slice (2000 rows, i7-9750H):
+**Map recycling.** The per-element **maps** in a reused `[]struct{…map…}` target
+(or a `[]map`) are the dominant allocation for map-bearing payloads — telemetry
+tag maps, label sets. Decoding into a reused target now **recycles those maps**
+(clears and refills them in place) instead of re-allocating, since `make(map)` +
+bucket growth is ~83 % of map-heavy decode bytes. This is automatic and
+data-adaptive (no flag): it kicks in only when the destination already holds
+maps, covers maps at any struct-nesting depth, the generated fast paths, the
+reflect and schemaless (`map[string]any`) paths, and successive `StreamDecoder`
+frames into the same target. Wire is unchanged; nil-vs-empty and stale-key
+semantics are preserved (recycled maps are cleared before refill). Same contract
+caveat: a map value you retained from a previous decode of the target is cleared
+and reused on the next decode into it.
+
+Measured, decode into a pre-sized target (i7-9750H):
 
 | element shape | B/op (fresh → reuse) | ns/op |
 | --- | ---: | ---: |
 | all-numeric `[]struct` (columnar) | 65,815 → 68 (**−99.9 %**) | ~−30 % |
 | all-numeric `[]struct` (row-major) | 131,000 → 162 (**−99.9 %**) | ~−9 % |
 | string-bearing telemetry `[]struct` | 393,924 → 229,948 (**−42 %**) | ~−9 % |
+| `[]struct{map[string]string}` (256×16) | 341,000 → 25,000 (**−92 %**) | ~−17 % |
 
 ---
 
