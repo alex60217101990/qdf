@@ -43,3 +43,5 @@ dev-to-qdf.md
 PR_DESCRIPTION.md
 docs/PAGES-SETUP.md
 docs/PERF-NEXT.md
+# Claude Code local session/worktree state (never commit)
+.claude/
