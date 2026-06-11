@@ -21,7 +21,6 @@ const (
 // framing parser.
 const (
 	ransTagSingle = 0 // [tag][table][4-byte state][renorm bytes]
-	ransTagInter2 = 2 // interleaved, 2 strided substreams sharing one table
 	ransTagInter4 = 4 // interleaved, 4 strided substreams sharing one table
 )
 
@@ -253,7 +252,7 @@ func Decode(src []byte, n int) ([]byte, error) {
 		var slot [scale]byte
 		buildSlot(&cum, &slot)
 		return decodeStream(src[used:], &freq, &slot, &cum, n)
-	case ransTagInter2, ransTagInter4:
+	case ransTagInter4:
 		freq, cum, used, err := parseTable(src)
 		if err != nil {
 			return nil, err
@@ -263,9 +262,6 @@ func Decode(src []byte, n int) ([]byte, error) {
 		states, regions, err := parseInterleavedRegions(src[used:], int(tag))
 		if err != nil {
 			return nil, err
-		}
-		if tag == ransTagInter2 {
-			return decodeInterleaved2(states, regions, &freq, &slot, &cum, n)
 		}
 		return decodeInterleaved4(states, regions, &freq, &slot, &cum, n)
 	default:

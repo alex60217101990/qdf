@@ -83,55 +83,6 @@ func parseInterleavedRegions(src []byte, n int) (states []uint32, regions [][]by
 	return states, regions, nil
 }
 
-// decodeInterleaved2 decodes two interleaved rANS substreams that share one
-// freq/cum table: out[i] comes from substream i%2. Unrolled by 2; the trailing
-// remainder (n odd → one leftover at an even index) maps to substream 0.
-func decodeInterleaved2(states []uint32, regions [][]byte, freq *[256]uint32, slot *[scale]byte, cum *[257]uint32, n int) ([]byte, error) {
-	out := make([]byte, n)
-	x0, x1 := states[0], states[1]
-	r0, r1 := regions[0], regions[1]
-	p0, p1 := 0, 0
-	i := 0
-	for ; i+1 < n; i += 2 {
-		s0 := slot[x0&ransMask]
-		s1 := slot[x1&ransMask]
-		out[i] = s0
-		out[i+1] = s1
-		x0 = freq[s0]*(x0>>scaleBits) + (x0 & ransMask) - cum[s0]
-		x1 = freq[s1]*(x1>>scaleBits) + (x1 & ransMask) - cum[s1]
-		for x0 < ransByteL {
-			if p0 >= len(r0) {
-				return nil, ErrCorrupt
-			}
-			x0 = (x0 << 8) | uint32(r0[p0])
-			p0++
-		}
-		for x1 < ransByteL {
-			if p1 >= len(r1) {
-				return nil, ErrCorrupt
-			}
-			x1 = (x1 << 8) | uint32(r1[p1])
-			p1++
-		}
-	}
-	// remainder (n odd): leftover index i is even → substream 0.
-	for ; i < n; i++ {
-		x, r, p := x0, r0, p0
-		s := slot[x&ransMask]
-		out[i] = s
-		x = freq[s]*(x>>scaleBits) + (x & ransMask) - cum[s]
-		for x < ransByteL {
-			if p >= len(r) {
-				return nil, ErrCorrupt
-			}
-			x = (x << 8) | uint32(r[p])
-			p++
-		}
-		x0, p0 = x, p
-	}
-	return out, nil
-}
-
 // decodeInterleaved4 decodes four interleaved rANS substreams that share one
 // freq/cum table: out[i] comes from substream i%4. The main loop is unrolled by
 // 4; the remainder loop continues at the same index and dispatches index i to
