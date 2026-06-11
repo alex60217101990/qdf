@@ -1,6 +1,9 @@
 package qdf
 
 import (
+	"reflect"
+	"unsafe"
+
 	"github.com/alex60217101990/qdf/internal/intern"
 	"github.com/alex60217101990/qdf/internal/rans"
 )
@@ -58,6 +61,14 @@ type Decoder struct {
 	// predicates (AND) and project the plan's columns. Set by Unmarshal when
 	// QueryOptions are passed; cleared on reset / SetInput so it never leaks.
 	query *queryPlan
+
+	// mapFreeList holds maps harvested from a reused []struct{map} (or []map)
+	// decode target whose per-element maps decode-slice-reuse is about to zero.
+	// Keyed by the map's reflect.Type; reuseOrMakeMap pops a recycled map
+	// instead of allocating a fresh one. Lazily initialised; cleared (entries
+	// dropped, backing kept) on SetInput so recycled maps never cross into a
+	// different decode target.
+	mapFreeList map[reflect.Type][]unsafe.Pointer
 
 	// deltaScratch is a reused unpack buffer for the Delta+FOR readers: the
 	// bit-unpacked deltas are a transient intermediate (the prefix sum writes
@@ -153,6 +164,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.colIndex = false
 	d.selectFields = nil
 	d.query = nil
+	clear(d.mapFreeList) // drop recycled maps; keep the backing allocated
 	if d.state != nil {
 		d.state.reset()
 	}
