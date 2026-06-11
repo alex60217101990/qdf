@@ -2,32 +2,58 @@ package rans
 
 import "encoding/binary"
 
-// stridedSubstream returns src[k], src[k+N], src[k+2N], … (a fresh slice).
-func stridedSubstream(src []byte, k, n int) []byte {
-	sz := (len(src) - k + n - 1) / n
-	if sz <= 0 {
-		return nil
+// encodeStreamStridedInto rANS-encodes the substream src[k], src[k+n], … into
+// the caller-provided buf (which must have len >= m+16, where m is the element
+// count) and returns buf[pos:] = [4-byte LE final state][renorm bytes]. Writing
+// into a caller buffer lets appendInterleaved place all N substreams in one
+// allocation, avoiding the per-substream make() (and its size-class rounding).
+func encodeStreamStridedInto(buf, src []byte, k, n int, freq *[256]uint32, cum *[257]uint32) []byte {
+	m := max((len(src)-k+n-1)/n, 0)
+	pos := len(buf)
+	x := uint32(ransByteL)
+	for j := m - 1; j >= 0; j-- {
+		s := src[k+j*n]
+		f := freq[s]
+		xMax := ((ransByteL >> scaleBits) << 8) * f
+		for x >= xMax {
+			pos--
+			buf[pos] = byte(x)
+			x >>= 8
+		}
+		x = ((x / f) << scaleBits) + (x % f) + cum[s]
 	}
-	out := make([]byte, 0, sz)
-	for i := k; i < len(src); i += n {
-		out = append(out, src[i])
-	}
-	return out
+	pos -= 4
+	binary.LittleEndian.PutUint32(buf[pos:], x)
+	return buf[pos:]
 }
+
+// maxInterleaveN bounds the stack-resident state/region scratch in
+// appendInterleaved. The shipped stream count is interleaveN (4); the cap leaves
+// headroom without forcing those small arrays to the heap.
+const maxInterleaveN = 8
 
 // appendInterleaved appends an interleaved-N body to dst (NOT including the tag
 // or the shared freq table, which Encode writes): N 4-byte final states, then
 // N-1 uvarint substream byte-lengths (the last substream is the remainder), then
 // the concatenated substream byte regions. Each substream is an independent
-// single-state rANS over the SHARED freq/cum table.
+// single-state rANS over the SHARED freq/cum table. All N substreams encode into
+// one scratch allocation, partitioned into per-substream regions.
 func appendInterleaved(dst, src []byte, freq *[256]uint32, cum *[257]uint32, n int) []byte {
-	states := make([]uint32, n)
-	subs := make([][]byte, n)
+	var statesArr [maxInterleaveN]uint32
+	var subsArr [maxInterleaveN][]byte
+	states := statesArr[:n]
+	subs := subsArr[:n]
+	// One allocation for every substream's output. Region k spans m_k+16 bytes
+	// (the encodeStream worst case); the regions sum to len(src)+n*16.
+	scratch := make([]byte, len(src)+n*16)
+	off := 0
 	for k := 0; k < n; k++ {
-		sub := stridedSubstream(src, k, n)
-		blob := encodeStream(sub, freq, cum) // [4-byte state][bytes]; always >= 4 bytes
+		m := max((len(src)-k+n-1)/n, 0)
+		region := scratch[off : off+m+16]
+		blob := encodeStreamStridedInto(region, src, k, n, freq, cum) // [4-byte state][bytes]; always >= 4 bytes
 		states[k] = binary.LittleEndian.Uint32(blob[:4])
 		subs[k] = blob[4:]
+		off += m + 16
 	}
 	var s4 [4]byte
 	for k := 0; k < n; k++ {
