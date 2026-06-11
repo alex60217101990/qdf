@@ -71,42 +71,43 @@ func appendInterleaved(dst, src []byte, freq *[256]uint32, cum *[257]uint32, n i
 
 const ransMask = scale - 1
 
-// parseInterleavedRegions reads N states + (N-1) lengths from src, then splits
-// the remaining bytes into N substream regions. Returns the states and regions.
-func parseInterleavedRegions(src []byte, n int) (states []uint32, regions [][]byte, err error) {
-	if len(src) < n*4 {
-		return nil, nil, ErrCorrupt
+// parseInterleavedRegions reads n states + (n-1) lengths from src, then splits
+// the remaining bytes into n substream regions, writing both into the caller-
+// provided arrays. Taking the destinations by pointer lets Decode keep them on
+// its stack (the slot table already lives there), so an interleaved decode adds
+// no per-call heap allocation beyond the output buffer.
+func parseInterleavedRegions(src []byte, n int, states *[maxInterleaveN]uint32, regions *[maxInterleaveN][]byte) error {
+	if n > maxInterleaveN || len(src) < n*4 {
+		return ErrCorrupt
 	}
-	states = make([]uint32, n)
 	for k := 0; k < n; k++ {
 		states[k] = binary.LittleEndian.Uint32(src[k*4:])
 	}
 	src = src[n*4:]
-	lens := make([]int, n)
+	var lens [maxInterleaveN]int
 	total := 0
 	for k := 0; k < n-1; k++ {
 		v, used := uvarint(src)
 		if used <= 0 {
-			return nil, nil, ErrCorrupt
+			return ErrCorrupt
 		}
 		src = src[used:]
 		if v > uint64(len(src)) {
-			return nil, nil, ErrCorrupt
+			return ErrCorrupt
 		}
 		lens[k] = int(v)
 		total += int(v)
 	}
 	if total > len(src) {
-		return nil, nil, ErrCorrupt
+		return ErrCorrupt
 	}
 	lens[n-1] = len(src) - total // remainder
-	regions = make([][]byte, n)
 	off := 0
 	for k := 0; k < n; k++ {
 		regions[k] = src[off : off+lens[k]]
 		off += lens[k]
 	}
-	return states, regions, nil
+	return nil
 }
 
 // decodeInterleaved4 decodes four interleaved rANS substreams that share one
