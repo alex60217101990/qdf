@@ -191,8 +191,9 @@ type encState struct {
 	colDictTable   []string // distinct table for the string-dict codec
 	colMaskScratch []byte   // presence bitmap for nullable columns
 	// FSST codec scratch, reused across columns (same lifetime as colDictTable).
-	fsstScratch []byte // compressed bytes for all rows, concatenated
-	fsstLens    []int  // per-row compressed lengths
+	fsstScratch []byte   // compressed bytes for all rows, concatenated
+	fsstLens    []int    // per-row compressed lengths
+	fsstSamples [][]byte // per-column []byte views fed to the FSST trainer
 	// strDictMap maps a string column's distinct values to dense indices
 	// while the string-dict codec decides/encodes. Reused (cleared) per
 	// column to avoid a per-column map allocation.
@@ -423,6 +424,14 @@ func (e *encState) reset() {
 	if cap(e.fsstScratch) > maxRetainedColScratch {
 		e.fsstScratch = nil
 		e.fsstLens = nil
+	}
+	// fsstSamples holds []byte views into caller strings; clear the headers to
+	// drop those references across a pool recycle, drop backing past the ceiling.
+	if cap(e.fsstSamples) > maxRetainedColScratch {
+		e.fsstSamples = nil
+	} else {
+		clear(e.fsstSamples)
+		e.fsstSamples = e.fsstSamples[:0]
 	}
 	// String-column scratch: []string slices retain header references that pin
 	// the caller's string memory across a pool recycle. clear() drops those

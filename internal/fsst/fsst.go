@@ -123,6 +123,25 @@ func (t *SymbolTable) Compress(src, dst []byte) []byte {
 	return dst
 }
 
+// CompressedLen returns the number of bytes Compress would emit for src,
+// without materializing the output. The columnar size probe only needs the
+// coded length to compare codecs, so this avoids allocating (and growing) a
+// throwaway destination buffer per sampled string.
+func (t *SymbolTable) CompressedLen(src []byte) int {
+	n, i := 0, 0
+	for i < len(src) {
+		_, m := t.match(src[i:])
+		if m == 0 {
+			n += 2 // escapeCode + literal byte
+			i++
+			continue
+		}
+		n++ // single code byte
+		i += m
+	}
+	return n
+}
+
 // Decompress appends the decoding of codes to dst and returns dst. It is
 // defensive: a truncated trailing escape stops cleanly rather than panicking,
 // so it is safe to call on arbitrary input.

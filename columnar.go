@@ -742,11 +742,10 @@ func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn
 		bld = fsstBuilderPool.Get().(*fsst.Builder)
 		tbl = bld.BuildRounds(strs[:sample], fsstProbeRounds) // coarse estimate
 	}
-	var scratch []byte
 	body := 0
 	for i := range sample {
-		scratch = tbl.Compress(strs[i], scratch[:0])
-		body += len(scratch) + uvarintLen(uint64(len(scratch)))
+		clen := tbl.CompressedLen(strs[i]) // length only; no throwaway buffer
+		body += clen + uvarintLen(uint64(clen))
 	}
 	sz := body + tbl.SerializedSize()*sample/n
 	if bld != nil {

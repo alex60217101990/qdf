@@ -47,10 +47,14 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	// which is the dominant FSST encode cost; otherwise train on this column.
 	tbl := e.fsstDict
 	if tbl == nil {
-		samples := make([][]byte, n)
-		for i, s := range strs {
-			samples[i] = unsafestr.Bytes(s) // zero-copy view; trainer only reads
+		// Reuse a pooled [][]byte across columns/encodes instead of allocating
+		// a fresh slice per column (the dominant OptCompression columnar-encode
+		// allocation). The views are zero-copy; the trainer only reads them.
+		samples := e.state.fsstSamples[:0]
+		for _, s := range strs {
+			samples = append(samples, unsafestr.Bytes(s))
 		}
+		e.state.fsstSamples = samples
 		bld := fsstBuilderPool.Get().(*fsst.Builder)
 		defer fsstBuilderPool.Put(bld)
 		tbl = bld.Build(samples) // aliases bld; used within this call only
