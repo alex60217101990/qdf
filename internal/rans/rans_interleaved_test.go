@@ -24,6 +24,38 @@ func TestTagRoundTripSingle(t *testing.T) {
 	}
 }
 
+func mkSkewed(n int) []byte {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = byte((i / 5) & 0x0F) // few hot symbols
+	}
+	return b
+}
+
+func TestInterleavedRoundTrip(t *testing.T) {
+	inputs := [][]byte{
+		{}, {7}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4, 5},
+		[]byte("aaaaaaaaaabbbbbbccccd"),
+		mkSkewed(4096), mkSkewed(100000),
+	}
+	for _, N := range []int{2, 4} {
+		for _, src := range inputs {
+			freq, cum := buildFreqs(src)
+			var blob []byte
+			blob = append(blob, byte(N))
+			blob = appendTable(blob, &freq)
+			blob = appendInterleaved(blob, src, &freq, &cum, N)
+			got, err := Decode(blob, len(src))
+			if err != nil {
+				t.Fatalf("N=%d len=%d decode: %v", N, len(src), err)
+			}
+			if !bytes.Equal(got, src) {
+				t.Fatalf("N=%d len=%d mismatch", N, len(src))
+			}
+		}
+	}
+}
+
 func TestAppendInterleavedStructure(t *testing.T) {
 	src := []byte("the quick brown fox jumps over the lazy dog, again and again")
 	freq, cum := buildFreqs(src)
