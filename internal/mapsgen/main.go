@@ -279,7 +279,7 @@ func emitPair(buf *bytes.Buffer, p pair) {
 		// read len(names) values in that order.
 		fmt.Fprintf(buf, "\tif t == tagMapShape {\n")
 		fmt.Fprintf(buf, "\t\tnames, err := decodeMapStringShapeHeader(d)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
-		fmt.Fprintf(buf, "\t\tm := make(%s, len(names))\n", mapTy)
+		fmt.Fprintf(buf, "\t\tm := reuseOrMakeMap[%s, %s](p, len(names))\n", p.K.goType, p.V.goType)
 		fmt.Fprintf(buf, "\t\tfor _, k := range names {\n")
 		fmt.Fprintf(buf, "\t\t\t%s\n", p.V.readBlock("v"))
 		fmt.Fprintf(buf, "\t\t\tm[k] = v\n")
@@ -287,7 +287,7 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	}
 	fmt.Fprintf(buf, "\tn, err := d.ReadMapHeader()\n\tif err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tif err := d.CheckLength(n, 2); err != nil {\n\t\treturn err\n\t}\n")
-	fmt.Fprintf(buf, "\tm := make(%s, n)\n", mapTy)
+	fmt.Fprintf(buf, "\tm := reuseOrMakeMap[%s, %s](p, n)\n", p.K.goType, p.V.goType)
 	fmt.Fprintf(buf, "\tfor range n {\n")
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.readKey("k")))
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.readBlock("v")))
