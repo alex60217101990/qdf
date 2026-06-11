@@ -859,7 +859,6 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
 // present marks which rows carry a value (dense expanded to length n); a row
 // whose present bit is 0 is a nil/zero row.
 type colVals struct {
-	kind    colKind
 	i64     []int64
 	u64     []uint64
 	f64     []float64
@@ -868,6 +867,7 @@ type colVals struct {
 	bs      [][]byte
 	ts      []time.Time // colKindTime only
 	present []uint64    // nullable only; nil otherwise
+	kind    colKind     // 1-byte tail: kept last so it adds no padding before the slices
 }
 
 // decodeColumnVals decodes a column body (length n) of the given kind into a
