@@ -67,3 +67,21 @@ func TestAppendInterleavedStructure(t *testing.T) {
 		}
 	}
 }
+
+func TestEncodeAdaptiveTag(t *testing.T) {
+	small := bytes.Repeat([]byte("ab"), 8) // below threshold
+	large := mkSkewed(200000)              // above threshold
+	if Encode(nil, small)[0] != ransTagSingle {
+		t.Fatal("small body must be single-stream (tag 0)")
+	}
+	if Encode(nil, large)[0] != ransTagInter4 {
+		t.Fatalf("large body must be interleaved (tag %d)", ransTagInter4)
+	}
+	// both round-trip
+	for _, src := range [][]byte{small, large} {
+		got, err := Decode(Encode(nil, src), len(src))
+		if err != nil || !bytes.Equal(got, src) {
+			t.Fatalf("round-trip: err=%v", err)
+		}
+	}
+}

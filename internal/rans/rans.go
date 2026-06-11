@@ -187,14 +187,50 @@ func parseTable(src []byte) (freq [256]uint32, cum [257]uint32, used int, err er
 	return freq, cum, pos, nil
 }
 
+const (
+	// interleaveN is the shipped interleaved stream count (tuned in Task 6).
+	// It MUST equal one of the ransTagInterN tag values (the tag == stream count).
+	interleaveN = ransTagInter4
+	// interleaveMinBytes is the body size at/above which interleaving's extra
+	// framing (N states + N-1 lengths) is negligible and the decode-speed win
+	// applies. Below it, single-stream (smaller, and small bodies decode fast).
+	// Tuned in Task 6.
+	interleaveMinBytes = 4096
+)
+
+// forceTagForTest overrides the adaptive choice for tests/benches:
+//
+//	0  ⇒ adaptive (default)
+//	-1  ⇒ force single-stream
+//	>0  ⇒ force interleaved with that N
+var forceTagForTest int
+
 // Encode appends the order-0 rANS encoding of src (frequency table followed by
 // the rANS stream) to dst and returns it. The caller stores the original
-// length separately and passes it to Decode.
+// length separately and passes it to Decode. For bodies at or above
+// interleaveMinBytes, Encode emits an interleaved (multi-stream) blob; smaller
+// bodies use the single-stream form.
 func Encode(dst, src []byte) []byte {
 	freq, cum := buildFreqs(src)
-	dst = append(dst, ransTagSingle)
+	useInter := len(src) >= interleaveMinBytes
+	switch {
+	case forceTagForTest < 0:
+		useInter = false
+	case forceTagForTest > 0:
+		useInter = true
+	}
+	if !useInter {
+		dst = append(dst, ransTagSingle)
+		dst = appendTable(dst, &freq)
+		return append(dst, encodeStream(src, &freq, &cum)...)
+	}
+	n := interleaveN
+	if forceTagForTest > 0 {
+		n = forceTagForTest
+	}
+	dst = append(dst, byte(n))
 	dst = appendTable(dst, &freq)
-	return append(dst, encodeStream(src, &freq, &cum)...)
+	return appendInterleaved(dst, src, &freq, &cum, n)
 }
 
 // Decode parses the table from src, rANS-decodes exactly n bytes, and returns
