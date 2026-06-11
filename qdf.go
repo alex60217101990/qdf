@@ -457,6 +457,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.selectFields = qp.selectFields
 	dec.query = qp
 	dec.noCopy = qp.noCopy
+	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
 	}
@@ -485,6 +486,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool) error {
 	dec.colIndex = false
 	dec.noCopy = noCopy
 	dec.selectFields = fields
+	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
 	}

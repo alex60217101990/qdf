@@ -284,7 +284,8 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	// (or *[]any) takes.
 	elemType := t.Elem()
 	elemDynamic := elemType == reflect.TypeFor[map[string]any]() || elemType.Kind() == reflect.Interface
-	elemPF := noPointers(elemType) // gate for backing reuse (computed once per type)
+	elemPF := noPointers(elemType)     // gate for backing reuse (computed once per type)
+	elemHasMap := typeDescHasMap(elem) // gate the map-recycle harvest (once per type)
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if d.decodeNilSlice(p) { // tagNil → nil slice (distinct from empty)
 			return nil
@@ -348,6 +349,14 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 		}
 		if err := d.CheckLength(n, 1); err != nil {
 			return err
+		}
+		// Harvest reusable maps from the elements decode-slice-reuse is about to
+		// zero, so the map decoders can recycle them instead of re-allocating.
+		// Gated on elemHasMap so a map-free element type pays nothing.
+		if elemHasMap {
+			if old := (*sliceHeader)(p); old.Data != nil && old.Len > 0 {
+				harvestMaps(d, elem, old.Data, stride, old.Len)
+			}
 		}
 		// Reuse the caller's backing when pointer-free + cap suffices (decode
 		// into a pre-sized/pooled slice), else fresh MakeSlice.
@@ -1463,4 +1472,3 @@ func (d *Decoder) decodeNilSlice(p unsafe.Pointer) bool {
 	}
 	return false
 }
-

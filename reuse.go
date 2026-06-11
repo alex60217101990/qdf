@@ -81,11 +81,94 @@ func reuseOrMakeSlice(t reflect.Type, n int, p unsafe.Pointer, stride uintptr, e
 // schema-evolving re-decode) instead of allocating a fresh one. clear() keeps
 // the bucket capacity, so a server re-decoding into the same target skips the
 // makemap + bucket-growth that dominate map-heavy decode allocation. A nil
-// destination (fresh target) allocates as before. Mirrors reuseOrMakeSlice.
-func reuseOrMakeMap[K comparable, V any](p unsafe.Pointer, n int) map[K]V {
-	if m := *(*map[K]V)(p); m != nil {
+// destination (fresh target) first tries the Decoder's per-type map free-list
+// (maps harvested from a reused []struct{map} target whose elements
+// decode-slice-reuse is about to zero), then allocates fresh. Mirrors
+// reuseOrMakeSlice.
+func reuseOrMakeMap[K comparable, V any](d *Decoder, p unsafe.Pointer, n int) map[K]V {
+	if m := *(*map[K]V)(p); m != nil { // direct-target reuse (unchanged)
 		clear(m)
 		return m
 	}
+	// Only consult the harvest free-list when it actually holds something — a
+	// fresh decode (no reused []struct{map} target to harvest from) skips the
+	// reflect.TypeFor + map lookup entirely, so this path is zero-cost vs a plain
+	// make when no recycling is in play.
+	if len(d.mapFreeList) > 0 {
+		t := reflect.TypeFor[map[K]V]()
+		if lst := d.mapFreeList[t]; len(lst) > 0 {
+			ptr := lst[len(lst)-1]
+			d.mapFreeList[t] = lst[:len(lst)-1]
+			// Reconstruct the map header value from its harvested hmap pointer.
+			m := *(*map[K]V)(unsafe.Pointer(&ptr))
+			clear(m)
+			return m
+		}
+	}
 	return make(map[K]V, n)
+}
+
+// maxRecycledMaps bounds how many maps of one type the harvest free-list
+// retains, so a one-off huge []struct{map} decode can't pin unbounded map
+// headers. Past the cap the surplus maps are simply not recycled (allocated
+// fresh) — a size bound, not a correctness limit.
+const maxRecycledMaps = 1 << 14
+
+// typeDescHasMap reports whether a value of type td holds a map at any
+// struct-nesting depth (a map field, or a map reachable through nested struct
+// fields). decodeSlice computes this once per slice type so the per-decode
+// harvest walk runs only for elements that can actually yield a recyclable map.
+// Conservative: maps behind a pointer/interface/slice/array field are not
+// counted (their decoders re-allocate them), matching what harvestValue walks.
+func typeDescHasMap(td *typeDesc) bool {
+	switch td.kind {
+	case reflect.Map:
+		return true
+	case reflect.Struct:
+		for j := range td.fields {
+			if fd := &td.fields[j]; fd.desc != nil && typeDescHasMap(fd.desc) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// harvestMaps pushes the non-nil maps held by the first oldLen elements (each a
+// value of the slice's element type elem) onto the Decoder's per-type free-list,
+// so reuseOrMakeMap can recycle them after decode-slice-reuse zeroes those
+// elements. Recurses through nested struct fields, so a map at any nesting depth
+// inside the element is harvested; a map element directly ([]map) is harvested
+// too. (Maps behind a pointer/interface/slice/array field, and map-valued maps,
+// are not walked — those are re-allocated by their own decoders.)
+func harvestMaps(d *Decoder, elem *typeDesc, base unsafe.Pointer, stride uintptr, oldLen int) {
+	for i := 0; i < oldLen; i++ {
+		d.harvestValue(elem, unsafe.Add(base, uintptr(i)*stride))
+	}
+}
+
+// harvestValue harvests every map reachable from one value of type td at p,
+// recursing through struct fields.
+func (d *Decoder) harvestValue(td *typeDesc, p unsafe.Pointer) {
+	switch td.kind {
+	case reflect.Map:
+		if hmap := *(*unsafe.Pointer)(p); hmap != nil {
+			if d.mapFreeList == nil {
+				d.mapFreeList = make(map[reflect.Type][]unsafe.Pointer)
+			}
+			if len(d.mapFreeList[td.rType]) < maxRecycledMaps {
+				d.mapFreeList[td.rType] = append(d.mapFreeList[td.rType], hmap)
+			}
+		}
+	case reflect.Struct:
+		for j := range td.fields {
+			fd := &td.fields[j]
+			if fd.desc == nil {
+				continue
+			}
+			if k := fd.desc.kind; k == reflect.Map || k == reflect.Struct {
+				d.harvestValue(fd.desc, unsafe.Add(p, fd.offset))
+			}
+		}
+	}
 }
