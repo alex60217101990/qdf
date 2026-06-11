@@ -600,7 +600,7 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 			if err != nil {
 				return err
 			}
-			reflectutil.MakeMap(t, len(names), p)
+			reuseOrMakeMapReflect(d, t, len(names), p)
 			mapVal := reflect.NewAt(t, p).Elem()
 			// Pooled, re-entrancy-safe holders hoisted out of the loop:
 			// SetMapIndex copies key/value into the map, so one pair is reused
@@ -630,7 +630,7 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 			return err
 		}
 		// Allocate via the swappable reflectutil backend.
-		reflectutil.MakeMap(t, n, p)
+		reuseOrMakeMapReflect(d, t, n, p)
 		mapVal := reflect.NewAt(t, p).Elem()
 		// Hoist the key/value holders out of the loop: SetMapIndex copies them
 		// into the map, so one addressable pair is reused for every entry.
@@ -1130,14 +1130,14 @@ func decodeAny(d *Decoder) (any, error) {
 		// and finish via decodeAny (which handles string and non-string keys
 		// alike). map[any]any is the only lossless schemaless form — the wire
 		// can't tell int from uint for small (fixint) keys.
-		out := make(map[string]any, n)
+		out := popOrMakeMap[string, any](d, n)
 		for idx := 0; idx < n; idx++ {
 			ktag, err := d.peekTag()
 			if err != nil {
 				return nil, err
 			}
 			if !isStringKeyTag(ktag) {
-				anyOut := make(map[any]any, n)
+				anyOut := popOrMakeMap[any, any](d, n)
 				for k, v := range out {
 					anyOut[k] = v
 				}
@@ -1217,7 +1217,7 @@ func decodeAny(d *Decoder) (any, error) {
 			}
 			names = sh.names
 		}
-		out := make(map[string]any, len(names))
+		out := popOrMakeMap[string, any](d, len(names))
 		for _, name := range names {
 			v, err := decodeAny(d)
 			if err != nil {

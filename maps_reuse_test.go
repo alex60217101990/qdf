@@ -407,3 +407,144 @@ func TestMapRecycleCapCorrectness(t *testing.T) {
 		t.Fatalf("recycled: got %v want %v", out, in)
 	}
 }
+
+// TestMapReuseReflectNonStringKey exercises the reflect decodeMap recycle path
+// for a non-string-keyed map (map[int]string has no generated fast-path codec).
+// Decoding TWICE into the same target must harvest+pop the int-keyed maps and
+// round-trip exactly both times.
+func TestMapReuseReflectNonStringKey(t *testing.T) {
+	type rec struct {
+		M map[int]string `qdf:"m"`
+	}
+	const N = 32
+	in := make([]rec, N)
+	for i := range in {
+		in[i].M = map[int]string{
+			i:     "v" + strconv.Itoa(i),
+			i + 1: "w" + strconv.Itoa(i),
+			1000:  strconv.Itoa(i),
+		}
+	}
+	data, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []rec
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("fresh: got %v want %v", out, in)
+	}
+	if err := Unmarshal(data, &out); err != nil { // recycle path
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("recycled: got %v want %v", out, in)
+	}
+}
+
+// TestMapReuseReflectSliceValue exercises the reflect decodeMap recycle path for
+// a slice-valued map (map[string][]int). Guards that recycled map values do not
+// alias across entries — the existing vh.SetZero per entry must still force a
+// fresh slice backing even when the map itself is recycled.
+func TestMapReuseReflectSliceValue(t *testing.T) {
+	type rec struct {
+		M map[string][]int `qdf:"m"`
+	}
+	const N = 32
+	in := make([]rec, N)
+	for i := range in {
+		in[i].M = map[string][]int{
+			"a": {i, i + 1, i + 2},
+			"b": {i * 2},
+			"c": {i, i, i, i},
+		}
+	}
+	data, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []rec
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("fresh: got %v want %v", out, in)
+	}
+	if err := Unmarshal(data, &out); err != nil { // recycle path
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("recycled: got %v want %v", out, in)
+	}
+}
+
+// TestMapReuseSchemalessAny exercises decodeAny's popOrMakeMap: a []map[string]any
+// decoded schemalessly TWICE into the same target. The harvested map[string]any
+// elements must be recycled and cleared, round-tripping exactly both times.
+func TestMapReuseSchemalessAny(t *testing.T) {
+	// Use string values only: schemaless `any` round-trips int64 as uint64 for
+	// small fixint values (documented inherent coercion — the wire can't tell
+	// int from uint), which is orthogonal to map recycling. Strings round-trip
+	// exactly, so DeepEqual cleanly isolates the recycle path under test.
+	in := []map[string]any{
+		{"a": "1", "b": "x"},
+		{"b": "x", "c": "2"},
+		{"a": "3", "z": "q"},
+	}
+	data, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("fresh: got %v want %v", out, in)
+	}
+	if err := Unmarshal(data, &out); err != nil { // recycle path (decodeAny)
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("recycled: got %v want %v", out, in)
+	}
+}
+
+// TestMapReuseMixedFastAndReflect exercises a struct carrying BOTH a fast-path
+// map (map[string]string) and a reflect-path map (map[int]int) in the same
+// element. Each type buckets separately on the free-list; decoding twice into
+// the same target must recycle both and round-trip exactly.
+func TestMapReuseMixedFastAndReflect(t *testing.T) {
+	type rec struct {
+		Fast map[string]string `qdf:"fast"`
+		Refl map[int]int       `qdf:"refl"`
+	}
+	const N = 32
+	in := make([]rec, N)
+	for i := range in {
+		in[i].Fast = map[string]string{
+			"k" + strconv.Itoa(i): "v" + strconv.Itoa(i),
+			"shared":              strconv.Itoa(i),
+		}
+		in[i].Refl = map[int]int{i: i * 2, i + 100: i * 3}
+	}
+	data, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []rec
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("fresh: got %v want %v", out, in)
+	}
+	if err := Unmarshal(data, &out); err != nil { // recycle path
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("recycled: got %v want %v", out, in)
+	}
+}

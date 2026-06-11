@@ -108,6 +108,47 @@ func reuseOrMakeMap[K comparable, V any](d *Decoder, p unsafe.Pointer, n int) ma
 	return make(map[K]V, n)
 }
 
+// popOrMakeMap returns a map[K]V to decode n entries into, recycling a harvested
+// map of this type from the Decoder free-list (cleared) when one is available,
+// else allocating fresh. Unlike reuseOrMakeMap it has no destination pointer
+// (the caller — decodeAny — returns the map rather than writing through a *map),
+// so it only consults the free-list. Zero-cost when the free-list is empty.
+func popOrMakeMap[K comparable, V any](d *Decoder, n int) map[K]V {
+	if len(d.mapFreeList) > 0 {
+		t := reflect.TypeFor[map[K]V]()
+		if lst := d.mapFreeList[t]; len(lst) > 0 {
+			ptr := lst[len(lst)-1]
+			d.mapFreeList[t] = lst[:len(lst)-1]
+			m := *(*map[K]V)(unsafe.Pointer(&ptr))
+			clear(m)
+			return m
+		}
+	}
+	return make(map[K]V, n)
+}
+
+// reuseOrMakeMapReflect installs at p a map of type t to decode n entries into,
+// reusing the caller's existing non-nil map (cleared) or a harvested free-list
+// map of type t, else allocating fresh via reflectutil.MakeMap. The reflect-path
+// analogue of reuseOrMakeMap, used by decodeMap. Zero-cost (just a nil check)
+// when there is nothing to reuse.
+func reuseOrMakeMapReflect(d *Decoder, t reflect.Type, n int, p unsafe.Pointer) {
+	if *(*unsafe.Pointer)(p) != nil { // direct-target reuse: existing map at p
+		reflect.NewAt(t, p).Elem().Clear() // clear keeps the map, drops entries
+		return
+	}
+	if len(d.mapFreeList) > 0 {
+		if lst := d.mapFreeList[t]; len(lst) > 0 {
+			ptr := lst[len(lst)-1]
+			d.mapFreeList[t] = lst[:len(lst)-1]
+			*(*unsafe.Pointer)(p) = ptr        // install the harvested map at p
+			reflect.NewAt(t, p).Elem().Clear() // empty its entries before refill
+			return
+		}
+	}
+	reflectutil.MakeMap(t, n, p)
+}
+
 // maxRecycledMaps bounds how many maps of one type the harvest free-list
 // retains, so a one-off huge []struct{map} decode can't pin unbounded map
 // headers. Past the cap the surplus maps are simply not recycled (allocated
