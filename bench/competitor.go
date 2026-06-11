@@ -68,7 +68,17 @@ func runCodecMatrix[T any](b *testing.B, value T, newOut func() *T) {
 
 	for _, tier := range qdfTiers {
 		tier := tier
-		qb, _ := qdf.Marshal(value, tier.opts)
+		qb, err := qdf.Marshal(value, tier.opts)
+		if err != nil {
+			b.Fatalf("qdf.Marshal(%s): %v", tier.name, err)
+		}
+		// Fail loudly on a decode error instead of silently benchmarking a
+		// half-finished, early-aborted decode: a broken decode does less work
+		// and reports artificially low allocs/ns, which then shows up as a
+		// phantom "regression" the moment the decode is fixed to run in full.
+		if derr := qdf.Unmarshal(qb, newOut()); derr != nil {
+			b.Fatalf("qdf.Unmarshal(%s): %v", tier.name, derr)
+		}
 		b.Run("encode/qdf_"+tier.name, func(b *testing.B) {
 			var buf []byte
 			b.ReportAllocs()
