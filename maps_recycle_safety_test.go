@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"bytes"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -72,5 +73,51 @@ func TestUnmarshalTNoCrossTarget(t *testing.T) {
 	}
 	if !reflect.DeepEqual(in, out) {
 		t.Fatalf("cross-target leak: got %v want %v", out, in)
+	}
+}
+
+// TestStreamMapRecycleFrames checks (a) intra-target streaming recycle works
+// across frames into the SAME reused target, and (b) frames into DIFFERENT
+// targets don't leak a recycled map across frames (the per-frame clear).
+func TestStreamMapRecycleFrames(t *testing.T) {
+	type rec struct {
+		Tags map[string]string `qdf:"tags"`
+	}
+	frames := [][]rec{
+		{{Tags: map[string]string{"a": "1", "b": "2"}}},
+		{{Tags: map[string]string{"c": "3"}}}, // fewer keys → would expose stale
+		{{Tags: map[string]string{"d": "4", "e": "5"}}},
+	}
+	var buf bytes.Buffer
+	enc := NewStreamEncoder(&buf, Dense)
+	for _, f := range frames {
+		if err := enc.Encode(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// (a) reuse the SAME target across frames.
+	dec := NewStreamDecoder(bytes.NewReader(buf.Bytes()))
+	var out []rec
+	for i, want := range frames {
+		if err := dec.Decode(&out); err != nil {
+			t.Fatalf("frame %d: %v", i, err)
+		}
+		if !reflect.DeepEqual(want, out) {
+			t.Fatalf("frame %d (reused target): got %v want %v", i, out, want)
+		}
+	}
+	// (b) fresh target per frame.
+	dec2 := NewStreamDecoder(bytes.NewReader(buf.Bytes()))
+	for i, want := range frames {
+		var fresh []rec
+		if err := dec2.Decode(&fresh); err != nil {
+			t.Fatalf("frame %d fresh: %v", i, err)
+		}
+		if !reflect.DeepEqual(want, fresh) {
+			t.Fatalf("frame %d (fresh target): got %v want %v", i, fresh, want)
+		}
 	}
 }
