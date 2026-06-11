@@ -15,6 +15,11 @@ const (
 	ransByteL = 1 << 23        // renormalization lower bound
 )
 
+// Format tags for the leading byte of a rANS blob.
+const (
+	ransTagSingle = 0 // [tag][table][4-byte state][renorm bytes]
+)
+
 // ErrBadTable is returned when a decoded frequency table is malformed
 // (frequencies do not sum to scale, or a frequency exceeds scale).
 var ErrBadTable = errors.New("rans: invalid frequency table")
@@ -182,6 +187,7 @@ func parseTable(src []byte) (freq [256]uint32, cum [257]uint32, used int, err er
 // length separately and passes it to Decode.
 func Encode(dst, src []byte) []byte {
 	freq, cum := buildFreqs(src)
+	dst = append(dst, ransTagSingle)
 	dst = appendTable(dst, &freq)
 	return append(dst, encodeStream(src, &freq, &cum)...)
 }
@@ -192,13 +198,23 @@ func Decode(src []byte, n int) ([]byte, error) {
 	if n == 0 {
 		return []byte{}, nil
 	}
-	freq, cum, used, err := parseTable(src)
-	if err != nil {
-		return nil, err
+	if len(src) < 1 {
+		return nil, ErrCorrupt
 	}
-	var slot [scale]byte
-	buildSlot(&cum, &slot)
-	return decodeStream(src[used:], &freq, &slot, &cum, n)
+	tag := src[0]
+	src = src[1:]
+	switch tag {
+	case ransTagSingle:
+		freq, cum, used, err := parseTable(src)
+		if err != nil {
+			return nil, err
+		}
+		var slot [scale]byte
+		buildSlot(&cum, &slot)
+		return decodeStream(src[used:], &freq, &slot, &cum, n)
+	default:
+		return nil, ErrCorrupt // interleaved tags added in a later task
+	}
 }
 
 // appendUvarint / uvarint are local LEB128 helpers (kept self-contained so the
