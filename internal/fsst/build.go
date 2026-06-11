@@ -103,6 +103,7 @@ type Builder struct {
 	c    *counter
 	cand []candidate
 	keys []symKey
+	scan [][]byte // reused sample-prefix header for the trim case
 	t    SymbolTable
 }
 
@@ -129,7 +130,7 @@ func (b *Builder) Build(samples [][]byte) *SymbolTable {
 // decide columnar-vs-row-major), while the encoder uses the full buildRounds
 // for the table it actually emits.
 func (b *Builder) BuildRounds(samples [][]byte, rounds int) *SymbolTable {
-	scan := sampleByBytes(samples, maxSampleBytes)
+	scan := b.sampleByBytes(samples, maxSampleBytes)
 	b.t.reset() // empty: round 0 is all single-byte tokens
 	for range rounds {
 		b.c.reset()
@@ -137,9 +138,13 @@ func (b *Builder) BuildRounds(samples [][]byte, rounds int) *SymbolTable {
 		for _, s := range scan {
 			tokenizeCount(&b.t, s, b.c, empty)
 		}
-		b.keys = topCandidates(b.c, b.cand[:0], b.keys[:0])
+		b.keys, b.cand = topCandidates(b.c, b.cand[:0], b.keys[:0])
 		b.t.fillFromKeys(b.keys)
 	}
+	// Drop the []byte views into the caller's strings so a pooled Builder does
+	// not pin that memory until its next Build (the trim path retains them in
+	// b.scan). cand/keys are value types (no pointers) and need no such clear.
+	clear(b.scan)
 	return &b.t
 }
 
@@ -193,17 +198,18 @@ func (t *SymbolTable) fillFromKeys(keys []symKey) {
 // must not make training O(that string)). Deterministic; never mutates the
 // caller's backing data (it shallow-copies the small header slice only when it
 // has to trim).
-func sampleByBytes(samples [][]byte, budget int) [][]byte {
+func (b *Builder) sampleByBytes(samples [][]byte, budget int) [][]byte {
 	total := 0
 	for i := range samples {
 		total += len(samples[i])
 		if total >= budget {
 			over := total - budget
 			if over > 0 && over < len(samples[i]) {
-				trimmed := make([][]byte, i+1)
-				copy(trimmed, samples[:i+1])
-				trimmed[i] = samples[i][:len(samples[i])-over]
-				return trimmed
+				// Reuse the Builder's scan header instead of allocating a fresh
+				// [][]byte every train; the trimmed prefix is read-only here.
+				b.scan = append(b.scan[:0], samples[:i+1]...)
+				b.scan[i] = samples[i][:len(samples[i])-over]
+				return b.scan
 			}
 			return samples[:i+1]
 		}
@@ -238,7 +244,9 @@ func tokenizeCount(t *SymbolTable, s []byte, c *counter, empty bool) {
 // topCandidates selects the top-255 candidate keys by gain = freq*len, with a
 // deterministic total order (gain desc, len desc, packed-bytes asc). The cand
 // and keys scratch slices are caller-owned and reused across rounds.
-func topCandidates(c *counter, cand []candidate, keys []symKey) []symKey {
+// It returns keys plus the (possibly grown) cand backing so the caller can
+// retain it across rounds/Build calls and avoid re-growing the candidate slice.
+func topCandidates(c *counter, cand []candidate, keys []symKey) ([]symKey, []candidate) {
 	for _, i := range c.usedIdx { // only occupied slots, not the whole 8192-wide table
 		k := c.keys[i]
 		if k.n == 0 || k.n > maxSymLen {
@@ -266,7 +274,7 @@ func topCandidates(c *counter, cand []candidate, keys []symKey) []symKey {
 	for i := range cand {
 		keys = append(keys, cand[i].k)
 	}
-	return keys
+	return keys, cand
 }
 
 // candLess reports whether a outranks b: higher gain, then longer symbol, then
