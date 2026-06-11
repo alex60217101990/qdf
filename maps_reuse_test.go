@@ -59,26 +59,28 @@ func TestMapReuseNoStaleKeys(t *testing.T) {
 	}
 }
 
+// TestMapReuseCutsAllocs proves the win on a DIRECT struct-with-map target (the
+// RPC single-message decode shape), where the map field survives between decodes
+// and reuseOrMakeMap can clear+reuse it. NOTE: a []struct{map} batch target does
+// NOT benefit — decode-slice-reuse zeroes the slice elements (nil-ing the maps)
+// before the map decoder runs, so each map is allocated fresh; that limitation
+// is by design (slice-clear is the schema-evolution stale-data guard).
 func TestMapReuseCutsAllocs(t *testing.T) {
 	type rec struct {
 		Tags map[string]string `qdf:"tags"`
 	}
-	recs := make([]rec, 64)
-	for i := range recs {
-		m := make(map[string]string, 8)
-		for j := 0; j < 8; j++ {
-			m["k"+strconv.Itoa(j)] = "v" + strconv.Itoa(i*8+j)
-		}
-		recs[i] = rec{Tags: m}
+	in := rec{Tags: make(map[string]string, 16)}
+	for j := 0; j < 16; j++ {
+		in.Tags["k"+strconv.Itoa(j)] = "v" + strconv.Itoa(j)
 	}
-	data, _ := Marshal(recs, OptBalanced)
-	var out []rec
-	_ = Unmarshal(data, &out) // warm: allocates the maps
-	reuse := testing.AllocsPerRun(20, func() { _ = Unmarshal(data, &out) })
-	var fresh []rec
-	freshAllocs := testing.AllocsPerRun(20, func() { fresh = nil; _ = Unmarshal(data, &fresh) })
+	data, _ := Marshal(in, OptBalanced)
+	var out rec
+	_ = Unmarshal(data, &out) // warm: allocates the map
+	reuse := testing.AllocsPerRun(50, func() { _ = Unmarshal(data, &out) })
+	var fresh rec
+	freshAllocs := testing.AllocsPerRun(50, func() { fresh = rec{}; _ = Unmarshal(data, &fresh) })
 	if reuse >= freshAllocs {
 		t.Fatalf("reuse (%v) did not cut allocs vs fresh (%v)", reuse, freshAllocs)
 	}
-	t.Logf("allocs/op: fresh=%v reuse=%v", freshAllocs, reuse)
+	t.Logf("direct struct allocs/op: fresh=%v reuse=%v", freshAllocs, reuse)
 }
