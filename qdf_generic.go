@@ -72,6 +72,7 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	dec.colIndex = false
 	dec.selectFields = nil
 	dec.query = nil
+	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
 	}
