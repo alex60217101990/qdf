@@ -234,6 +234,12 @@ func (s *StreamDecoder) Decode(out any) error {
 	// partial decode never mutates the shared dense state. Past the length
 	// prefix a short read is a truncated frame, never a clean end.
 	if err := s.fill(framelen, false); err != nil {
+		// readFrameLen already advanced the cursor past the length prefix, so the
+		// stream is parked mid-frame with a known-unreadable body. Latch broken —
+		// like the header and decode-error paths — so a caller that ignores this
+		// error and calls Decode again cannot re-parse the buffered partial body
+		// bytes as a fresh frame and silently misparse.
+		s.broken = true
 		return err // ErrShortBuffer on a truncated final frame
 	}
 	// Each frame is an independent target: drop any maps the previous frame
