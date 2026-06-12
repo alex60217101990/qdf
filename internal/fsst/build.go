@@ -155,15 +155,11 @@ func BuildSymbolTable(samples [][]byte) *SymbolTable {
 	return NewBuilder().Build(samples)
 }
 
-// reset clears the table for reuse, keeping the symbol slice and first-byte
-// bucket capacities so a subsequent fillFromKeys does not re-allocate.
+// reset clears the table for reuse, keeping the symbol slice and candidate
+// index capacities so a subsequent fillFromKeys does not re-allocate.
 func (t *SymbolTable) reset() {
 	t.symbols = t.symbols[:0]
-	for i := range t.byFirst {
-		if t.byFirst[i] != nil {
-			t.byFirst[i] = t.byFirst[i][:0]
-		}
-	}
+	t.cands = t.cands[:0]
 }
 
 // fillFromKeys rebuilds the table in place from packed candidate keys — each
@@ -185,9 +181,7 @@ func (t *SymbolTable) fillFromKeys(keys []symKey) {
 		} else {
 			s.mask = (uint64(1) << (8 * k.n)) - 1
 		}
-		code := uint8(len(t.symbols))
 		t.symbols = append(t.symbols, s)
-		t.byFirst[s.bytes[0]] = append(t.byFirst[s.bytes[0]], code)
 	}
 	t.buildIndex()
 }
