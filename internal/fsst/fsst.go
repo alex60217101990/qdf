@@ -38,16 +38,31 @@ func packVal(b []byte) (val, mask uint64) {
 	return
 }
 
+// cand is a compression-index entry: the match-relevant fields of a symbol
+// inlined so the hot match loop scans a contiguous, cache-friendly slice instead
+// of gathering each symbol out of t.symbols by code. val/mask drive the single
+// masked uint64 compare; code/length are the result.
+type cand struct {
+	val, mask uint64
+	code      uint8
+	length    uint8
+}
+
 // SymbolTable maps codes 0..254 to symbols and indexes them for compression.
 type SymbolTable struct {
-	symbols []symbol     // index == code
-	byFirst [256][]uint8 // candidate codes per first byte, longest symbol first
+	symbols []symbol // index == code
+	// Compression index: all candidates in one flat slice, grouped by first
+	// byte and sorted longest-symbol-first within each group. cands[first[b] :
+	// first[b+1]] is byte b's group. One backing allocation (reused across
+	// rebuilds) and sequential scan — no 256 sub-slices, no gather into symbols.
+	cands []cand
+	first [257]int32
 }
 
 // newSymbolTable builds a table from raw symbol byte-strings (≤255, each 1..8
 // bytes). Symbols longer than maxSymLen or empty are skipped; excess past 255
-// is truncated. The byFirst index is sorted longest-first so Compress's first
-// hit is the longest match.
+// is truncated. buildIndex then groups them first-byte, longest-first so
+// Compress's first hit is the longest match.
 func newSymbolTable(raw [][]byte) *SymbolTable {
 	t := &SymbolTable{}
 	for _, b := range raw {
@@ -58,25 +73,48 @@ func newSymbolTable(raw [][]byte) *SymbolTable {
 		s.len = uint8(len(b))
 		copy(s.bytes[:], b)
 		s.val, s.mask = packVal(b)
-		code := uint8(len(t.symbols))
 		t.symbols = append(t.symbols, s)
-		t.byFirst[b[0]] = append(t.byFirst[b[0]], code)
 	}
 	t.buildIndex()
 	return t
 }
 
-// buildIndex sorts each first-byte bucket longest-symbol-first (tie-break by
-// code, for determinism) so match's first prefix hit is the longest.
+// buildIndex rebuilds the flat first-byte-grouped candidate index from
+// t.symbols. Each group is sorted longest-symbol-first (tie-break by code, for
+// determinism) so match's first prefix hit is the longest. The cands backing
+// array is reused when it already has the capacity (the pooled-builder path
+// rebuilds this every training round).
 func (t *SymbolTable) buildIndex() {
-	for fb := range t.byFirst {
-		cs := t.byFirst[fb]
-		for i := 1; i < len(cs); i++ {
-			for j := i; j > 0; j-- {
-				a, b := cs[j-1], cs[j]
-				if t.symbols[b].len > t.symbols[a].len ||
-					(t.symbols[b].len == t.symbols[a].len && b < a) {
-					cs[j-1], cs[j] = cs[j], cs[j-1]
+	var cnt [256]int32
+	for i := range t.symbols {
+		cnt[t.symbols[i].bytes[0]]++
+	}
+	var off int32
+	for b := 0; b < 256; b++ {
+		t.first[b] = off
+		off += cnt[b]
+	}
+	t.first[256] = off
+	if cap(t.cands) < int(off) {
+		t.cands = make([]cand, off)
+	} else {
+		t.cands = t.cands[:off]
+	}
+	var cur [256]int32
+	copy(cur[:], t.first[:256])
+	for i := range t.symbols {
+		s := &t.symbols[i]
+		b0 := s.bytes[0]
+		t.cands[cur[b0]] = cand{val: s.val, mask: s.mask, code: uint8(i), length: s.len}
+		cur[b0]++
+	}
+	for b := 0; b < 256; b++ {
+		lo, hi := t.first[b], t.first[b+1]
+		for i := lo + 1; i < hi; i++ {
+			for j := i; j > lo; j-- {
+				a, c := &t.cands[j-1], &t.cands[j]
+				if c.length > a.length || (c.length == a.length && c.code < a.code) {
+					*a, *c = *c, *a
 				} else {
 					break
 				}
@@ -87,7 +125,8 @@ func (t *SymbolTable) buildIndex() {
 
 // match returns the code and length of the longest symbol that is a prefix of
 // s, or (0,0) if none matches. Hot path: load up to 8 input bytes once and test
-// each candidate (longest-first) with a single masked uint64 compare.
+// each candidate (longest-first) with a single masked uint64 compare over the
+// contiguous first-byte group (no per-candidate gather into t.symbols).
 func (t *SymbolTable) match(s []byte) (uint8, int) {
 	var x uint64
 	if len(s) >= 8 {
@@ -98,10 +137,12 @@ func (t *SymbolTable) match(s []byte) (uint8, int) {
 		}
 	}
 	avail := len(s)
-	for _, code := range t.byFirst[byte(x)] {
-		sym := &t.symbols[code]
-		if int(sym.len) <= avail && x&sym.mask == sym.val {
-			return code, int(sym.len)
+	b0 := int(byte(x))
+	cs := t.cands[t.first[b0]:t.first[b0+1]]
+	for k := range cs {
+		c := &cs[k]
+		if int(c.length) <= avail && x&c.mask == c.val {
+			return c.code, int(c.length)
 		}
 	}
 	return 0, 0
