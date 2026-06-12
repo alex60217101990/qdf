@@ -917,7 +917,7 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 		}
 		cv.b = s
 	case colKindString:
-		if !isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+		if !isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
 			s, err := d.readStringColumn(n)
 			if err != nil {
 				return cv, err
@@ -1589,7 +1589,7 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			*(*bool)(unsafe.Add(base, uintptr(i)*plan.stride+col.offset)) = s[i]
 		}
 	case colKindString:
-		if !col.isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+		if !col.isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
 			strs, err := d.readStringColumn(n)
 			if err != nil {
 				return err
@@ -1667,7 +1667,7 @@ func (d *Decoder) skipColumnValue(kind colKind, n int) error {
 		var s []bool
 		return decodeSliceBool(d, unsafe.Pointer(&s))
 	case colKindString:
-		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
 			_, err := d.readStringColumn(n)
 			return err
 		}
@@ -1838,7 +1838,7 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 				}
 			}
 		case colKindString:
-			if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+			if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
 				strs, err := d.readStringColumn(n)
 				if err != nil {
 					return nil, err
@@ -1956,7 +1956,7 @@ func (d *Decoder) decodeColumnBodyAny(kind colKind, name string, n int, store bo
 			}
 		}
 	case colKindString:
-		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST) {
+		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
 			strs, err := d.readStringColumn(n)
 			if err != nil {
 				return err

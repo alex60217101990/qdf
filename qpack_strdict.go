@@ -130,6 +130,9 @@ func (d *Decoder) readStringColumn(n int) ([]string, error) {
 	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrFSST {
 		return d.readStringColumnFSST(n)
 	}
+	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrRaw {
+		return d.readStringColumnRaw(n)
+	}
 	out := make([]string, n)
 	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
 		table, idx, err := d.readStringColumnDict(n)
