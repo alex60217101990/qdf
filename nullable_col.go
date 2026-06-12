@@ -29,6 +29,9 @@ func (e *Encoder) writeStringColumn(strs []string) {
 	if e.fsst && e.tryWriteStringColumnFSST(strs) {
 		return
 	}
+	if e.tryWriteStringColumnRaw(strs) {
+		return
+	}
 	for _, v := range strs {
 		e.WriteString(v)
 	}

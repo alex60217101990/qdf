@@ -214,6 +214,24 @@ const (
 	//   N × (K_residual values in field order, existing per-value tags).
 	// A decoder that does not implement it sees an unknown tag → ErrBadTag.
 	tagHybridColStruct = 0xF7
+
+	// tagColStrRaw is a bulk-materialized string column inside a tagColStruct
+	// payload: the high-cardinality counterpart to tagColStrDict. A mostly-
+	// distinct column (IDs, GUIDs, emails, free text) cannot dict-compress and,
+	// written per value, costs one heap allocation per row on decode. tagColStrRaw
+	// instead lays every value down once, length-prefixed, so the decoder
+	// materializes the whole column into ONE backing slab (every row a sub-slice)
+	// — distinct strings still allocate their bytes once (wire-neutral vs the
+	// per-value form, which also stores each distinct value once) but the decode
+	// drops from n allocations to one. Chosen automatically (no option) by the
+	// column emitter for high-cardinality columns where dict does not fire and
+	// intern dedup cannot help. Wire:
+	//   0xF8, varuint(n), varuint(total),
+	//   n × (varuint(len), len bytes)            // values, interleaved
+	// total is the summed value-byte count, so the decoder pre-sizes the slab in
+	// one allocation. A decoder that does not implement it sees an unknown tag →
+	// ErrBadTag.
+	tagColStrRaw = 0xF8
 )
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
