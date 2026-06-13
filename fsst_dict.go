@@ -93,6 +93,10 @@ func appendMarshalDict(dst []byte, v any, opts Options, dict *fsst.SymbolTable) 
 	start := len(dst)
 	enc.buf = dst
 	if err := encodeReflect(enc, v); err != nil {
+		// Detach the caller's dst before pooling: putEnc only nils buf past
+		// maxPooledBuf, so a normal-sized dst would stay aliased in the pooled
+		// encoder and the next encode would overwrite the caller's backing array.
+		enc.buf = nil
 		putEnc(enc, &encPool)
 		return dst, err
 	}
