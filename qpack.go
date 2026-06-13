@@ -22,6 +22,12 @@ const (
 	qpackRawFamInt   = 1 << 2
 	qpackRawFamFloat = 2 << 2
 
+	// The kind byte is family|width across all four widths. The encoder never
+	// emits the W1/W2 (8/16-bit) forms — int8/int16/uint8/uint16 slices widen to
+	// a 32/64-bit column and qpack-FOR then packs them to ≤8/16 bits/value, which
+	// is never larger than a narrow raw column. The decoder still honors W1/W2
+	// (see qpackRawWidthBytes), so these names complete the wire's kind table and
+	// document the formats it can decode; keep them even though no producer emits.
 	qpackKindUint8   = qpackRawFamUint | qpackRawW1
 	qpackKindUint16  = qpackRawFamUint | qpackRawW2
 	qpackKindUint32  = qpackRawFamUint | qpackRawW4
