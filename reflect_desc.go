@@ -62,11 +62,40 @@ func descOf(t reflect.Type) (*typeDesc, error) {
 	if v, ok := typeCache.Load(t); ok {
 		return v.(*typeDesc), nil
 	}
-	return descBuild(t, &buildCtx{inProgress: make(map[reflect.Type]*typeDesc)})
+	ctx := &buildCtx{inProgress: make(map[reflect.Type]*typeDesc)}
+	if _, err := descBuild(t, ctx); err != nil {
+		return nil, err
+	}
+	// Publish the WHOLE graph now that every descriptor in it is fully built.
+	//
+	// Publishing each descriptor as its own fillDesc returned (the previous
+	// design) was racy for cyclic types: building cycNode requires its *cycNode
+	// pointer descriptor, whose fillDesc completes — and would publish — while
+	// the enclosing cycNode struct descriptor's .encode/.decode are still nil.
+	// A second goroutine that Loaded the prematurely-published *cycNode then
+	// read those fields while we were writing them (data race + nil-func
+	// dispatch panic). Deferring publication to here guarantees a descriptor is
+	// globally visible only when its entire transitive graph is complete.
+	//
+	// LoadOrStore still lets a racing goroutine's graph win per type; our own
+	// captured closures reference our fully-built versions regardless, and both
+	// graphs encode identical wire output.
+	for rt, td := range ctx.inProgress {
+		typeCache.LoadOrStore(rt, td)
+	}
+	if v, ok := typeCache.Load(t); ok {
+		return v.(*typeDesc), nil
+	}
+	// Unreachable in practice (t was just built into ctx.inProgress), but stay
+	// defensive rather than returning a nil descriptor.
+	return descBuild(t, ctx)
 }
 
-// descBuild is the recursion-safe lookup used from inside fillDesc. It
-// MUST be called with a non-nil ctx so type cycles can be broken.
+// descBuild is the recursion-safe lookup used from inside fillDesc. It MUST be
+// called with a non-nil ctx so type cycles can be broken. It does NOT publish
+// to the global typeCache — descOf publishes the whole graph atomically-per-
+// type once every descriptor is complete. Entries stay in ctx.inProgress for
+// the ctx's lifetime so sibling references reuse them instead of rebuilding.
 func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) {
 	if v, ok := typeCache.Load(t); ok {
 		return v.(*typeDesc), nil
@@ -76,17 +105,12 @@ func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) {
 	}
 	td := &typeDesc{rType: t, kind: t.Kind()}
 	ctx.inProgress[t] = td
-	err := fillDesc(td, t, ctx)
-	delete(ctx.inProgress, t)
-	if err != nil {
+	if err := fillDesc(td, t, ctx); err != nil {
+		// Leave nothing half-built reachable: the failed type stays only in
+		// this ctx (never published) and is discarded with it.
 		return nil, err
 	}
-	// Race-safe publish. If another goroutine already published the same
-	// type while we were building, prefer theirs; our td stays alive only
-	// as long as our caller's closures keep it referenced. Either way,
-	// both descriptors encode identical wire output.
-	actual, _ := typeCache.LoadOrStore(t, td)
-	return actual.(*typeDesc), nil
+	return td, nil
 }
 
 // fillDesc populates td in place. All recursive descBuild calls happen
