@@ -1326,6 +1326,9 @@ func encodeMarshaler(t reflect.Type) func(*Encoder, unsafe.Pointer) error {
 			e.mode, e.qpack = Fast, false
 			e.writeHeader()
 			e.mode, e.qpack = savedMode, savedQPack
+			// The top-level Marshaler owns the framing (Fast). Mark it so the
+			// post-encode rANS pass leaves the body opts-invariant.
+			e.customFramed = true
 		}
 		m := reflect.NewAt(t, p).Interface().(Marshaler)
 		out, err := m.MarshalQDF(e.buf)
