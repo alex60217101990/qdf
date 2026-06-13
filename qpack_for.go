@@ -30,7 +30,13 @@ const qpackForMaxBits = 56
 // does not exist; without this ceiling a ~14-byte header could drive a
 // multi-GB make(). Columnar columns are already bounded by colLenOK; this
 // mirrors the standalone cap RLE applies (qpack_rle.go).
-const qpackMaxStandaloneCount = 1 << 30
+//
+// Pinned to maxColumnarElems (1<<24, 128 MiB for an int64 slice) — the same
+// ceiling columnar already enforces for a constant column. The previous 1<<30
+// allowed an 8 GiB allocation from a tiny hostile header (OOM-DoS); a constant
+// slice above 16M elements is not a real workload and callers that large must
+// stream/shard regardless.
+const qpackMaxStandaloneCount = maxColumnarElems
 
 // qpackForSizeUnsigned estimates the wire size, in bytes, of a FOR-packed
 // encoding for n unsigned values whose delta range needs bits per slot

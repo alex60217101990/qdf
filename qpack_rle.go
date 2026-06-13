@@ -99,8 +99,9 @@ func (d *Decoder) readPackedRLEHeader(expectKind byte) (n int, err error) {
 	if n64 > uint64(len(d.buf)-d.i) {
 		// Standalone decode (colMaxLen == 0): no per-element body bound exists
 		// for RLE, so cap the obvious lie. Each run is ≥ 2 bytes; the body loop
-		// catches subtler over-claims.
-		if n64 > 1<<30 {
+		// catches subtler over-claims. Shares the constant-codec ceiling so a
+		// single 2-byte run can't claim a multi-GB element count (OOM-DoS).
+		if n64 > qpackMaxStandaloneCount {
 			return 0, ErrInvalidLength
 		}
 	}
