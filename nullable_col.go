@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"math/bits"
 	"reflect"
 	"runtime"
@@ -144,6 +145,20 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		st.colScratchU64 = s
 		e.buf = append(e.buf, mask...)
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
+	case colKindFloat32:
+		// float32: loadU64At(width==4) reads *(*uint32) — the raw f32 bits — so
+		// the uint codec carries them losslessly (NaN payloads survive).
+		s := st.colScratchU64[:0]
+		for i := range n {
+			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
+			if pp != nil {
+				mask[i>>3] |= 1 << uint(i&7)
+				s = append(s, loadU64At(pp, col.width))
+			}
+		}
+		st.colScratchU64 = s
+		e.buf = append(e.buf, mask...)
+		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindFloat:
 		s := st.colScratchF64[:0]
 		for i := range n {
@@ -271,6 +286,15 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 			return ErrTypeMismatch
 		}
 		set(func(ea unsafe.Pointer, k int) { storeU64At(ea, col.width, s[k]) })
+	case colKindFloat32:
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
+			return err
+		}
+		s := st.colScratchU64
+		if len(s) != present {
+			return ErrTypeMismatch
+		}
+		set(func(ea unsafe.Pointer, k int) { storeU64At(ea, col.width, s[k]) })
 	case colKindFloat:
 		if err := decodeSliceFloat64Into(d, &st.colScratchF64); err != nil {
 			return err
@@ -388,6 +412,23 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 			}
 		}
 		cv.u64 = full
+	case colKindFloat32:
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != present {
+			return cv, ErrTypeMismatch
+		}
+		full := make([]uint64, n)
+		k := 0
+		for i := range n {
+			if getBit(pres, i) {
+				full[i] = s[k]
+				k++
+			}
+		}
+		cv.u64 = full
 	case colKindFloat:
 		var s []float64
 		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
@@ -488,6 +529,8 @@ func (cv *colVals) scatterNullableRowInto(base unsafe.Pointer, plan *columnarPla
 		storeI64At(ea, col.width, cv.i64[src])
 	case colKindUint:
 		storeU64At(ea, col.width, cv.u64[src])
+	case colKindFloat32:
+		storeU64At(ea, col.width, cv.u64[src]) // width==4 ⇒ writes *(*uint32), the f32 bits
 	case colKindFloat:
 		storeF64At(ea, col.width, cv.f64[src])
 	case colKindBool:
@@ -536,6 +579,15 @@ func (d *Decoder) decodeNullableColumnAny(kind colKind, n int) ([]any, error) {
 			return nil, ErrTypeMismatch
 		}
 		scatter(func(i, k int) { out[i] = s[k] })
+	case colKindFloat32:
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return nil, err
+		}
+		if len(s) != present {
+			return nil, ErrTypeMismatch
+		}
+		scatter(func(i, k int) { out[i] = math.Float32frombits(uint32(s[k])) })
 	case colKindFloat:
 		var s []float64
 		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {

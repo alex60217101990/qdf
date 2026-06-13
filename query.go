@@ -90,7 +90,9 @@ func Where[T Queryable](field string, pred func(T) bool) QueryOption {
 	case func(uintptr) bool:
 		t.want, t.pU64 = colKindUint, func(v uint64) bool { return p(uintptr(v)) }
 	case func(float32) bool:
-		t.want, t.pF64 = colKindFloat, func(v float64) bool { return p(float32(v)) }
+		// float32 columns carry colKindFloat32 (raw bits); the eval path widens
+		// each f32 back to float64 before this predicate narrows it again.
+		t.want, t.pF64 = colKindFloat32, func(v float64) bool { return p(float32(v)) }
 	case func(float64) bool:
 		t.want, t.pF64 = colKindFloat, p
 	case func(string) bool:
