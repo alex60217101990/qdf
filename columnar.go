@@ -20,7 +20,7 @@ type colKind uint8
 const (
 	colKindInt    colKind = iota // int, int8..int64  → []int64 column
 	colKindUint                  // uint, uint8..uint64, uintptr → []uint64 column
-	colKindFloat                 // float32, float64 → []float64 column
+	colKindFloat                 // float64 → []float64 column (float32 → colKindFloat32)
 	colKindBool                  // bool → []bool column
 	colKindString                // string, []byte → consecutive WriteString
 	colKindTime                  // time.Time → sec []int64 sub-column + nsec []uint64 sub-column

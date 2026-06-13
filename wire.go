@@ -281,6 +281,12 @@ func readUvarint(b []byte) (uint64, int) {
 			return 0, -1
 		}
 		if c < 0x80 {
+			// Canonical-form guard, matching encoding/binary.Uvarint: the 10th
+			// byte (i==9, shift==63) may only carry bit 63, so c>1 would set
+			// bits above 63 — reject instead of silently truncating.
+			if i == 9 && c > 1 {
+				return 0, -1
+			}
 			return x | uint64(c)<<shift, i + 1
 		}
 		x |= uint64(c&0x7F) << shift

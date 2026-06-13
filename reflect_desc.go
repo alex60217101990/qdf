@@ -14,7 +14,6 @@ type typeDesc struct {
 	rType   reflect.Type
 	fields  []fieldDesc   // structs only
 	elem    *typeDesc     // slice/array/map-value/ptr
-	key     *typeDesc     // map-key
 	colPlan *columnarPlan // non-nil on a []struct whose element is columnar-eligible
 
 	// encode is the specialized encoder for this type. It receives a pointer
@@ -235,7 +234,6 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		if err != nil {
 			return err
 		}
-		td.key = k
 		td.elem = v
 		td.encode = encodeMap(t, k, v)
 		td.decode = decodeMap(t, k, v)

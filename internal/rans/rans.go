@@ -288,6 +288,11 @@ func uvarint(b []byte) (uint64, int) {
 			return 0, -1
 		}
 		if c < 0x80 {
+			// Canonical-form guard (cf. encoding/binary.Uvarint): the 10th byte
+			// (i==9, s==63) may only carry bit 63; c>1 would overflow uint64.
+			if i == 9 && c > 1 {
+				return 0, -1
+			}
 			return x | uint64(c)<<s, i + 1
 		}
 		x |= uint64(c&0x7f) << s
