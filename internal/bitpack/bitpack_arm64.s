@@ -99,7 +99,15 @@ loop_v2:
 	LSL   $4, R8, R10            // off*16 (16 bytes per shift vector)
 	ADD   R10, R4, R11
 	VLD1  (R11), [V1.D2]         // shift vector [-off, -(off+b)]
-	WORD  $0x4EE14400            // USHL V0.2D, V0.2D, V1.2D (Go asm lacks VUSHL)
+	// 0x4EE14400 is SSHL V0.2D,V0.2D,V1.2D (signed; bit29 U=0), NOT USHL — Go asm
+	// lacks both vector mnemonics so it is WORD-encoded. The shift vector is
+	// negative (a right shift); SSHL sign-fills the high bits, but the VAND mask
+	// below keeps only the low b bits, and for this 2-at-a-time kernel b<=28, so
+	// off+b<=35 and the sign fill (bits >= 64-35 = 29) never reaches the masked
+	// region (bits < b <= 28). SAFE ONLY while b<=28: if this kernel is ever
+	// widened, switch to USHL (0x6EE14400, U=1) for an explicit zero fill or the
+	// sign bits will corrupt the result.
+	WORD  $0x4EE14400            // SSHL V0.2D, V0.2D, V1.2D  (see note above)
 	VAND  V2.B16, V0.B16, V0.B16 // mask
 	VST1  [V0.D2], (R0)
 	ADD   $16, R0
