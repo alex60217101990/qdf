@@ -702,6 +702,23 @@ func (e *Encoder) WriteStringInline(s string) {
 	e.writeStringInline(s)
 }
 
+// stringInlineHeaderLen returns the number of header bytes writeStringInline
+// emits for a string of length n (fixstr 1, str8 2, str16 3, str32 5). Kept
+// next to writeStringInline so the two stay in lockstep; used by size
+// estimators (e.g. the tagColStrRaw never-larger gate).
+func stringInlineHeaderLen(n int) int {
+	switch {
+	case n <= int(tagFixstrMask):
+		return 1
+	case n <= math.MaxUint8:
+		return 2
+	case n <= math.MaxUint16:
+		return 3
+	default:
+		return 5
+	}
+}
+
 func (e *Encoder) writeStringInline(s string) {
 	n := len(s)
 	// One Grow up front for worst-case header (5 B) + body beats append's

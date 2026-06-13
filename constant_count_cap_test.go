@@ -2,6 +2,62 @@ package qdf
 
 import "testing"
 
+// TestOOM_ConstantSliceOverCapRoundTrips pins that the encoder never produces a
+// constant/empty-body codec the decoder would reject: above qpackMaxStandaloneCount
+// the emitter falls back to raw (proportional body) so a large constant slice
+// still round-trips, while hostile tiny-header inputs are still capped on decode.
+// Regression for the encode/decode cap asymmetry the cap-tightening introduced.
+func TestOOM_ConstantSliceOverCapRoundTrips(t *testing.T) {
+	if testing.Short() {
+		t.Skip("allocates a >128 MiB slice; skipped under -short")
+	}
+	n := qpackMaxStandaloneCount + 1000 // just over the cap → must NOT use a constant codec
+	s := make([]int64, n)
+	for i := range s {
+		s[i] = 42
+	}
+	buf, err := Marshal(s, OptBalanced)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var out []int64
+	if err := Unmarshal(buf, &out); err != nil {
+		t.Fatalf("round-trip broken: encoder produced %d bytes the decoder rejects: %v", len(buf), err)
+	}
+	if len(out) != n || out[0] != 42 || out[n-1] != 42 {
+		t.Fatalf("decoded wrong: len=%d", len(out))
+	}
+}
+
+// TestQPackConstantOverCap_Logic unit-tests the guard that decides when a chosen
+// codec must fall back to raw (no large allocation needed).
+func TestQPackConstantOverCap_Logic(t *testing.T) {
+	capN := qpackMaxStandaloneCount
+	cases := []struct {
+		n            int
+		codec        qpackCodec
+		forB, dB, pB int
+		want         bool
+	}{
+		{capN, qpackFor, 0, 0, 0, false},     // at cap: ok
+		{capN + 1, qpackFor, 0, 0, 0, true},  // over cap, constant FOR: redirect
+		{capN + 1, qpackFor, 5, 0, 0, false}, // over cap but bits>0: proportional body, keep
+		{capN + 1, qpackDeltaFor, 0, 0, 0, true},
+		{capN + 1, qpackDeltaFor, 0, 7, 0, false},
+		{capN + 1, qpackPFor, 0, 0, 0, true},
+		{capN + 1, qpackPFor, 0, 0, 9, false},
+		{capN + 1, qpackRLE, 0, 0, 0, true},  // long-run RLE: empty-ish body
+		{capN + 1, qpackDict, 0, 0, 0, true}, // single-value dict
+		{capN + 1, qpackRaw, 0, 0, 0, false}, // already raw
+	}
+	for i, c := range cases {
+		if got := qpackConstantOverCap(c.n, c.codec, c.forB, c.dB, c.pB); got != c.want {
+			t.Errorf("case %d: qpackConstantOverCap(%d,%d,bits %d/%d/%d)=%v want %v",
+				i, c.n, c.codec, c.forB, c.dB, c.pB, got, c.want)
+		}
+	}
+}
+
 // TestOOM_ConstantCountCapTightened pins that the standalone constant-codec
 // element-count ceiling is tight enough to prevent a multi-GB allocation from a
 // ~14-byte header. A constant codec (bitsPer == 0) carries an EMPTY body, so the

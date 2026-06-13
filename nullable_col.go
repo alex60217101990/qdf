@@ -64,10 +64,10 @@ func loadU64At(p unsafe.Pointer, width uintptr) uint64 {
 	}
 }
 
-func loadF64At(p unsafe.Pointer, width uintptr) float64 {
-	if width == 4 {
-		return float64(*(*float32)(p))
-	}
+// loadF64At reads a nullable float64 column value. colKindFloat is float64-only
+// (a *float32 field classifies as colKindFloat32, which moves raw bits via
+// loadU64At at width 4), so width is always 8 here and needs no switch.
+func loadF64At(p unsafe.Pointer, _ uintptr) float64 {
 	return *(*float64)(p)
 }
 
@@ -97,12 +97,10 @@ func storeU64At(p unsafe.Pointer, width uintptr, v uint64) {
 	}
 }
 
-func storeF64At(p unsafe.Pointer, width uintptr, v float64) {
-	if width == 4 {
-		*(*float32)(p) = float32(v)
-	} else {
-		*(*float64)(p) = v
-	}
+// storeF64At writes a nullable float64 column value. See loadF64At: colKindFloat
+// is float64-only, so width is always 8.
+func storeF64At(p unsafe.Pointer, _ uintptr, v float64) {
+	*(*float64)(p) = v
 }
 
 // encodeNullableColumn writes the presence bitmap and the dense present-only
@@ -348,6 +346,9 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		if len(nsec) != present {
 			return ErrTypeMismatch
 		}
+		if err := checkNsecColumn(nsec); err != nil {
+			return err
+		}
 		set(func(ea unsafe.Pointer, k int) {
 			*(*time.Time)(ea) = time.Unix(sec[k], int64(nsec[k])).UTC()
 		})
@@ -495,6 +496,9 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		if len(nsec) != present {
 			return cv, ErrTypeMismatch
 		}
+		if err := checkNsecColumn(nsec); err != nil {
+			return cv, err
+		}
 		full := make([]time.Time, n)
 		k := 0
 		for i := range n {
@@ -626,6 +630,9 @@ func (d *Decoder) decodeNullableColumnAny(kind colKind, n int) ([]any, error) {
 		}
 		if len(nsec) != present {
 			return nil, ErrTypeMismatch
+		}
+		if err := checkNsecColumn(nsec); err != nil {
+			return nil, err
 		}
 		scatter(func(i, k int) { out[i] = time.Unix(sec[k], int64(nsec[k])).UTC() })
 	default:
