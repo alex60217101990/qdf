@@ -392,6 +392,12 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 		case colKindFloat:
 			rowBytes += sample * 8
 			colBytes += sample * 8 // raw-LE both ways; no probe win (Gorilla is opt-in)
+		case colKindFloat32:
+			// float32 column carries raw 32-bit patterns via the uint codec:
+			// 4 B in the dense column vs 5 B row-major (tag + 4). Without this
+			// case a float32-only struct probed to 0 bytes and stayed row-major.
+			rowBytes += sample * 5
+			colBytes += sample * 4
 		case colKindBool:
 			rowBytes += sample
 			colBytes += (sample + 7) / 8
@@ -704,10 +710,9 @@ func loadScalarU64Signed(base unsafe.Pointer, stride uintptr, col *colColumn, i 
 
 //go:nosplit
 func loadFloat64Field(base unsafe.Pointer, stride uintptr, col *colColumn, i int) float64 {
+	// colKindFloat is float64-only (width 8); float32 uses colKindFloat32 +
+	// loadFloat32Bits, so there is no width==4 case here.
 	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
-	if col.width == 4 {
-		return float64(*(*float32)(p))
-	}
 	return *(*float64)(p)
 }
 
@@ -1013,6 +1018,9 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 		}
 		if len(nsec) != n {
 			return cv, ErrTypeMismatch
+		}
+		if err := checkNsecColumn(nsec); err != nil {
+			return cv, err
 		}
 		ts := make([]time.Time, n)
 		for i := range n {
@@ -1712,6 +1720,9 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 		if len(nsec) != n {
 			return ErrTypeMismatch
 		}
+		if err := checkNsecColumn(nsec); err != nil {
+			return err
+		}
 		for i := range n {
 			dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
 			*(*time.Time)(dp) = time.Unix(sec[i], int64(nsec[i])).UTC()
@@ -1801,13 +1812,24 @@ func storeScalarFromU64(base unsafe.Pointer, stride uintptr, col *colColumn, i i
 }
 
 //go:nosplit
-func storeFloat64(base unsafe.Pointer, stride uintptr, col *colColumn, i int, v float64) {
-	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
-	if col.width == 4 {
-		*(*float32)(p) = float32(v)
-	} else {
-		*(*float64)(p) = v
+// checkNsecColumn rejects a time column whose nanosecond sub-column carries a
+// value outside [0, 999_999_999], matching Decoder.ReadTimestamp. Without it the
+// columnar/nullable time paths would silently normalize a hostile out-of-range
+// nsec into a different valid instant instead of erroring.
+func checkNsecColumn(nsec []uint64) error {
+	for _, v := range nsec {
+		if v > 999_999_999 {
+			return ErrInvalidLength
+		}
 	}
+	return nil
+}
+
+func storeFloat64(base unsafe.Pointer, stride uintptr, col *colColumn, i int, v float64) {
+	// colKindFloat is float64-only (width 8); float32 uses colKindFloat32 +
+	// storeFloat32Bits, so there is no width==4 case here.
+	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
+	*(*float64)(p) = v
 }
 
 // decodeColumnarAny decodes a tagColStruct payload into a []any of
@@ -1967,6 +1989,9 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 			if len(nsec) != n {
 				return nil, ErrTypeMismatch
 			}
+			if err := checkNsecColumn(nsec); err != nil {
+				return nil, err
+			}
 			if store {
 				for i := range n {
 					out[i].(map[string]any)[name] = time.Unix(sec[i], int64(nsec[i])).UTC()
@@ -2097,6 +2122,9 @@ func (d *Decoder) decodeColumnBodyAny(kind colKind, name string, n int, store bo
 		}
 		if len(nsec) != n {
 			return ErrTypeMismatch
+		}
+		if err := checkNsecColumn(nsec); err != nil {
+			return err
 		}
 		if store {
 			for i := range n {

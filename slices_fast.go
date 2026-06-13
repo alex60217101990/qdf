@@ -203,9 +203,39 @@ func (e *Encoder) writeQPackUint64(s []uint64) {
 	e.emitQPackUint64(s, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
 }
 
+// qpackConstantOverCap reports whether emitting n elements in the chosen codec
+// would produce an empty/sub-linear body that the decoder rejects because n
+// exceeds qpackMaxStandaloneCount. The decoder bounds make([]T, n) at that cap
+// for the empty-body forms — a constant FOR/Delta/PFor (bits == 0), a long-run
+// RLE, or a single-value Dict — since their tiny wire cannot otherwise limit
+// the allocation. A proportional body (bits > 0) stays input-bounded and needs
+// no cap. When this returns true the caller must emit raw instead, so the wire
+// the encoder produces is one the decoder accepts (round-trip preserved) while
+// the OOM cap still holds for hostile input.
+func qpackConstantOverCap(n int, codec qpackCodec, forBits, deltaBits, pforBits int) bool {
+	if n <= qpackMaxStandaloneCount {
+		return false
+	}
+	switch codec {
+	case qpackFor:
+		return forBits == 0
+	case qpackDeltaFor:
+		return deltaBits == 0
+	case qpackPFor:
+		return pforBits == 0
+	case qpackRLE, qpackDict:
+		return true
+	}
+	return false
+}
+
 // emitQPackUint64 writes s in the already-chosen codec form (picker output passed
 // in, so a caller that needs to inspect the choice does not pick twice).
 func (e *Encoder) emitQPackUint64(s []uint64, codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits, pforBits int) {
+	if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
+		e.writePackedUint64Slice(s)
+		return
+	}
 	switch codec {
 	case qpackFor:
 		e.writePackedForUint64Slice(s, mn, forBits)
@@ -231,6 +261,10 @@ func (e *Encoder) writeQPackInt64(s []int64) {
 // emitQPackInt64 writes s in the already-chosen codec form (picker output passed
 // in, so a caller that needs to inspect the choice does not pick twice).
 func (e *Encoder) emitQPackInt64(s []int64, codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits, pforBits int) {
+	if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
+		e.writePackedInt64Slice(s)
+		return
+	}
 	switch codec {
 	case qpackFor:
 		e.writePackedForInt64Slice(s, mn, forBits)

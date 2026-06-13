@@ -51,6 +51,15 @@ func (e *Encoder) tryWriteStringColumnRaw(strs []string) bool {
 		total += l
 		lp := uvarintLen(uint64(l))
 		bulkBytes += lp + l
+		if l < e.minIntern {
+			// WriteString does NOT intern sub-minIntern strings: it emits each
+			// occurrence inline (fixstr/str8/...) with no dedup. Charge that real
+			// cost per occurrence — modelling them as interned (distinct tag /
+			// 1-byte repeat) over-counts perVal and could fire the bulk form even
+			// though it is larger by the bulk header, breaking never-larger.
+			perVal += stringInlineHeaderLen(l) + l
+			continue
+		}
 		if _, seen := m[s]; seen {
 			perVal++ // a Dense state ref is at least one byte
 		} else {
