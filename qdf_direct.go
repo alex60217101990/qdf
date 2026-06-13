@@ -29,6 +29,15 @@ func MarshalDirect[T Marshaler](v T) ([]byte, error) {
 		putEnc(enc, &encPool)
 		return nil, err
 	}
+	// Big-output detach: above marshalDetachThreshold putEnc would drop the
+	// buffer anyway (cap exceeds maxPooledBuf), so hand the original to the
+	// caller instead of paying a multi-megabyte slices.Clone. Small payloads
+	// stay on the clone path so the warm pool buffer survives. Mirrors Marshal.
+	if cap(out) > marshalDetachThreshold {
+		enc.buf = nil
+		putEnc(enc, &encPool)
+		return out, nil
+	}
 	cloned := slices.Clone(out)
 	enc.buf = out[:0]
 	putEnc(enc, &encPool) // cap a spike-sized buffer/scratch before pooling

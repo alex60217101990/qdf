@@ -776,6 +776,12 @@ func (e *Encoder) writeBytesInline(p []byte) {
 // caller must follow with exactly n element writes.
 func (e *Encoder) WriteArrayHeader(n int) {
 	e.writeHeader()
+	if n < 0 {
+		// A negative count would narrow to a garbage byte (byte(-1)==0xFF) and
+		// desync the decoder. Treat it as the empty header the caller's
+		// for-i<n loop would actually emit (zero iterations).
+		n = 0
+	}
 	switch {
 	case n <= int(tagFixarrMask):
 		e.buf = append(e.buf, tagFixarr|byte(n))
@@ -790,6 +796,11 @@ func (e *Encoder) WriteArrayHeader(n int) {
 // must follow with exactly n key/value pairs.
 func (e *Encoder) WriteMapHeader(n int) {
 	e.writeHeader()
+	if n < 0 {
+		// See WriteArrayHeader: a negative count narrows to a garbage byte and
+		// desyncs the decoder; emit the empty header instead.
+		n = 0
+	}
 	switch {
 	case n <= math.MaxUint8:
 		e.buf = append(e.buf, tagMap8, byte(n))

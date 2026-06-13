@@ -42,6 +42,10 @@ func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error) {
 	start := len(dst)
 	enc.buf = dst
 	if err := encodeT(enc, &v); err != nil {
+		// Detach the caller's dst before pooling: putEnc only nils buf past
+		// maxPooledBuf, so a normal-sized dst would stay aliased in the pooled
+		// encoder and the next encode would overwrite the caller's backing array.
+		enc.buf = nil
 		putEnc(enc, &encPool)
 		return dst, err
 	}
