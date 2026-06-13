@@ -226,15 +226,45 @@ func TestMapReuseCutsAllocs(t *testing.T) {
 		in.Tags["k"+strconv.Itoa(j)] = "v" + strconv.Itoa(j)
 	}
 	data, _ := Marshal(in, OptBalanced)
+
+	// The alloc win is that decoding into a target whose map field is already
+	// non-nil REUSES that map's backing (reuseOrMakeMap clears + refills it)
+	// instead of allocating a new one. Assert that directly via map-pointer
+	// identity — a deterministic, instrumentation-immune signal — rather than
+	// testing.AllocsPerRun, whose absolute counts are perturbed by the race
+	// detector's shadow memory and the coverage atomic counters (which made the
+	// earlier reuse<fresh form flake in the -race+coverage CI lane even though
+	// the optimization fires correctly).
 	var out rec
-	_ = Unmarshal(data, &out) // warm: allocates the map
-	reuse := testing.AllocsPerRun(50, func() { _ = Unmarshal(data, &out) })
-	var fresh rec
-	freshAllocs := testing.AllocsPerRun(50, func() { fresh = rec{}; _ = Unmarshal(data, &fresh) })
-	if reuse >= freshAllocs {
-		t.Fatalf("reuse (%v) did not cut allocs vs fresh (%v)", reuse, freshAllocs)
+	if err := Unmarshal(data, &out); err != nil { // warm: allocates the map once
+		t.Fatal(err)
 	}
-	t.Logf("direct struct allocs/op: fresh=%v reuse=%v", freshAllocs, reuse)
+	backing := reflect.ValueOf(out.Tags).Pointer()
+	if backing == 0 {
+		t.Fatal("decode produced a nil map")
+	}
+	for i := range 8 {
+		if err := Unmarshal(data, &out); err != nil {
+			t.Fatal(err)
+		}
+		if got := reflect.ValueOf(out.Tags).Pointer(); got != backing {
+			t.Fatalf("decode %d reallocated the map (%#x != %#x): reuseOrMakeMap is not reusing the backing", i, got, backing)
+		}
+		if !reflect.DeepEqual(out.Tags, in.Tags) {
+			t.Fatalf("decode %d: value wrong after reuse: %v", i, out.Tags)
+		}
+	}
+
+	// Sanity that the stable pointer above is genuine reuse, not a fixed address:
+	// a separate fresh target (out is still live, so its backing is not freed)
+	// must get a DIFFERENT backing map.
+	var fresh rec
+	if err := Unmarshal(data, &fresh); err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(fresh.Tags).Pointer() == backing {
+		t.Fatal("a fresh target unexpectedly shares the reused map backing")
+	}
 }
 
 // TestMapRecycleTwoFieldsSameType decodes a []struct with TWO map fields of the
