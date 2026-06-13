@@ -20,6 +20,10 @@ import "slices"
 // Skips the public Marshal entry point's any-boxing, reflect.New, and
 // descriptor lookup. Roughly 2-4× faster than Marshal for generated
 // types on small payloads, with one fewer allocation per call.
+//
+// v must be non-nil: MarshalDirect calls v.MarshalQDF directly, so a nil
+// pointer-receiver value panics. Use Marshal, which emits an explicit nil, if
+// the value may be nil.
 func MarshalDirect[T Marshaler](v T) ([]byte, error) {
 	enc := encPool.Get().(*Encoder)
 	enc.Reset()

@@ -30,7 +30,7 @@ func MarshalT[T any](v T, opts Options) ([]byte, error) {
 	}
 	enc.maybeApplyRANS(0)
 	out := slices.Clone(enc.buf)
-	encPool.Put(enc)
+	putEnc(enc, &encPool) // cap a spike-sized buffer / widening scratch before pooling
 	return out, nil
 }
 
@@ -52,7 +52,7 @@ func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error) {
 	enc.maybeApplyRANS(start)
 	out := enc.buf
 	enc.buf = nil
-	encPool.Put(enc)
+	putEnc(enc, &encPool) // cap a spike-sized widening scratch before pooling
 	return out, nil
 }
 

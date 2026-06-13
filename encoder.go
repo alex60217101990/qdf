@@ -24,6 +24,11 @@ func (e *Encoder) maybeApplyRANS(start int) {
 	if !e.rans {
 		return
 	}
+	if e.customFramed {
+		// A top-level Marshaler forced Fast framing and its bytes are
+		// opts-invariant by contract; do not reframe them with FlagRANS.
+		return
+	}
 	const hdr = 5
 	if len(e.buf)-start < hdr+ransMinBytes {
 		return
@@ -72,6 +77,11 @@ type Encoder struct {
 	mode      Mode
 	state     *encState
 	headerOut bool
+	// customFramed is set when a top-level Marshaler emitted the body and forced
+	// a Fast (flag 0) header. maybeApplyRANS must then leave the wire alone — a
+	// Marshaler's bytes are opts-invariant by contract, so the entropy pass must
+	// not reframe them with FlagRANS (see TestMarshaler_AlwaysFastFraming).
+	customFramed bool
 
 	// alpScratch is a reused FOR-mantissa staging buffer for the ALP float
 	// writer (mirrors the decoder's deltaScratch). Lives on the Encoder, not
@@ -266,6 +276,7 @@ func NewEncoderOnBuf(buf []byte, mode Mode) *Encoder {
 // SetQPack after Reset.
 func (e *Encoder) Reset() {
 	e.buf = e.buf[:0]
+	e.customFramed = false
 	// Row-scaled ALP staging scratch: retain across batches, drop only past the
 	// hard ceiling so a one-off giant float slice can't pin unbounded memory.
 	// Pure []uint64 (no pointers) so no clear is needed.

@@ -80,7 +80,7 @@ func marshalDict(v any, opts Options, dict *fsst.SymbolTable) ([]byte, error) {
 	} else {
 		out = slices.Clone(enc.buf)
 	}
-	encPool.Put(enc)
+	putEnc(enc, &encPool) // cap a spike-sized buffer / widening scratch before pooling
 	return out, nil
 }
 
@@ -103,6 +103,6 @@ func appendMarshalDict(dst []byte, v any, opts Options, dict *fsst.SymbolTable) 
 	enc.maybeApplyRANS(start)
 	out := enc.buf
 	enc.buf = nil
-	encPool.Put(enc)
+	putEnc(enc, &encPool) // cap a spike-sized widening scratch before pooling
 	return out, nil
 }
