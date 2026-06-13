@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"encoding/binary"
+	"math"
 	"reflect"
 	"runtime"
 	"slices"
@@ -23,6 +24,13 @@ const (
 	colKindBool                  // bool → []bool column
 	colKindString                // string, []byte → consecutive WriteString
 	colKindTime                  // time.Time → sec []int64 sub-column + nsec []uint64 sub-column
+	// colKindFloat32 → []uint32-bits column (math.Float32bits), encoded with the
+	// uint codec. Kept SEPARATE from colKindFloat (which is float64-only) because
+	// a float32→float64→float32 round trip is not bit-preserving for NaN payloads
+	// (signaling NaNs are quieted). Carrying the raw 32 bits is both lossless and
+	// narrower on the wire (4 B vs the 8 B a float64 column used). Appended last
+	// so the existing kinds keep their wire values.
+	colKindFloat32
 
 	// colKindNullable is OR'd onto a base kind in the columnar shape's kind
 	// byte to mark an optional (pointer-to-scalar/string) column: a `*T`
@@ -49,6 +57,8 @@ func (k colKind) String() string {
 		n = "uint"
 	case colKindFloat:
 		n = "float"
+	case colKindFloat32:
+		n = "float32"
 	case colKindBool:
 		n = "bool"
 	case colKindString:
@@ -92,8 +102,8 @@ type residualField struct {
 }
 
 // residualKind is a shape-byte sentinel marking a residual field in a hybrid
-// columnar shape. It is outside the valid colKind range (base kinds 0x00-0x05,
-// nullable-OR'd 0x80-0x85), so it can never be mistaken for a real column kind.
+// columnar shape. It is outside the valid colKind range (base kinds 0x00-0x06,
+// nullable-OR'd 0x80-0x86), so it can never be mistaken for a real column kind.
 const residualKind colKind = 0xFF
 
 // columnarPlan is cached on the slice element's typeDesc. nil means the
@@ -489,6 +499,8 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 					valBytes += uvarintLen(loadU64At(pp, col.width))
 				case colKindFloat:
 					valBytes += 8
+				case colKindFloat32:
+					valBytes += 4
 				case colKindBool:
 					valBytes++
 				}
@@ -575,6 +587,15 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 		}
 		st.colScratchF64 = s
 		return encodeSliceFloat64(e, unsafe.Pointer(&s))
+	case colKindFloat32:
+		// float32 column: store raw 32-bit patterns via the uint codec (4 B,
+		// bit-exact). Reuses the u64 scratch — the high 32 bits are always zero.
+		s := st.colScratchU64[:0]
+		for i := range n {
+			s = append(s, loadFloat32Bits(base, plan.stride, col, i))
+		}
+		st.colScratchU64 = s
+		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindBool:
 		s := st.colScratchBool[:0]
 		for i := range n {
@@ -688,6 +709,25 @@ func loadFloat64Field(base unsafe.Pointer, stride uintptr, col *colColumn, i int
 		return float64(*(*float32)(p))
 	}
 	return *(*float64)(p)
+}
+
+// loadFloat32Bits reads a float32 field's raw IEEE-754 bits (zero-extended to
+// uint64) for a colKindFloat32 column. Bit-exact: never goes through a numeric
+// float64 conversion, so NaN payloads/signaling bits survive.
+//
+//go:nosplit
+func loadFloat32Bits(base unsafe.Pointer, stride uintptr, col *colColumn, i int) uint64 {
+	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
+	return uint64(*(*uint32)(p))
+}
+
+// storeFloat32Bits writes raw float32 bits (low 32 of v) into a float32 field
+// for a colKindFloat32 column. Inverse of loadFloat32Bits.
+//
+//go:nosplit
+func storeFloat32Bits(base unsafe.Pointer, stride uintptr, col *colColumn, i int, v uint64) {
+	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
+	*(*uint32)(p) = uint32(v)
 }
 
 //go:nosplit
@@ -907,6 +947,16 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 			return cv, ErrTypeMismatch
 		}
 		cv.f64 = s
+	case colKindFloat32:
+		// float32 bits live in u64 (high 32 zero); cv.kind tags the f32 meaning.
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return cv, err
+		}
+		if len(s) != n {
+			return cv, ErrTypeMismatch
+		}
+		cv.u64 = s
 	case colKindBool:
 		var s []bool
 		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
@@ -1008,6 +1058,12 @@ func (cv *colVals) evalDense(term *predTerm, n int, mask []uint64) {
 				setBit(mask, i)
 			}
 		}
+	case colKindFloat32:
+		for i := range n {
+			if term.pF64(float64(math.Float32frombits(uint32(cv.u64[i])))) {
+				setBit(mask, i)
+			}
+		}
 	case colKindBool:
 		for i := range n {
 			if term.pBool(cv.b[i]) {
@@ -1041,6 +1097,12 @@ func (cv *colVals) evalNullable(term *predTerm, n int, mask []uint64) {
 	case colKindFloat:
 		for i := range n {
 			if getBit(cv.present, i) && term.pF64(cv.f64[i]) {
+				setBit(mask, i)
+			}
+		}
+	case colKindFloat32:
+		for i := range n {
+			if getBit(cv.present, i) && term.pF64(float64(math.Float32frombits(uint32(cv.u64[i])))) {
 				setBit(mask, i)
 			}
 		}
@@ -1087,6 +1149,8 @@ func (cv *colVals) scatterRow(base unsafe.Pointer, plan *columnarPlan, col *colC
 		storeScalarFromU64(base, plan.stride, col, dst, cv.u64[src])
 	case colKindFloat:
 		storeFloat64(base, plan.stride, col, dst, cv.f64[src])
+	case colKindFloat32:
+		storeFloat32Bits(base, plan.stride, col, dst, cv.u64[src])
 	case colKindBool:
 		*(*bool)(unsafe.Add(base, uintptr(dst)*plan.stride+col.offset)) = cv.b[src]
 	case colKindString:
@@ -1116,6 +1180,8 @@ func (cv *colVals) anyAt(i int) any {
 		return cv.u64[i]
 	case colKindFloat:
 		return cv.f64[i]
+	case colKindFloat32:
+		return math.Float32frombits(uint32(cv.u64[i]))
 	case colKindBool:
 		return cv.b[i]
 	case colKindString:
@@ -1577,6 +1643,17 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 		for i := range n {
 			storeFloat64(base, plan.stride, col, i, s[i])
 		}
+	case colKindFloat32:
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
+			return err
+		}
+		s := st.colScratchU64
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			storeFloat32Bits(base, plan.stride, col, i, s[i])
+		}
 	case colKindBool:
 		if err := decodeSliceBoolInto(d, &st.colScratchBool); err != nil {
 			return err
@@ -1663,6 +1740,9 @@ func (d *Decoder) skipColumnValue(kind colKind, n int) error {
 	case colKindFloat:
 		var s []float64
 		return decodeSliceFloat64(d, unsafe.Pointer(&s))
+	case colKindFloat32:
+		var s []uint64
+		return decodeSliceUint64(d, unsafe.Pointer(&s))
 	case colKindBool:
 		var s []bool
 		return decodeSliceBool(d, unsafe.Pointer(&s))
@@ -1824,6 +1904,19 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 					out[i].(map[string]any)[name] = s[i]
 				}
 			}
+		case colKindFloat32:
+			var s []uint64
+			if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+				return nil, err
+			}
+			if len(s) != n {
+				return nil, ErrTypeMismatch
+			}
+			if store {
+				for i := range n {
+					out[i].(map[string]any)[name] = math.Float32frombits(uint32(s[i]))
+				}
+			}
 		case colKindBool:
 			var s []bool
 			if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
@@ -1940,6 +2033,19 @@ func (d *Decoder) decodeColumnBodyAny(kind colKind, name string, n int, store bo
 		if store {
 			for i := range n {
 				out[i].(map[string]any)[name] = s[i]
+			}
+		}
+	case colKindFloat32:
+		var s []uint64
+		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+			return err
+		}
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		if store {
+			for i := range n {
+				out[i].(map[string]any)[name] = math.Float32frombits(uint32(s[i]))
 			}
 		}
 	case colKindBool:
@@ -2065,7 +2171,9 @@ func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok b
 		return colKindInt, fd.rType.Size(), false, true
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		return colKindUint, fd.rType.Size(), false, true
-	case reflect.Float32, reflect.Float64:
+	case reflect.Float32:
+		return colKindFloat32, fd.rType.Size(), false, true
+	case reflect.Float64:
 		return colKindFloat, fd.rType.Size(), false, true
 	case reflect.Bool:
 		return colKindBool, 1, false, true
