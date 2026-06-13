@@ -34,6 +34,16 @@ func (e *Encoder) maybeApplyRANS(start int) {
 	if len(cand) >= len(body) {
 		return // no win — keep the plain body
 	}
+	// Decline rANS if the frame we'd emit would trip the decoder's origLen
+	// bound (decoder.go: origLen > len(buf)*64 + 1MiB rejects, to cap the decode
+	// allocation). A body that compresses more than ~64x — e.g. a multi-MiB
+	// low-entropy/repeated payload — has an origLen the decoder won't accept, so
+	// rANS would make a wire its own Unmarshal rejects. Keep the plain body
+	// (the decoder bounds it by remaining input as usual). The emitted frame is
+	// hdr + len(cand) bytes, matching the decoder's len(d.buf) for this message.
+	if uint64(len(body)) > uint64(hdr+len(cand))*64+(1<<20) {
+		return
+	}
 	e.buf = append(e.buf[:start+hdr], cand...)
 	e.buf[start+4] |= FlagRANS
 }
