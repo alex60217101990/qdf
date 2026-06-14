@@ -1351,7 +1351,13 @@ func decodeUnmarshaler(t reflect.Type) func(*Decoder, unsafe.Pointer) error {
 			return err
 		}
 		u := reflect.NewAt(t, p).Interface().(Unmarshaler)
-		n, err := UnmarshalNested(u, d.buf[d.i:], d.noCopy)
+		var n int
+		var err error
+		if d.arena != nil {
+			n, err = UnmarshalNestedArena(u, d.buf[d.i:], d.noCopy, d.arena)
+		} else {
+			n, err = UnmarshalNested(u, d.buf[d.i:], d.noCopy)
+		}
 		if err != nil {
 			return err
 		}

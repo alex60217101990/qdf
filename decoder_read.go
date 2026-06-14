@@ -202,6 +202,9 @@ func (d *Decoder) ReadString() (string, error) {
 			return s, nil
 		}
 	}
+	if d.arena != nil && len(b) > 0 {
+		return d.arena.appendStr(b), nil
+	}
 	return string(b), nil
 }
 

@@ -33,6 +33,36 @@ type UnmarshalerOpts interface {
 	UnmarshalQDFOpts(src []byte, noCopy bool) (n int, err error)
 }
 
+// UnmarshalerArena is an optional extension that also accepts a decode Arena, so
+// the implementation packs copied string/[]byte fields into it (see WithArena)
+// instead of one allocation per field. Generated code from cmd/qdfgen implements
+// this; UnmarshalQDFOpts delegates to it with a nil arena. Decoders honor it only
+// when the caller passed an arena.
+type UnmarshalerArena interface {
+	UnmarshalerOpts
+	UnmarshalQDFArena(src []byte, noCopy bool, a *Arena) (n int, err error)
+}
+
+// UnmarshalNestedArena is UnmarshalNested threading a decode arena: when a is
+// non-nil and u implements UnmarshalerArena, the nested decode packs its strings
+// into a. Otherwise it falls back to the plain (copying) nested decode.
+// Exported for cmd/qdfgen-generated code.
+func UnmarshalNestedArena(u Unmarshaler, src []byte, noCopy bool, a *Arena) (int, error) {
+	if a != nil {
+		if ua, ok := u.(UnmarshalerArena); ok {
+			n, err := ua.UnmarshalQDFArena(src, noCopy, a)
+			if err != nil {
+				return n, err
+			}
+			if n < 0 || n > len(src) {
+				return 0, ErrShortBuffer
+			}
+			return n, nil
+		}
+	}
+	return UnmarshalNested(u, src, noCopy)
+}
+
 // UnmarshalNested decodes one nested Unmarshaler value from src, honoring noCopy
 // when u also implements UnmarshalerOpts. External Unmarshalers without the Opts
 // method fall back to a copying decode. Used by decodeUnmarshaler and by

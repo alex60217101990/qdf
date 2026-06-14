@@ -30,7 +30,7 @@ func wantedColumns(plan *columnarPlan, names []string) []*colColumn {
 // fields names the wire columns to keep. With no fields it behaves like
 // Unmarshal.
 func UnmarshalColumns(data []byte, out any, fields ...string) error {
-	return unmarshal(data, out, fields, false)
+	return unmarshal(data, out, fields, false, nil)
 }
 
 // wantField reports whether name is in the active selectFields filter. A nil
