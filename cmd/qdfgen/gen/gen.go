@@ -733,6 +733,12 @@ func (g *gen) emitEncodeSlice(w io.Writer, expr string, s *types.Slice, indent s
 
 func (g *gen) emitEncodeArray(w io.Writer, expr string, a *types.Array, indent string) error {
 	elem := a.Elem()
+	// [N]byte fast path: one flat binary blob (matches the reflect encoder), not
+	// N tagged elements. Smaller wire for real byte data, single memcpy.
+	if b, ok := elem.Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
+		fmt.Fprintf(w, "%se.WriteBytes(%s[:])\n", indent, expr)
+		return nil
+	}
 	fmt.Fprintf(w, "%se.WriteArrayHeader(%d)\n", indent, a.Len())
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, loopVar, expr)
@@ -979,6 +985,18 @@ func (g *gen) emitDecodeSlice(w io.Writer, lhs string, s *types.Slice, indent st
 
 func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent string) error {
 	elem := a.Elem()
+	// [N]byte fast path: read the flat blob straight into the inline array via
+	// one length-checked memcpy (matches the reflect decoder), zero allocation.
+	if b, ok := elem.Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
+		bv := g.fresh("ab")
+		fmt.Fprintf(w, "%s{\n", indent)
+		fmt.Fprintf(w, "%s\t%s, err := d.ReadStringBytes()\n", indent, bv)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif len(%s) != %d {\n%s\t\treturn 0, qdf.ErrTypeMismatch\n%s\t}\n", indent, bv, a.Len(), indent, indent)
+		fmt.Fprintf(w, "%s\tcopy(%s[:], %s)\n", indent, lhs, bv)
+		fmt.Fprintf(w, "%s}\n", indent)
+		return nil
+	}
 	fmt.Fprintf(w, "%s{\n", indent)
 	nVar := g.fresh("n")
 	fmt.Fprintf(w, "%s\t%s, err := d.ReadArrayHeader()\n", indent, nVar)
