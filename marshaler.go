@@ -7,6 +7,33 @@ type Marshaler interface {
 	MarshalQDF(dst []byte) ([]byte, error)
 }
 
+// EncoderMarshaler is an optional extension of Marshaler that writes directly
+// into a shared Encoder. The buffer-based MarshalQDF forces a nested value to
+// build its own Encoder on the parent's bytes (one *Encoder heap allocation per
+// nested value); EncodeQDF lets a parent thread one Encoder through the whole
+// graph. Generated code (cmd/qdfgen) implements it; EncodeNested prefers it.
+type EncoderMarshaler interface {
+	Marshaler
+	EncodeQDF(e *Encoder) error
+}
+
+// EncodeNested encodes a nested Marshaler m into the shared encoder e. When m
+// implements EncoderMarshaler it writes directly (no new Encoder); otherwise it
+// falls back to the buffer-based MarshalQDF + AdoptBuffer. Exported for
+// cmd/qdfgen-generated code.
+func EncodeNested(e *Encoder, m Marshaler) error {
+	if em, ok := m.(EncoderMarshaler); ok {
+		return em.EncodeQDF(e)
+	}
+	b, err := m.MarshalQDF(e.Bytes())
+	if err != nil {
+		return err
+	}
+	e.AdoptBuffer(b)
+	e.MarkHeaderWritten()
+	return nil
+}
+
 // Unmarshaler is implemented by types that know how to deserialize themselves
 // from a QDF wire-format slice. Implementations should consume exactly one
 // value from src and return the number of bytes consumed.
