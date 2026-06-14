@@ -56,7 +56,7 @@ func TestDecodeAnyNonStringKeyedMap(t *testing.T) {
 // map[any]any the moment a non-string key appears.
 func TestDecodeAnyMixedKeyMap(t *testing.T) {
 	for _, opt := range []Options{OptSpeed, OptBalanced} {
-		for i := 0; i < 50; i++ { // many trials: hit both iteration orders
+		for i := range 50 { // many trials: hit both iteration orders
 			var top any = map[any]any{"strkey": "v1", int(42): "v2", "k3": int64(7)}
 			b, err := Marshal(top, opt)
 			if err != nil {

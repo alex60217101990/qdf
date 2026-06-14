@@ -68,6 +68,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -126,7 +127,7 @@ func measureCodecWith(entry *codecEntry, encodeFn func() []byte, K int) (bytesPe
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 
-	for i := 0; i < K; i++ {
+	for range K {
 		entry.decode(entry.encoded)
 		_ = encodeFn()
 	}
@@ -870,8 +871,8 @@ func fbBuildRTBBatchWithBuilder(b *flatbuffers.Builder, batch []BidRequest) []by
 		reqOffsets[i] = fbBuildBidRequest(b, req)
 	}
 	b.StartVector(4, len(reqOffsets), 4)
-	for i := len(reqOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(reqOffsets[i])
+	for _, reqOffset := range slices.Backward(reqOffsets) {
+		b.PrependUOffsetT(reqOffset)
 	}
 	reqs := b.EndVector(len(reqOffsets))
 	benchfbs.RTBBatchStart(b)
@@ -887,8 +888,8 @@ func fbBuildIoTBatchWithBuilder(b *flatbuffers.Builder, batch IoTBatch) []byte {
 		devOffsets[i] = fbBuildDeviceReading(b, d)
 	}
 	benchfbs.IoTBatchFBStartDevicesVector(b, len(devOffsets))
-	for i := len(devOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(devOffsets[i])
+	for _, devOffset := range slices.Backward(devOffsets) {
+		b.PrependUOffsetT(devOffset)
 	}
 	devs := b.EndVector(len(devOffsets))
 	benchfbs.IoTBatchFBStart(b)
@@ -904,8 +905,8 @@ func fbBuildTraceExportWithBuilder(b *flatbuffers.Builder, te TraceExport) []byt
 		rsOffsets[i] = fbBuildResourceSpans(b, rs)
 	}
 	benchfbs.TraceExportFBStartResourceSpansVector(b, len(rsOffsets))
-	for i := len(rsOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(rsOffsets[i])
+	for _, rsOffset := range slices.Backward(rsOffsets) {
+		b.PrependUOffsetT(rsOffset)
 	}
 	rsVec := b.EndVector(len(rsOffsets))
 	benchfbs.TraceExportFBStart(b)
@@ -921,8 +922,8 @@ func fbBuildLogBatchWithBuilder(b *flatbuffers.Builder, lb LogBatchLE) []byte {
 		recOffsets[i] = fbBuildLogRecord(b, r)
 	}
 	benchfbs.LogBatchFBStartRecordsVector(b, len(recOffsets))
-	for i := len(recOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(recOffsets[i])
+	for _, recOffset := range slices.Backward(recOffsets) {
+		b.PrependUOffsetT(recOffset)
 	}
 	recs := b.EndVector(len(recOffsets))
 	benchfbs.LogBatchFBStart(b)
@@ -938,8 +939,8 @@ func fbBuildEventBatchWithBuilder(b *flatbuffers.Builder, eb EventBatch) []byte 
 		recOffsets[i] = fbBuildEventRecord(b, e)
 	}
 	benchfbs.EventBatchFBStartRecordsVector(b, len(recOffsets))
-	for i := len(recOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(recOffsets[i])
+	for _, recOffset := range slices.Backward(recOffsets) {
+		b.PrependUOffsetT(recOffset)
 	}
 	recs := b.EndVector(len(recOffsets))
 	benchfbs.EventBatchFBStart(b)

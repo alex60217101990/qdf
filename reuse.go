@@ -183,7 +183,7 @@ func typeDescHasMap(td *typeDesc) bool {
 // too. (Maps behind a pointer/interface/slice/array field, and map-valued maps,
 // are not walked — those are re-allocated by their own decoders.)
 func harvestMaps(d *Decoder, elem *typeDesc, base unsafe.Pointer, stride uintptr, oldLen int) {
-	for i := 0; i < oldLen; i++ {
+	for i := range oldLen {
 		d.harvestValue(elem, unsafe.Add(base, uintptr(i)*stride))
 	}
 }

@@ -108,7 +108,7 @@ func TestStrRawHostileTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for cut := 0; cut < len(blob); cut++ {
+	for cut := range blob {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

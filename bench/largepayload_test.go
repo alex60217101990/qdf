@@ -81,7 +81,7 @@ func makeLargeBatch(records int, seed int64) largeBatch {
 		}
 		nAttrs := rng.Intn(3) + 2
 		attrs := make(map[string]string, nAttrs)
-		for j := 0; j < nAttrs; j++ {
+		for j := range nAttrs {
 			k := fmt.Sprintf("k%d", j)
 			attrs[k] = fmt.Sprintf("v%d-%d", j, rng.Intn(64))
 		}

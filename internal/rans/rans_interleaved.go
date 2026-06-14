@@ -47,7 +47,7 @@ func appendInterleaved(dst, src []byte, freq *[256]uint32, cum *[257]uint32, n i
 	// (the encodeStream worst case); the regions sum to len(src)+n*16.
 	scratch := make([]byte, len(src)+n*16)
 	off := 0
-	for k := 0; k < n; k++ {
+	for k := range n {
 		m := max((len(src)-k+n-1)/n, 0)
 		region := scratch[off : off+m+16]
 		blob := encodeStreamStridedInto(region, src, k, n, freq, cum) // [4-byte state][bytes]; always >= 4 bytes
@@ -56,14 +56,14 @@ func appendInterleaved(dst, src []byte, freq *[256]uint32, cum *[257]uint32, n i
 		off += m + 16
 	}
 	var s4 [4]byte
-	for k := 0; k < n; k++ {
+	for k := range n {
 		binary.LittleEndian.PutUint32(s4[:], states[k])
 		dst = append(dst, s4[:]...)
 	}
 	for k := 0; k < n-1; k++ { // last region length is implied by remainder
 		dst = appendUvarint(dst, uint64(len(subs[k])))
 	}
-	for k := 0; k < n; k++ {
+	for k := range n {
 		dst = append(dst, subs[k]...)
 	}
 	return dst
@@ -77,10 +77,11 @@ const ransMask = scale - 1
 // its stack (the slot table already lives there), so an interleaved decode adds
 // no per-call heap allocation beyond the output buffer.
 func parseInterleavedRegions(src []byte, n int, states *[maxInterleaveN]uint32, regions *[maxInterleaveN][]byte) error {
-	if n > maxInterleaveN || len(src) < n*4 {
+	if n < 1 || n > maxInterleaveN || len(src) < n*4 {
+		// n < 1 would index lens[n-1] out of range below on a hostile frame.
 		return ErrCorrupt
 	}
-	for k := 0; k < n; k++ {
+	for k := range n {
 		states[k] = binary.LittleEndian.Uint32(src[k*4:])
 	}
 	src = src[n*4:]
@@ -103,7 +104,7 @@ func parseInterleavedRegions(src []byte, n int, states *[maxInterleaveN]uint32, 
 	}
 	lens[n-1] = len(src) - total // remainder
 	off := 0
-	for k := 0; k < n; k++ {
+	for k := range n {
 		regions[k] = src[off : off+lens[k]]
 		off += lens[k]
 	}
@@ -119,7 +120,7 @@ func decodeInterleaved4(states []uint32, regions [][]byte, freq *[256]uint32, sl
 	var xs [4]uint32
 	var rs [4][]byte
 	var ps [4]int
-	for k := 0; k < 4; k++ {
+	for k := range 4 {
 		xs[k] = states[k]
 		rs[k] = regions[k]
 	}

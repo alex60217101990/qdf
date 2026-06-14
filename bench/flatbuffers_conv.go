@@ -1,6 +1,8 @@
 package bench
 
 import (
+	"slices"
+
 	benchfbs "github.com/alex60217101990/qdf/bench/fbs"
 	flatbuffers "github.com/google/flatbuffers/go"
 )
@@ -20,8 +22,8 @@ func fbKVs(b *flatbuffers.Builder, m map[string]string) flatbuffers.UOffsetT {
 		offsets = append(offsets, benchfbs.KeyValueEnd(b))
 	}
 	b.StartVector(4, len(offsets), 4)
-	for i := len(offsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(offsets[i])
+	for _, offset := range slices.Backward(offsets) {
+		b.PrependUOffsetT(offset)
 	}
 	return b.EndVector(len(offsets))
 }
@@ -33,8 +35,8 @@ func fbStrings(b *flatbuffers.Builder, ss []string) flatbuffers.UOffsetT {
 		offsets[i] = b.CreateString(s)
 	}
 	b.StartVector(4, len(offsets), 4)
-	for i := len(offsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(offsets[i])
+	for _, offset := range slices.Backward(offsets) {
+		b.PrependUOffsetT(offset)
 	}
 	return b.EndVector(len(offsets))
 }
@@ -87,8 +89,8 @@ func fbBuildBidRequest(b *flatbuffers.Builder, req BidRequest) flatbuffers.UOffs
 		impOffsets[i] = fbBuildImpression(b, imp)
 	}
 	b.StartVector(4, len(impOffsets), 4)
-	for i := len(impOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(impOffsets[i])
+	for _, impOffset := range slices.Backward(impOffsets) {
+		b.PrependUOffsetT(impOffset)
 	}
 	imps := b.EndVector(len(impOffsets))
 	benchfbs.BidRequestStart(b)
@@ -109,8 +111,8 @@ func FBBuildRTBBatch(batch []BidRequest) []byte {
 		reqOffsets[i] = fbBuildBidRequest(b, req)
 	}
 	b.StartVector(4, len(reqOffsets), 4)
-	for i := len(reqOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(reqOffsets[i])
+	for _, reqOffset := range slices.Backward(reqOffsets) {
+		b.PrependUOffsetT(reqOffset)
 	}
 	reqs := b.EndVector(len(reqOffsets))
 	benchfbs.RTBBatchStart(b)
@@ -128,22 +130,22 @@ func fbBuildDeviceReading(b *flatbuffers.Builder, d DeviceReading) flatbuffers.U
 
 	// ts vector (int64, 8-byte elements)
 	benchfbs.DeviceReadingStartTsVector(b, len(d.Ts))
-	for i := len(d.Ts) - 1; i >= 0; i-- {
-		b.PrependInt64(d.Ts[i])
+	for _, v := range slices.Backward(d.Ts) {
+		b.PrependInt64(v)
 	}
 	ts := b.EndVector(len(d.Ts))
 
 	// temp vector (float64)
 	benchfbs.DeviceReadingStartTempVector(b, len(d.Temp))
-	for i := len(d.Temp) - 1; i >= 0; i-- {
-		b.PrependFloat64(d.Temp[i])
+	for _, v := range slices.Backward(d.Temp) {
+		b.PrependFloat64(v)
 	}
 	temp := b.EndVector(len(d.Temp))
 
 	// humidity vector
 	benchfbs.DeviceReadingStartHumidityVector(b, len(d.Humidity))
-	for i := len(d.Humidity) - 1; i >= 0; i-- {
-		b.PrependFloat64(d.Humidity[i])
+	for _, v := range slices.Backward(d.Humidity) {
+		b.PrependFloat64(v)
 	}
 	humidity := b.EndVector(len(d.Humidity))
 
@@ -164,8 +166,8 @@ func FBBuildIoTBatch(batch IoTBatch) []byte {
 		devOffsets[i] = fbBuildDeviceReading(b, d)
 	}
 	benchfbs.IoTBatchFBStartDevicesVector(b, len(devOffsets))
-	for i := len(devOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(devOffsets[i])
+	for _, devOffset := range slices.Backward(devOffsets) {
+		b.PrependUOffsetT(devOffset)
 	}
 	devs := b.EndVector(len(devOffsets))
 	benchfbs.IoTBatchFBStart(b)
@@ -188,8 +190,8 @@ func fbBuildKVPairs(b *flatbuffers.Builder, kvs []KV) flatbuffers.UOffsetT {
 		offsets[i] = benchfbs.KeyValueEnd(b)
 	}
 	b.StartVector(4, len(offsets), 4)
-	for i := len(offsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(offsets[i])
+	for _, offset := range slices.Backward(offsets) {
+		b.PrependUOffsetT(offset)
 	}
 	return b.EndVector(len(offsets))
 }
@@ -220,8 +222,8 @@ func fbBuildScopeSpans(b *flatbuffers.Builder, ss ScopeSpans) flatbuffers.UOffse
 		spanOffsets[i] = fbBuildSpan(b, s)
 	}
 	b.StartVector(4, len(spanOffsets), 4)
-	for i := len(spanOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(spanOffsets[i])
+	for _, spanOffset := range slices.Backward(spanOffsets) {
+		b.PrependUOffsetT(spanOffset)
 	}
 	spans := b.EndVector(len(spanOffsets))
 	benchfbs.ScopeSpansStart(b)
@@ -237,8 +239,8 @@ func fbBuildResourceSpans(b *flatbuffers.Builder, rs ResourceSpans) flatbuffers.
 		scopeOffsets[i] = fbBuildScopeSpans(b, sc)
 	}
 	b.StartVector(4, len(scopeOffsets), 4)
-	for i := len(scopeOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(scopeOffsets[i])
+	for _, scopeOffset := range slices.Backward(scopeOffsets) {
+		b.PrependUOffsetT(scopeOffset)
 	}
 	scopes := b.EndVector(len(scopeOffsets))
 	benchfbs.ResourceSpansStart(b)
@@ -255,8 +257,8 @@ func FBBuildTraceExport(te TraceExport) []byte {
 		rsOffsets[i] = fbBuildResourceSpans(b, rs)
 	}
 	benchfbs.TraceExportFBStartResourceSpansVector(b, len(rsOffsets))
-	for i := len(rsOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(rsOffsets[i])
+	for _, rsOffset := range slices.Backward(rsOffsets) {
+		b.PrependUOffsetT(rsOffset)
 	}
 	rsVec := b.EndVector(len(rsOffsets))
 	benchfbs.TraceExportFBStart(b)
@@ -295,8 +297,8 @@ func FBBuildLogBatch(lb LogBatchLE) []byte {
 		recOffsets[i] = fbBuildLogRecord(b, r)
 	}
 	benchfbs.LogBatchFBStartRecordsVector(b, len(recOffsets))
-	for i := len(recOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(recOffsets[i])
+	for _, recOffset := range slices.Backward(recOffsets) {
+		b.PrependUOffsetT(recOffset)
 	}
 	recs := b.EndVector(len(recOffsets))
 	benchfbs.LogBatchFBStart(b)
@@ -328,8 +330,8 @@ func FBBuildEventBatch(eb EventBatch) []byte {
 		recOffsets[i] = fbBuildEventRecord(b, e)
 	}
 	benchfbs.EventBatchFBStartRecordsVector(b, len(recOffsets))
-	for i := len(recOffsets) - 1; i >= 0; i-- {
-		b.PrependUOffsetT(recOffsets[i])
+	for _, recOffset := range slices.Backward(recOffsets) {
+		b.PrependUOffsetT(recOffset)
 	}
 	recs := b.EndVector(len(recOffsets))
 	benchfbs.EventBatchFBStart(b)
