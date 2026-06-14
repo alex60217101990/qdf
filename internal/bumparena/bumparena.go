@@ -57,15 +57,11 @@ func (a *Bump) AppendStr(b []byte) string {
 //go:noinline
 func (a *Bump) appendStrGrow(b []byte) string {
 	n := len(b)
-	sz := a.next
-	if sz < n {
-		sz = n
-	}
 	// dirtmake: no zero-fill — copy overwrites exactly what we expose. Geometric
 	// block growth (like a Vec / std::vector): few allocations on a large epoch,
 	// little waste on a small one. The old block is abandoned to the GC, still
 	// kept alive by any strings that alias it.
-	a.buf = unsafestr.DirtBytes(sz)
+	a.buf = unsafestr.DirtBytes(max(a.next, n))
 	if a.next < blockCap {
 		a.next *= 2
 	}

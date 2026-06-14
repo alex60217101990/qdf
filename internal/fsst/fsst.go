@@ -90,7 +90,7 @@ func (t *SymbolTable) buildIndex() {
 		cnt[t.symbols[i].bytes[0]]++
 	}
 	var off int32
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		t.first[b] = off
 		off += cnt[b]
 	}
@@ -108,7 +108,7 @@ func (t *SymbolTable) buildIndex() {
 		t.cands[cur[b0]] = cand{val: s.val, mask: s.mask, code: uint8(i), length: s.len}
 		cur[b0]++
 	}
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		lo, hi := t.first[b], t.first[b+1]
 		for i := lo + 1; i < hi; i++ {
 			for j := i; j > lo; j-- {
