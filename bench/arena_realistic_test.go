@@ -90,11 +90,13 @@ func iotBytes() []byte   { v := mkIoTBatch(32, 64); b, _ := qdf.Marshal(&v, qdf.
 func eventBytes() []byte { v := mkEventBatch(500); b, _ := qdf.Marshal(&v, qdf.OptSpeed); return b }
 func logBytes() []byte   { v := MakeLogBatch(500); b, _ := qdf.Marshal(&v, qdf.OptSpeed); return b }
 
-func BenchmarkArenaReal_AD_Off(b *testing.B)    { benchArenaDataset[[]ADUser](b, adBytes(), false) }
-func BenchmarkArenaReal_AD_On(b *testing.B)     { benchArenaDataset[[]ADUser](b, adBytes(), true) }
-func BenchmarkArenaReal_IoT_Off(b *testing.B)   { benchArenaDataset[IoTBatch](b, iotBytes(), false) }
-func BenchmarkArenaReal_IoT_On(b *testing.B)    { benchArenaDataset[IoTBatch](b, iotBytes(), true) }
-func BenchmarkArenaReal_Event_Off(b *testing.B) { benchArenaDataset[EventBatch](b, eventBytes(), false) }
-func BenchmarkArenaReal_Event_On(b *testing.B)  { benchArenaDataset[EventBatch](b, eventBytes(), true) }
-func BenchmarkArenaReal_Log_Off(b *testing.B)   { benchArenaDataset[LogBatch](b, logBytes(), false) }
-func BenchmarkArenaReal_Log_On(b *testing.B)    { benchArenaDataset[LogBatch](b, logBytes(), true) }
+func BenchmarkArenaReal_AD_Off(b *testing.B)  { benchArenaDataset[[]ADUser](b, adBytes(), false) }
+func BenchmarkArenaReal_AD_On(b *testing.B)   { benchArenaDataset[[]ADUser](b, adBytes(), true) }
+func BenchmarkArenaReal_IoT_Off(b *testing.B) { benchArenaDataset[IoTBatch](b, iotBytes(), false) }
+func BenchmarkArenaReal_IoT_On(b *testing.B)  { benchArenaDataset[IoTBatch](b, iotBytes(), true) }
+func BenchmarkArenaReal_Event_Off(b *testing.B) {
+	benchArenaDataset[EventBatch](b, eventBytes(), false)
+}
+func BenchmarkArenaReal_Event_On(b *testing.B) { benchArenaDataset[EventBatch](b, eventBytes(), true) }
+func BenchmarkArenaReal_Log_Off(b *testing.B)  { benchArenaDataset[LogBatch](b, logBytes(), false) }
+func BenchmarkArenaReal_Log_On(b *testing.B)   { benchArenaDataset[LogBatch](b, logBytes(), true) }
