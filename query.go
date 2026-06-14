@@ -409,6 +409,11 @@ func flattenCond(root *condNode) []cnode {
 // source of SQL UNKNOWN); only such subtrees carry an explicit F mask. The
 // pre-order ids let a single reverse pass finish every child before its parent.
 func markUnknown(flat []cnode) {
+	// NOTE: do not "modernize" this to slices.Backward — the body mutates
+	// flat[i].unk through the index, and `for _, f := range slices.Backward`
+	// binds f to a COPY of the value element ([]cnode), so the writes would be
+	// lost (every node's unk stays false, silently breaking 3VL NULL handling).
+	// Covered by TestMarkUnknownNullableProp.
 	for i := len(flat) - 1; i >= 0; i-- {
 		if flat[i].op == condLeaf {
 			flat[i].unk = flat[i].cv != nil && flat[i].cv.present != nil

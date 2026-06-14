@@ -67,7 +67,6 @@ func runCodecMatrix[T any](b *testing.B, value T, newOut func() *T) {
 	})
 
 	for _, tier := range qdfTiers {
-		tier := tier
 		qb, err := qdf.Marshal(value, tier.opts)
 		if err != nil {
 			b.Fatalf("qdf.Marshal(%s): %v", tier.name, err)

@@ -80,7 +80,7 @@ func BenchmarkMemory_DecodeLogBatch1k_Bytes(b *testing.B) {
 		runtime.ReadMemStats(&ms)
 		startAllocs := ms.TotalAlloc
 		const runs = 100
-		for i := 0; i < runs; i++ {
+		for range runs {
 			var out LogBatch
 			_ = json.Unmarshal(jsonBytes, &out)
 		}
@@ -94,7 +94,7 @@ func BenchmarkMemory_DecodeLogBatch1k_Bytes(b *testing.B) {
 		runtime.ReadMemStats(&ms)
 		startAllocs := ms.TotalAlloc
 		const runs = 100
-		for i := 0; i < runs; i++ {
+		for range runs {
 			var out LogBatch
 			_ = msgpack.Unmarshal(msgpackBytes, &out)
 		}
@@ -108,7 +108,7 @@ func BenchmarkMemory_DecodeLogBatch1k_Bytes(b *testing.B) {
 		runtime.ReadMemStats(&ms)
 		startAllocs := ms.TotalAlloc
 		const runs = 100
-		for i := 0; i < runs; i++ {
+		for range runs {
 			var out LogBatch
 			_ = qdf.Unmarshal(qdfBytes, &out)
 		}

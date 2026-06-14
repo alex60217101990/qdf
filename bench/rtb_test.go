@@ -35,7 +35,6 @@ func TestRTB_Roundtrip(t *testing.T) {
 	}
 
 	for _, tier := range tiers {
-		tier := tier
 		t.Run(tier.name, func(t *testing.T) {
 			data, err := qdf.Marshal(batch, tier.opts)
 			if err != nil {

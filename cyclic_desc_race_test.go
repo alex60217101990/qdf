@@ -30,12 +30,9 @@ func TestCyclicDesc_ConcurrentColdBuildNoRace(t *testing.T) {
 	tPtr := reflect.TypeFor[*cycNode]()
 	val := cycNode{V: 1, Self: &cycNode{V: 2}}
 
-	workers := runtime.GOMAXPROCS(0) * 4
-	if workers < 8 {
-		workers = 8
-	}
+	workers := max(runtime.GOMAXPROCS(0)*4, 8)
 
-	for round := 0; round < 300; round++ {
+	for round := range 300 {
 		// Force a cold build: drop the cached descriptors so every round
 		// rebuilds the graph and re-opens the concurrent-publish window.
 		typeCache.Delete(tCyc)
@@ -44,9 +41,7 @@ func TestCyclicDesc_ConcurrentColdBuildNoRace(t *testing.T) {
 		var wg sync.WaitGroup
 		start := make(chan struct{})
 		for w := 0; w < workers; w++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				<-start
 				buf, err := Marshal(val, OptBalanced)
 				if err != nil {
@@ -61,7 +56,7 @@ func TestCyclicDesc_ConcurrentColdBuildNoRace(t *testing.T) {
 				if out.V != 1 || out.Self == nil || out.Self.V != 2 {
 					t.Errorf("round %d wrong value: %+v", round, out)
 				}
-			}()
+			})
 		}
 		close(start)
 		wg.Wait()

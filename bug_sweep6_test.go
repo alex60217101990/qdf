@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -188,7 +189,7 @@ func TestSkip_ColumnarUnknownField(t *testing.T) {
 	in := full{Tail: "after-columnar"}
 	// 1000 distinct rows so the columnar probe actually picks the columnar form
 	// (tagColStruct) under both OptBalanced and OptCompression — verified below.
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		in.Items = append(in.Items, item{A: int32(i), B: fmt.Sprintf("s%d", i)})
 	}
 	// A target that drops Items → the Items value routes through Skip(tagColStruct).
@@ -201,13 +202,7 @@ func TestSkip_ColumnarUnknownField(t *testing.T) {
 			t.Fatalf("opts=%d marshal: %v", opts, err)
 		}
 		// Guard against a silently-vacuous test: the field MUST be columnar.
-		hasCol := false
-		for _, x := range b {
-			if x == tagColStruct {
-				hasCol = true
-				break
-			}
-		}
+		hasCol := slices.Contains(b, tagColStruct)
 		if !hasCol {
 			t.Fatalf("opts=%d: Items did not encode columnar — test would not exercise Skip(tagColStruct)", opts)
 		}

@@ -20,7 +20,7 @@ func TestStream_DecodeErrorPoisons(t *testing.T) {
 	}
 	var w bytes.Buffer
 	enc := NewStreamEncoder(&w, Dense)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := enc.Encode(Evt{Country: "Lithuania", City: "Vilnius", ID: i}); err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func TestStream_CleanDecodeNotPoisoned(t *testing.T) {
 	}
 	var w bytes.Buffer
 	enc := NewStreamEncoder(&w, Dense)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if err := enc.Encode(Evt{Name: "svc", N: i}); err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +63,7 @@ func TestStream_CleanDecodeNotPoisoned(t *testing.T) {
 		t.Fatal(err)
 	}
 	dec := NewStreamDecoder(bytes.NewReader(w.Bytes()))
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		var ev Evt
 		if err := dec.Decode(&ev); err != nil {
 			t.Fatalf("clean decode %d errored: %v", i, err)

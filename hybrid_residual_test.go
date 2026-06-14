@@ -29,7 +29,7 @@ func TestHybridResidualLongerThanRowCount(t *testing.T) {
 			nums[j] = j * 3
 		}
 		attrs := make(map[string]int, 300) // > n
-		for j := 0; j < 300; j++ {
+		for j := range 300 {
 			attrs[string(rune('a'+j%26))+itoaSmall(j)] = j
 		}
 		in[i] = hybResidualRow{

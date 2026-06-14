@@ -103,7 +103,7 @@ func mkMetricSeries(n int) metricSeries {
 	vs := make([]float64, n)
 	fs := make([]bool, n)
 	rnd := rand.New(rand.NewSource(2))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ts[i] = 1_700_000_000 + int64(i)
 		vs[i] = float64(rnd.NormFloat64())
 		fs[i] = i%3 == 0
@@ -130,7 +130,7 @@ func mkMetricSeriesSmooth(n int) metricSeries {
 	fs := make([]bool, n)
 	rnd := rand.New(rand.NewSource(42))
 	value := 50.0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ts[i] = 1_700_000_000 + int64(i)
 		// 70 % chance the value stays at its previous quantum;
 		// 30 % chance it steps by ±0.1 (one quantum). Both pure

@@ -68,7 +68,7 @@ func BenchmarkMapRecycle(b *testing.B) {
 	in := make([]rec, N)
 	for i := range in {
 		m := make(map[string]string, 16)
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			m["k"+strconv.Itoa(j)] = "v" + strconv.Itoa(i*16+j)
 		}
 		in[i].Tags = m
@@ -102,7 +102,7 @@ func BenchmarkMapRecycleBaseline(b *testing.B) {
 	in := make([]rec, N)
 	for i := range in {
 		m := make(map[string]string, 16)
-		for j := 0; j < 16; j++ {
+		for j := range 16 {
 			m["k"+strconv.Itoa(j)] = "v" + strconv.Itoa(i*16+j)
 		}
 		in[i].Tags = m
@@ -222,7 +222,7 @@ func TestMapReuseCutsAllocs(t *testing.T) {
 		Tags map[string]string `qdf:"tags"`
 	}
 	in := rec{Tags: make(map[string]string, 16)}
-	for j := 0; j < 16; j++ {
+	for j := range 16 {
 		in.Tags["k"+strconv.Itoa(j)] = "v" + strconv.Itoa(j)
 	}
 	data, _ := Marshal(in, OptBalanced)

@@ -22,7 +22,7 @@ type Attrs struct {
 func makeAttrs(n int) Attrs {
 	tags := make(map[string]string, n)
 	counts := make(map[string]int, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		k := "k" + strconv.Itoa(i)
 		tags[k] = "v" + strconv.Itoa(i)
 		counts[k] = i

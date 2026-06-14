@@ -29,7 +29,7 @@ func TestStream_NoCopyValidUntilClose(t *testing.T) {
 	}
 	var w bytes.Buffer
 	enc := NewStreamEncoder(&w, Dense)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if err := enc.Encode(mk(i)); err != nil {
 			t.Fatal(err)
 		}

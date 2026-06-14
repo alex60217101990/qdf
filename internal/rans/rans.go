@@ -7,6 +7,7 @@ package rans
 import (
 	"encoding/binary"
 	"errors"
+	"slices"
 )
 
 const (
@@ -110,8 +111,8 @@ func encodeStream(src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
 	buf := make([]byte, size)
 	pos := size
 	x := uint32(ransByteL)
-	for i := len(src) - 1; i >= 0; i-- {
-		s := src[i]
+	for _, s := range slices.Backward(src) {
+
 		f := freq[s]
 		xMax := ((ransByteL >> scaleBits) << 8) * f
 		for x >= xMax {

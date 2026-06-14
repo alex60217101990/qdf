@@ -46,7 +46,7 @@ func benchRTBFB(b *testing.B, n int) {
 			root := benchfbs.GetRootAsRTBBatch(wire, 0)
 			n := root.RequestsLength()
 			var req benchfbs.BidRequest
-			for j := 0; j < n; j++ {
+			for j := range n {
 				if root.Requests(&req, j) {
 					sink += int64(req.At())
 					sink += int64(len(req.ReqId()))
@@ -107,10 +107,10 @@ func BenchmarkIoT_FB(b *testing.B) {
 			root := benchfbs.GetRootAsIoTBatchFB(wire, 0)
 			nd := root.DevicesLength()
 			var dev benchfbs.DeviceReading
-			for j := 0; j < nd; j++ {
+			for j := range nd {
 				if root.Devices(&dev, j) {
 					n := dev.TempLength()
-					for k := 0; k < n; k++ {
+					for k := range n {
 						sink += dev.Temp(k)
 					}
 					sink += float64(dev.Ts(0))
@@ -154,18 +154,18 @@ func BenchmarkOTLP_FB(b *testing.B) {
 			var sc benchfbs.ScopeSpans
 			var sp benchfbs.Span
 			var kv benchfbs.KeyValue
-			for r := 0; r < nrs; r++ {
+			for r := range nrs {
 				if root.ResourceSpans(&rs, r) {
 					nsc := rs.ScopesLength()
-					for s := 0; s < nsc; s++ {
+					for s := range nsc {
 						if rs.Scopes(&sc, s) {
 							nsp := sc.SpansLength()
-							for k := 0; k < nsp; k++ {
+							for k := range nsp {
 								if sc.Spans(&sp, k) {
 									sink += int64(sp.Kind())
 									sink += int64(sp.StartNs())
 									na := sp.AttrsLength()
-									for a := 0; a < na; a++ {
+									for a := range na {
 										if sp.Attrs(&kv, a) {
 											sink += int64(len(kv.Key()))
 										}
@@ -212,14 +212,14 @@ func BenchmarkLogs_FB(b *testing.B) {
 			n := root.RecordsLength()
 			var rec benchfbs.LogRecord
 			var kv benchfbs.KeyValue
-			for j := 0; j < n; j++ {
+			for j := range n {
 				if root.Records(&rec, j) {
 					sink += rec.Ts()
 					sink += int64(rec.Level())
 					sink += int64(len(rec.Service()))
 					sink += int64(len(rec.TraceId()))
 					nf := rec.FieldsLength()
-					for k := 0; k < nf; k++ {
+					for k := range nf {
 						if rec.Fields(&kv, k) {
 							sink += int64(len(kv.Value()))
 						}
@@ -261,7 +261,7 @@ func BenchmarkEvents_FB(b *testing.B) {
 			root := benchfbs.GetRootAsEventBatchFB(wire, 0)
 			n := root.RecordsLength()
 			var rec benchfbs.EventRecord
-			for j := 0; j < n; j++ {
+			for j := range n {
 				if root.Records(&rec, j) {
 					sink += rec.Ts()
 					sink += int64(rec.EvType())

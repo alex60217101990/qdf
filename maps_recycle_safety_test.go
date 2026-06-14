@@ -36,7 +36,7 @@ func TestMapRecycleGCSafe(t *testing.T) {
 		}
 	}()
 	defer close(stop)
-	for iter := 0; iter < 2000; iter++ {
+	for iter := range 2000 {
 		if err := Unmarshal(data, &out); err != nil {
 			t.Fatalf("iter %d: %v", iter, err)
 		}
