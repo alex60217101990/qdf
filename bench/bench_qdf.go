@@ -11,16 +11,16 @@ import (
 // emit a name with a single append, no per-call sizing.
 var (
 	qdfFieldHdr_entries_1   = []byte{0x87, 0x65, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73}
-	qdfFieldHdr_time_7      = []byte{0x84, 0x74, 0x69, 0x6d, 0x65}
-	qdfFieldHdr_level_8     = []byte{0x85, 0x6c, 0x65, 0x76, 0x65, 0x6c}
-	qdfFieldHdr_service_9   = []byte{0x87, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65}
-	qdfFieldHdr_host_10     = []byte{0x84, 0x68, 0x6f, 0x73, 0x74}
-	qdfFieldHdr_region_11   = []byte{0x86, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e}
-	qdfFieldHdr_trace_id_12 = []byte{0x88, 0x74, 0x72, 0x61, 0x63, 0x65, 0x5f, 0x69, 0x64}
-	qdfFieldHdr_span_id_13  = []byte{0x87, 0x73, 0x70, 0x61, 0x6e, 0x5f, 0x69, 0x64}
-	qdfFieldHdr_msg_14      = []byte{0x83, 0x6d, 0x73, 0x67}
-	qdfFieldHdr_duration_15 = []byte{0x88, 0x64, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e}
-	qdfFieldHdr_status_16   = []byte{0x86, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73}
+	qdfFieldHdr_time_6      = []byte{0x84, 0x74, 0x69, 0x6d, 0x65}
+	qdfFieldHdr_level_7     = []byte{0x85, 0x6c, 0x65, 0x76, 0x65, 0x6c}
+	qdfFieldHdr_service_8   = []byte{0x87, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65}
+	qdfFieldHdr_host_9      = []byte{0x84, 0x68, 0x6f, 0x73, 0x74}
+	qdfFieldHdr_region_10   = []byte{0x86, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e}
+	qdfFieldHdr_trace_id_11 = []byte{0x88, 0x74, 0x72, 0x61, 0x63, 0x65, 0x5f, 0x69, 0x64}
+	qdfFieldHdr_span_id_12  = []byte{0x87, 0x73, 0x70, 0x61, 0x6e, 0x5f, 0x69, 0x64}
+	qdfFieldHdr_msg_13      = []byte{0x83, 0x6d, 0x73, 0x67}
+	qdfFieldHdr_duration_14 = []byte{0x88, 0x64, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e}
+	qdfFieldHdr_status_15   = []byte{0x86, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73}
 )
 
 // MarshalQDF appends a qdf-encoded representation of v to dst and returns
@@ -41,8 +41,7 @@ func (v *LogBatch) MarshalQDF(dst []byte) ([]byte, error) {
 		e.WriteArrayHeader(len(v.Entries))
 		for i2 := range v.Entries {
 			{
-				inner3 := v.Entries[i2]
-				b2, err := (&inner3).MarshalQDF(e.Bytes())
+				b2, err := (&v.Entries[i2]).MarshalQDF(e.Bytes())
 				if err != nil {
 					return nil, err
 				}
@@ -57,16 +56,26 @@ func (v *LogBatch) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *LogBatch) UnmarshalQDF(src []byte) (int, error) {
-	return v.UnmarshalQDFOpts(src, false)
+	return v.UnmarshalQDFArena(src, false, nil)
 }
 
 // UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
 // string and []byte fields alias src instead of copying. The aliases are valid
 // only while src stays alive and is not modified (see qdf.WithNoCopy).
 func (v *LogBatch) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	return v.UnmarshalQDFArena(src, noCopy, nil)
+}
+
+// UnmarshalQDFArena decodes like UnmarshalQDFOpts; when a is non-nil the copied
+// string fields are packed into the arena instead of one allocation each (see
+// qdf.WithArena). The decoded strings then alias the arena's memory.
+func (v *LogBatch) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
 	if noCopy {
 		d.SetNoCopy(true)
+	}
+	if a != nil {
+		d.SetArena(a)
 	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
@@ -90,21 +99,21 @@ func (v *LogBatch) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 				if isNil {
 					v.Entries = nil
 				} else {
-					n4, err := d.ReadArrayHeader()
+					n3, err := d.ReadArrayHeader()
 					if err != nil {
 						return 0, err
 					}
-					if err := d.CheckLength(n4, 1); err != nil {
+					if err := d.CheckLength(n3, 1); err != nil {
 						return 0, err
 					}
-					v.Entries = make([]LogEntry, n4)
-					for i5 := 0; i5 < n4; i5++ {
+					v.Entries = make([]LogEntry, n3)
+					for i4 := 0; i4 < n3; i4++ {
 						{
-							nn6, err := qdf.UnmarshalNested(&v.Entries[i5], d.RemainingBytes(), noCopy)
+							nn5, err := qdf.UnmarshalNestedArena(&v.Entries[i4], d.RemainingBytes(), noCopy, a)
 							if err != nil {
 								return 0, err
 							}
-							d.Advance(nn6)
+							d.Advance(nn5)
 						}
 					}
 				}
@@ -129,28 +138,28 @@ func (v *LogEntry) MarshalQDF(dst []byte) ([]byte, error) {
 		e.EnsureHeader()
 	}
 	e.WriteMapHeader(10)
-	e.AppendBytes(qdfFieldHdr_time_7)
+	e.AppendBytes(qdfFieldHdr_time_6)
 	{
 		_t := (v.Time).UTC()
 		e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond()))
 	}
-	e.AppendBytes(qdfFieldHdr_level_8)
+	e.AppendBytes(qdfFieldHdr_level_7)
 	e.WriteString(string(v.Level))
-	e.AppendBytes(qdfFieldHdr_service_9)
+	e.AppendBytes(qdfFieldHdr_service_8)
 	e.WriteString(string(v.Service))
-	e.AppendBytes(qdfFieldHdr_host_10)
+	e.AppendBytes(qdfFieldHdr_host_9)
 	e.WriteString(string(v.Host))
-	e.AppendBytes(qdfFieldHdr_region_11)
+	e.AppendBytes(qdfFieldHdr_region_10)
 	e.WriteString(string(v.Region))
-	e.AppendBytes(qdfFieldHdr_trace_id_12)
+	e.AppendBytes(qdfFieldHdr_trace_id_11)
 	e.WriteString(string(v.TraceID))
-	e.AppendBytes(qdfFieldHdr_span_id_13)
+	e.AppendBytes(qdfFieldHdr_span_id_12)
 	e.WriteString(string(v.SpanID))
-	e.AppendBytes(qdfFieldHdr_msg_14)
+	e.AppendBytes(qdfFieldHdr_msg_13)
 	e.WriteString(string(v.Msg))
-	e.AppendBytes(qdfFieldHdr_duration_15)
+	e.AppendBytes(qdfFieldHdr_duration_14)
 	e.WriteFloat64(float64(v.Duration))
-	e.AppendBytes(qdfFieldHdr_status_16)
+	e.AppendBytes(qdfFieldHdr_status_15)
 	e.WriteInt(int64(v.Status))
 	return e.Bytes(), nil
 }
@@ -158,16 +167,26 @@ func (v *LogEntry) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *LogEntry) UnmarshalQDF(src []byte) (int, error) {
-	return v.UnmarshalQDFOpts(src, false)
+	return v.UnmarshalQDFArena(src, false, nil)
 }
 
 // UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
 // string and []byte fields alias src instead of copying. The aliases are valid
 // only while src stays alive and is not modified (see qdf.WithNoCopy).
 func (v *LogEntry) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	return v.UnmarshalQDFArena(src, noCopy, nil)
+}
+
+// UnmarshalQDFArena decodes like UnmarshalQDFOpts; when a is non-nil the copied
+// string fields are packed into the arena instead of one allocation each (see
+// qdf.WithArena). The decoded strings then alias the arena's memory.
+func (v *LogEntry) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
 	if noCopy {
 		d.SetNoCopy(true)
+	}
+	if a != nil {
+		d.SetArena(a)
 	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
@@ -184,83 +203,83 @@ func (v *LogEntry) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 		switch string(kb) {
 		case "time":
 			{
-				sec17, nsec18, err := d.ReadTimestamp()
+				sec16, nsec17, err := d.ReadTimestamp()
 				if err != nil {
 					return 0, err
 				}
-				v.Time = time.Unix(sec17, int64(nsec18)).UTC()
+				v.Time = time.Unix(sec16, int64(nsec17)).UTC()
 			}
 		case "level":
+			{
+				rv18, err := d.ReadString()
+				if err != nil {
+					return 0, err
+				}
+				v.Level = rv18
+			}
+		case "service":
 			{
 				rv19, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Level = rv19
+				v.Service = rv19
 			}
-		case "service":
+		case "host":
 			{
 				rv20, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Service = rv20
+				v.Host = rv20
 			}
-		case "host":
+		case "region":
 			{
 				rv21, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Host = rv21
+				v.Region = rv21
 			}
-		case "region":
+		case "trace_id":
 			{
 				rv22, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.Region = rv22
+				v.TraceID = rv22
 			}
-		case "trace_id":
+		case "span_id":
 			{
 				rv23, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.TraceID = rv23
+				v.SpanID = rv23
 			}
-		case "span_id":
+		case "msg":
 			{
 				rv24, err := d.ReadString()
 				if err != nil {
 					return 0, err
 				}
-				v.SpanID = rv24
-			}
-		case "msg":
-			{
-				rv25, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.Msg = rv25
+				v.Msg = rv24
 			}
 		case "duration":
 			{
-				rv26, err := d.ReadFloat64()
+				rv25, err := d.ReadFloat64()
 				if err != nil {
 					return 0, err
 				}
-				v.Duration = rv26
+				v.Duration = rv25
 			}
 		case "status":
 			{
-				rv27, err := d.ReadInt()
+				rv26, err := d.ReadInt()
 				if err != nil {
 					return 0, err
 				}
-				v.Status = int(rv27)
+				v.Status = int(rv26)
 			}
 		default:
 			if err := d.Skip(); err != nil {

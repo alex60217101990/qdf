@@ -427,7 +427,7 @@ func AppendMarshal(dst []byte, v any, opts Options) ([]byte, error) {
 // the documented exceptions.
 func Unmarshal(data []byte, out any, opts ...QueryOption) error {
 	if len(opts) == 0 {
-		return unmarshal(data, out, nil, false)
+		return unmarshal(data, out, nil, false, nil)
 	}
 	qp, err := buildQueryPlan(opts)
 	if err != nil {
@@ -437,7 +437,7 @@ func Unmarshal(data []byte, out any, opts ...QueryOption) error {
 	// NOT route it through the columnar query path, which assumes a columnar
 	// container and would reject a row payload.
 	if qp.root == nil && qp.selectFields == nil {
-		return unmarshal(data, out, nil, qp.noCopy)
+		return unmarshal(data, out, nil, qp.noCopy, qp.arena)
 	}
 	return unmarshalQuery(data, out, qp)
 }
@@ -457,6 +457,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.selectFields = qp.selectFields
 	dec.query = qp
 	dec.noCopy = qp.noCopy
+	dec.arena = qp.arena
 	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
@@ -466,6 +467,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.selectFields = nil
 	dec.query = nil
 	dec.noCopy = false
+	dec.arena = nil // never pin the caller's arena across pooled reuse
 	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
 		dec.deltaScratch = nil
 	}
@@ -476,7 +478,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 // unmarshal is the shared pooled-decoder dispatch behind Unmarshal and
 // UnmarshalColumns. When fields is non-nil it restricts the columnar map
 // (any) decode to those columns (see Decoder.selectFields).
-func unmarshal(data []byte, out any, fields []string, noCopy bool) error {
+func unmarshal(data []byte, out any, fields []string, noCopy bool, arena *Arena) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data
 	dec.i = 0
@@ -485,6 +487,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool) error {
 	dec.mode = Fast
 	dec.colIndex = false
 	dec.noCopy = noCopy
+	dec.arena = arena
 	dec.selectFields = fields
 	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
@@ -492,6 +495,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool) error {
 	}
 	err := decodeReflect(dec, out)
 	dec.buf = nil
+	dec.arena = nil // never pin the caller's arena across pooled reuse
 	dec.selectFields = nil
 	// Reset noCopy so a WithNoCopy() decode never leaves the pooled decoder in
 	// aliasing mode for the next acquirer (e.g. UnmarshalT) — that would return

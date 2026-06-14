@@ -22,6 +22,13 @@ type Decoder struct {
 	// lifetime.
 	noCopy bool
 
+	// arena, when non-nil, receives copied inline string bodies (bump-packed)
+	// instead of one heap allocation per string. Caller-owned (see Arena); the
+	// decoder only borrows the pointer for one decode and clears it on return
+	// to the pool so a pooled decoder never pins a caller's arena. Ignored when
+	// noCopy is set (aliasing already avoids the copy).
+	arena *Arena
+
 	// depth / maxDepth bound recursive decode nesting. The wire dictates
 	// nesting for `any`, recursive pointer/slice/map types, so without a
 	// guard a crafted deeply-nested payload overflows the goroutine stack —
@@ -171,10 +178,24 @@ func (d *Decoder) SetInput(buf []byte) {
 }
 
 // SetNoCopy switches the decoder into aliasing mode: string and []byte
-// reads return slices that share storage with the input buffer. Faster,
-// but the caller must not retain the result past the lifetime of the
-// input.
+// reads return slices that share storage with the input buffer. Faster
+// (~2x on string-heavy payloads) with near-zero allocations.
+//
+// The aliases are valid only while the input is alive and unmodified. This is
+// safe — and free — when the input is caller-owned and not reused: an mmap, a
+// file fully read into memory, or a buffer allocated fresh per message and
+// never pooled (the aliasing headers keep it alive via the GC, so you need not
+// track its lifetime). The hazard is buffer REUSE or mutation (a sync.Pool
+// buffer, an overwritten scratch slice), which silently corrupts already-decoded
+// values — a manual use-after-free the race detector will not catch. See
+// WithNoCopy for the full contract.
 func (d *Decoder) SetNoCopy(v bool) { d.noCopy = v }
+
+// SetArena directs the decoder to pack copied inline string bodies into a,
+// bump-packed, instead of allocating one string per field. Pass nil to disable.
+// The decoded strings alias a's memory; see Arena for the lifetime contract.
+// Ignored while noCopy is set. Not concurrent-safe: one Arena per goroutine.
+func (d *Decoder) SetArena(a *Arena) { d.arena = a }
 
 // Pos returns the current read offset.
 func (d *Decoder) Pos() int { return d.i }

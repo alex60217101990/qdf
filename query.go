@@ -35,7 +35,15 @@ type QueryOption struct {
 	node         *condNode
 	selectFields []string
 	noCopy       bool
+	arena        *Arena
 }
+
+// WithArena makes the decode pack copied inline string values into a, instead
+// of allocating one string per field — near-zero allocations across an epoch of
+// decodes (see Arena). The decoded strings alias a's memory and follow Arena's
+// lifetime contract. Ignored together with WithNoCopy (aliasing already skips
+// the copy). Composes with predicates / Select / WithNoCopy.
+func WithArena(a *Arena) QueryOption { return QueryOption{arena: a} }
 
 // condOp is the kind of a predicate-tree node.
 type condOp uint8
@@ -120,8 +128,20 @@ func Select(fields ...string) QueryOption {
 // decoded strings would silently become garbage. This is a manual-memory
 // use-after-free, not a data race: the race detector will NOT catch it.
 //
-// Safe only for caller-owned, long-lived, immutable input such as an mmap or a
-// file read fully into memory.
+// Safe for caller-owned, immutable input such as an mmap or a file read fully
+// into memory.
+//
+// Also safe — and the common zero-copy high-throughput pattern — when the input
+// buffer is allocated FRESH per message and never pooled or overwritten: e.g.
+// io.ReadAll(body), or a make([]byte, n) you read one message into and do not
+// reuse. You do NOT have to track the buffer's lifetime manually: the aliasing
+// string/[]byte headers in the decoded value keep the backing buffer alive
+// through the garbage collector (Go marks the whole allocation from an interior
+// pointer), so the buffer lives exactly as long as the values that point into
+// it. The hazard is exclusively buffer REUSE (a sync.Pool buffer returned after
+// the handler, a scratch slice you overwrite on the next read) or mutation —
+// not lifetime. If every decode reads into its own fresh slice, WithNoCopy is
+// safe and gives the full ~2x / near-zero-alloc win for free.
 //
 // Scope: WithNoCopy affects the reflect decode path. A type that implements
 // Unmarshaler (including codegen-generated UnmarshalQDF) decodes through its own
@@ -170,6 +190,7 @@ type queryPlan struct {
 	root         *condNode
 	selectFields []string
 	noCopy       bool
+	arena        *Arena
 }
 
 // firstCondErr returns the first construction error in the tree, or nil.
@@ -194,6 +215,9 @@ func buildQueryPlan(opts []QueryOption) (*queryPlan, error) {
 	for _, o := range opts {
 		if o.noCopy {
 			qp.noCopy = true
+		}
+		if o.arena != nil {
+			qp.arena = o.arena
 		}
 		switch {
 		case o.node != nil:
