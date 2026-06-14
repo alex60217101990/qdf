@@ -1070,11 +1070,26 @@ func (cv *colVals) evalDense(term *predTerm, n int, mask []uint64) {
 		}
 	case colKindString:
 		for i := range n {
-			if term.pStr(cv.s[i]) {
+			if term.pStr(cv.strAt(i)) {
 				setBit(mask, i)
 			}
 		}
 	}
+}
+
+// strAt returns row i's string for predicate evaluation, sourcing it from the
+// []byte materialization (cv.bs) when the column was projected into a []byte
+// target field (cv.s left nil). The string is transient — handed to the
+// predicate only — so aliasing the owned cv.bs[i] copy is safe and alloc-free.
+func (cv *colVals) strAt(i int) string {
+	if cv.s != nil {
+		return cv.s[i]
+	}
+	b := cv.bs[i]
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
 // evalNullable is eval for a nullable column: an absent row never matches.
@@ -1112,7 +1127,7 @@ func (cv *colVals) evalNullable(term *predTerm, n int, mask []uint64) {
 		}
 	case colKindString:
 		for i := range n {
-			if getBit(cv.present, i) && term.pStr(cv.s[i]) {
+			if getBit(cv.present, i) && term.pStr(cv.strAt(i)) {
 				setBit(mask, i)
 			}
 		}
