@@ -588,6 +588,11 @@ out, err := qdf.AppendMarshal(out[:0], v)
 Pair with a goroutine-local buffer to drop the per-call allocation
 entirely.
 
+> **Decode performance levers** — the four ways to cut decode allocations
+> (decode fewer fields, `[N]byte` ids, `WithNoCopy`, `WithArena`), with measured
+> numbers and when to use each, are collected in
+> **[`docs/DECODE-PERF.md`](docs/DECODE-PERF.md)**.
+
 ### Zero-copy decode (`WithNoCopy`)
 
 Decode is allocation-bound: copying each string/`[]byte` body out of the
