@@ -84,7 +84,7 @@ func (v *LogBatch) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int
 	if err != nil {
 		return 0, err
 	}
-	for i := 0; i < n; i++ {
+	for range n {
 		kb, err := d.ReadStringBytes()
 		if err != nil {
 			return 0, err
@@ -107,7 +107,7 @@ func (v *LogBatch) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int
 						return 0, err
 					}
 					v.Entries = make([]LogEntry, n3)
-					for i4 := 0; i4 < n3; i4++ {
+					for i4 := range n3 {
 						{
 							nn5, err := qdf.UnmarshalNestedArena(&v.Entries[i4], d.RemainingBytes(), noCopy, a)
 							if err != nil {
@@ -195,7 +195,7 @@ func (v *LogEntry) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int
 	if err != nil {
 		return 0, err
 	}
-	for i := 0; i < n; i++ {
+	for range n {
 		kb, err := d.ReadStringBytes()
 		if err != nil {
 			return 0, err

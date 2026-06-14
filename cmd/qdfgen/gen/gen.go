@@ -588,7 +588,7 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "\t}\n")
 	fmt.Fprintf(w, "\tn, err := d.ReadMapHeader()\n")
 	fmt.Fprintf(w, "\tif err != nil {\n\t\treturn 0, err\n\t}\n")
-	fmt.Fprintf(w, "\tfor i := 0; i < n; i++ {\n")
+	fmt.Fprintf(w, "\tfor range n {\n")
 	fmt.Fprintf(w, "\t\tkb, err := d.ReadStringBytes()\n")
 	fmt.Fprintf(w, "\t\tif err != nil {\n\t\t\treturn 0, err\n\t\t}\n")
 	fmt.Fprintf(w, "\t\tswitch string(kb) {\n")
@@ -967,7 +967,7 @@ func (g *gen) emitDecodeSlice(w io.Writer, lhs string, s *types.Slice, indent st
 	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, nVar, indent, indent)
 	fmt.Fprintf(w, "%s\t\t%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	loopVar := g.fresh("i")
-	fmt.Fprintf(w, "%s\t\tfor %s := 0; %s < %s; %s++ {\n", indent, loopVar, loopVar, nVar, loopVar)
+	fmt.Fprintf(w, "%s\t\tfor %s := range %s {\n", indent, loopVar, nVar)
 	if err := g.emitDecodeValue(w, lhs+"["+loopVar+"]", elem, indent+"\t\t\t"); err != nil {
 		return err
 	}
@@ -985,7 +985,7 @@ func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent st
 	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s\tif %s != %d {\n%s\t\treturn 0, qdf.ErrTypeMismatch\n%s\t}\n", indent, nVar, a.Len(), indent, indent)
 	loopVar := g.fresh("i")
-	fmt.Fprintf(w, "%s\tfor %s := 0; %s < %d; %s++ {\n", indent, loopVar, loopVar, a.Len(), loopVar)
+	fmt.Fprintf(w, "%s\tfor %s := range %d {\n", indent, loopVar, a.Len())
 	if err := g.emitDecodeValue(w, lhs+"["+loopVar+"]", elem, indent+"\t\t"); err != nil {
 		return err
 	}
@@ -1008,8 +1008,7 @@ func (g *gen) emitDecodeMap(w io.Writer, lhs string, m *types.Map, indent string
 	// conservatively bounds the alloc by remaining input against a hostile count.
 	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, nVar, indent, indent)
 	fmt.Fprintf(w, "%s\t\t%s = make(map[%s]%s, %s)\n", indent, lhs, keyExpr, valExpr, nVar)
-	loopVar := g.fresh("i")
-	fmt.Fprintf(w, "%s\t\tfor %s := 0; %s < %s; %s++ {\n", indent, loopVar, loopVar, nVar, loopVar)
+	fmt.Fprintf(w, "%s\t\tfor range %s {\n", indent, nVar)
 	kVar := g.fresh("k")
 	vVar := g.fresh("vv")
 	fmt.Fprintf(w, "%s\t\t\tvar %s %s\n", indent, kVar, keyExpr)
