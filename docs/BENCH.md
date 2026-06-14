@@ -210,6 +210,27 @@ noise.
 | UniqueLog (serial)                 | 3569 | 1296    | **509**  | 2.55×      | 7.01×   |
 | UniqueLog (RunParallel, contention)| 750  | 330     | **199**  | 1.66×      | 3.77×   |
 
+## Decode arena (`WithArena`)
+
+Opt-in per-epoch [`Arena`](ARENA.md): copied string bodies are bump-packed into
+one dense block instead of one heap allocation each. Measured off → on over an
+epoch loop (`Reset` per message), reflect decode path unless noted. The win
+scales with string density and never regresses; numeric-heavy payloads see a
+small gain and `[]byte` fields stay copy-only.
+
+| Corpus                                | ns/op off | ns/op on |        | allocs off | allocs on |
+| ------------------------------------- | --------: | -------: | -----: | ---------: | --------: |
+| Telemetry log batch × 1000            |   258 k   | **167 k**| **−35 %** |   3 502   | **3**     |
+| AD / directory export × 200 (11 str)  |   450 k   | **335 k**| **−26 %** |   4 856   | **605**   |
+| Event batch × 500 (`[]byte` + string) |   116 k   | **101 k**| **−13 %** |   1 003   | **504**   |
+| IoT sensor batch (numeric + map tags) |   102 k   |  **98 k**|  −4 %  |     291   | **164**   |
+| LogEntry single (codegen, serial)     |   682     | **608**  | **−11 %** |     8     | **2**     |
+| LogEntry single (codegen, RunParallel)|   248     | **205**  | **−17 %** |     8     | **2**     |
+
+Correctness is verified by `reflect.DeepEqual(arenaDecoded, plainDecoded)` over
+all four realistic corpora (maps, nested slices, `[]byte`, codegen nested
+structs). Lifetime contract and when-to-use heuristic in [`ARENA.md`](ARENA.md).
+
 ## Map-heavy payload (40-entry `map[string]string` + `map[string]int`)
 
 The type-specific fastpath (no reflect.MapRange / SetMapIndex on the hot

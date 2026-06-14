@@ -613,6 +613,41 @@ Measured on a 1000-row string-heavy batch (i7-9750H): **7002 → 3 allocs/op,
 types (generated `UnmarshalQDFOpts` threads the flag through nested decodes).
 For a `Decoder`/`StreamDecoder` you drive yourself, use `SetNoCopy(true)`.
 
+### Arena decode (`WithArena`)
+
+When the wire buffer is **recycled** (a pooled HTTP request body) `WithNoCopy`
+is unsafe — its aliases dangle the moment the buffer returns to the pool. A
+decode `Arena` is the safe alternative: it **copies** the strings out, but into
+one dense bump-allocated block per epoch instead of one heap allocation per
+string. The wire buffer is free to go back to its pool immediately, and across a
+batch/stream the block allocation amortizes to ~zero.
+
+```go
+a := qdf.NewArena()                 // one arena per epoch (batch / request)
+for i, msg := range messages {
+    _ = qdf.Unmarshal(msg, &out[i], qdf.WithArena(a))
+}
+// out's strings live in `a`; the GC frees it when `out` is dropped — no Reset,
+// no lifetime bookkeeping. (Call a.Reset() to reuse it across epochs for zero
+// steady-state alloc; see the lifetime contract in docs/ARENA.md.)
+```
+
+Safe by default (strings are owned copies, the GC keeps the block alive via an
+interior pointer), opt-in, and adaptive — the win scales with string density and
+is never negative:
+
+| Corpus | time | allocs/op (off → on) |
+| --- | ---: | ---: |
+| Telemetry log batch (1 000) | **−35 %** | 3 502 → **3** |
+| AD / directory export (200) | **−26 %** | 4 856 → **605** |
+| Event batch (`[]byte` + string) | **−13 %** | 1 003 → **504** |
+| IoT sensor batch (numeric-heavy) | −4 % | 291 → **164** |
+
+Works on the reflect path and codegen types (generated `UnmarshalQDFArena`
+threads the arena through nested decodes); drive a `Decoder`/`StreamDecoder`
+directly with `SetArena(a)`. Full lifetime contract, `WithNoCopy` comparison,
+and internals in **[`docs/ARENA.md`](docs/ARENA.md)**.
+
 ### Decode into a pooled slice (backing reuse)
 
 The decoded **result slice backing** is the dominant decode allocation. When
@@ -769,6 +804,24 @@ has the current numbers.
 | Map-heavy (40 entries)   |  124 |     112 |    **32** |
 | MapStringAny (rep. keys) |   37 |       – |     **3** |
 | `[]float32` × 512        |   16 |       8 |     **3** |
+
+### Decode arena (`WithArena`)
+
+Opt-in `qdf_fast` decode with a per-epoch [`Arena`](docs/ARENA.md), measured
+off → on over an epoch loop (i7-9750H, reflect path, `Reset` per message). The
+arena copies string bodies into one dense block instead of one allocation each;
+the win scales with string density and never regresses.
+
+| Corpus                              | ns/op (off → on) |        | allocs/op (off → on) |
+| ----------------------------------- | ---------------: | -----: | -------------------: |
+| Telemetry log batch × 1000          |  258 k → **167 k** | **−35 %** | 3 502 → **3**     |
+| AD / directory export × 200         |  450 k → **335 k** | **−26 %** | 4 856 → **605**   |
+| Event batch × 500 (`[]byte` + str)  |  116 k → **101 k** | **−13 %** | 1 003 → **504**   |
+| IoT sensor batch (numeric-heavy)    |  102 k →  **98 k** |  −4 %  | 291 → **164**       |
+| LogEntry single, `RunParallel`      |  248 → **205**     | **−17 %** | 8 → **2**         |
+
+`[]byte` fields stay copy-only (caller-mutable); numeric-heavy payloads see a
+small win and no regression. Lifetime contract in [`docs/ARENA.md`](docs/ARENA.md).
 
 ### Encoded size
 
