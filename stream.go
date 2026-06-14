@@ -215,6 +215,17 @@ func (s *StreamDecoder) Decode(out any) error {
 		if err := s.fill(5, true); err != nil {
 			return err // io.EOF here means an empty stream
 		}
+		// A stream is a sequence of length-prefixed frames. The whole-payload
+		// rANS post-pass (FlagRANS) and the columnar column-index (FlagColIndex)
+		// do not apply to it; honoring FlagRANS in readHeaderSlow would replace
+		// the shared window buffer with a decoded body mid-stream and desync all
+		// later framing. A conforming StreamEncoder never sets them — reject the
+		// hostile header up front and latch broken before readHeaderSlow can
+		// touch the buffer. (FlagDense is legitimate for a Dense stream.)
+		if s.dec.buf[s.dec.i+4]&(FlagRANS|FlagColIndex) != 0 {
+			s.broken = true
+			return ErrStreamBadFlags
+		}
 		if err := s.dec.readHeader(); err != nil {
 			// A corrupt header may have half-advanced the decoder (readHeaderSlow
 			// sets headerRead/cursor before a failing rANS-body pass), so latch

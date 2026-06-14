@@ -951,12 +951,23 @@ func (d *Decoder) decodeColumnVals(kind colKind, n int, isByte bool) (colVals, e
 		}
 		cv.b = s
 	case colKindString:
-		if !isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
+		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
 			s, err := d.readStringColumn(n)
 			if err != nil {
 				return cv, err
 			}
-			cv.s = s
+			if isByte {
+				// A string column decodes into a []byte target field too (the
+				// row-major path supports this interchange). The block readers
+				// return strings, so copy each into an owned []byte.
+				bs := make([][]byte, n)
+				for i := range n {
+					bs[i] = append([]byte(nil), s[i]...)
+				}
+				cv.bs = bs
+			} else {
+				cv.s = s
+			}
 			break
 		}
 		if isByte {
@@ -1649,14 +1660,20 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 			*(*bool)(unsafe.Add(base, uintptr(i)*plan.stride+col.offset)) = s[i]
 		}
 	case colKindString:
-		if !col.isByte && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
+		if d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
 			strs, err := d.readStringColumn(n)
 			if err != nil {
 				return err
 			}
 			for i := range n {
 				dp := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
-				*(*string)(dp) = strs[i]
+				if col.isByte {
+					// A string column scatters into a []byte target field too
+					// (row-major supports this interchange); copy to owned bytes.
+					*(*[]byte)(dp) = append([]byte(nil), strs[i]...)
+				} else {
+					*(*string)(dp) = strs[i]
+				}
 			}
 			break
 		}

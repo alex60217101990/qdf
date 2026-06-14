@@ -16,6 +16,12 @@ var (
 	ErrUnsupported    = errors.New("qdf: unsupported type")
 	ErrCycleDetected  = errors.New("qdf: pointer cycle detected (max depth exceeded)")
 	ErrFieldNotFound  = errors.New("qdf: query predicate field not found")
+	// ErrStreamBadFlags is returned by StreamDecoder.Decode when the stream
+	// header carries whole-payload flags that do not apply to a frame stream
+	// (FlagRANS / FlagColIndex). A conforming StreamEncoder never sets them; a
+	// hostile stream claiming them would, if honored, swap the shared window
+	// buffer mid-stream and desync framing. The decoder is latched broken.
+	ErrStreamBadFlags = errors.New("qdf: stream header has unsupported whole-payload flags")
 )
 
 // QueryError describes why a filtering/projecting decode (Unmarshal with
