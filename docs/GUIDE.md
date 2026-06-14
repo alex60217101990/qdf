@@ -967,6 +967,10 @@ moves into "scan one arena slab" instead.
 
 ### Zero-copy decode (`WithNoCopy` / `SetNoCopy`)
 
+> The four decode-allocation levers — decode fewer fields, `[N]byte` ids,
+> `WithNoCopy`, `WithArena` — are collected with a when-to-use table in
+> [`DECODE-PERF.md`](DECODE-PERF.md).
+
 Decode is allocation/GC-bound: profiling attributes ~99.85 % of decode
 allocations to `ReadString` copying string bodies out of the buffer
 (encode, by contrast, is already 3 allocs/op via the pooled output
