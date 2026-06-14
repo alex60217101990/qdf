@@ -40,6 +40,15 @@ func (v *Edge) MarshalQDF(dst []byte) ([]byte, error) {
 	} else {
 		e.EnsureHeader()
 	}
+	if err := v.EncodeQDF(e); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
+}
+
+// EncodeQDF writes v's fields into e. It lets a parent thread one encoder
+// through nested values instead of allocating an encoder per value.
+func (v *Edge) EncodeQDF(e *qdf.Encoder) error {
 	e.WriteMapHeader(5)
 	e.AppendBytes(qdfFieldHdr_base_a_1)
 	e.WriteInt(int64(v.EmbeddedBase.BaseA))
@@ -63,7 +72,7 @@ func (v *Edge) MarshalQDF(dst []byte) ([]byte, error) {
 	}
 	e.AppendBytes(qdfFieldHdr_tail_7)
 	e.WriteInt(int64(v.Tail))
-	return e.Bytes(), nil
+	return nil
 }
 
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
@@ -201,12 +210,21 @@ func (v *Inner) MarshalQDF(dst []byte) ([]byte, error) {
 	} else {
 		e.EnsureHeader()
 	}
+	if err := v.EncodeQDF(e); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
+}
+
+// EncodeQDF writes v's fields into e. It lets a parent thread one encoder
+// through nested values instead of allocating an encoder per value.
+func (v *Inner) EncodeQDF(e *qdf.Encoder) error {
 	e.WriteMapHeader(2)
 	e.AppendBytes(qdfFieldHdr_x_17)
 	e.WriteInt(int64(v.X))
 	e.AppendBytes(qdfFieldHdr_y_18)
 	e.WriteFloat64(float64(v.Y))
-	return e.Bytes(), nil
+	return nil
 }
 
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
@@ -281,6 +299,15 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 	} else {
 		e.EnsureHeader()
 	}
+	if err := v.EncodeQDF(e); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
+}
+
+// EncodeQDF writes v's fields into e. It lets a parent thread one encoder
+// through nested values instead of allocating an encoder per value.
+func (v *Sample) EncodeQDF(e *qdf.Encoder) error {
 	e.WriteMapHeader(11)
 	e.AppendBytes(qdfFieldHdr_name_21)
 	e.WriteString(string(v.Name))
@@ -310,13 +337,8 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 		}
 	}
 	e.AppendBytes(qdfFieldHdr_inner_30)
-	{
-		b2, err := (&v.Inner).MarshalQDF(e.Bytes())
-		if err != nil {
-			return nil, err
-		}
-		e.AdoptBuffer(b2)
-		e.MarkHeaderWritten()
+	if err := qdf.EncodeNested(e, &v.Inner); err != nil {
+		return err
 	}
 	e.AppendBytes(qdfFieldHdr_when_31)
 	{
@@ -333,19 +355,16 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 	if v.OptPtr == nil {
 		e.WriteNil()
 	} else {
-		b2, err := (v.OptPtr).MarshalQDF(e.Bytes())
-		if err != nil {
-			return nil, err
+		if err := qdf.EncodeNested(e, v.OptPtr); err != nil {
+			return err
 		}
-		e.AdoptBuffer(b2)
-		e.MarkHeaderWritten()
 	}
 	e.AppendBytes(qdfFieldHdr_counts_34)
 	e.WriteArrayHeader(3)
 	for i35 := range v.Counts {
 		e.WriteInt(int64(v.Counts[i35]))
 	}
-	return e.Bytes(), nil
+	return nil
 }
 
 // UnmarshalQDF decodes a qdf payload into v and returns the number of

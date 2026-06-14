@@ -535,6 +535,10 @@ func (g *gen) emitType(named *types.Named) error {
 func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	w := &g.body
 
+	// Public buffer-based entry point — a thin wrapper that sets up ONE encoder
+	// and delegates the field writing to EncodeQDF. Nested values share this
+	// encoder (via qdf.EncodeNested) instead of each allocating their own on the
+	// parent's bytes.
 	fmt.Fprintf(w, "// MarshalQDF appends a qdf-encoded representation of v to dst and returns\n")
 	fmt.Fprintf(w, "// the extended slice.\n")
 	fmt.Fprintf(w, "func (v *%s) MarshalQDF(dst []byte) ([]byte, error) {\n", typeName)
@@ -543,8 +547,17 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "\thadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2\n")
 	fmt.Fprintf(w, "\te := qdf.NewEncoderOnBuf(dst, qdf.Fast)\n")
 	fmt.Fprintf(w, "\tif hadHeader {\n\t\te.MarkHeaderWritten()\n\t} else {\n\t\te.EnsureHeader()\n\t}\n")
-	fmt.Fprintf(w, "\te.WriteMapHeader(%d)\n", len(fields))
+	fmt.Fprintf(w, "\tif err := v.EncodeQDF(e); err != nil {\n\t\treturn nil, err\n\t}\n")
+	fmt.Fprintf(w, "\treturn e.Bytes(), nil\n")
+	fmt.Fprintf(w, "}\n\n")
 
+	// Encoder-based body — writes v's fields into a shared encoder. A parent
+	// threads one encoder through nested values via qdf.EncodeNested, avoiding
+	// the per-nested-value *Encoder allocation the buffer-based path costs.
+	fmt.Fprintf(w, "// EncodeQDF writes v's fields into e. It lets a parent thread one encoder\n")
+	fmt.Fprintf(w, "// through nested values instead of allocating an encoder per value.\n")
+	fmt.Fprintf(w, "func (v *%s) EncodeQDF(e *qdf.Encoder) error {\n", typeName)
+	fmt.Fprintf(w, "\te.WriteMapHeader(%d)\n", len(fields))
 	for _, f := range fields {
 		hdrVar := g.fieldNameVar(f.WireKey)
 		fmt.Fprintf(w, "\te.AppendBytes(%s)\n", hdrVar)
@@ -553,8 +566,7 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
 		}
 	}
-
-	fmt.Fprintf(w, "\treturn e.Bytes(), nil\n")
+	fmt.Fprintf(w, "\treturn nil\n")
 	fmt.Fprintf(w, "}\n\n")
 	return nil
 }
@@ -663,18 +675,11 @@ func (g *gen) emitEncodeNamed(w io.Writer, expr string, n *types.Named, indent s
 	case *types.Basic:
 		return g.emitEncodeBasic(w, expr, ut, indent)
 	case *types.Struct:
-		// Nested struct: dispatch via MarshalQDF. The callee detects the
-		// non-empty parent buffer via the magic-byte prefix and skips its
-		// own header. expr is always addressable (a struct field, slice/array
-		// element, map range var, or pointer deref), so take its address
-		// directly — MarshalQDF only reads the receiver, so no temp copy is
-		// needed.
-		fmt.Fprintf(w, "%s{\n", indent)
-		fmt.Fprintf(w, "%s\tb2, err := (&%s).MarshalQDF(e.Bytes())\n", indent, expr)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn nil, err\n%s\t}\n", indent, indent, indent)
-		fmt.Fprintf(w, "%s\te.AdoptBuffer(b2)\n", indent)
-		fmt.Fprintf(w, "%s\te.MarkHeaderWritten()\n", indent)
-		fmt.Fprintf(w, "%s}\n", indent)
+		// Nested struct: thread the parent's encoder via qdf.EncodeNested (no new
+		// encoder allocated). expr is always addressable (a struct field,
+		// slice/array element, map range var, or pointer deref), so take its
+		// address directly — EncodeQDF only reads the receiver.
+		fmt.Fprintf(w, "%sif err := qdf.EncodeNested(e, &%s); err != nil {\n%s\treturn err\n%s}\n", indent, expr, indent, indent)
 		return nil
 	case *types.Slice, *types.Array, *types.Map, *types.Pointer:
 		return g.emitEncodeValue(w, expr, ut, indent)
@@ -693,10 +698,7 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 		fmt.Fprintf(w, "%s\t{ _t := (*%s).UTC(); e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond())) }\n", indent, expr)
 	} else if named, ok := elem.(*types.Named); ok {
 		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
-			fmt.Fprintf(w, "%s\tb2, err := (%s).MarshalQDF(e.Bytes())\n", indent, expr)
-			fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn nil, err\n%s\t}\n", indent, indent, indent)
-			fmt.Fprintf(w, "%s\te.AdoptBuffer(b2)\n", indent)
-			fmt.Fprintf(w, "%s\te.MarkHeaderWritten()\n", indent)
+			fmt.Fprintf(w, "%s\tif err := qdf.EncodeNested(e, %s); err != nil {\n%s\t\treturn err\n%s\t}\n", indent, expr, indent, indent)
 		} else {
 			if err := g.emitEncodeValue(w, "(*"+expr+")", named.Underlying(), indent+"\t"); err != nil {
 				return err
