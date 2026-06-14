@@ -370,6 +370,37 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	}
 }
 
+// encodeFixedByteArray encodes a fixed [N]byte array as ONE contiguous binary
+// blob (identical wire to a []byte of length N), not N tagged elements. Real ID
+// bytes are uniformly 0..255; the generic per-element path costs ~2 bytes for
+// every byte >= 128, so a [16]byte trace id bloats to ~32 wire bytes — this
+// writes a flat 16 plus a tiny bin header. One memcpy, no per-element calls.
+//
+//go:nosplit
+func encodeFixedByteArray(n int) func(*Encoder, unsafe.Pointer) error {
+	return func(e *Encoder, p unsafe.Pointer) error {
+		e.WriteBytes(unsafe.Slice((*byte)(p), n))
+		return nil
+	}
+}
+
+// decodeFixedByteArray reads the blob written by encodeFixedByteArray straight
+// into the struct's inline [N]byte storage — one length-checked memcpy, zero
+// allocation (the array lives in the caller's struct, never on the heap).
+func decodeFixedByteArray(n int) func(*Decoder, unsafe.Pointer) error {
+	return func(d *Decoder, p unsafe.Pointer) error {
+		b, err := d.readStringBytes()
+		if err != nil {
+			return err
+		}
+		if len(b) != n {
+			return ErrTypeMismatch
+		}
+		copy(unsafe.Slice((*byte)(p), n), b)
+		return nil
+	}
+}
+
 func encodeArray(elem *typeDesc, stride uintptr, n int) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
 		// Depth guard mirroring Decoder.descend in decodeArray (see encodeSlice).

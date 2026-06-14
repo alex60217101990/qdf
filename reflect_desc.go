@@ -213,6 +213,16 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		// *Nil variants (installSliceFastPath) which keep the shared encodeSlice*
 		// funcs nil-agnostic for their internal dense-column callers.
 	case reflect.Array:
+		// [N]byte fast path: encode/decode as one contiguous binary blob (flat,
+		// memcpy) instead of N tagged elements — far smaller wire for real byte
+		// data and zero-alloc in-place decode. Covers fixed-width IDs (trace/span
+		// ids, UUIDs) and any named byte type ([N]MyByte, since Kind stays Uint8).
+		if t.Elem().Kind() == reflect.Uint8 {
+			n := t.Len()
+			td.encode = encodeFixedByteArray(n)
+			td.decode = decodeFixedByteArray(n)
+			break
+		}
 		elem, err := descBuild(t.Elem(), ctx)
 		if err != nil {
 			return err
