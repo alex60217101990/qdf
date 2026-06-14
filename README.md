@@ -812,10 +812,13 @@ has the current numbers.
 
 ### Decode arena (`WithArena`)
 
-Opt-in `qdf_fast` decode with a per-epoch [`Arena`](docs/ARENA.md), measured
-off → on over an epoch loop (i7-9750H, reflect path, `Reset` per message). The
-arena copies string bodies into one dense block instead of one allocation each;
-the win scales with string density and never regresses.
+Opt-in decode with a per-epoch [`Arena`](docs/ARENA.md), measured off → on over
+an epoch loop (i7-9750H, reflect path, `Reset` per message). The arena copies
+string bodies into one dense block instead of one allocation each; the win
+scales with string density and never regresses. It works across **all tiers** —
+`OptSpeed` inline strings and the `OptDense`/`OptCompression` interned strings
+are both arena-backed (numbers below are Speed wire; Dense/Compression reach the
+same allocation floor — see [`docs/ARENA.md`](docs/ARENA.md)).
 
 | Corpus                              | ns/op (off → on) |        | allocs/op (off → on) |
 | ----------------------------------- | ---------------: | -----: | -------------------: |

@@ -198,7 +198,7 @@ func (d *Decoder) ReadString() (string, error) {
 		return unsafestr.String(b), nil
 	}
 	if d.state != nil && d.state.lastID != lruInvalidID {
-		if s, ok := d.state.getString(d.state.lastID); ok {
+		if s, ok := d.state.getString(d.state.lastID, d.arena); ok {
 			return s, nil
 		}
 	}

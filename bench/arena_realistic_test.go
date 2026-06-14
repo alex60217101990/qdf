@@ -100,3 +100,93 @@ func BenchmarkArenaReal_Event_Off(b *testing.B) {
 func BenchmarkArenaReal_Event_On(b *testing.B) { benchArenaDataset[EventBatch](b, eventBytes(), true) }
 func BenchmarkArenaReal_Log_Off(b *testing.B)  { benchArenaDataset[LogBatch](b, logBytes(), false) }
 func BenchmarkArenaReal_Log_On(b *testing.B)   { benchArenaDataset[LogBatch](b, logBytes(), true) }
+
+// Dense-tier arena coverage. The Speed-mode benches above exercise the plain
+// string(b) copy path; these encode Balanced (Dense, intern table) so the
+// arena is exercised through the intern materialisation in decState.getString.
+// Before that path consulted the arena, a Dense decode of a high-cardinality
+// string column got no arena benefit at all (every first-sight intern record
+// heap-allocated); now it amortises the same way the Speed path does.
+func adBytesDense() []byte { u := makeADUsers(200); b, _ := qdf.Marshal(&u, qdf.OptBalanced); return b }
+func logBytesDense() []byte {
+	v := MakeLogBatch(500)
+	b, _ := qdf.Marshal(&v, qdf.OptBalanced)
+	return b
+}
+func iotBytesDense() []byte {
+	v := mkIoTBatch(32, 64)
+	b, _ := qdf.Marshal(&v, qdf.OptBalanced)
+	return b
+}
+
+func BenchmarkArenaDense_AD_Off(b *testing.B) { benchArenaDataset[[]ADUser](b, adBytesDense(), false) }
+func BenchmarkArenaDense_AD_On(b *testing.B)  { benchArenaDataset[[]ADUser](b, adBytesDense(), true) }
+func BenchmarkArenaDense_Log_Off(b *testing.B) {
+	benchArenaDataset[LogBatch](b, logBytesDense(), false)
+}
+func BenchmarkArenaDense_Log_On(b *testing.B) { benchArenaDataset[LogBatch](b, logBytesDense(), true) }
+func BenchmarkArenaDense_IoT_Off(b *testing.B) {
+	benchArenaDataset[IoTBatch](b, iotBytesDense(), false)
+}
+func BenchmarkArenaDense_IoT_On(b *testing.B) { benchArenaDataset[IoTBatch](b, iotBytesDense(), true) }
+
+// TestArenaDense_EqualsPlain guards that an arena decode of Dense/Compression
+// wire is byte-for-byte equal to a plain heap decode — the arena only changes
+// where the interned string copies live, never their contents.
+func TestArenaDense_EqualsPlain(t *testing.T) {
+	for _, n := range []int{1, 7, 50, 200, 1000} {
+		u := makeADUsers(n)
+		for _, opt := range []qdf.Options{qdf.OptBalanced, qdf.OptCompression} {
+			src, err := qdf.Marshal(&u, opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plain, arena []ADUser
+			if err := qdf.Unmarshal(src, &plain); err != nil {
+				t.Fatal(err)
+			}
+			a := qdf.NewArena()
+			if err := qdf.Unmarshal(src, &arena, qdf.WithArena(a)); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(plain, arena) {
+				t.Fatalf("n=%d opt=%v: arena decode diverges from plain decode", n, opt)
+			}
+		}
+	}
+}
+
+// TestArenaDense_ResetReuse exercises the epoch-reuse pattern: a SINGLE arena
+// is reused across many distinct messages with Reset between them (the pattern
+// the benchmarks use for zero per-message block allocation). Each message is
+// compared to a plain decode BEFORE the next Reset, since Reset invalidates the
+// strings of the previous epoch. This guards that interned-string
+// materialisation stays correct across Reset cycles — the cached stringValues
+// table is per-decode (fresh decState), so a Reset of the shared arena must not
+// resurrect or corrupt a prior epoch's bytes.
+func TestArenaDense_ResetReuse(t *testing.T) {
+	for _, opt := range []qdf.Options{qdf.OptBalanced, qdf.OptCompression} {
+		a := qdf.NewArena()
+		// Vary size per epoch so block sizes/offsets differ across Resets and a
+		// stale read from a longer prior epoch would surface as a mismatch.
+		for epoch, n := range []int{200, 3, 500, 1, 50} {
+			u := makeADUsers(n)
+			src, err := qdf.Marshal(&u, opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plain []ADUser
+			if err := qdf.Unmarshal(src, &plain); err != nil {
+				t.Fatal(err)
+			}
+			a.Reset() // reuse the arena's block(s) from the previous epoch
+			var arena []ADUser
+			if err := qdf.Unmarshal(src, &arena, qdf.WithArena(a)); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(plain, arena) {
+				t.Fatalf("epoch=%d n=%d opt=%v: reset-reused arena decode diverges from plain decode", epoch, n, opt)
+			}
+		}
+	}
+}

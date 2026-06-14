@@ -67,6 +67,19 @@ The win scales with string density and is never negative:
 `Reset` per message. Codegen path (`UnmarshalerArena`): −11 % seq / −17 %
 parallel, allocs 8 → 2.*
 
+The same win applies to the **Dense and Compression** tiers, not just Speed —
+the interned first-sight string copies are arena-backed too:
+
+| Corpus (Balanced/Dense wire) | time | allocs/op (off → on) |
+| --- | ---: | ---: |
+| **Telemetry log batch** (500 events) | **−31 %** | 3 502 → **3** |
+| **AD / directory export** (200 users) | **−21 %** | 3 006 → **606** |
+| **IoT sensor batch** (numeric series + map tags) | neutral | 213 → **168** |
+
+A Dense decode now reaches the same arena allocation floor as Speed; before, it
+stayed near its no-arena allocation count because the intern materialisations
+bypassed the arena.
+
 ---
 
 ## API
@@ -187,11 +200,19 @@ Other guarantees:
   generated type and through its **nested** fields via `UnmarshalNestedArena`.
   External `Unmarshaler` types without the `UnmarshalerArena` method simply fall
   back to a copying decode — fully backward compatible.
-- **Interned / repeated strings.** Low-cardinality fields the encoder interned
-  (`tagStateRef` and friends) already decode once into a shared cached string;
-  the arena does not touch them (re-copying would defeat the interning). It only
-  packs the *inline, unique* strings — exactly the ones that were costing one
-  allocation each.
+- **Interned / repeated strings (Dense / Compression).** Under
+  `OptDense`/`OptCompression` the encoder interns recurring fields and the wire
+  carries `tagInternStr` (first sight) + `tagStateRef`/`tagStateRepeat`
+  (references). The decoder materialises each interned id into an owned string
+  **exactly once** and caches it; every later reference reuses that cached string
+  with no re-copy. When an arena is attached, that one first-sight
+  materialisation is bump-appended into the arena like any other copy — so a
+  Dense or Compression decode amortises its string copies the same way a
+  Speed-mode decode of inline strings does. Interning is **not** defeated: the
+  per-id copy still happens at most once; the arena only changes *where* that
+  single copy lives. (Earlier the intern path took its own `string(b)` heap
+  copy and bypassed the arena entirely, so Dense/Compression decodes — the tiers
+  you run for wire size — saw no arena benefit; that gap is now closed.)
 - **`WithNoCopy`.** If both are set, `WithNoCopy` wins: aliasing the input skips
   the copy entirely, so there is nothing for the arena to do.
 

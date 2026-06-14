@@ -1144,8 +1144,14 @@ func (d *decState) get(id uint32) ([]byte, bool) {
 // / MTF / pair / repeat decode paths so ReadString skips the
 // string(b) heap copy after the first sight.
 //
+// When arena is non-nil the first-sight materialisation is packed into the
+// bump arena instead of its own heap allocation, so a Dense/intern decode of a
+// high-cardinality string column amortises its copies the same way the plain
+// (Speed-mode) string path already does. Each interned id is still copied at
+// most once — the cached aliasing string is reused on every later reference.
+//
 //go:nosplit
-func (d *decState) getString(id uint32) (string, bool) {
+func (d *decState) getString(id uint32, arena *Arena) (string, bool) {
 	if id >= uint32(len(d.stringValues)) {
 		return "", false
 	}
@@ -1157,7 +1163,11 @@ func (d *decState) getString(id uint32) (string, bool) {
 	if len(b) == 0 {
 		return "", true
 	}
-	s = string(b)
+	if arena != nil {
+		s = arena.appendStr(b)
+	} else {
+		s = string(b)
+	}
 	d.stringValues[id] = s
 	return s, true
 }
