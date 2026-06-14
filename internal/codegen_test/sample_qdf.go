@@ -69,16 +69,26 @@ func (v *Edge) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *Edge) UnmarshalQDF(src []byte) (int, error) {
-	return v.UnmarshalQDFOpts(src, false)
+	return v.UnmarshalQDFArena(src, false, nil)
 }
 
 // UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
 // string and []byte fields alias src instead of copying. The aliases are valid
 // only while src stays alive and is not modified (see qdf.WithNoCopy).
 func (v *Edge) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	return v.UnmarshalQDFArena(src, noCopy, nil)
+}
+
+// UnmarshalQDFArena decodes like UnmarshalQDFOpts; when a is non-nil the copied
+// string fields are packed into the arena instead of one allocation each (see
+// qdf.WithArena). The decoded strings then alias the arena's memory.
+func (v *Edge) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
 	if noCopy {
 		d.SetNoCopy(true)
+	}
+	if a != nil {
+		d.SetArena(a)
 	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
@@ -202,16 +212,26 @@ func (v *Inner) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *Inner) UnmarshalQDF(src []byte) (int, error) {
-	return v.UnmarshalQDFOpts(src, false)
+	return v.UnmarshalQDFArena(src, false, nil)
 }
 
 // UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
 // string and []byte fields alias src instead of copying. The aliases are valid
 // only while src stays alive and is not modified (see qdf.WithNoCopy).
 func (v *Inner) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	return v.UnmarshalQDFArena(src, noCopy, nil)
+}
+
+// UnmarshalQDFArena decodes like UnmarshalQDFOpts; when a is non-nil the copied
+// string fields are packed into the arena instead of one allocation each (see
+// qdf.WithArena). The decoded strings then alias the arena's memory.
+func (v *Inner) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
 	if noCopy {
 		d.SetNoCopy(true)
+	}
+	if a != nil {
+		d.SetArena(a)
 	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
@@ -331,16 +351,26 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *Sample) UnmarshalQDF(src []byte) (int, error) {
-	return v.UnmarshalQDFOpts(src, false)
+	return v.UnmarshalQDFArena(src, false, nil)
 }
 
 // UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
 // string and []byte fields alias src instead of copying. The aliases are valid
 // only while src stays alive and is not modified (see qdf.WithNoCopy).
 func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	return v.UnmarshalQDFArena(src, noCopy, nil)
+}
+
+// UnmarshalQDFArena decodes like UnmarshalQDFOpts; when a is non-nil the copied
+// string fields are packed into the arena instead of one allocation each (see
+// qdf.WithArena). The decoded strings then alias the arena's memory.
+func (v *Sample) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, error) {
 	d := qdf.NewDecoderOnBuf(src)
 	if noCopy {
 		d.SetNoCopy(true)
+	}
+	if a != nil {
+		d.SetArena(a)
 	}
 	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
 		d.MarkHeaderRead()
@@ -453,7 +483,7 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 			}
 		case "inner":
 			{
-				nn50, err := qdf.UnmarshalNested(&v.Inner, d.RemainingBytes(), noCopy)
+				nn50, err := qdf.UnmarshalNestedArena(&v.Inner, d.RemainingBytes(), noCopy, a)
 				if err != nil {
 					return 0, err
 				}
@@ -493,7 +523,7 @@ func (v *Sample) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
 					v.OptPtr = nil
 				} else {
 					v.OptPtr = new(Inner)
-					nn53, err := qdf.UnmarshalNested(v.OptPtr, d.RemainingBytes(), noCopy)
+					nn53, err := qdf.UnmarshalNestedArena(v.OptPtr, d.RemainingBytes(), noCopy, a)
 					if err != nil {
 						return 0, err
 					}
