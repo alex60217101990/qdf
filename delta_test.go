@@ -483,6 +483,94 @@ func TestDiffApplyMapPointerValues(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsWrongSchema(t *testing.T) {
+	type A struct{ X int }
+	type B struct{ Y int }
+	p, _ := Diff(A{X: 1}, A{X: 2}, OptBalanced)
+	var b B
+	if err := Apply(&b, p); err != ErrPatchSchemaMismatch {
+		t.Fatalf("got %v want ErrPatchSchemaMismatch", err)
+	}
+}
+
+func TestApplyRejectsWrongBase(t *testing.T) {
+	type A struct{ X, Y int }
+	p, _ := Diff(A{X: 1, Y: 1}, A{X: 2, Y: 1}, OptBalanced)
+	wrong := A{X: 9, Y: 9} // not the old the patch was built against
+	if err := Apply(&wrong, p); err != ErrPatchBaseMismatch {
+		t.Fatalf("got %v want ErrPatchBaseMismatch", err)
+	}
+}
+
+func TestApplyRejectsTruncatedPatch(t *testing.T) {
+	type Nested struct {
+		A int
+		B string
+		C []int
+		D map[string]int
+	}
+	type Rec struct {
+		ID   int
+		Name string
+		Tags []string
+		Sub  Nested
+		Opt  *Nested
+	}
+	old := Rec{ID: 1, Name: "x", Tags: []string{"a"}, Sub: Nested{A: 1, B: "p", C: []int{1}, D: map[string]int{"k": 1}}}
+	neu := Rec{ID: 2, Name: "y", Tags: []string{"a", "b"}, Sub: Nested{A: 2, B: "q", C: []int{1, 2}, D: map[string]int{"k": 2, "z": 9}}, Opt: &Nested{A: 7}}
+	p, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Truncate at every length; Apply must never panic, must return an error or nil.
+	for cut := 0; cut < len(p); cut++ {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic on truncation at %d: %v", cut, r)
+				}
+			}()
+			base := old
+			// give base independent backing so a partial apply can't corrupt old
+			base.Tags = append([]string(nil), old.Tags...)
+			base.Sub.C = append([]int(nil), old.Sub.C...)
+			base.Sub.D = map[string]int{"k": 1}
+			s := old.Sub
+			base.Opt = &s
+			_ = Apply(&base, p[:cut])
+		}()
+	}
+}
+
+func TestApplyRejectsCorruptedBody(t *testing.T) {
+	type Rec struct {
+		ID   int
+		Tags []string
+		M    map[string]int
+	}
+	old := Rec{ID: 1, Tags: []string{"a"}, M: map[string]int{"k": 1}}
+	neu := Rec{ID: 2, Tags: []string{"a", "b", "c"}, M: map[string]int{"k": 2, "z": 3}}
+	p, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Flip bytes in the body (after the 21-byte header) one at a time; Apply must
+	// never panic. (May error, may by chance still apply — just must not crash.)
+	for i := 21; i < len(p); i++ {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic on corrupted byte %d: %v", i, r)
+				}
+			}()
+			bad := append([]byte(nil), p...)
+			bad[i] ^= 0xFF
+			base := Rec{ID: 1, Tags: []string{"a"}, M: map[string]int{"k": 1}}
+			_ = Apply(&base, bad)
+		}()
+	}
+}
+
 func TestDiffApplyMapNoncomparableValues(t *testing.T) {
 	type W struct {
 		M map[string]map[string]int
