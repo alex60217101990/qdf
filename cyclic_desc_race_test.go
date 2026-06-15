@@ -40,7 +40,7 @@ func TestCyclicDesc_ConcurrentColdBuildNoRace(t *testing.T) {
 
 		var wg sync.WaitGroup
 		start := make(chan struct{})
-		for w := 0; w < workers; w++ {
+		for range workers {
 			wg.Go(func() {
 				<-start
 				buf, err := Marshal(val, OptBalanced)

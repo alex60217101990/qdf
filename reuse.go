@@ -48,8 +48,8 @@ func noPointersWalk(t reflect.Type) bool {
 	case reflect.Array:
 		return noPointersWalk(t.Elem())
 	case reflect.Struct:
-		for i := range t.NumField() {
-			if !noPointersWalk(t.Field(i).Type) {
+		for f := range t.Fields() {
+			if !noPointersWalk(f.Type) {
 				return false
 			}
 		}
