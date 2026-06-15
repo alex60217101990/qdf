@@ -77,8 +77,12 @@ func equalSliceEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		return true
 	}
 	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+	}
 	stride := td.rType.Elem().Size()
-	if isPODType(td.rType.Elem()) {
+	if noPointers(td.rType.Elem()) {
+		// POD memcmp compares padding too: a padding-only diff yields a spurious opReplace, never wrong data — acceptable for Phase 1.
 		ab := unsafe.Slice((*byte)(ah.Data), uintptr(n)*stride)
 		bb := unsafe.Slice((*byte)(bh.Data), uintptr(n)*stride)
 		return bytes.Equal(ab, bb)
@@ -99,7 +103,8 @@ func equalArrayEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 	}
 	n := td.rType.Len()
 	stride := td.rType.Elem().Size()
-	if isPODType(td.rType.Elem()) {
+	if noPointers(td.rType.Elem()) {
+		// POD memcmp compares padding too: a padding-only diff yields a spurious opReplace, never wrong data — acceptable for Phase 1.
 		total := uintptr(n) * stride
 		return bytes.Equal(unsafe.Slice((*byte)(aP), total), unsafe.Slice((*byte)(bP), total))
 	}
@@ -129,26 +134,4 @@ func equalMapEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		}
 	}
 	return true
-}
-
-// isPODType reports whether t is a fixed-size, pointer-free type whose values
-// can be compared with a raw memcmp (no interior pointers/strings/maps).
-func isPODType(t reflect.Type) bool {
-	switch t.Kind() {
-	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32,
-		reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32,
-		reflect.Uint64, reflect.Uintptr, reflect.Float32, reflect.Float64:
-		return true
-	case reflect.Array:
-		return isPODType(t.Elem())
-	case reflect.Struct:
-		for i := 0; i < t.NumField(); i++ {
-			if !isPODType(t.Field(i).Type) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
 }
