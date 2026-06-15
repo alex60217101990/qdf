@@ -239,11 +239,11 @@ func fpWalk(h *maphash.Hash, v reflect.Value) {
 		binary.LittleEndian.PutUint64(b[:], acc)
 		h.Write(b[:])
 	case reflect.Struct:
-		for i := 0; i < v.NumField(); i++ {
+		for i := range v.NumField() {
 			fpWalk(h, v.Field(i))
 		}
 	case reflect.Slice, reflect.Array:
-		for i := 0; i < v.Len(); i++ {
+		for i := range v.Len() {
 			fpWalk(h, v.Index(i))
 		}
 	case reflect.Pointer:
