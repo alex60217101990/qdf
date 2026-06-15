@@ -7,11 +7,11 @@ import (
 )
 
 // diffValue compares the value at oldP/newP and, if changed, writes one op
-// (op byte + payload). Returns whether anything was written. The caller has
-// already written any preceding selector (field index / slice index / map key).
-func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, error) {
+// (op byte + payload). The caller has already written any preceding selector
+// (field index / slice index / map key).
+func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 	if equalValue(td, oldP, newP) {
-		return false, nil
+		return nil
 	}
 	switch td.kind {
 	case reflect.Struct:
@@ -19,7 +19,7 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 			return writeReplace(enc, td, newP)
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return true, diffStruct(enc, td, oldP, newP)
+		return diffStruct(enc, td, oldP, newP)
 	case reflect.Pointer:
 		op, np := *(*unsafe.Pointer)(oldP), *(*unsafe.Pointer)(newP)
 		if op == nil || np == nil {
@@ -28,7 +28,7 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 		}
 		if td.elem != nil && td.elem.kind == reflect.Struct && len(td.elem.fields) > 0 {
 			enc.buf = append(enc.buf, opMerge)
-			return true, diffStruct(enc, td.elem, op, np)
+			return diffStruct(enc, td.elem, op, np)
 		}
 		return writeReplace(enc, td, newP)
 	case reflect.Slice:
@@ -42,13 +42,13 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 			return writeReplace(enc, td, newP)
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return true, diffSlice(enc, td, oldP, newP)
+		return diffSlice(enc, td, oldP, newP)
 	case reflect.Array:
 		if td.rType.Elem().Kind() == reflect.Uint8 {
 			return writeReplace(enc, td, newP) // [N]byte: whole replace
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return true, diffArray(enc, td, oldP, newP)
+		return diffArray(enc, td, oldP, newP)
 	case reflect.Map:
 		// Same nil↔non-nil concern as slices: applyMap never reconstructs a nil
 		// map, so a nilness transition must be a whole-value replace.
@@ -56,7 +56,7 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 			return writeReplace(enc, td, newP)
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return true, diffMap(enc, td, oldP, newP)
+		return diffMap(enc, td, oldP, newP)
 	default:
 		// Phase 1: non-struct change is a whole-value replace. Pointer/slice/map
 		// merge ops are added in later tasks (they extend this switch).
@@ -149,14 +149,14 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 			oBuf.Set(oVal)
 			nBuf := reflect.New(valDesc.rType).Elem()
 			nBuf.Set(nVal)
-			if _, err := diffValue(enc, valDesc,
+			if err := diffValue(enc, valDesc,
 				oBuf.Addr().UnsafePointer(), nBuf.Addr().UnsafePointer()); err != nil {
 				return err
 			}
 		} else {
 			nBuf := reflect.New(valDesc.rType).Elem()
 			nBuf.Set(nVal)
-			if _, err := writeReplace(enc, valDesc, nBuf.Addr().UnsafePointer()); err != nil {
+			if err := writeReplace(enc, valDesc, nBuf.Addr().UnsafePointer()); err != nil {
 				return err
 			}
 		}
@@ -214,11 +214,11 @@ func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintp
 		nP := unsafe.Add(newData, uintptr(i)*stride)
 		if i < oldLen {
 			oP := unsafe.Add(oldData, uintptr(i)*stride)
-			if _, err := diffValue(enc, elem, oP, nP); err != nil {
+			if err := diffValue(enc, elem, oP, nP); err != nil {
 				return err
 			}
 		} else {
-			if _, err := writeReplace(enc, elem, nP); err != nil { // appended element
+			if err := writeReplace(enc, elem, nP); err != nil { // appended element
 				return err
 			}
 		}
@@ -227,12 +227,9 @@ func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintp
 }
 
 // writeReplace writes opReplace + the whole new value via the normal codec.
-func writeReplace(enc *Encoder, td *typeDesc, newP unsafe.Pointer) (bool, error) {
+func writeReplace(enc *Encoder, td *typeDesc, newP unsafe.Pointer) error {
 	enc.buf = append(enc.buf, opReplace)
-	if err := td.encode(enc, newP); err != nil {
-		return false, err
-	}
-	return true, nil
+	return td.encode(enc, newP)
 }
 
 // diffStruct writes a tagStructPatch body with only the changed fields.
@@ -249,7 +246,7 @@ func diffStruct(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 	for _, i := range changed {
 		f := &td.fields[i]
 		enc.buf = appendUvarint(enc.buf, uint64(i))
-		if _, err := diffValue(enc, f.desc,
+		if err := diffValue(enc, f.desc,
 			unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset)); err != nil {
 			return err
 		}
