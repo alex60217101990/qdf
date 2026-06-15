@@ -577,6 +577,31 @@ filtered, projected subset of a batch without first decoding the whole thing.
 The full rationale, API reference, nullable/error semantics, internals, and a
 step-by-step tutorial live in **[`docs/PREDICATE-PUSHDOWN.md`](docs/PREDICATE-PUSHDOWN.md)**.
 
+### Structural delta (`Diff` / `Apply`)
+
+qdf can compute a **structural delta** between two values and ship only what
+changed. `Diff(old, new, opts)` walks both values field/element/key-wise and
+emits a self-describing patch carrying only the locations that differ;
+`Apply(&base, patch)` merges it back in place to reconstruct `new`. This is the
+state-sync primitive no mainstream Go format ships natively — k8s reconciliation,
+config hot-reload, CDC / event sourcing, realtime netcode.
+
+```go
+patch, _ := qdf.Diff(old, updated, qdf.OptBalanced) // only the changes
+// ... ship `patch` (often a few dozen bytes) ...
+
+base := old
+_ = qdf.Apply(&base, patch) // base now == updated, in place
+```
+
+Structs (incl. nested), scalars / string / `[]byte` / `[N]byte`, positional
+slices/arrays, and per-key maps (with tombstone deletes) are all diffed.
+`schemaFP` + `baseFP` fingerprints reject a patch applied to the wrong type or a
+divergent base (`ErrPatchSchemaMismatch` / `ErrPatchBaseMismatch`). On a
+1000-record batch with one changed field the patch is **42 B vs a 26 677 B full
+Marshal — ~635× smaller**. Full semantics, wire format, and the deletion /
+nil-vs-empty rules are in **[`docs/DELTA.md`](docs/DELTA.md)**.
+
 ### Zero-extra-copy encode
 
 `AppendMarshal` lets callers own the destination buffer:

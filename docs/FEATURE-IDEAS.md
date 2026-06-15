@@ -12,6 +12,8 @@ design) before writing code. Captured 2026-06-14.
 
 ## 1. Structural delta / patch encoding ⭐ (top pick)
 
+**Status: Phase 1 SHIPPED** (2026-06-15) — Diff/Apply for structs (incl. nested), scalars/string/[]byte/[N]byte, positional slices/arrays, per-key maps with tombstones; schema+base fingerprints; optional rANS post-pass. See docs/DELTA.md. Phase 2 pending: columnar column-level diff, keyed slice diff, content-addressed baseline registry.
+
 **What.** `Marshal(new, qdf.Baseline(old))` emits a wire blob carrying ONLY the
 fields / columns / rows that differ from a baseline. `Unmarshal` applies the
 patch onto a base value to reconstruct `new`. Optionally a standalone
