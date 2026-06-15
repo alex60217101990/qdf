@@ -43,7 +43,7 @@ func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 	case reflect.Map:
 		return applyMap(dec, td, baseP)
 	default:
-		return ErrInvalidPatch // later tasks add map/ptr merge
+		return ErrInvalidPatch // unknown/unmergeable kind
 	}
 }
 

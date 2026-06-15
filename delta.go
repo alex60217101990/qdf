@@ -273,6 +273,15 @@ func fpWalk(h *maphash.Hash, v reflect.Value) {
 		var b [8]byte
 		binary.LittleEndian.PutUint64(b[:], math.Float64bits(v.Float()))
 		_, _ = h.Write(b[:])
+	case reflect.Interface:
+		if v.IsNil() {
+			_ = h.WriteByte(0)
+			return
+		}
+		_ = h.WriteByte(1)
+		el := v.Elem()
+		_, _ = h.WriteString(el.Type().String())
+		fpWalk(h, el)
 	default:
 		_, _ = h.WriteString(v.Type().String())
 	}
