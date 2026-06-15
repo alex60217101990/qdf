@@ -304,24 +304,35 @@ negligible.
 
 ---
 
-## Limitations
+## Keyed slices
 
-**Slices are matched positionally.** There is no keyed or identity-based
-matching, so reordering a slice, or inserting/deleting in the middle, reships
-the shifted tail (see [Deletion](#deletion)). If your slices are append-mostly
-or you mutate elements in place this is a non-issue; if you reorder a large
-slice often, a full `Marshal` of that slice may beat a positional diff.
+By default slices are matched **positionally**: reordering a slice, or inserting
+or deleting in the middle, reships the shifted tail. For slices whose elements
+have a stable identity, tag the identity field with `,key` on its `qdf` tag and
+the slice is matched by that key instead:
+
+	type Entity struct {
+	    ID   string `qdf:"id,key"`
+	    X, Y float64
+	}
+
+Now a `[]Entity` patch matches elements by `ID`. Reordering the slice ships only
+the new key order (no element values); inserting, deleting, or moving an element
+touches just that element — where the positional diff would reship everything
+after the change. Value-only edits that keep the same order ship no order list at
+all. In a benchmark, a full reverse of a 200-element slice produced a keyed patch
+~30% smaller than a full re-encode (and far smaller than a positional diff).
+
+The key field must be comparable — a scalar, string, or `[N]byte`. If keys are
+not unique, the diff transparently falls back to the positional path (still
+correct). One `,key` field per element type.
+
+## Limitations
 
 A few things are not currently supported and may come later:
 
-- **Keyed slice diff** — matching elements by a declared key field, so a reorder
-  or a middle insert/delete updates only the affected elements instead of
-  reshipping the positional tail.
 - **Column-level diff for `[]struct`** — when a slice of flat structs is stored
   columnar, shipping only the columns that changed instead of per-element ops.
 - **Content-addressed baselines** — addressing the base by a content hash so a
   patch can be applied against a baseline fetched from a store, rather than the
   caller holding `old`.
-
-None of these is wired up today; the positional diff above is the whole feature
-as it stands.
