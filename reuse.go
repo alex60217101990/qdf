@@ -60,6 +60,43 @@ func noPointersWalk(t reflect.Type) bool {
 	}
 }
 
+// tightPODWalk reports whether t is pointer-free AND has no internal or tail
+// padding, so its full byte span is content (and may be bulk-hashed in the delta
+// value fingerprint). Scalars are tight by definition. An array is tight iff its
+// element is tight (the array stride already includes the element's own padding).
+// A struct is tight iff it is pointer-free, every field type is tight, and the
+// fields are packed with no gaps and no tail pad: field[0] at offset 0, each
+// subsequent field immediately after the previous, and the struct size equal to
+// the end of the last field. An empty struct is tight (zero-length span). Any
+// type with a pointer (string/slice/map/ptr/iface/chan/func) is not tight.
+func tightPODWalk(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+		return true
+	case reflect.Array:
+		return tightPODWalk(t.Elem())
+	case reflect.Struct:
+		n := t.NumField()
+		if n == 0 {
+			return true
+		}
+		var next uintptr
+		for i := range n {
+			f := t.Field(i)
+			if f.Offset != next || !tightPODWalk(f.Type) {
+				return false
+			}
+			next = f.Offset + f.Type.Size()
+		}
+		return t.Size() == next
+	default:
+		return false
+	}
+}
+
 // reuseOrMakeSlice sets the slice at p to length n and returns its data base.
 // When the caller-provided slice already has cap >= n it reuses that backing
 // instead of allocating a fresh one — eliminating the result backing
