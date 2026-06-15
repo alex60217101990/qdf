@@ -3,6 +3,8 @@ package qdf
 import (
 	"reflect"
 	"unsafe"
+
+	"github.com/alex60217101990/qdf/internal/reflectutil"
 )
 
 // applyValue reads one op (op byte + payload) and applies it to the value at baseP.
@@ -83,10 +85,17 @@ func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) err
 		return ErrInvalidPatch
 	}
 
-	if newLen != bv.Len() {
+	switch {
+	case newLen == bv.Len():
+		// no resize
+	case newLen < bv.Len():
+		// Shrink in place: newLen < len <= cap, so reslicing keeps the existing
+		// backing array (the overlap elements survive, the patch overwrites the
+		// changed ones) — no allocation for a truncating patch.
+		bv.SetLen(newLen)
+	default: // grow — must allocate; copy the whole old slice into the larger one
 		nv := reflect.MakeSlice(td.rType, newLen, newLen)
-		cp := min(bv.Len(), newLen)
-		reflect.Copy(nv, bv.Slice(0, cp))
+		reflect.Copy(nv, bv)
 		bv.Set(nv)
 	}
 	sh := (*sliceHeader)(baseP) // re-read after potential Set (Data pointer moved)
@@ -151,7 +160,9 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error
 	dec.i++
 	mv := reflect.NewAt(td.rType, baseP).Elem()
 	if mv.IsNil() {
-		mv.Set(reflect.MakeMap(td.rType))
+		// Allocate through reflectutil so the qdf_reflect2 build tag swaps in the
+		// faster reflect2 map allocator, matching the decode path.
+		reflectutil.MakeMap(td.rType, 0, baseP)
 	}
 	keyType := td.rType.Key()
 	keyDesc, err := descOf(keyType)
