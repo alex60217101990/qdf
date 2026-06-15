@@ -192,3 +192,33 @@ func TestEqualValueNonPODSliceField(t *testing.T) {
 		t.Fatal("changed []bool should differ")
 	}
 }
+
+func TestApplyNoCopyIsolation(t *testing.T) {
+	type Rec struct {
+		ID   int
+		Name string
+	}
+	// Dirty the shared pool: grab a decoder, set noCopy, return it.
+	d := decPool.Get().(*Decoder)
+	d.SetNoCopy(true)
+	decPool.Put(d)
+
+	old := Rec{ID: 1, Name: "alice"}
+	neu := Rec{ID: 1, Name: "bob"}
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := old
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	got := base.Name
+	// Scribble the patch buffer; if Apply aliased it, got mutates.
+	for i := range patch {
+		patch[i] = 0xFF
+	}
+	if base.Name != got || base.Name != "bob" {
+		t.Fatalf("Apply aliased the patch buffer: name=%q", base.Name)
+	}
+}
