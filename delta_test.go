@@ -441,7 +441,7 @@ func TestApplyRejectsSliceGrowthBomb(t *testing.T) {
 	// claims growth far beyond its size must be rejected. Use a crafted body via
 	// the public path is not feasible here, so just ensure a hostile truncation
 	// errors cleanly (no panic / no huge alloc).
-	for cut := len(bad) - 1; cut >= 0; cut-- {
+	for cut := range slices.Backward(bad) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -945,7 +945,7 @@ func TestDiffApplyDenseInternRoundTrip(t *testing.T) {
 		}
 	}
 	// Pooled reuse: many sequential Diff/Apply must not leak intern state across calls.
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		patch, _ := Diff(old, neu, OptDense|OptBalanced)
 		base := old
 		if err := Apply(&base, patch); err != nil {
