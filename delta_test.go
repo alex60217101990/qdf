@@ -135,3 +135,25 @@ func TestEqualValueStructSliceMapPtr(t *testing.T) {
 		t.Fatal("ptr presence change should differ")
 	}
 }
+
+func TestEqualValueNonPODSliceField(t *testing.T) {
+	type Rec struct {
+		Tags  []string
+		Flags []bool
+		Names []string
+	}
+	td, _ := descOf(reflect.TypeFor[Rec]())
+	a := Rec{Tags: []string{"x", "y"}, Flags: []bool{true}, Names: []string{"a"}}
+	b := Rec{Tags: []string{"x", "y"}, Flags: []bool{true}, Names: []string{"a"}}
+	if !equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&b)) {
+		t.Fatal("identical non-POD slices should be equal")
+	}
+	c := Rec{Tags: []string{"x", "z"}, Flags: []bool{true}, Names: []string{"a"}}
+	if equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&c)) {
+		t.Fatal("changed []string should differ")
+	}
+	d := Rec{Tags: []string{"x", "y"}, Flags: []bool{false}, Names: []string{"a"}}
+	if equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&d)) {
+		t.Fatal("changed []bool should differ")
+	}
+}
