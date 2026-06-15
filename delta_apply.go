@@ -57,12 +57,6 @@ func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return ErrInvalidPatch
 	}
 	dec.i += k
-	newLen := int(newLen64)
-	// Bound newLen by remaining input so a hostile patch cannot pre-allocate a
-	// huge slice (each entry costs >=1 byte; this is a loose but safe ceiling).
-	if newLen < 0 || uint64(newLen) > uint64(len(dec.buf)) {
-		return ErrInvalidPatch
-	}
 
 	elem := td.elem
 	if elem == nil {
@@ -70,6 +64,20 @@ func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 	}
 	stride := td.rType.Elem().Size()
 	bv := reflect.NewAt(td.rType, baseP).Elem()
+
+	newLen := int(newLen64)
+	if newLen < 0 {
+		return ErrInvalidPatch
+	}
+	// Bound hostile growth: every element beyond the current base length must be
+	// described by the patch (>=1 byte each), so the number of grown elements
+	// cannot exceed the remaining input. This rejects an allocation-amplification
+	// patch (huge newLen, zero entries) while still allowing the legitimate delta
+	// case of a large base with a tiny no-grow patch (newLen <= base length).
+	if newLen > bv.Len() && uint64(newLen-bv.Len()) > uint64(len(dec.buf)-dec.i) {
+		return ErrInvalidPatch
+	}
+
 	if newLen != bv.Len() {
 		nv := reflect.MakeSlice(td.rType, newLen, newLen)
 		cp := bv.Len()
