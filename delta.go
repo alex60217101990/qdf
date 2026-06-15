@@ -7,10 +7,15 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"time"
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/rans"
 )
+
+// timeType is the cached descriptor key for time.Time, used by the fingerprint
+// fast path (a time.Time field is common and the reflect fallback allocates).
+var timeType = reflect.TypeFor[time.Time]()
 
 // maxDeltaDepth bounds recursion in the diff/apply/fingerprint value walks,
 // matching the encoder's cycle guard. A cyclic or pathologically deep value is
@@ -349,6 +354,17 @@ func fpHash(h *maphash.Hash, td *typeDesc, p unsafe.Pointer, depth int) {
 		// to walk — hash its real fields via reflect so the fingerprint is not blind
 		// to them (consistent with equalValue's DeepEqual for the same shape).
 		if len(td.fields) == 0 {
+			if td.rType == timeType {
+				// time.Time is the common fields-less struct. Hash the instant the
+				// codec actually round-trips (UTC sec + nsec) — alloc-free and no
+				// reflect, vs fpHashReflect which walks *Location and allocates.
+				t := (*time.Time)(p).UTC()
+				var b [12]byte
+				binary.LittleEndian.PutUint64(b[:8], uint64(t.Unix()))
+				binary.LittleEndian.PutUint32(b[8:], uint32(t.Nanosecond()))
+				_, _ = h.Write(b[:])
+				return
+			}
 			fpHashReflect(h, reflect.NewAt(td.rType, p).Elem(), depth)
 			return
 		}
