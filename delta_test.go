@@ -713,3 +713,116 @@ func TestDiffApplyNilVsEmptyBothLenZero(t *testing.T) {
 	check("nil->nil", nilV, nilV)
 	check("empty->empty", emptyV, emptyV)
 }
+
+// TestDiffApplyDeletions exercises element/key removal across containers: map
+// key deletion (including delete-all), middle-element slice deletion, slice
+// shrink-to-empty and shrink-to-nil, and nested struct field deletions. Arrays
+// have no deletion concept (fixed length); see TestDiffApplyArray.
+func TestDiffApplyDeletions(t *testing.T) {
+	tiers := []Options{OptBalanced, OptCompression, OptSpeed}
+
+	t.Run("map delete one / all", func(t *testing.T) {
+		for _, opts := range tiers {
+			// delete one key
+			p, err := Diff(map[string]int{"a": 1, "b": 2, "c": 3},
+				map[string]int{"a": 1, "c": 3}, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			base := map[string]int{"a": 1, "b": 2, "c": 3}
+			if err := Apply(&base, p); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(base, map[string]int{"a": 1, "c": 3}) {
+				t.Fatalf("opts=%v delete-one got %v", opts, base)
+			}
+			// delete all -> empty non-nil
+			p2, _ := Diff(map[string]int{"a": 1, "b": 2}, map[string]int{}, opts)
+			base2 := map[string]int{"a": 1, "b": 2}
+			if err := Apply(&base2, p2); err != nil {
+				t.Fatal(err)
+			}
+			if base2 == nil || len(base2) != 0 {
+				t.Fatalf("opts=%v delete-all got %v (nil=%v)", opts, base2, base2 == nil)
+			}
+		}
+	})
+
+	t.Run("slice delete middle / shrink", func(t *testing.T) {
+		for _, opts := range tiers {
+			// middle deletion via positional shift+truncate
+			p, _ := Diff([]int{10, 20, 30, 40}, []int{10, 30, 40}, opts)
+			base := []int{10, 20, 30, 40}
+			if err := Apply(&base, p); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(base, []int{10, 30, 40}) {
+				t.Fatalf("opts=%v slice-middle got %v", opts, base)
+			}
+			// shrink to empty non-nil
+			p2, _ := Diff([]int{1, 2, 3}, []int{}, opts)
+			b2 := []int{1, 2, 3}
+			if err := Apply(&b2, p2); err != nil {
+				t.Fatal(err)
+			}
+			if b2 == nil || len(b2) != 0 {
+				t.Fatalf("opts=%v shrink-empty got %v (nil=%v)", opts, b2, b2 == nil)
+			}
+			// shrink to nil
+			p3, _ := Diff([]int{1, 2, 3}, []int(nil), opts)
+			b3 := []int{1, 2, 3}
+			if err := Apply(&b3, p3); err != nil {
+				t.Fatal(err)
+			}
+			if b3 != nil {
+				t.Fatalf("opts=%v shrink-nil got non-nil %v", opts, b3)
+			}
+		}
+	})
+
+	t.Run("nested struct deletions", func(t *testing.T) {
+		type Rec struct {
+			Tags  map[string]int
+			Items []string
+		}
+		old := Rec{Tags: map[string]int{"x": 1, "y": 2}, Items: []string{"a", "b", "c"}}
+		neu := Rec{Tags: map[string]int{"x": 1}, Items: []string{"a"}}
+		for _, opts := range tiers {
+			p, err := Diff(old, neu, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			base := Rec{Tags: map[string]int{"x": 1, "y": 2}, Items: []string{"a", "b", "c"}}
+			if err := Apply(&base, p); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(base, neu) {
+				t.Fatalf("opts=%v nested got %#v want %#v", opts, base, neu)
+			}
+		}
+	})
+}
+
+// TestApplyDivergentBaseRejected verifies that the default-on base fingerprint
+// rejects applying a patch onto a base that is not the old the patch was built
+// from. This is why "deleting an absent key" never arises in normal flow: a
+// matching base provably contains every tombstoned key. applyMap still no-ops a
+// SetMapIndex(zero) on an absent key defensively against hand-crafted patches.
+func TestApplyDivergentBaseRejected(t *testing.T) {
+	p, err := Diff(map[string]int{"a": 1, "gone": 9}, map[string]int{"a": 1}, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	divergent := map[string]int{"a": 1} // lacks "gone" -> not the original old
+	if err := Apply(&divergent, p); !errors.Is(err, ErrPatchBaseMismatch) {
+		t.Fatalf("divergent base: got %v want ErrPatchBaseMismatch", err)
+	}
+	// The matching base applies cleanly and removes the tombstoned key.
+	matching := map[string]int{"a": 1, "gone": 9}
+	if err := Apply(&matching, p); err != nil {
+		t.Fatalf("matching base: %v", err)
+	}
+	if !reflect.DeepEqual(matching, map[string]int{"a": 1}) {
+		t.Fatalf("got %v", matching)
+	}
+}
