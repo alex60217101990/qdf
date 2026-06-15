@@ -30,6 +30,12 @@ type typeDesc struct {
 	// typeCache via LoadOrStore (same happens-before as encode/decode).
 	schemaFP uint64
 
+	// keyed/keyOff/keyDesc describe a struct element's identity key (the field
+	// tagged `qdf:"...,key"`), used by keyed slice diff. keyed is false for
+	// types without a key tag. Set once at build.
+	keyOff  uintptr   // byte offset of the key field within the struct
+	keyDesc *typeDesc // descriptor of the key field's type
+
 	// kind / marshalerKind / pod are 1-byte (or kind-sized) tails kept last so
 	// they share one word instead of forcing padding ahead of the 8-byte fields
 	// above.
@@ -49,6 +55,8 @@ type typeDesc struct {
 	// descBuild (single-threaded, published with the descriptor). Shares the
 	// 1-byte tail with kind/marshalerKind/pod (no new padding).
 	tightPOD bool
+	// keyed reports whether a ,key-tagged field is present (keyOff/keyDesc valid).
+	keyed bool
 }
 
 type fieldDesc struct {
@@ -63,6 +71,7 @@ type fieldDesc struct {
 	// the first time (intern record) and rely on the encoder's state table
 	// to switch to refs on subsequent encodes.
 	preInternStr []byte
+	isKey        bool // this field carried the ,key tag option
 }
 
 var typeCache sync.Map // map[reflect.Type]*typeDesc — only fully-built entries
@@ -302,6 +311,19 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 			return err
 		}
 		td.fields = fields
+		// Record the identity key (the ,key-tagged field), if any. Reject more
+		// than one ,key field per type.
+		for i := range td.fields {
+			if !td.fields[i].isKey {
+				continue
+			}
+			if td.keyed {
+				return ErrUnsupported // at most one ,key field per type
+			}
+			td.keyed = true
+			td.keyOff = td.fields[i].offset
+			td.keyDesc = td.fields[i].desc
+		}
 		td.encode = encodeStruct(td)
 		td.decode = decodeStruct(td)
 	default:
@@ -360,6 +382,7 @@ func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buil
 			continue
 		}
 		name := sf.Name
+		isKey := false
 		if tag, ok := sf.Tag.Lookup("qdf"); ok {
 			if tag == "-" {
 				continue
@@ -367,6 +390,14 @@ func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buil
 			parts := strings.Split(tag, ",")
 			if parts[0] != "" {
 				name = parts[0]
+			}
+			for _, opt := range parts[1:] {
+				if opt == "key" {
+					if !sf.Type.Comparable() {
+						return nil, ErrUnsupported // a key field must be comparable
+					}
+					isKey = true
+				}
 			}
 		} else if tag, ok := sf.Tag.Lookup("json"); ok {
 			parts := strings.Split(tag, ",")
@@ -387,6 +418,7 @@ func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buil
 			desc:         fd,
 			preFast:      precomputeFixstrHeader(name),
 			preInternStr: precomputeInternStrHeader(name),
+			isKey:        isKey,
 		})
 	}
 	// stable order = source order (no sort) — matches encoding/json behavior
