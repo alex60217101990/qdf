@@ -204,14 +204,19 @@ func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int
 	if newLen < 0 || uint64(newLen) > uint64(len(dec.buf)-dec.i) {
 		return ErrInvalidPatch
 	}
+	// Decode all order keys into ONE contiguous typed buffer so each token can
+	// alias its stable element (no per-key string copy). keysV stays live for the
+	// function, keeping the key bytes (and any string-key heap content) reachable.
 	order := make([]string, newLen)
-	keyHold := reflect.New(elem.keyDesc.rType).Elem()
+	keysV := reflect.MakeSlice(reflect.SliceOf(elem.keyDesc.rType), newLen, newLen)
+	keysBase := keysV.UnsafePointer()
+	ksize := elem.keyDesc.rType.Size()
 	for i := range newLen {
-		if err := elem.keyDesc.decode(dec, keyHold.Addr().UnsafePointer()); err != nil {
+		kp := unsafe.Add(keysBase, uintptr(i)*ksize)
+		if err := elem.keyDesc.decode(dec, kp); err != nil {
 			return err
 		}
-		// token must outlive the decode loop → copy the content.
-		order[i] = string([]byte(keyTokenAt(elem.keyDesc, keyHold.Addr().UnsafePointer())))
+		order[i] = keyTokenAt(elem.keyDesc, kp) // aliases keysV (stable) — no copy
 	}
 
 	lookup, _ := buildKeyLookup(&dec.keyIdx, baseKeyAt, bh.Len)
