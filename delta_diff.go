@@ -300,11 +300,14 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 	case reflect.Array:
 		return equalArrayEV(td, aP, bP, depth)
 	case reflect.Struct:
-		// time.Time and custom-marshaler structs have no td.fields; fall back to
-		// reflect.DeepEqual on the reflect value (rare; correctness over speed).
+		// time.Time and custom-marshaler structs have no td.fields. Use
+		// reflect.DeepEqual, NOT reflect.Value.Equal, which panics when the struct
+		// holds a non-comparable field (slice/map/func) — a real crash for a
+		// Marshaler type with e.g. a []int field. Rare path; correctness over speed.
 		if len(td.fields) == 0 {
-			return reflect.NewAt(td.rType, aP).Elem().
-				Equal(reflect.NewAt(td.rType, bP).Elem())
+			av := reflect.NewAt(td.rType, aP).Elem()
+			bv := reflect.NewAt(td.rType, bP).Elem()
+			return reflect.DeepEqual(av.Interface(), bv.Interface())
 		}
 		for i := range td.fields {
 			f := &td.fields[i]

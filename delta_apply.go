@@ -167,7 +167,7 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error
 	}
 
 	nUpd, k := readUvarint(dec.buf[dec.i:])
-	if k <= 0 || nUpd > uint64(len(dec.buf)) {
+	if k <= 0 || nUpd > uint64(len(dec.buf)-dec.i) {
 		return ErrInvalidPatch
 	}
 	dec.i += k
@@ -187,7 +187,7 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error
 	}
 
 	nDel, k2 := readUvarint(dec.buf[dec.i:])
-	if k2 <= 0 || nDel > uint64(len(dec.buf)) {
+	if k2 <= 0 || nDel > uint64(len(dec.buf)-dec.i) {
 		return ErrInvalidPatch
 	}
 	dec.i += k2

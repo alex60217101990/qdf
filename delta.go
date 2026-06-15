@@ -47,6 +47,18 @@ func hashDesc(h *maphash.Hash, td *typeDesc, visited map[*typeDesc]bool) {
 	visited[td] = true
 	_ = h.WriteByte(byte(td.kind))
 	_ = h.WriteByte(td.marshalerKind)
+	// td.elem is only the value/element descriptor; fold in the parts of the
+	// shape it omits so the cross-type guard does not collide: a map's KEY type
+	// (else map[int]V and map[string]V share a fingerprint) and an array's LENGTH
+	// (else [3]T and [4]T collide).
+	switch td.kind {
+	case reflect.Map:
+		_, _ = h.WriteString(td.rType.Key().String())
+	case reflect.Array:
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], uint64(td.rType.Len()))
+		_, _ = h.Write(b[:])
+	}
 	for i := range td.fields {
 		f := &td.fields[i]
 		_, _ = h.WriteString(f.name)
@@ -333,6 +345,13 @@ func fpHash(h *maphash.Hash, td *typeDesc, p unsafe.Pointer, depth int) {
 		}
 	case reflect.Struct:
 		// A tight struct was handled above; this one has strings/pointers/padding.
+		// A fields-less struct (time.Time, a custom Marshaler) carries no td.fields
+		// to walk — hash its real fields via reflect so the fingerprint is not blind
+		// to them (consistent with equalValue's DeepEqual for the same shape).
+		if len(td.fields) == 0 {
+			fpHashReflect(h, reflect.NewAt(td.rType, p).Elem(), depth)
+			return
+		}
 		// Hash per field (skipping any padding between fields).
 		for i := range td.fields {
 			f := &td.fields[i]
