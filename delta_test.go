@@ -1122,3 +1122,38 @@ func TestFingerprintPaddingSafe(t *testing.T) {
 		t.Fatalf("apply failed: %+v", base)
 	}
 }
+
+// TestFingerprintInterfaceHoldingStruct exercises fpHashReflect's struct branch
+// (reflect.Value.Fields()): a struct boxed in an interface field reaches the
+// reflect fallback for the base fingerprint. Validates the v.Fields() iterator
+// is correct (right fields, deterministic) and that Diff/Apply round-trips, and
+// that a divergent boxed-struct base is still caught by ErrPatchBaseMismatch.
+func TestFingerprintInterfaceHoldingStruct(t *testing.T) {
+	type Boxed struct {
+		A int
+		B string
+		C []int
+	}
+	type Rec struct {
+		N int
+		X any
+	}
+	old := Rec{N: 1, X: Boxed{A: 5, B: "x", C: []int{1, 2}}}
+	neu := Rec{N: 2, X: Boxed{A: 5, B: "x", C: []int{1, 2}}} // only N changes
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Rec{N: 1, X: Boxed{A: 5, B: "x", C: []int{1, 2}}}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatalf("interface-struct round-trip: %v", err)
+	}
+	if base.N != 2 {
+		t.Fatalf("apply failed: %+v", base)
+	}
+	// A base whose boxed struct DIVERGES must be caught by the fingerprint.
+	wrong := Rec{N: 1, X: Boxed{A: 99, B: "DIFF", C: []int{9}}}
+	if err := Apply(&wrong, patch); !errors.Is(err, ErrPatchBaseMismatch) {
+		t.Fatalf("divergent boxed-struct base: got %v want ErrPatchBaseMismatch", err)
+	}
+}
