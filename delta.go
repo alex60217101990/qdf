@@ -150,6 +150,12 @@ func Apply[T any](base *T, patch []byte) error {
 // is forced true so value codecs invoked for opReplace skip the QDF header.
 func resetPatchDecoder(dec *Decoder, body []byte, dense bool) {
 	dec.SetInput(body)
+	// SetInput resets buf/i/depth/colIndex/selectFields/query/mapFreeList/state
+	// but leaves noCopy and arena sticky from a prior decode. Inheriting noCopy
+	// would alias the caller's patch buffer in an opReplace string → corruption
+	// after the caller mutates/reuses it; clear both (mirrors UnmarshalT).
+	dec.noCopy = false
+	dec.arena = nil
 	dec.headerRead = true
 	if dense {
 		dec.mode = Dense
@@ -189,6 +195,11 @@ func maybeApplyPatchRANS(enc *Encoder, start int) {
 func decompressPatchBody(body []byte) ([]byte, error) {
 	origLen, k := readUvarint(body)
 	if k <= 0 {
+		return nil, ErrInvalidPatch
+	}
+	if origLen == 0 {
+		// The encoder only emits a rANS body for bodies >= ransMinBytes; a
+		// decoded origLen of 0 is malformed.
 		return nil, ErrInvalidPatch
 	}
 	if origLen > uint64(len(body))*64+(1<<20) {

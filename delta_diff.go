@@ -66,8 +66,11 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
 	switch td.kind {
 	case reflect.Bool:
 		return *(*bool)(aP) == *(*bool)(bP)
-	case reflect.Int, reflect.Int64, reflect.Uint, reflect.Uint64, reflect.Uintptr,
-		reflect.Float64:
+	case reflect.Int, reflect.Uint, reflect.Uintptr:
+		// Platform-width: 8 bytes on 64-bit, 4 on 32-bit. Reading *(*uint64)
+		// here would be an OOB read on 32-bit (see slices_fast.go width gating).
+		return *(*uint)(aP) == *(*uint)(bP)
+	case reflect.Int64, reflect.Uint64, reflect.Float64:
 		return *(*uint64)(aP) == *(*uint64)(bP)
 	case reflect.Int8, reflect.Uint8:
 		return *(*uint8)(aP) == *(*uint8)(bP)
