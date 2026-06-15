@@ -35,6 +35,12 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 		if td.rType.Elem().Kind() == reflect.Uint8 {
 			return writeReplace(enc, td, newP) // []byte: whole replace
 		}
+		// A nil↔non-nil transition is not expressible by a positional slice patch
+		// (apply rebuilds via MakeSlice, which is always non-nil). Fall back to a
+		// whole-value replace so the field codec preserves nil-vs-empty.
+		if ((*sliceHeader)(oldP).Data == nil) != ((*sliceHeader)(newP).Data == nil) {
+			return writeReplace(enc, td, newP)
+		}
 		enc.buf = append(enc.buf, opMerge)
 		return true, diffSlice(enc, td, oldP, newP)
 	case reflect.Array:
@@ -44,6 +50,11 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 		enc.buf = append(enc.buf, opMerge)
 		return true, diffArray(enc, td, oldP, newP)
 	case reflect.Map:
+		// Same nil↔non-nil concern as slices: applyMap never reconstructs a nil
+		// map, so a nilness transition must be a whole-value replace.
+		if (*(*unsafe.Pointer)(oldP) == nil) != (*(*unsafe.Pointer)(newP) == nil) {
+			return writeReplace(enc, td, newP)
+		}
 		enc.buf = append(enc.buf, opMerge)
 		return true, diffMap(enc, td, oldP, newP)
 	default:
