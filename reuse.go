@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"reflect"
+	"sync"
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/reflectutil"
@@ -22,11 +23,32 @@ type sliceHeader struct {
 	Cap  int
 }
 
+// noPointersCache memoizes noPointers per reflect.Type. The struct branch of
+// the underlying walk iterates t.Fields(), which allocates an iterator backing
+// on every call; on the diff hot path equalSliceEV/equalArrayEV/diffElems ask
+// the same element type once per element (thousands of times over a large
+// []struct), so an uncached walk dominated AppendDiff's allocations. The answer
+// is type-stable, so cache it like typeCache.
+var noPointersCache sync.Map // map[reflect.Type]bool
+
 // noPointers reports whether t contains no pointers (so a byte-clear of its
 // memory is GC-safe — no write barriers needed). Used to gate decode slice
 // backing reuse: a pointer-free element can be zeroed with clear() over a raw
-// []byte view before the values are decoded in place.
+// []byte view before the values are decoded in place. The result is memoized
+// per type — the recursive structural walk runs at most once per type.
 func noPointers(t reflect.Type) bool {
+	if v, ok := noPointersCache.Load(t); ok {
+		return v.(bool)
+	}
+	res := noPointersWalk(t)
+	noPointersCache.Store(t, res)
+	return res
+}
+
+// noPointersWalk is the uncached structural worker behind noPointers. It uses
+// NumField/Field instead of the Fields() iterator so a cache miss does not
+// allocate an iterator backing for every nested struct level.
+func noPointersWalk(t reflect.Type) bool {
 	switch t.Kind() {
 	case reflect.Bool,
 		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
@@ -34,10 +56,10 @@ func noPointers(t reflect.Type) bool {
 		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
 		return true
 	case reflect.Array:
-		return noPointers(t.Elem())
+		return noPointersWalk(t.Elem())
 	case reflect.Struct:
-		for field := range t.Fields() {
-			if !noPointers(field.Type) {
+		for i := range t.NumField() {
+			if !noPointersWalk(t.Field(i).Type) {
 				return false
 			}
 		}
