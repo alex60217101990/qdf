@@ -1,18 +1,22 @@
 # Structural delta — `Diff` / `Apply`
 
-qdf can compute a **structural delta** between two values of the same type and
-ship only what changed. `Diff(old, new)` walks both values field-by-field,
-element-by-element, key-by-key and emits a self-describing patch that carries
-the *new* value of every location that differs and nothing else; `Apply(base,
-patch)` merges that patch back onto a base value in place to reconstruct `new`.
-This is the missing primitive for **state synchronisation** — Kubernetes-style
+`Diff` computes the structural difference between two values of the same type
+and `Apply` merges that difference back onto a base. The patch carries the new
+value of every location that changed and nothing else, so when one field of a
+large record set moves you ship a few dozen bytes instead of re-encoding the
+whole thing.
+
+```go
+patch, _ := qdf.Diff(old, updated, qdf.OptBalanced) // only the changes
+_ = qdf.Apply(&base, patch)                          // base == updated, in place
+```
+
+This is the primitive behind any *state synchronisation* workload: Kubernetes-style
 resource reconciliation, config hot-reload (ship the change, not the whole
 config), database change-data-capture and event sourcing, realtime / game
-netcode (send only the entities that moved), and live dashboards or
-collaborative editing. No mainstream Go wire format — protobuf, msgpack,
-flatbuffers, capnproto, gob — computes a structural delta natively;
-protobuf's `FieldMask` is caller-specified, not computed. qdf does it from the
-two values, type-generically, with no IDL and no hand-rolled diff code.
+netcode (send only the entities that moved), and live dashboards. It works
+straight from the two values, type-generically — no IDL, no `FieldMask` to
+maintain by hand, no diff code to write per type.
 
 ---
 
@@ -61,12 +65,12 @@ func main() {
 }
 ```
 
-The patch is self-describing: the receiver passes the bytes straight to
-`Apply` without being told which `Options` the producer used.
+The patch is self-describing. The receiver hands the bytes straight to `Apply`
+and never has to be told which `Options` the producer used.
 
 ---
 
-## API reference
+## API
 
 ```go
 func Diff[T any](old, new T, opts Options) ([]byte, error)
@@ -74,64 +78,86 @@ func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error)
 func Apply[T any](base *T, patch []byte) error
 ```
 
-| Function     | Purpose |
-| ------------ | ------- |
-| `Diff`       | Compute a patch carrying only the structural difference `new − old`. |
-| `AppendDiff` | Same, appending to a caller-owned `dst` (zero extra allocation for the output buffer). |
-| `Apply`      | Merge `patch` onto `*base` **in place**, reconstructing `new`. Locations the patch marks unchanged are left exactly as they were in `base`. |
+`Diff` returns a patch carrying only the difference `new − old`. `AppendDiff`
+does the same but appends to a caller-owned `dst`, so a hot loop can reuse one
+buffer with no per-call allocation for the output. `Apply` merges a patch onto
+`*base`, leaving every location the patch does not mention exactly as it was.
 
-`opts` is the same `Options` bit-mask as `Marshal`: `OptSpeed` / `OptBalanced`
-/ `OptCompression` (the latter enables the optional rANS post-pass over the
-patch body, see [Safety](#safety)). The `op`-level wire is the same across
-tiers; the tier only affects how individual replaced values are codec-encoded
-and whether rANS runs.
+`opts` is the same `Options` bit-mask `Marshal` takes — `OptSpeed`,
+`OptBalanced`, `OptCompression`, and the modifiers. The tier only affects how
+individual replaced values are codec-encoded and whether the optional rANS pass
+runs over the patch body; the patch's op-level wire is identical across tiers.
 
-Errors:
+> **`Apply` mutates `*base` in place.** It overwrites the changed locations and
+> leaves the rest untouched — it does not allocate a fresh value. If you need to
+> keep the original around, clone it first (a struct copy plus a copy of any
+> slice/map fields) and apply onto the clone.
 
-| Error                    | Meaning |
-| ------------------------ | ------- |
-| `ErrInvalidPatch`        | The patch blob is truncated, has a bad magic / version, or is otherwise malformed. |
-| `ErrPatchSchemaMismatch` | The patch was built for a different type than the supplied base (see [Safety](#safety)). |
-| `ErrPatchBaseMismatch`   | The patch carries a base fingerprint that does not match the supplied base value — the base has diverged from the original `old`. |
+### Errors
 
-> ⚠️ **`Apply` mutates `*base` in place.** It overwrites the changed fields of
-> `base` and leaves the rest untouched — it does not allocate a fresh value. If
-> you need to keep the original `base` around, **clone it first** (e.g. a struct
-> copy plus a copy of any slice/map fields) and apply onto the clone.
+| Error                    | When |
+| ------------------------ | ---- |
+| `ErrInvalidPatch`        | The patch is truncated, has a bad magic/version, or is otherwise malformed. |
+| `ErrPatchSchemaMismatch` | The patch was built for a different type than the supplied base. |
+| `ErrPatchBaseMismatch`   | The supplied base does not match the `old` the patch was computed against. |
+| `ErrCycleDetected`       | `Diff` was handed a cyclic or pathologically deep value. It is rejected, not crashed. |
 
 ---
 
 ## What gets diffed
 
-`Diff` supports the same type surface as the rest of qdf:
+`Diff` covers the same type surface as the rest of qdf:
 
-- **Structs**, including arbitrarily **nested** structs. A struct is diffed
-  field-by-field; only changed fields appear in the patch (a sparse
-  `tagStructPatch`).
+- **Structs**, including nested and embedded structs. A struct is diffed
+  field-by-field; only changed fields land in the patch.
 - **Scalars** — every integer / unsigned / float / bool width, plus `string`,
   `[]byte`, and `[N]byte` fixed-byte arrays.
-- **Slices and arrays** — diffed **positionally** (index-aligned). Element `i`
-  of `new` is compared against element `i` of `old`.
-- **Maps** — diffed **per key**: added/changed keys carry their new value,
+- **Slices and arrays** — diffed positionally. Element `i` of `new` is compared
+  against element `i` of `old`.
+- **Maps** — diffed per key. Added or changed keys carry their new value;
   removed keys carry a tombstone.
+- **Pointers** — a presence change (nil ↔ non-nil) replaces; two non-nil
+  pointers recurse into what they point at.
 
-### Granularity tiers
+The `nil`-vs-empty distinction is preserved: a transition between `nil` and an
+empty non-nil slice/map/`[]byte` (think `null` vs `[]` in JSON) is a real change
+and ships as a whole-value replace, never silently collapsed.
 
-A changed location is expressed at the **finest granularity that still
-shrinks the patch**:
+A changed location is always expressed at the finest granularity that still
+shrinks the patch. An unchanged field, element, or key is omitted entirely — it
+costs no bytes. A scalar change, a presence change, or a `nil`-vs-empty
+transition ships the whole new value with the normal value codec. A nested
+struct, or two non-nil pointer/map/slice values, recurses and carries a
+sub-patch describing only *its* changed locations.
 
-| Tier | What happens |
-| ---- | ------------ |
-| **absent** | A field/element/key that did not change is omitted entirely (no op byte). |
-| **`opReplace`** | A scalar change, a presence change (nil ↔ non-nil), or a nil-vs-empty transition ships the whole new value with the normal value codec. |
-| **`opMerge`** | A nested struct, or a both-non-nil pointer / map / slice, recurses: the patch carries a sub-patch describing only *its* changed locations. |
+The core rule on the apply side is the mirror image: **absent means unchanged.**
+If a location is not listed, `Apply` leaves the corresponding location in `base`
+exactly as it found it.
+
+---
+
+## Deletion
+
+| Container | How a removed element is expressed |
+| --------- | ---------------------------------- |
+| **map**   | A tombstone in the patch's delete set; `Apply` deletes the key from `base`'s map. |
+| **slice** | A positional shrink: the patch carries the new (shorter) length and `Apply` truncates. |
+| **array** | Arrays are fixed-length, so there is no deletion; a removed value is a zero/nil replace at its index. |
+| **struct field** | Struct shape is fixed; a "removed" value is just a zero/nil replace. |
+
+Slices are matched positionally, so deleting an element from the **middle** is
+expressed as positional shifts of the tail plus a truncate. The result is
+correct, but it reships the shifted tail, because every index past the deletion
+now holds a different value. Deleting or appending at the **end** is cheap;
+inserting or deleting in the middle is not. See
+[Limitations](#limitations) for the keyed-diff alternative that would avoid this.
 
 ---
 
 ## Wire format
 
-A patch is **not** a normal qdf blob. It carries its own magic so a patch can
-never be mistaken for a full value or vice versa:
+A patch is not a normal qdf blob — it carries its own magic so a patch can never
+be mistaken for a full value or vice versa.
 
 ```
 +-----+-----+-----+-----+-----+--------- 8 ---------+----- 8 (optional) -----+
@@ -141,136 +167,118 @@ never be mistaken for a full value or vice versa:
 +--------------------------------------------------------------------------+
 ```
 
-- 3-byte magic `'Q' 'D' 'P'` + a 1-byte version (`0x01`).
+- 3-byte magic `'Q' 'D' 'P'` plus a 1-byte version.
 - 1 flag byte: *dense* (field names interned in the body), *rANS* (body is
-  rANS-compressed), *baseFP present* (default on).
+  rANS-compressed), *baseFP present*.
 - An 8-byte little-endian **schemaFP** (always present).
-- An optional 8-byte little-endian **baseFP** (present by default).
+- An optional 8-byte little-endian **baseFP** (present unless you opt out).
 
-**Ops.** Every changed location is one op byte plus a payload:
+Every changed location is one op byte plus a payload. The op is either a
+*replace* (the whole new value, encoded with the normal qdf value codec) or a
+*merge* (a recursive sub-patch). The three container sub-patches are:
 
-| Op           | Payload |
-| ------------ | ------- |
-| *absent*     | (nothing — the location is simply not listed) |
-| `opReplace`  | the whole new value, encoded with the normal qdf value codec |
-| `opMerge`    | a recursive sub-patch (one of the three container-patch tags below) |
-
-**Container-patch tags** describe a changed composite:
-
-| Tag              | Layout |
-| ---------------- | ------ |
-| `tagStructPatch` | `varuint(nChanged)`, then `nChanged ×` `{varuint(fieldIdx), op}` — sparse: only changed fields. |
-| `tagSlicePatch`  | `varuint(newLen)`, `varuint(nEntries)`, then `nEntries ×` `{varuint(idx), op}` — positional. `newLen` resizes the slice (grow/shrink). |
-| `tagMapPatch`    | `varuint(nUpdate)`, then `nUpdate ×` `{key, op}` updates, then `varuint(nDelete)`, then `nDelete ×` `{key}` tombstones. |
-
----
-
-## Semantics
-
-The core rule is **absent = unchanged**: if a location is not listed in the
-patch, `Apply` leaves the corresponding location in `base` exactly as it is.
-
-| Transition (`old` → `new`)                              | Patch emits |
-| ------------------------------------------------------- | ----------- |
-| value unchanged                                         | **absent** (nothing) |
-| scalar / string / `[]byte` / `[N]byte` changed          | `opReplace` (whole new value) |
-| field/element/key set to its **zero / nil** value       | `opReplace` (the zero/nil is the new value) |
-| **presence change** — nil ↔ non-nil pointer, or nil ↔ non-nil container | `opReplace` |
-| **nil ↔ empty-non-nil** slice / map / `[]byte`          | `opReplace` (the nil-vs-empty distinction is preserved, exactly as the plain encoder preserves it) |
-| nested **struct** changed                               | `opMerge` (recurse) |
-| **both-non-nil** pointer / map / slice changed          | `opMerge` (recurse) |
-
-The nil-vs-empty rule matters: a transition between `nil` and an empty
-non-nil slice/map/`[]byte` (`json` `null` vs `[]`) is a real change and is
-shipped as a whole-value replace, never silently collapsed.
-
----
-
-## Deletion
-
-| Container | How a removed element is expressed |
-| --------- | ---------------------------------- |
-| **map**   | A **tombstone** in the delete set of `tagMapPatch`; `Apply` deletes the key from `base`'s map. |
-| **slice** | A **positional shrink**: `tagSlicePatch` carries the new (shorter) length and `Apply` truncates. |
-| **array** | Arrays are fixed-length — there is no deletion; a removed value is a zero/nil `opReplace` at its index. |
-| **struct field** | Struct shape is fixed — a "removed" value is just a zero/nil `opReplace`. |
-
-> **Middle-deletion caveat (slices).** Slice diff is **positional** in Phase 1.
-> Deleting an element from the middle is expressed as positional shifts of the
-> tail plus a truncate — value-correct, but it **reships the shifted tail**
-> because every index after the deletion now holds a different value. A
-> keyed-slice diff (match by a declared key field, so a middle insert/delete
-> does not reship the tail) is [Phase 2](#limitations--roadmap).
+| Sub-patch  | Layout |
+| ---------- | ------ |
+| struct     | `varuint(nChanged)`, then `nChanged ×` `{varuint(fieldIdx), op}` — sparse, only changed fields. |
+| slice      | `varuint(newLen)`, `varuint(nEntries)`, then `nEntries ×` `{varuint(idx), op}` — positional; `newLen` grows or shrinks the slice. |
+| map        | `varuint(nUpdate)`, `nUpdate ×` `{key, op}` updates, then `varuint(nDelete)`, `nDelete ×` `{key}` tombstones. |
 
 ---
 
 ## Safety
 
 `Apply` will not silently corrupt a value applied against the wrong type or the
-wrong base.
+wrong base. Two fingerprints guard it.
 
-- **`schemaFP`** (always present) is a hash of the type's *shape* — kind, field
-  names, and recursive field/element kinds. `Apply` recomputes it from the
-  target type and rejects a patch built for a different type with
-  `ErrPatchSchemaMismatch`. A patch can never be mis-parsed as if it were for
-  another struct.
-- **`baseFP`** (on by default) is an **order-independent** hash of `old`
-  (map-bearing values fingerprint deterministically regardless of map
-  iteration order). `Apply` recomputes it over the supplied base and rejects a
-  base that is not the original `old` with `ErrPatchBaseMismatch`. This is why
-  applying a patch onto a *divergent* base fails loudly instead of producing a
-  corrupt merge.
+The **schema fingerprint** (always present) is a hash of the type's shape —
+kind, field names, and recursive field/element kinds. `Apply` recomputes it from
+the target type and rejects a patch built for a different type with
+`ErrPatchSchemaMismatch`. A patch can never be mis-parsed as if it were for
+another struct.
 
-**Diff-before-rANS.** Under `OptCompression` the optional order-0 rANS entropy
-pass runs **after** the structural diff, over the already-minimal patch body,
-and only when it shrinks (never larger). The diff does the structural work; rANS
-squeezes the residual byte entropy of what is left.
+The **base fingerprint** (present by default) is an order-independent hash of
+`old`; map-bearing values fingerprint deterministically regardless of map
+iteration order. `Apply` recomputes it over the supplied base and rejects a base
+that has diverged from the original `old` with `ErrPatchBaseMismatch`. This is
+what turns "applied a patch onto the wrong base" from a corrupt merge into a
+loud error.
 
-**Fuzz-tested.** The delta path is covered by a round-trip oracle fuzzer
-(`Apply(base, Diff(old, new)) == new`, 1.5 M+ executions) and a hostile-patch
-fuzzer that feeds malformed patch bytes to `Apply` (3.6 M+ executions). It
-never panics and never OOMs on hostile input — every length-prefixed read is
-bounded by the input.
+The patch body is self-contained and bounded. Every length-prefixed read is
+bounded by the input, so a hostile or truncated patch returns an error — it
+never panics and never OOMs. Under `OptCompression` an order-0 rANS entropy pass
+runs *after* the structural diff, over the already-minimal patch body, and only
+when it actually shrinks (never larger). The diff does the structural work; rANS
+squeezes whatever byte entropy is left.
+
+The path is covered by a round-trip oracle fuzzer
+(`Apply(base, Diff(old, new)) == new`) and a hostile-patch fuzzer that feeds
+malformed bytes to `Apply`, both run into the millions of executions.
 
 ---
 
 ## Performance
 
-Measured on `BenchmarkDiffApply` (Intel i7-9750H, Go 1.26): a 1000-record
-slice with a **single changed field**.
+`Diff` costs CPU to compute, but you ship a fraction of the bytes — exactly the
+trade a state-sync or CDC workload wants. Measured on `BenchmarkDiffApply`
+(Intel i7-9750H, Go 1.26): a 1000-record slice in which a **single field of a
+single element** changes.
 
-| Operation         | time     | B/op    | allocs/op | output size |
-| ----------------- | -------: | ------: | --------: | ----------: |
-| **`Diff`**        | ~0.69 ms | 24.5 KB |    ~3 010 | **42 B**    |
-| **`Apply`**       | ~0.26 ms |  82 KB  |         5 | —           |
-| full `Marshal`    | ~0.21 ms |  27 KB  |         3 | **26 677 B**|
+| Operation         | time      | output size |
+| ----------------- | --------: | ----------: |
+| `Diff`            | ~0.51 ms  | **42 B**    |
+| `Apply`           | ~0.25 ms  | —           |
+| full `Marshal`    | ~0.20 ms  | **26 677 B**|
 
-The headline: the **patch is 42 bytes against the 26 677-byte full Marshal —
-~635× smaller** when one field of a 1000-record batch changed. You pay diff CPU
-to compute it, but you ship a fraction of the bytes — exactly the trade a
-state-sync / CDC workload wants.
+The patch is 42 bytes against the 26 677-byte full marshal — about **635×
+smaller** for one changed field. `Apply` only touches the locations the patch
+mentions; the rest of the base is left in place, untouched.
+
+### Skipping the base fingerprint
+
+By default `Diff` embeds a fingerprint of `old` in the patch and `Apply` walks
+the supplied base to recompute and verify it. That walk is what catches a
+wrong base — and on a large base with a tiny patch it dominates `Apply`'s cost,
+because you pay a full reflect walk of the whole value to validate a few changed
+bytes.
+
+`OptDeltaNoBaseFingerprint`, set in the `Diff` / `AppendDiff` opts, omits the
+fingerprint and skips the check on both sides:
+
+```go
+patch, _ := qdf.Diff(old, updated, qdf.OptBalanced|qdf.OptDeltaNoBaseFingerprint)
+// ... ship patch ...
+_ = qdf.Apply(&base, patch) // no base walk, no ErrPatchBaseMismatch possible
+```
+
+In our benchmark this takes `Apply` from ~0.25 ms to ~0.02 ms — roughly **10×**
+faster — because `Apply` no longer reflect-walks the large base. The cost is the
+safety net: with no fingerprint, applying onto a divergent base silently merges
+onto the wrong value instead of returning `ErrPatchBaseMismatch`. Use it only in
+trusted pipelines where the caller *guarantees* `Apply`'s base is exactly the
+value `Diff` was computed against (a single-writer cache, a CDC stream you
+control end-to-end). When in doubt, leave it off — the schema fingerprint is
+always present regardless, so a wrong *type* is still rejected.
 
 ---
 
-## Limitations & roadmap
+## Limitations
 
-**Phase 1 (shipped).** Diff/Apply for structs (incl. nested), scalars / string
-/ `[]byte` / `[N]byte`, **positional** slices and arrays, per-key maps with
-tombstones; schema + base fingerprints; optional rANS post-pass.
+**Slices are matched positionally.** There is no keyed or identity-based
+matching, so reordering a slice, or inserting/deleting in the middle, reships
+the shifted tail (see [Deletion](#deletion)). If your slices are append-mostly
+or you mutate elements in place this is a non-issue; if you reorder a large
+slice often, a full `Marshal` of that slice may beat a positional diff.
 
-**Slices are positional only** in Phase 1 — a reorder or a middle insert/delete
-reships the shifted tail (see [Deletion](#deletion)).
+A few things are not currently supported and may come later:
 
-**Phase 2 (not built).**
+- **Keyed slice diff** — matching elements by a declared key field, so a reorder
+  or a middle insert/delete updates only the affected elements instead of
+  reshipping the positional tail.
+- **Column-level diff for `[]struct`** — when a slice of flat structs is stored
+  columnar, shipping only the columns that changed instead of per-element ops.
+- **Content-addressed baselines** — addressing the base by a content hash so a
+  patch can be applied against a baseline fetched from a store, rather than the
+  caller holding `old`.
 
-- **Columnar column-level diff for `[]struct`** — when a slice of flat structs
-  is columnar, ship only the columns that changed (1 of 20 columns changed →
-  ship 1 column's delta), leaning on qdf's existing columnar transpose.
-- **Keyed slice diff** — match elements by a declared key field so a reorder or
-  middle insert/delete updates only the affected elements instead of reshipping
-  the positional tail.
-- **Content-addressed baseline registry** — address the baseline by a content
-  hash / id instead of the caller holding `old`, so a patch can be applied
-  against a baseline fetched from a store.
-</content>
-</invoke>
+None of these is wired up today; the positional diff above is the whole feature
+as it stands.
