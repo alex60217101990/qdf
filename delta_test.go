@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"errors"
 	"maps"
 	"reflect"
 	"testing"
@@ -60,20 +61,20 @@ func TestSchemaFingerprintStableAndDistinct(t *testing.T) {
 
 func TestReadPatchHeaderRejectsBadMagic(t *testing.T) {
 	bad := []byte{'X', 'D', 'P', patchVersion1, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	if _, _, err := readPatchHeader(bad); err != ErrInvalidPatch {
+	if _, _, err := readPatchHeader(bad); !errors.Is(err, ErrInvalidPatch) {
 		t.Fatalf("got %v want ErrInvalidPatch", err)
 	}
-	if _, _, err := readPatchHeader([]byte{'Q'}); err != ErrInvalidPatch {
+	if _, _, err := readPatchHeader([]byte{'Q'}); !errors.Is(err, ErrInvalidPatch) {
 		t.Fatalf("short: got %v want ErrInvalidPatch", err)
 	}
 	truncated := writePatchHeader(nil, flagPatchBaseFP, 1, 2)[:15] // cut mid-baseFP
-	if _, _, err := readPatchHeader(truncated); err != ErrInvalidPatch {
+	if _, _, err := readPatchHeader(truncated); !errors.Is(err, ErrInvalidPatch) {
 		t.Fatalf("truncated baseFP: got %v want ErrInvalidPatch", err)
 	}
 }
 
 func TestEqualValueScalarsStringsBytes(t *testing.T) {
-	eq := func(td *typeDesc, a, b unsafe.Pointer) bool { return equalValue(td, a, b) }
+	eq := equalValue
 
 	tdI, _ := descOf(reflect.TypeFor[int]())
 	x, y := 5, 5
@@ -487,7 +488,7 @@ func TestApplyRejectsWrongSchema(t *testing.T) {
 	type B struct{ Y int }
 	p, _ := Diff(A{X: 1}, A{X: 2}, OptBalanced)
 	var b B
-	if err := Apply(&b, p); err != ErrPatchSchemaMismatch {
+	if err := Apply(&b, p); !errors.Is(err, ErrPatchSchemaMismatch) {
 		t.Fatalf("got %v want ErrPatchSchemaMismatch", err)
 	}
 }
@@ -496,7 +497,7 @@ func TestApplyRejectsWrongBase(t *testing.T) {
 	type A struct{ X, Y int }
 	p, _ := Diff(A{X: 1, Y: 1}, A{X: 2, Y: 1}, OptBalanced)
 	wrong := A{X: 9, Y: 9} // not the old the patch was built against
-	if err := Apply(&wrong, p); err != ErrPatchBaseMismatch {
+	if err := Apply(&wrong, p); !errors.Is(err, ErrPatchBaseMismatch) {
 		t.Fatalf("got %v want ErrPatchBaseMismatch", err)
 	}
 }

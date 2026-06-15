@@ -30,19 +30,19 @@ func schemaFingerprint(td *typeDesc) uint64 {
 
 func hashDesc(h *maphash.Hash, td *typeDesc, visited map[*typeDesc]bool) {
 	if td == nil {
-		h.WriteByte(0xFF)
+		_ = h.WriteByte(0xFF)
 		return
 	}
 	if visited[td] {
-		h.WriteByte(0xFE) // cycle marker
+		_ = h.WriteByte(0xFE) // cycle marker
 		return
 	}
 	visited[td] = true
-	h.WriteByte(byte(td.kind))
-	h.WriteByte(td.marshalerKind)
+	_ = h.WriteByte(byte(td.kind))
+	_ = h.WriteByte(td.marshalerKind)
 	for i := range td.fields {
 		f := &td.fields[i]
-		h.WriteString(f.name)
+		_, _ = h.WriteString(f.name)
 		hashDesc(h, f.desc, visited)
 	}
 	if td.elem != nil {
@@ -89,7 +89,7 @@ func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error) {
 	enc.buf = writePatchHeader(dst, flags, schemaFP, baseFP)
 	enc.MarkHeaderWritten() // QDP header, not QDF: suppress value-codec QDF header
 
-	if _, err := diffValue(enc, td, unsafe.Pointer(&old), unsafe.Pointer(&new)); err != nil {
+	if err := diffValue(enc, td, unsafe.Pointer(&old), unsafe.Pointer(&new)); err != nil {
 		enc.buf = nil
 		putEnc(enc, &encPool)
 		return dst, err
@@ -237,7 +237,7 @@ func fpWalk(h *maphash.Hash, v reflect.Value) {
 		}
 		var b [8]byte
 		binary.LittleEndian.PutUint64(b[:], acc)
-		h.Write(b[:])
+		_, _ = h.Write(b[:])
 	case reflect.Struct:
 		for i := range v.NumField() {
 			fpWalk(h, v.Field(i))
@@ -248,32 +248,32 @@ func fpWalk(h *maphash.Hash, v reflect.Value) {
 		}
 	case reflect.Pointer:
 		if v.IsNil() {
-			h.WriteByte(0)
+			_ = h.WriteByte(0)
 		} else {
-			h.WriteByte(1)
+			_ = h.WriteByte(1)
 			fpWalk(h, v.Elem())
 		}
 	case reflect.String:
-		h.WriteString(v.String())
+		_, _ = h.WriteString(v.String())
 	case reflect.Bool:
 		if v.Bool() {
-			h.WriteByte(1)
+			_ = h.WriteByte(1)
 		} else {
-			h.WriteByte(0)
+			_ = h.WriteByte(0)
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		var b [8]byte
 		binary.LittleEndian.PutUint64(b[:], uint64(v.Int()))
-		h.Write(b[:])
+		_, _ = h.Write(b[:])
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		var b [8]byte
 		binary.LittleEndian.PutUint64(b[:], v.Uint())
-		h.Write(b[:])
+		_, _ = h.Write(b[:])
 	case reflect.Float32, reflect.Float64:
 		var b [8]byte
 		binary.LittleEndian.PutUint64(b[:], math.Float64bits(v.Float()))
-		h.Write(b[:])
+		_, _ = h.Write(b[:])
 	default:
-		h.WriteString(v.Type().String())
+		_, _ = h.WriteString(v.Type().String())
 	}
 }
