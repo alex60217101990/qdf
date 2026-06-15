@@ -196,6 +196,9 @@ func applyImpl[T any](base *T, patch []byte, arena *Arena) error {
 	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
 		dec.deltaScratch = nil
 	}
+	if len(dec.keyIdx) > 1<<16 {
+		dec.keyIdx = nil
+	}
 	decPool.Put(dec)
 	return err
 }

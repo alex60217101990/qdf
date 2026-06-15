@@ -136,3 +136,60 @@ func TestKeyTokenAtMatchesKeyToken(t *testing.T) {
 		t.Fatalf("keyTokenAt %q != keyToken %q", at, full)
 	}
 }
+
+func TestDiffApplyKeyedReorderAndChange(t *testing.T) {
+	type E struct {
+		ID   string `qdf:"id,key"`
+		Val  int
+		Note string
+	}
+	old := []E{{"a", 1, "x"}, {"b", 2, "y"}, {"c", 3, "z"}}
+	neu := []E{{"c", 3, "z"}, {"a", 10, "x"}, {"b", 2, "y"}, {"d", 4, "w"}}
+	for _, opts := range []Options{OptBalanced, OptCompression, OptSpeed} {
+		patch, err := Diff(old, neu, opts)
+		if err != nil {
+			t.Fatalf("opts=%v Diff: %v", opts, err)
+		}
+		base := append([]E(nil), old...)
+		if err := Apply(&base, patch); err != nil {
+			t.Fatalf("opts=%v Apply: %v", opts, err)
+		}
+		if !reflect.DeepEqual(base, neu) {
+			t.Fatalf("opts=%v: got %+v want %+v", opts, base, neu)
+		}
+	}
+}
+
+func TestDiffApplyKeyedValueOnlyNoOrder(t *testing.T) {
+	type E struct {
+		ID  int64 `qdf:"id,key"`
+		Val int
+	}
+	old := []E{{1, 10}, {2, 20}, {3, 30}}
+	neu := []E{{1, 10}, {2, 99}, {3, 30}} // same order, one value changed
+	patch, _ := Diff(old, neu, OptBalanced)
+	base := append([]E(nil), old...)
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("got %+v want %+v", base, neu)
+	}
+}
+
+func TestDiffApplyKeyedDeleteInsert(t *testing.T) {
+	type E struct {
+		ID  int64 `qdf:"id,key"`
+		Val int
+	}
+	old := []E{{1, 1}, {2, 2}, {3, 3}, {4, 4}}
+	neu := []E{{1, 1}, {3, 30}, {5, 5}} // delete 2&4, change 3, add 5, reorder
+	patch, _ := Diff(old, neu, OptBalanced)
+	base := append([]E(nil), old...)
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("got %+v want %+v", base, neu)
+	}
+}

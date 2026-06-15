@@ -139,6 +139,131 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 	return nil
 }
 
+// applyKeyedSlice reads a tagKeyedSlicePatch body and reconciles the base slice
+// by element identity (the key field), mirroring diffKeyedSlice on the encode
+// side. Element copies use typed reflect Set so the compiler emits GC write
+// barriers (raw memmove would not); the new slice is built with reflect.MakeSlice.
+func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error {
+	if depth > maxDeltaDepth {
+		return ErrInvalidPatch
+	}
+	if dec.i >= len(dec.buf) || dec.buf[dec.i] != tagKeyedSlicePatch {
+		return ErrInvalidPatch
+	}
+	dec.i++
+	if dec.i >= len(dec.buf) {
+		return ErrInvalidPatch
+	}
+	flags := dec.buf[dec.i]
+	dec.i++
+
+	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+	}
+	if elem == nil || !elem.keyed || elem.keyDesc == nil {
+		return ErrInvalidPatch
+	}
+	elemType := td.rType.Elem()
+	stride := elemType.Size()
+	bh := (*sliceHeader)(baseP)
+	baseKeyAt := func(i int) string { return keyToken(elem, unsafe.Add(bh.Data, uintptr(i)*stride)) }
+
+	if flags&flagKeyedOrderChanged == 0 {
+		// Value-only updates on the same key sequence; apply each op in place.
+		lookup, _ := buildKeyLookup(&dec.keyIdx, baseKeyAt, bh.Len)
+		nOps, k := readUvarint(dec.buf[dec.i:])
+		if k <= 0 || nOps > uint64(len(dec.buf)-dec.i) {
+			return ErrInvalidPatch
+		}
+		dec.i += k
+		keyHold := reflect.New(elem.keyDesc.rType).Elem()
+		for range nOps {
+			if err := elem.keyDesc.decode(dec, keyHold.Addr().UnsafePointer()); err != nil {
+				return err
+			}
+			tok := keyTokenAt(elem.keyDesc, keyHold.Addr().UnsafePointer())
+			oi, ok := lookupGet(lookup, &dec.keyIdx, baseKeyAt, bh.Len, tok)
+			if !ok {
+				return ErrInvalidPatch // op for a key not in base (divergent base)
+			}
+			if err := applyValue(dec, elem, unsafe.Add(bh.Data, uintptr(oi)*stride), depth+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// orderChanged: read new key order, build base lookup, construct the new slice.
+	newLen64, k := readUvarint(dec.buf[dec.i:])
+	if k <= 0 {
+		return ErrInvalidPatch
+	}
+	dec.i += k
+	newLen := int(newLen64)
+	if newLen < 0 || uint64(newLen) > uint64(len(dec.buf)-dec.i) {
+		return ErrInvalidPatch
+	}
+	order := make([]string, newLen)
+	keyHold := reflect.New(elem.keyDesc.rType).Elem()
+	for i := range newLen {
+		if err := elem.keyDesc.decode(dec, keyHold.Addr().UnsafePointer()); err != nil {
+			return err
+		}
+		// token must outlive the decode loop → copy the content.
+		order[i] = string([]byte(keyTokenAt(elem.keyDesc, keyHold.Addr().UnsafePointer())))
+	}
+
+	lookup, _ := buildKeyLookup(&dec.keyIdx, baseKeyAt, bh.Len)
+
+	nv := reflect.MakeSlice(td.rType, newLen, newLen)
+	nb := nv.UnsafePointer()
+	orderIdx := make(map[string]int, newLen)
+	for i, tok := range order {
+		orderIdx[tok] = i
+	}
+	filled := make([]bool, newLen)
+	// Copy unchanged base elements into their new slots (GC-safe typed Set).
+	for i := range newLen {
+		oi, ok := lookupGet(lookup, &dec.keyIdx, baseKeyAt, bh.Len, order[i])
+		if ok {
+			dst := reflect.NewAt(elemType, unsafe.Add(nb, uintptr(i)*stride)).Elem()
+			src := reflect.NewAt(elemType, unsafe.Add(bh.Data, uintptr(oi)*stride)).Elem()
+			dst.Set(src)
+			filled[i] = true
+		}
+	}
+	// Apply ops into their slots by key.
+	nOps, k2 := readUvarint(dec.buf[dec.i:])
+	if k2 <= 0 || nOps > uint64(len(dec.buf)-dec.i) {
+		return ErrInvalidPatch
+	}
+	dec.i += k2
+	keyHold2 := reflect.New(elem.keyDesc.rType).Elem()
+	for range nOps {
+		if err := elem.keyDesc.decode(dec, keyHold2.Addr().UnsafePointer()); err != nil {
+			return err
+		}
+		tok := keyTokenAt(elem.keyDesc, keyHold2.Addr().UnsafePointer())
+		ni, ok := orderIdx[tok]
+		if !ok {
+			return ErrInvalidPatch
+		}
+		slot := unsafe.Add(nb, uintptr(ni)*stride)
+		if err := applyValue(dec, elem, slot, depth+1); err != nil {
+			return err
+		}
+		filled[ni] = true
+	}
+	for i := range newLen {
+		if !filled[i] {
+			return ErrInvalidPatch // a key with neither a base match nor an op
+		}
+	}
+	reflect.NewAt(td.rType, baseP).Elem().Set(nv)
+	return nil
+}
+
 // keyLookup chooses linear (small n, no map) vs a reused cleared map.
 type keyLookup struct{ useMap bool }
 

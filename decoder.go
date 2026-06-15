@@ -77,6 +77,12 @@ type Decoder struct {
 	// different decode target.
 	mapFreeList map[reflect.Type][]unsafe.Pointer
 
+	// keyIdx is a reused base-key→index map for keyed slice apply. It is cleared
+	// (entries dropped, backing kept) and rebuilt per keyed slice; the spike-sized
+	// backing is dropped on the apply reset path so a one-off huge slice never
+	// pins a large map across pooled reuse.
+	keyIdx map[string]int
+
 	// deltaScratch is a reused unpack buffer for the Delta+FOR readers: the
 	// bit-unpacked deltas are a transient intermediate (the prefix sum writes
 	// the retained out slice), so a per-call make is pure garbage. Grows to the
