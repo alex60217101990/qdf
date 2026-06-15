@@ -412,8 +412,8 @@ func fpHashReflect(h *maphash.Hash, v reflect.Value, depth int) {
 		binary.LittleEndian.PutUint64(b[:], acc)
 		_, _ = h.Write(b[:])
 	case reflect.Struct:
-		for i := range v.NumField() {
-			fpHashReflect(h, v.Field(i), depth+1)
+		for _, field := range v.Fields() {
+			fpHashReflect(h, field, depth+1)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := range v.Len() {
