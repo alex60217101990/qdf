@@ -3,6 +3,7 @@ package qdf
 import (
 	"reflect"
 	"testing"
+	"unsafe"
 )
 
 func TestKeyTagParsed(t *testing.T) {
@@ -52,5 +53,73 @@ func TestKeyTagDoubleRejected(t *testing.T) {
 	}
 	if _, err := descOf(reflect.TypeFor[Two]()); err == nil {
 		t.Fatal("two ,key fields must be a build error")
+	}
+}
+
+func TestKeyToken(t *testing.T) {
+	type E struct {
+		ID string `qdf:"id,key"`
+		N  int
+	}
+	td, _ := descOf(reflect.TypeFor[E]())
+	a := E{ID: "alpha", N: 1}
+	b := E{ID: "alpha", N: 2}
+	c := E{ID: "beta", N: 1}
+	ta := keyToken(td, unsafe.Pointer(&a))
+	tb := keyToken(td, unsafe.Pointer(&b))
+	tc := keyToken(td, unsafe.Pointer(&c))
+	if ta != tb {
+		t.Fatal("same key content must yield equal tokens")
+	}
+	if ta == tc {
+		t.Fatal("different keys must yield different tokens")
+	}
+
+	type EI struct {
+		ID int64 `qdf:"id,key"`
+		N  int
+	}
+	tdi, _ := descOf(reflect.TypeFor[EI]())
+	x := EI{ID: 7}
+	y := EI{ID: 7}
+	z := EI{ID: 8}
+	if keyToken(tdi, unsafe.Pointer(&x)) != keyToken(tdi, unsafe.Pointer(&y)) {
+		t.Fatal("int64 key 7==7 token")
+	}
+	if keyToken(tdi, unsafe.Pointer(&x)) == keyToken(tdi, unsafe.Pointer(&z)) {
+		t.Fatal("int64 key 7!=8 token")
+	}
+}
+
+func TestKeyTokenByteArray(t *testing.T) {
+	type E struct {
+		ID [4]byte `qdf:"id,key"`
+		N  int
+	}
+	td, _ := descOf(reflect.TypeFor[E]())
+	a := E{ID: [4]byte{1, 2, 3, 4}}
+	b := E{ID: [4]byte{1, 2, 3, 4}}
+	c := E{ID: [4]byte{1, 2, 3, 5}}
+	if keyToken(td, unsafe.Pointer(&a)) != keyToken(td, unsafe.Pointer(&b)) {
+		t.Fatal("[4]byte key equal")
+	}
+	if keyToken(td, unsafe.Pointer(&a)) == keyToken(td, unsafe.Pointer(&c)) {
+		t.Fatal("[4]byte key differ")
+	}
+}
+
+func TestKeyTokenAtMatchesKeyToken(t *testing.T) {
+	// keyTokenAt over the key value alone must equal keyToken over the element.
+	type E struct {
+		Pad int
+		ID  string `qdf:"id,key"`
+	}
+	td, _ := descOf(reflect.TypeFor[E]())
+	e := E{Pad: 9, ID: "k"}
+	full := keyToken(td, unsafe.Pointer(&e))
+	kp := unsafe.Add(unsafe.Pointer(&e), td.keyOff)
+	at := keyTokenAt(td.keyDesc, kp)
+	if full != at {
+		t.Fatalf("keyTokenAt %q != keyToken %q", at, full)
 	}
 }
