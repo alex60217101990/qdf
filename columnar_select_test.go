@@ -79,6 +79,16 @@ func TestSelect_TypedSubsetSkips(t *testing.T) {
 			t.Fatalf("row %d: %+v vs full %+v", i, got[i], rows[i])
 		}
 	}
+	if raceEnabled {
+		// The alloc-count comparison below is invalid under -race: the detector's
+		// shadow-memory allocations are counted non-deterministically by
+		// testing.AllocsPerRun, and the high-cardinality string column now decodes
+		// into a single bulk slab (tagColStrRaw), so skipping it saves only ~1
+		// alloc — a margin -race instrumentation routinely collapses. The
+		// value-correctness checks above (subset decodes B/D correctly) already
+		// ran; the alloc proxy is measurement-only, so skip it under -race.
+		return
+	}
 	full := testing.AllocsPerRun(20, func() {
 		var f []selFull
 		_ = Unmarshal(enc, &f)
