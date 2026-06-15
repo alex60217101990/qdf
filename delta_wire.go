@@ -28,9 +28,15 @@ const (
 // Patch body tags. Disjoint numbering from the value tag space (wire.go) — a
 // patch body is parsed by the delta reader, never by the value tag dispatcher.
 const (
-	tagStructPatch = 0x01 // varuint(nChanged), nChanged×(varuint(fieldIdx), op)
-	tagSlicePatch  = 0x02 // varuint(newLen), varuint(nEntries), nEntries×(varuint(idx), op)
-	tagMapPatch    = 0x03 // varuint(nUpdate), nUpdate×(key-value, op), varuint(nDelete), nDelete×(key-value)
+	tagStructPatch     = 0x01 // varuint(nChanged), nChanged×(varuint(fieldIdx), op)
+	tagSlicePatch      = 0x02 // varuint(newLen), varuint(nEntries), nEntries×(varuint(idx), op)
+	tagMapPatch        = 0x03 // varuint(nUpdate), nUpdate×(key-value, op), varuint(nDelete), nDelete×(key-value)
+	tagKeyedSlicePatch = 0x04 // flags byte, [if orderChanged: varuint(newLen)+newLen×key], varuint(nOps), nOps×(key, op)
+)
+
+// Keyed-slice-patch flag bits (the flags byte after tagKeyedSlicePatch).
+const (
+	flagKeyedOrderChanged = 1 << 0 // keys were added/removed/reordered; the new key order follows
 )
 
 // Op bytes. Every changed location is one op byte + payload.
