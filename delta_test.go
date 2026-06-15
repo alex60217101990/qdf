@@ -659,3 +659,59 @@ func TestDiffApplyRANSForcedFire(t *testing.T) {
 		t.Fatal("forced-rANS round-trip mismatch")
 	}
 }
+
+func TestDiffApplyNilVsEmptyBothLenZero(t *testing.T) {
+	type S struct {
+		Sl []int
+		M  map[string]int
+		B  []byte
+	}
+	nilV := S{Sl: nil, M: nil, B: nil}
+	emptyV := S{Sl: []int{}, M: map[string]int{}, B: []byte{}}
+
+	check := func(name string, from, to S) {
+		for _, opts := range []Options{OptBalanced, OptCompression, OptSpeed} {
+			patch, err := Diff(from, to, opts)
+			if err != nil {
+				t.Fatalf("%s opts=%v Diff: %v", name, opts, err)
+			}
+			base := from
+			// independent backing for the non-nil container fields, while
+			// preserving the empty-vs-nil distinction (a plain append from a
+			// nil head collapses an empty-non-nil source back to nil).
+			if from.Sl != nil {
+				base.Sl = make([]int, len(from.Sl))
+				copy(base.Sl, from.Sl)
+			}
+			if from.B != nil {
+				base.B = make([]byte, len(from.B))
+				copy(base.B, from.B)
+			}
+			if from.M != nil {
+				base.M = map[string]int{}
+				for k, v := range from.M {
+					base.M[k] = v
+				}
+			}
+			if err := Apply(&base, patch); err != nil {
+				t.Fatalf("%s opts=%v Apply: %v", name, opts, err)
+			}
+			if (base.Sl == nil) != (to.Sl == nil) {
+				t.Fatalf("%s opts=%v: Sl nilness wrong (got nil=%v want nil=%v)", name, opts, base.Sl == nil, to.Sl == nil)
+			}
+			if (base.M == nil) != (to.M == nil) {
+				t.Fatalf("%s opts=%v: M nilness wrong (got nil=%v want nil=%v)", name, opts, base.M == nil, to.M == nil)
+			}
+			if (base.B == nil) != (to.B == nil) {
+				t.Fatalf("%s opts=%v: B nilness wrong (got nil=%v want nil=%v)", name, opts, base.B == nil, to.B == nil)
+			}
+			if !reflect.DeepEqual(base, to) {
+				t.Fatalf("%s opts=%v: DeepEqual mismatch got=%+v want=%+v", name, opts, base, to)
+			}
+		}
+	}
+	check("nil->empty", nilV, emptyV)
+	check("empty->nil", emptyV, nilV)
+	check("nil->nil", nilV, nilV)
+	check("empty->empty", emptyV, emptyV)
+}
