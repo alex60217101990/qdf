@@ -279,3 +279,63 @@ func TestDiffApplyPointerToStructPartial(t *testing.T) {
 		t.Fatalf("partial ptr-struct merge failed: %+v", base.P)
 	}
 }
+
+func TestDiffApplySlicePositional(t *testing.T) {
+	type E struct {
+		K int
+		V string
+	}
+	old := []E{{1, "a"}, {2, "b"}, {3, "c"}}
+	neu := []E{{1, "a"}, {2, "B"}, {3, "c"}, {4, "d"}} // middle change + grow
+
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := []E{{1, "a"}, {2, "b"}, {3, "c"}}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("got %+v want %+v", base, neu)
+	}
+
+	neu2 := []E{{1, "a"}} // shrink
+	p2, _ := Diff(old, neu2, OptBalanced)
+	base2 := []E{{1, "a"}, {2, "b"}, {3, "c"}}
+	if err := Apply(&base2, p2); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base2, neu2) {
+		t.Fatalf("shrink got %+v want %+v", base2, neu2)
+	}
+}
+
+func TestDiffApplyPODSliceShortCircuit(t *testing.T) {
+	old := []int{1, 2, 3, 4, 5}
+	neu := []int{1, 2, 99, 4, 5}
+	p, _ := Diff(old, neu, OptBalanced)
+	base := []int{1, 2, 3, 4, 5}
+	if err := Apply(&base, p); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("got %v want %v", base, neu)
+	}
+}
+
+func TestDiffApplyArray(t *testing.T) {
+	type A struct {
+		Vals [4]int
+	}
+	old := A{Vals: [4]int{1, 2, 3, 4}}
+	neu := A{Vals: [4]int{1, 9, 3, 4}}
+	p, _ := Diff(old, neu, OptBalanced)
+	base := A{Vals: [4]int{1, 2, 3, 4}}
+	if err := Apply(&base, p); err != nil {
+		t.Fatal(err)
+	}
+	if base != neu {
+		t.Fatalf("array got %+v want %+v", base, neu)
+	}
+}

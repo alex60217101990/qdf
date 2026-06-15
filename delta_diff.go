@@ -31,11 +31,93 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 			return true, diffStruct(enc, td.elem, op, np)
 		}
 		return writeReplace(enc, td, newP)
+	case reflect.Slice:
+		if td.rType.Elem().Kind() == reflect.Uint8 {
+			return writeReplace(enc, td, newP) // []byte: whole replace
+		}
+		enc.buf = append(enc.buf, opMerge)
+		return true, diffSlice(enc, td, oldP, newP)
+	case reflect.Array:
+		if td.rType.Elem().Kind() == reflect.Uint8 {
+			return writeReplace(enc, td, newP) // [N]byte: whole replace
+		}
+		enc.buf = append(enc.buf, opMerge)
+		return true, diffArray(enc, td, oldP, newP)
 	default:
 		// Phase 1: non-struct change is a whole-value replace. Pointer/slice/map
 		// merge ops are added in later tasks (they extend this switch).
 		return writeReplace(enc, td, newP)
 	}
+}
+
+// diffSlice writes a tagSlicePatch body for a non-[]byte slice. The whole-slice
+// equality short-circuit already happened in diffValue→equalValue (one SIMD
+// bytes.Equal over POD backing arrays), so we only get here on a real difference.
+func diffSlice(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+	oh := (*sliceHeader)(oldP)
+	nh := (*sliceHeader)(newP)
+	stride := td.rType.Elem().Size()
+	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+	}
+	return diffElems(enc, elem, td.rType.Elem(), stride, oh.Data, oh.Len, nh.Data, nh.Len)
+}
+
+func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+	n := td.rType.Len()
+	stride := td.rType.Elem().Size()
+	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+	}
+	return diffElems(enc, elem, td.rType.Elem(), stride, oldP, n, newP, n)
+}
+
+// diffElems is the shared positional element differ for slices and arrays.
+func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintptr,
+	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int) error {
+	minLen := oldLen
+	if newLen < minLen {
+		minLen = newLen
+	}
+	pod := noPointers(elemType)
+	var entries []int
+	for i := 0; i < minLen; i++ {
+		oP := unsafe.Add(oldData, uintptr(i)*stride)
+		nP := unsafe.Add(newData, uintptr(i)*stride)
+		var same bool
+		if pod {
+			same = bytes.Equal(unsafe.Slice((*byte)(oP), stride), unsafe.Slice((*byte)(nP), stride))
+		} else {
+			same = equalValue(elem, oP, nP)
+		}
+		if !same {
+			entries = append(entries, i)
+		}
+	}
+	for i := minLen; i < newLen; i++ {
+		entries = append(entries, i)
+	}
+
+	enc.buf = append(enc.buf, tagSlicePatch)
+	enc.buf = appendUvarint(enc.buf, uint64(newLen))
+	enc.buf = appendUvarint(enc.buf, uint64(len(entries)))
+	for _, i := range entries {
+		enc.buf = appendUvarint(enc.buf, uint64(i))
+		nP := unsafe.Add(newData, uintptr(i)*stride)
+		if i < oldLen {
+			oP := unsafe.Add(oldData, uintptr(i)*stride)
+			if _, err := diffValue(enc, elem, oP, nP); err != nil {
+				return err
+			}
+		} else {
+			if _, err := writeReplace(enc, elem, nP); err != nil { // appended element
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // writeReplace writes opReplace + the whole new value via the normal codec.
