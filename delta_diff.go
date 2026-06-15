@@ -6,6 +6,58 @@ import (
 	"unsafe"
 )
 
+// diffValue compares the value at oldP/newP and, if changed, writes one op
+// (op byte + payload). Returns whether anything was written. The caller has
+// already written any preceding selector (field index / slice index / map key).
+func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, error) {
+	if equalValue(td, oldP, newP) {
+		return false, nil
+	}
+	switch td.kind {
+	case reflect.Struct:
+		if len(td.fields) == 0 { // time.Time / marshaler struct: whole replace
+			return writeReplace(enc, td, newP)
+		}
+		enc.buf = append(enc.buf, opMerge)
+		return true, diffStruct(enc, td, oldP, newP)
+	default:
+		// Phase 1: non-struct change is a whole-value replace. Pointer/slice/map
+		// merge ops are added in later tasks (they extend this switch).
+		return writeReplace(enc, td, newP)
+	}
+}
+
+// writeReplace writes opReplace + the whole new value via the normal codec.
+func writeReplace(enc *Encoder, td *typeDesc, newP unsafe.Pointer) (bool, error) {
+	enc.buf = append(enc.buf, opReplace)
+	if err := td.encode(enc, newP); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// diffStruct writes a tagStructPatch body with only the changed fields.
+func diffStruct(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+	var changed []int
+	for i := range td.fields {
+		f := &td.fields[i]
+		if !equalValue(f.desc, unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset)) {
+			changed = append(changed, i)
+		}
+	}
+	enc.buf = append(enc.buf, tagStructPatch)
+	enc.buf = appendUvarint(enc.buf, uint64(len(changed)))
+	for _, i := range changed {
+		f := &td.fields[i]
+		enc.buf = appendUvarint(enc.buf, uint64(i))
+		if _, err := diffValue(enc, f.desc,
+			unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // equalValue reports whether the value of type described by td at aP equals the
 // one at bP. POD scalars reduce to a width compare; strings/[]byte to a SIMD
 // memcmp (bytes.Equal); containers recurse. This is the diff walk's unchanged
