@@ -78,7 +78,7 @@ func diffSlice(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int)
 	if elem == nil {
 		elem, _ = descOf(td.rType.Elem())
 	}
-	return diffElems(enc, elem, td.rType.Elem(), stride, oh.Data, oh.Len, nh.Data, nh.Len, depth)
+	return diffElems(enc, elem, stride, oh.Data, oh.Len, nh.Data, nh.Len, depth)
 }
 
 func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
@@ -88,7 +88,7 @@ func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int)
 	if elem == nil {
 		elem, _ = descOf(td.rType.Elem())
 	}
-	return diffElems(enc, elem, td.rType.Elem(), stride, oldP, n, newP, n, depth)
+	return diffElems(enc, elem, stride, oldP, n, newP, n, depth)
 }
 
 // diffMap writes a tagMapPatch: updated/added keys (each with a recursive op),
@@ -186,10 +186,14 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 }
 
 // diffElems is the shared positional element differ for slices and arrays.
-func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintptr,
+func diffElems(enc *Encoder, elem *typeDesc, stride uintptr,
 	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int) error {
 	minLen := min(newLen, oldLen)
-	pod := noPointers(elemType)
+	// elem.pod was precomputed at build (noPointersWalk of the element type) —
+	// read the field instead of walking per call. elem is always non-nil here
+	// (resolved by diffSlice/diffArray); guard defensively against an unresolved
+	// descriptor.
+	pod := elem != nil && elem.pod
 	var entries []int
 	for i := range minLen {
 		oP := unsafe.Add(oldData, uintptr(i)*stride)
@@ -352,7 +356,7 @@ func equalSliceEV(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 		elem, _ = descOf(td.rType.Elem())
 	}
 	stride := td.rType.Elem().Size()
-	if noPointers(td.rType.Elem()) {
+	if elem != nil && elem.pod {
 		// POD memcmp compares padding too: a padding-only diff yields a spurious opReplace, never wrong data — acceptable for Phase 1.
 		ab := unsafe.Slice((*byte)(ah.Data), uintptr(n)*stride)
 		bb := unsafe.Slice((*byte)(bh.Data), uintptr(n)*stride)
@@ -374,13 +378,17 @@ func equalArrayEV(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 	}
 	n := td.rType.Len()
 	stride := td.rType.Elem().Size()
-	if noPointers(td.rType.Elem()) {
+	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+	}
+	if elem != nil && elem.pod {
 		// POD memcmp compares padding too: a padding-only diff yields a spurious opReplace, never wrong data — acceptable for Phase 1.
 		total := uintptr(n) * stride
 		return bytes.Equal(unsafe.Slice((*byte)(aP), total), unsafe.Slice((*byte)(bP), total))
 	}
 	for i := range n {
-		if !equalValue(td.elem, unsafe.Add(aP, uintptr(i)*stride),
+		if !equalValue(elem, unsafe.Add(aP, uintptr(i)*stride),
 			unsafe.Add(bP, uintptr(i)*stride), depth+1) {
 			return false
 		}

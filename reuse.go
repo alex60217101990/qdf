@@ -2,7 +2,6 @@ package qdf
 
 import (
 	"reflect"
-	"sync"
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/reflectutil"
@@ -23,26 +22,17 @@ type sliceHeader struct {
 	Cap  int
 }
 
-// noPointersCache memoizes noPointers per reflect.Type. The struct branch of
-// the underlying walk iterates t.Fields(), which allocates an iterator backing
-// on every call; on the diff hot path equalSliceEV/equalArrayEV/diffElems ask
-// the same element type once per element (thousands of times over a large
-// []struct), so an uncached walk dominated AppendDiff's allocations. The answer
-// is type-stable, so cache it like typeCache.
-var noPointersCache sync.Map // map[reflect.Type]bool
-
 // noPointers reports whether t contains no pointers (so a byte-clear of its
 // memory is GC-safe — no write barriers needed). Used to gate decode slice
 // backing reuse: a pointer-free element can be zeroed with clear() over a raw
-// []byte view before the values are decoded in place. The result is memoized
-// per type — the recursive structural walk runs at most once per type.
+// []byte view before the values are decoded in place.
+//
+// The delta diff hot path (the per-element caller that once motivated a cache)
+// now reads the precomputed typeDesc.pod field instead, so the remaining callers
+// (columnar.go, reflect_encode.go) are per-slice/per-type — not hot enough to
+// warrant a sync.Map. This is the uncached structural walk.
 func noPointers(t reflect.Type) bool {
-	if v, ok := noPointersCache.Load(t); ok {
-		return v.(bool)
-	}
-	res := noPointersWalk(t)
-	noPointersCache.Store(t, res)
-	return res
+	return noPointersWalk(t)
 }
 
 // noPointersWalk is the uncached structural worker behind noPointers. It uses

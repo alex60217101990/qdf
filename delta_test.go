@@ -51,10 +51,10 @@ func TestSchemaFingerprintStableAndDistinct(t *testing.T) {
 	tdA1, _ := descOf(reflect.TypeFor[A]())
 	tdA2, _ := descOf(reflect.TypeFor[A]())
 	tdB, _ := descOf(reflect.TypeFor[B]())
-	if schemaFingerprint(tdA1) != schemaFingerprint(tdA2) {
+	if tdA1.schemaFP != tdA2.schemaFP {
 		t.Fatal("fingerprint not stable across calls")
 	}
-	if schemaFingerprint(tdA1) == schemaFingerprint(tdB) {
+	if tdA1.schemaFP == tdB.schemaFP {
 		t.Fatal("distinct shapes collided")
 	}
 }

@@ -22,11 +22,24 @@ type typeDesc struct {
 	encode func(e *Encoder, p unsafe.Pointer) error
 	decode func(d *Decoder, p unsafe.Pointer) error
 
-	// kind / marshalerKind are 1-byte tails kept last so they share one word
-	// instead of forcing padding ahead of the 8-byte pointer fields above.
+	// schemaFP is the structural fingerprint of this descriptor's full subtree
+	// (kind + field names + recursive field/element kinds). Computed once at build
+	// time (descBuild) so the delta Diff/Apply path reads it with zero runtime
+	// synchronization instead of a sync.Map lookup. Safe to read concurrently:
+	// set under the single-threaded build before the descriptor is published to
+	// typeCache via LoadOrStore (same happens-before as encode/decode).
+	schemaFP uint64
+
+	// kind / marshalerKind / pod are 1-byte (or kind-sized) tails kept last so
+	// they share one word instead of forcing padding ahead of the 8-byte fields
+	// above.
 	kind reflect.Kind
 	// marshalerKind: 0=none, 1=Marshaler interface, 2=encoding.TextMarshaler-ish (future)
 	marshalerKind uint8
+	// pod reports whether this type's memory is pointer-free (noPointers). Cached
+	// at build for the delta diff hot path (equalSliceEV/equalArrayEV/diffElems),
+	// which would otherwise call the structural noPointers walk per element.
+	pod bool
 }
 
 type fieldDesc struct {
@@ -103,12 +116,24 @@ func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) {
 		return td, nil
 	}
 	td := &typeDesc{rType: t, kind: t.Kind()}
+	// pod is a pure structural property of t (pointer-free memory). Compute it
+	// once here with the UNCACHED walk so the delta diff hot path can read the
+	// field instead of calling noPointers per element. Set before fillDesc so it
+	// is in place by the time descOf publishes td to typeCache.
+	td.pod = noPointersWalk(t)
 	ctx.inProgress[t] = td
 	if err := fillDesc(td, t, ctx); err != nil {
 		// Leave nothing half-built reachable: the failed type stays only in
 		// this ctx (never published) and is discarded with it.
 		return nil, err
 	}
+	// schemaFP is a pure function of the now-complete descriptor subtree (its
+	// children were built first, so td.fields/td.elem/td.kind are populated).
+	// Compute it once here under the single-threaded build so Diff/Apply read the
+	// field with no sync.Map lookup. schemaFingerprintCompute does its own
+	// visited-set walk from td, independent of children's cached schemaFP, so a
+	// child computed before a cycle closes is still correct.
+	td.schemaFP = schemaFingerprintCompute(td)
 	return td, nil
 }
 
