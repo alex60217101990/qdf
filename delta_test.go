@@ -74,7 +74,7 @@ func TestReadPatchHeaderRejectsBadMagic(t *testing.T) {
 }
 
 func TestEqualValueScalarsStringsBytes(t *testing.T) {
-	eq := equalValue
+	eq := func(td *typeDesc, aP, bP unsafe.Pointer) bool { return equalValue(td, aP, bP, 0) }
 
 	tdI, _ := descOf(reflect.TypeFor[int]())
 	x, y := 5, 5
@@ -123,17 +123,17 @@ func TestEqualValueStructSliceMapPtr(t *testing.T) {
 	}
 	a, b := mk(), mk()
 	tdO, _ := descOf(reflect.TypeFor[Outer]())
-	if !equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&b)) {
+	if !equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&b), 0) {
 		t.Fatal("identical Outer should be equal")
 	}
 	c := mk()
 	c.M["k"] = 10
-	if equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&c)) {
+	if equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&c), 0) {
 		t.Fatal("map value change should differ")
 	}
 	d := mk()
 	d.P = nil
-	if equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&d)) {
+	if equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&d), 0) {
 		t.Fatal("ptr presence change should differ")
 	}
 }
@@ -182,15 +182,15 @@ func TestEqualValueNonPODSliceField(t *testing.T) {
 	td, _ := descOf(reflect.TypeFor[Rec]())
 	a := Rec{Tags: []string{"x", "y"}, Flags: []bool{true}, Names: []string{"a"}}
 	b := Rec{Tags: []string{"x", "y"}, Flags: []bool{true}, Names: []string{"a"}}
-	if !equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&b)) {
+	if !equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&b), 0) {
 		t.Fatal("identical non-POD slices should be equal")
 	}
 	c := Rec{Tags: []string{"x", "z"}, Flags: []bool{true}, Names: []string{"a"}}
-	if equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&c)) {
+	if equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&c), 0) {
 		t.Fatal("changed []string should differ")
 	}
 	d := Rec{Tags: []string{"x", "y"}, Flags: []bool{false}, Names: []string{"a"}}
-	if equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&d)) {
+	if equalValue(td, unsafe.Pointer(&a), unsafe.Pointer(&d), 0) {
 		t.Fatal("changed []bool should differ")
 	}
 }
@@ -885,5 +885,83 @@ func TestDiffApplyDenseInternRoundTrip(t *testing.T) {
 		if base != neu {
 			t.Fatalf("reuse %d mismatch", i)
 		}
+	}
+}
+
+func TestDiffCyclicValueErrorsNotCrash(t *testing.T) {
+	type Node struct {
+		V    int
+		Next *Node
+	}
+	a := &Node{V: 1}
+	a.Next = a // self-cycle
+	// Must return an error, not crash the process with a stack overflow.
+	if _, err := Diff(*a, *a, OptBalanced); err == nil {
+		t.Fatal("expected an error for a cyclic value, got nil")
+	}
+	// A different cyclic pair too.
+	b := &Node{V: 2}
+	b.Next = b
+	if _, err := Diff(*a, *b, OptBalanced); err == nil {
+		t.Fatal("expected an error diffing two cyclic values, got nil")
+	}
+}
+
+func TestApplyDeeplyNestedPatchRejected(t *testing.T) {
+	// A linked list deep enough to exceed maxDeltaDepth must Diff-error, not crash.
+	type N struct {
+		V    int
+		Next *N
+	}
+	build := func(depth, leaf int) *N {
+		head := &N{}
+		cur := head
+		for i := 1; i < depth; i++ {
+			cur.Next = &N{}
+			cur = cur.Next
+		}
+		cur.V = leaf
+		return head
+	}
+	old := build(maxDeltaDepth+50, 1)
+	neu := build(maxDeltaDepth+50, 2)
+	if _, err := Diff(*old, *neu, OptBalanced); err == nil {
+		t.Fatal("expected error for over-deep value, got nil")
+	}
+}
+
+func TestDiffApplyInterfaceNonComparable(t *testing.T) {
+	type Rec struct {
+		N int
+		X any
+	}
+	// X holds a non-comparable []int; changing N must not panic.
+	old := Rec{N: 1, X: []int{1, 2, 3}}
+	neu := Rec{N: 9, X: []int{1, 2, 3}}
+	patch, err := Diff(old, neu, OptBalanced) // must NOT panic
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Rec{N: 1, X: []int{1, 2, 3}}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if base.N != 9 {
+		t.Fatalf("N not applied: %+v", base)
+	}
+	// Diff(x,x) with a non-comparable interface must also not panic.
+	if _, err := Diff(old, old, OptBalanced); err != nil {
+		t.Fatal(err)
+	}
+	// Map value holding a non-comparable any.
+	om := map[string]any{"k": []int{1}}
+	nm := map[string]any{"k": []int{1, 2}}
+	mp, err := Diff(om, nm, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb := map[string]any{"k": []int{1}}
+	if err := Apply(&mb, mp); err != nil {
+		t.Fatal(err)
 	}
 }

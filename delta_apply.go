@@ -6,7 +6,10 @@ import (
 )
 
 // applyValue reads one op (op byte + payload) and applies it to the value at baseP.
-func applyValue(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+func applyValue(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error {
+	if depth > maxDeltaDepth {
+		return ErrInvalidPatch
+	}
 	if dec.i >= len(dec.buf) {
 		return ErrInvalidPatch
 	}
@@ -16,17 +19,17 @@ func applyValue(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 	case opReplace:
 		return td.decode(dec, baseP)
 	case opMerge:
-		return applyMerge(dec, td, baseP)
+		return applyMerge(dec, td, baseP, depth)
 	default:
 		return ErrInvalidPatch
 	}
 }
 
 // applyMerge dispatches a recursive sub-patch by container kind.
-func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error {
 	switch td.kind {
 	case reflect.Struct:
-		return applyStruct(dec, td, baseP)
+		return applyStruct(dec, td, baseP, depth)
 	case reflect.Pointer:
 		// merge into the pointed-at struct. base pointer must be non-nil: the diff
 		// side only emits opMerge for a pointer when both old/new were non-nil, and
@@ -35,13 +38,13 @@ func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		if ptr == nil {
 			return ErrInvalidPatch
 		}
-		return applyStruct(dec, td.elem, ptr)
+		return applyStruct(dec, td.elem, ptr, depth+1)
 	case reflect.Slice:
-		return applySlice(dec, td, baseP)
+		return applySlice(dec, td, baseP, depth)
 	case reflect.Array:
-		return applyArray(dec, td, baseP)
+		return applyArray(dec, td, baseP, depth)
 	case reflect.Map:
-		return applyMap(dec, td, baseP)
+		return applyMap(dec, td, baseP, depth)
 	default:
 		return ErrInvalidPatch // unknown/unmergeable kind
 	}
@@ -49,7 +52,7 @@ func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 
 // applySlice reads a tagSlicePatch and reconciles the base slice in place:
 // resize to newLen (preserving overlap), then apply each entry.
-func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error {
 	if dec.i >= len(dec.buf) || dec.buf[dec.i] != tagSlicePatch {
 		return ErrInvalidPatch
 	}
@@ -99,14 +102,14 @@ func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 			return ErrInvalidPatch
 		}
 		dec.i += k3
-		if err := applyValue(dec, elem, unsafe.Add(sh.Data, uintptr(idx)*stride)); err != nil {
+		if err := applyValue(dec, elem, unsafe.Add(sh.Data, uintptr(idx)*stride), depth+1); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func applyArray(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+func applyArray(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error {
 	if dec.i >= len(dec.buf) || dec.buf[dec.i] != tagSlicePatch {
 		return ErrInvalidPatch
 	}
@@ -132,7 +135,7 @@ func applyArray(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 			return ErrInvalidPatch
 		}
 		dec.i += k3
-		if err := applyValue(dec, elem, unsafe.Add(baseP, uintptr(idx)*stride)); err != nil {
+		if err := applyValue(dec, elem, unsafe.Add(baseP, uintptr(idx)*stride), depth+1); err != nil {
 			return err
 		}
 	}
@@ -141,7 +144,7 @@ func applyArray(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 
 // applyMap reads a tagMapPatch and mutates the base map in place: set/merge the
 // updated keys, then delete the tombstoned keys.
-func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error {
 	if dec.i >= len(dec.buf) || dec.buf[dec.i] != tagMapPatch {
 		return ErrInvalidPatch
 	}
@@ -177,7 +180,7 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		if existing := mv.MapIndex(keyBuf); existing.IsValid() {
 			valBuf.Set(existing) // merge target starts from the current value
 		}
-		if err := applyValue(dec, valDesc, valBuf.Addr().UnsafePointer()); err != nil {
+		if err := applyValue(dec, valDesc, valBuf.Addr().UnsafePointer(), depth+1); err != nil {
 			return err
 		}
 		mv.SetMapIndex(keyBuf, valBuf)
@@ -199,7 +202,7 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 }
 
 // applyStruct reads a tagStructPatch body and overwrites only the listed fields.
-func applyStruct(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+func applyStruct(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error {
 	if dec.i >= len(dec.buf) || dec.buf[dec.i] != tagStructPatch {
 		return ErrInvalidPatch
 	}
@@ -216,7 +219,7 @@ func applyStruct(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		}
 		dec.i += k2
 		f := &td.fields[idx]
-		if err := applyValue(dec, f.desc, unsafe.Add(baseP, f.offset)); err != nil {
+		if err := applyValue(dec, f.desc, unsafe.Add(baseP, f.offset), depth+1); err != nil {
 			return err
 		}
 	}
