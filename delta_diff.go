@@ -307,6 +307,14 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 		if len(td.fields) == 0 {
 			av := reflect.NewAt(td.rType, aP).Elem()
 			bv := reflect.NewAt(td.rType, bP).Elem()
+			// Fast path: a comparable fields-less struct (time.Time — common, on the
+			// hot path for any timestamped value — and comparable Marshaler structs)
+			// compares with reflect.Value.Equal: no .Interface() boxing, no DeepEqual
+			// reflection. Only a NON-comparable Marshaler field (slice/map/func), where
+			// Value.Equal would panic, falls back to DeepEqual.
+			if td.rType.Comparable() {
+				return av.Equal(bv)
+			}
 			return reflect.DeepEqual(av.Interface(), bv.Interface())
 		}
 		for i := range td.fields {
