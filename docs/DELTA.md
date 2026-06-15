@@ -290,6 +290,18 @@ while it is reachable, so use one arena per epoch and drop it when the values
 built from it are done. Unchanged string fields already in `base` are not touched
 and never alias the arena.
 
+### The `qdf_reflect2` build tag
+
+`Apply` allocates new slices and maps through the same helper the rest of qdf
+uses on decode. Building with `-tags qdf_reflect2` swaps that helper's backend
+to [modern-go/reflect2](https://github.com/modern-go/reflect2), which skips
+reflect's per-call type checks — so a patch that **creates** a map or grows a
+slice allocates faster. Diff is unaffected (it encodes, it does not allocate
+destination containers), and the default build (without the tag) is unchanged.
+This only matters for `Apply`/`ApplyArena` on patches that add map keys to a
+previously-nil map or grow slices; for small in-place patches the difference is
+negligible.
+
 ---
 
 ## Limitations
