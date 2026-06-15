@@ -461,3 +461,44 @@ func TestDiffApplyMapNilAndEmpty(t *testing.T) {
 		t.Fatalf("nil->set got %v want %v", base, neu)
 	}
 }
+
+func TestDiffApplyMapPointerValues(t *testing.T) {
+	type V struct {
+		N int
+		S string
+	}
+	// "y" has a DIFFERENT pointer but EQUAL content; "x" content changes.
+	old := map[string]*V{"x": {1, "a"}, "y": {2, "b"}}
+	neu := map[string]*V{"x": {1, "A"}, "y": {2, "b"}}
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	base := map[string]*V{"x": {1, "a"}, "y": {2, "b"}}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if base["x"].S != "A" || base["y"].N != 2 || base["y"].S != "b" {
+		t.Fatalf("ptr-value map mismatch: x=%+v y=%+v", base["x"], base["y"])
+	}
+}
+
+func TestDiffApplyMapNoncomparableValues(t *testing.T) {
+	type W struct {
+		M map[string]map[string]int
+		L map[string][]int
+	}
+	old := W{M: map[string]map[string]int{"o": {"a": 1}}, L: map[string][]int{"k": {1, 2}}}
+	neu := W{M: map[string]map[string]int{"o": {"a": 2}}, L: map[string][]int{"k": {1, 3}}}
+	patch, err := Diff(old, neu, OptBalanced) // must NOT panic
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	base := W{M: map[string]map[string]int{"o": {"a": 1}}, L: map[string][]int{"k": {1, 2}}}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if base.M["o"]["a"] != 2 || base.L["k"][1] != 3 {
+		t.Fatalf("noncomparable-value map mismatch: %+v", base)
+	}
+}

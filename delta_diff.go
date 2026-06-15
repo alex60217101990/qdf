@@ -96,13 +96,25 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 		}
 	}
 
+	// Compare map values with the SAME comparator diffValue uses (equalValue),
+	// not reflect.Value.Equal: the latter compares pointer identity for *T values
+	// (inconsistent with diffValue's deref) and panics on non-comparable values
+	// (map/slice). Reuse two addressable buffers to avoid per-key allocation.
+	oCmp := reflect.New(valDesc.rType).Elem()
+	nCmp := reflect.New(valDesc.rType).Elem()
+	valEqual := func(oVal, nVal reflect.Value) bool {
+		oCmp.Set(oVal)
+		nCmp.Set(nVal)
+		return equalValue(valDesc, oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer())
+	}
+
 	enc.buf = append(enc.buf, tagMapPatch)
 
 	// Pass 1: count updates/additions.
 	nUpd := 0
 	for it := nv.MapRange(); it.Next(); {
 		oVal := ov.MapIndex(it.Key())
-		if oVal.IsValid() && oVal.Equal(it.Value()) {
+		if oVal.IsValid() && valEqual(oVal, it.Value()) {
 			continue
 		}
 		nUpd++
@@ -114,7 +126,7 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 		k := it.Key()
 		nVal := it.Value()
 		oVal := ov.MapIndex(k)
-		if oVal.IsValid() && oVal.Equal(nVal) {
+		if oVal.IsValid() && valEqual(oVal, nVal) {
 			continue
 		}
 		keyBuf.Set(k)
@@ -357,13 +369,25 @@ func equalMapEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 	if av.Len() != bv.Len() {
 		return false
 	}
-	iter := av.MapRange()
-	for iter.Next() {
-		bvVal := bv.MapIndex(iter.Key())
-		if !bvVal.IsValid() {
+	valDesc := td.elem
+	if valDesc == nil {
+		var err error
+		valDesc, err = descOf(td.rType.Elem())
+		if err != nil {
 			return false
 		}
-		if !iter.Value().Equal(bvVal) {
+	}
+	aCmp := reflect.New(valDesc.rType).Elem()
+	bCmp := reflect.New(valDesc.rType).Elem()
+	iter := av.MapRange()
+	for iter.Next() {
+		bVal := bv.MapIndex(iter.Key())
+		if !bVal.IsValid() {
+			return false
+		}
+		aCmp.Set(iter.Value())
+		bCmp.Set(bVal)
+		if !equalValue(valDesc, aCmp.Addr().UnsafePointer(), bCmp.Addr().UnsafePointer()) {
 			return false
 		}
 	}
