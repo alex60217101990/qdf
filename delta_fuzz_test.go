@@ -89,6 +89,34 @@ func deepCopyRec(r fuzzRec) fuzzRec {
 	return c
 }
 
+func FuzzApplyHostile(f *testing.F) {
+	type T struct {
+		A int
+		B string
+		C []int
+		M map[string]int
+		S []string
+	}
+	good, _ := Diff(
+		T{A: 1},
+		T{A: 2, B: "x", C: []int{1, 2}, M: map[string]int{"k": 1}, S: []string{"p"}},
+		OptBalanced,
+	)
+	f.Add(good)
+	f.Add([]byte("QDP\x01"))
+	f.Add([]byte{})
+	f.Add([]byte("QDP\x01\x04")) // dense+rans-ish flag byte, truncated
+	f.Fuzz(func(t *testing.T, patch []byte) {
+		var base T
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("panic on hostile patch (len=%d): %v", len(patch), r)
+			}
+		}()
+		_ = Apply(&base, patch) // must return an error or nil, never panic/OOM
+	})
+}
+
 func FuzzDiffApplyOracle(f *testing.F) {
 	f.Add(int64(1), int64(2))
 	f.Add(int64(42), int64(42)) // identical seed → identical values (no-op patch)
