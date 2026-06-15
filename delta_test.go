@@ -43,4 +43,8 @@ func TestReadPatchHeaderRejectsBadMagic(t *testing.T) {
 	if _, _, err := readPatchHeader([]byte{'Q'}); err != ErrInvalidPatch {
 		t.Fatalf("short: got %v want ErrInvalidPatch", err)
 	}
+	truncated := writePatchHeader(nil, flagPatchBaseFP, 1, 2)[:15] // cut mid-baseFP
+	if _, _, err := readPatchHeader(truncated); err != ErrInvalidPatch {
+		t.Fatalf("truncated baseFP: got %v want ErrInvalidPatch", err)
+	}
 }
