@@ -283,6 +283,12 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
 	case reflect.String:
 		return *(*string)(aP) == *(*string)(bP)
 	case reflect.Slice:
+		// A nil slice and an empty-non-nil slice both have len 0 but the field
+		// codec preserves the distinction; treat them as unequal so diffValue
+		// emits an op (a whole-value opReplace via its nilness check).
+		if ((*sliceHeader)(aP).Data == nil) != ((*sliceHeader)(bP).Data == nil) {
+			return false
+		}
 		if td.rType.Elem().Kind() == reflect.Uint8 {
 			return bytes.Equal(*(*[]byte)(aP), *(*[]byte)(bP))
 		}
@@ -310,6 +316,10 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		}
 		return equalValue(td.elem, ap, bp)
 	case reflect.Map:
+		// nil map vs empty-non-nil map: same nil-vs-empty distinction as slices.
+		if (*(*unsafe.Pointer)(aP) == nil) != (*(*unsafe.Pointer)(bP) == nil) {
+			return false
+		}
 		return equalMapEV(td, aP, bP)
 	default:
 		// Interface and anything exotic: reflect fallback.

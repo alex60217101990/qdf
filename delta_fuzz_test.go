@@ -27,18 +27,32 @@ func randRec(r *rand.Rand) fuzzRec {
 		ID:    r.Intn(1000),
 		Name:  []string{"", "a", "alpha", "beta"}[r.Intn(4)],
 		Score: float64(r.Intn(100)) / 7,
-		Tags:  map[string]int{},
 		Arr:   [4]byte{byte(r.Intn(256)), byte(r.Intn(256)), 0, 0},
 	}
-	for i := 0; i < r.Intn(4); i++ {
-		rec.Tags[[]string{"k1", "k2", "k3"}[r.Intn(3)]] = r.Intn(50)
+	switch r.Intn(3) {
+	case 0:
+		rec.Tags = nil
+	case 1:
+		rec.Tags = map[string]int{} // empty non-nil
+	default:
+		rec.Tags = map[string]int{}
+		for i := 0; i < 1+r.Intn(3); i++ {
+			rec.Tags[[]string{"k1", "k2", "k3"}[r.Intn(3)]] = r.Intn(50)
+		}
 	}
-	for i := 0; i < r.Intn(5); i++ {
-		rec.Items = append(rec.Items, fuzzInner{
-			A: int32(r.Intn(100)),
-			B: []string{"x", "y", "z"}[r.Intn(3)],
-			C: []byte{byte(r.Intn(256))},
-		})
+	switch r.Intn(3) {
+	case 0:
+		rec.Items = nil
+	case 1:
+		rec.Items = []fuzzInner{} // empty non-nil
+	default:
+		for i := 0; i < 1+r.Intn(4); i++ {
+			rec.Items = append(rec.Items, fuzzInner{
+				A: int32(r.Intn(100)),
+				B: []string{"x", "y", "z"}[r.Intn(3)],
+				C: []byte{byte(r.Intn(256))},
+			})
+		}
 	}
 	if r.Intn(2) == 0 {
 		rec.Opt = &fuzzInner{A: int32(r.Intn(10)), B: "opt"}
@@ -50,17 +64,26 @@ func randRec(r *rand.Rand) fuzzRec {
 // arrays/maps/pointers.
 func deepCopyRec(r fuzzRec) fuzzRec {
 	c := r
-	c.Tags = map[string]int{}
-	for k, v := range r.Tags {
-		c.Tags[k] = v
+	if r.Tags != nil {
+		c.Tags = map[string]int{}
+		for k, v := range r.Tags {
+			c.Tags[k] = v
+		}
 	}
-	c.Items = append([]fuzzInner(nil), r.Items...)
-	for i := range c.Items {
-		c.Items[i].C = append([]byte(nil), r.Items[i].C...)
+	if r.Items != nil {
+		c.Items = make([]fuzzInner, len(r.Items))
+		copy(c.Items, r.Items)
+		for i := range c.Items {
+			if r.Items[i].C != nil {
+				c.Items[i].C = append([]byte(nil), r.Items[i].C...)
+			}
+		}
 	}
 	if r.Opt != nil {
 		o := *r.Opt
-		o.C = append([]byte(nil), r.Opt.C...)
+		if r.Opt.C != nil {
+			o.C = append([]byte(nil), r.Opt.C...)
+		}
 		c.Opt = &o
 	}
 	return c
