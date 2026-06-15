@@ -43,6 +43,9 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 		}
 		enc.buf = append(enc.buf, opMerge)
 		return true, diffArray(enc, td, oldP, newP)
+	case reflect.Map:
+		enc.buf = append(enc.buf, opMerge)
+		return true, diffMap(enc, td, oldP, newP)
 	default:
 		// Phase 1: non-struct change is a whole-value replace. Pointer/slice/map
 		// merge ops are added in later tasks (they extend this switch).
@@ -72,6 +75,89 @@ func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 		elem, _ = descOf(td.rType.Elem())
 	}
 	return diffElems(enc, elem, td.rType.Elem(), stride, oldP, n, newP, n)
+}
+
+// diffMap writes a tagMapPatch: updated/added keys (each with a recursive op),
+// then a tombstone list of deleted keys. Keys are the identity, so there is no
+// positional ambiguity. Two passes (count, then emit) avoid buffer surgery.
+func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+	ov := reflect.NewAt(td.rType, oldP).Elem()
+	nv := reflect.NewAt(td.rType, newP).Elem()
+	keyType := td.rType.Key()
+	keyDesc, err := descOf(keyType)
+	if err != nil {
+		return err
+	}
+	valDesc := td.elem
+	if valDesc == nil {
+		valDesc, err = descOf(td.rType.Elem())
+		if err != nil {
+			return err
+		}
+	}
+
+	enc.buf = append(enc.buf, tagMapPatch)
+
+	// Pass 1: count updates/additions.
+	nUpd := 0
+	for it := nv.MapRange(); it.Next(); {
+		oVal := ov.MapIndex(it.Key())
+		if oVal.IsValid() && oVal.Equal(it.Value()) {
+			continue
+		}
+		nUpd++
+	}
+	enc.buf = appendUvarint(enc.buf, uint64(nUpd))
+	// Pass 2: emit updates/additions.
+	keyBuf := reflect.New(keyType).Elem()
+	for it := nv.MapRange(); it.Next(); {
+		k := it.Key()
+		nVal := it.Value()
+		oVal := ov.MapIndex(k)
+		if oVal.IsValid() && oVal.Equal(nVal) {
+			continue
+		}
+		keyBuf.Set(k)
+		if err := keyDesc.encode(enc, keyBuf.Addr().UnsafePointer()); err != nil {
+			return err
+		}
+		if oVal.IsValid() {
+			oBuf := reflect.New(valDesc.rType).Elem()
+			oBuf.Set(oVal)
+			nBuf := reflect.New(valDesc.rType).Elem()
+			nBuf.Set(nVal)
+			if _, err := diffValue(enc, valDesc,
+				oBuf.Addr().UnsafePointer(), nBuf.Addr().UnsafePointer()); err != nil {
+				return err
+			}
+		} else {
+			nBuf := reflect.New(valDesc.rType).Elem()
+			nBuf.Set(nVal)
+			if _, err := writeReplace(enc, valDesc, nBuf.Addr().UnsafePointer()); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Deletions: keys in old, absent in new.
+	nDel := 0
+	for it := ov.MapRange(); it.Next(); {
+		if !nv.MapIndex(it.Key()).IsValid() {
+			nDel++
+		}
+	}
+	enc.buf = appendUvarint(enc.buf, uint64(nDel))
+	for it := ov.MapRange(); it.Next(); {
+		k := it.Key()
+		if nv.MapIndex(k).IsValid() {
+			continue
+		}
+		keyBuf.Set(k)
+		if err := keyDesc.encode(enc, keyBuf.Addr().UnsafePointer()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // diffElems is the shared positional element differ for slices and arrays.
