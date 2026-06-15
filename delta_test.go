@@ -382,3 +382,82 @@ func TestApplyRejectsSliceGrowthBomb(t *testing.T) {
 		}()
 	}
 }
+
+func TestDiffApplyMapPerKey(t *testing.T) {
+	old := map[string]int{"a": 1, "b": 2, "c": 3}
+	neu := map[string]int{"a": 1, "b": 20, "d": 4} // b changed, c deleted, d added
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]int{"a": 1, "b": 2, "c": 3}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("got %v want %v", base, neu)
+	}
+
+	// Per-key property: a one-key change in a large map must produce a patch far
+	// smaller than a whole-map replace (which would re-encode every entry).
+	bigOld := make(map[string]int, 1000)
+	bigNew := make(map[string]int, 1000)
+	for i := range 1000 {
+		bigOld[string(rune('A'+i%26))+string(rune('0'+i/26))] = i
+		bigNew[string(rune('A'+i%26))+string(rune('0'+i/26))] = i
+	}
+	bigNew["A0"] = 999999 // single-key change
+	smallPatch, err := Diff(bigOld, bigNew, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wholeReplace, err := Diff(map[string]int(nil), bigNew, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(smallPatch) >= len(wholeReplace) {
+		t.Fatalf("per-key path not exercised: one-key patch %d >= whole-map %d",
+			len(smallPatch), len(wholeReplace))
+	}
+	bigBase := make(map[string]int, 1000)
+	for k, v := range bigOld {
+		bigBase[k] = v
+	}
+	if err := Apply(&bigBase, smallPatch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(bigBase, bigNew) {
+		t.Fatalf("big map apply mismatch")
+	}
+}
+
+func TestDiffApplyMapStructValuesMerge(t *testing.T) {
+	type V struct {
+		N int
+		S string
+	}
+	old := map[string]V{"x": {1, "a"}, "y": {2, "b"}}
+	neu := map[string]V{"x": {1, "A"}, "y": {2, "b"}} // x.S changed only
+	p, _ := Diff(old, neu, OptBalanced)
+	base := map[string]V{"x": {1, "a"}, "y": {2, "b"}}
+	if err := Apply(&base, p); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("got %v want %v", base, neu)
+	}
+}
+
+func TestDiffApplyMapNilAndEmpty(t *testing.T) {
+	// nil base map gets entries added
+	old := map[string]int(nil)
+	neu := map[string]int{"k": 5}
+	p, _ := Diff(old, neu, OptBalanced)
+	var base map[string]int
+	if err := Apply(&base, p); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("nil->set got %v want %v", base, neu)
+	}
+}

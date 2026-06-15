@@ -40,6 +40,8 @@ func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return applySlice(dec, td, baseP)
 	case reflect.Array:
 		return applyArray(dec, td, baseP)
+	case reflect.Map:
+		return applyMap(dec, td, baseP)
 	default:
 		return ErrInvalidPatch // later tasks add map/ptr merge
 	}
@@ -136,6 +138,65 @@ func applyArray(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		if err := applyValue(dec, elem, unsafe.Add(baseP, uintptr(idx)*stride)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// applyMap reads a tagMapPatch and mutates the base map in place: set/merge the
+// updated keys, then delete the tombstoned keys.
+func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+	if dec.i >= len(dec.buf) || dec.buf[dec.i] != tagMapPatch {
+		return ErrInvalidPatch
+	}
+	dec.i++
+	mv := reflect.NewAt(td.rType, baseP).Elem()
+	if mv.IsNil() {
+		mv.Set(reflect.MakeMap(td.rType))
+	}
+	keyType := td.rType.Key()
+	keyDesc, err := descOf(keyType)
+	if err != nil {
+		return err
+	}
+	valDesc := td.elem
+	if valDesc == nil {
+		valDesc, err = descOf(td.rType.Elem())
+		if err != nil {
+			return err
+		}
+	}
+
+	nUpd, k := readUvarint(dec.buf[dec.i:])
+	if k <= 0 || nUpd > uint64(len(dec.buf)) {
+		return ErrInvalidPatch
+	}
+	dec.i += k
+	for u := uint64(0); u < nUpd; u++ {
+		keyBuf := reflect.New(keyType).Elem()
+		if err := keyDesc.decode(dec, keyBuf.Addr().UnsafePointer()); err != nil {
+			return err
+		}
+		valBuf := reflect.New(valDesc.rType).Elem()
+		if existing := mv.MapIndex(keyBuf); existing.IsValid() {
+			valBuf.Set(existing) // merge target starts from the current value
+		}
+		if err := applyValue(dec, valDesc, valBuf.Addr().UnsafePointer()); err != nil {
+			return err
+		}
+		mv.SetMapIndex(keyBuf, valBuf)
+	}
+
+	nDel, k2 := readUvarint(dec.buf[dec.i:])
+	if k2 <= 0 || nDel > uint64(len(dec.buf)) {
+		return ErrInvalidPatch
+	}
+	dec.i += k2
+	for d := uint64(0); d < nDel; d++ {
+		keyBuf := reflect.New(keyType).Elem()
+		if err := keyDesc.decode(dec, keyBuf.Addr().UnsafePointer()); err != nil {
+			return err
+		}
+		mv.SetMapIndex(keyBuf, reflect.Value{}) // delete
 	}
 	return nil
 }
