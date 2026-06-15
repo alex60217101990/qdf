@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"maps"
 	"reflect"
 	"testing"
 	"unsafe"
@@ -420,9 +421,7 @@ func TestDiffApplyMapPerKey(t *testing.T) {
 			len(smallPatch), len(wholeReplace))
 	}
 	bigBase := make(map[string]int, 1000)
-	for k, v := range bigOld {
-		bigBase[k] = v
-	}
+	maps.Copy(bigBase, bigOld)
 	if err := Apply(&bigBase, smallPatch); err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +522,7 @@ func TestApplyRejectsTruncatedPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Truncate at every length; Apply must never panic, must return an error or nil.
-	for cut := 0; cut < len(p); cut++ {
+	for cut := range len(p) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -689,9 +688,7 @@ func TestDiffApplyNilVsEmptyBothLenZero(t *testing.T) {
 			}
 			if from.M != nil {
 				base.M = map[string]int{}
-				for k, v := range from.M {
-					base.M[k] = v
-				}
+				maps.Copy(base.M, from.M)
 			}
 			if err := Apply(&base, patch); err != nil {
 				t.Fatalf("%s opts=%v Apply: %v", name, opts, err)

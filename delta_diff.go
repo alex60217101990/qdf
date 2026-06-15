@@ -186,13 +186,10 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 // diffElems is the shared positional element differ for slices and arrays.
 func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintptr,
 	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int) error {
-	minLen := oldLen
-	if newLen < minLen {
-		minLen = newLen
-	}
+	minLen := min(newLen, oldLen)
 	pod := noPointers(elemType)
 	var entries []int
-	for i := 0; i < minLen; i++ {
+	for i := range minLen {
 		oP := unsafe.Add(oldData, uintptr(i)*stride)
 		nP := unsafe.Add(newData, uintptr(i)*stride)
 		var same bool
@@ -354,7 +351,7 @@ func equalSliceEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		bb := unsafe.Slice((*byte)(bh.Data), uintptr(n)*stride)
 		return bytes.Equal(ab, bb)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if !equalValue(elem, unsafe.Add(ah.Data, uintptr(i)*stride),
 			unsafe.Add(bh.Data, uintptr(i)*stride)) {
 			return false
@@ -375,7 +372,7 @@ func equalArrayEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		total := uintptr(n) * stride
 		return bytes.Equal(unsafe.Slice((*byte)(aP), total), unsafe.Slice((*byte)(bP), total))
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if !equalValue(td.elem, unsafe.Add(aP, uintptr(i)*stride),
 			unsafe.Add(bP, uintptr(i)*stride)) {
 			return false

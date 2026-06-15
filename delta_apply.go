@@ -82,10 +82,7 @@ func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 
 	if newLen != bv.Len() {
 		nv := reflect.MakeSlice(td.rType, newLen, newLen)
-		cp := bv.Len()
-		if newLen < cp {
-			cp = newLen
-		}
+		cp := min(bv.Len(), newLen)
 		reflect.Copy(nv, bv.Slice(0, cp))
 		bv.Set(nv)
 	}
@@ -96,7 +93,7 @@ func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return ErrInvalidPatch
 	}
 	dec.i += k2
-	for e := uint64(0); e < nEntries; e++ {
+	for range nEntries {
 		idx, k3 := readUvarint(dec.buf[dec.i:])
 		if k3 <= 0 || idx >= uint64(newLen) {
 			return ErrInvalidPatch
@@ -129,7 +126,7 @@ func applyArray(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return ErrInvalidPatch
 	}
 	dec.i += k2
-	for e := uint64(0); e < nEntries; e++ {
+	for range nEntries {
 		idx, k3 := readUvarint(dec.buf[dec.i:])
 		if k3 <= 0 || idx >= newLen {
 			return ErrInvalidPatch
@@ -171,7 +168,7 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return ErrInvalidPatch
 	}
 	dec.i += k
-	for u := uint64(0); u < nUpd; u++ {
+	for range nUpd {
 		keyBuf := reflect.New(keyType).Elem()
 		if err := keyDesc.decode(dec, keyBuf.Addr().UnsafePointer()); err != nil {
 			return err
@@ -191,7 +188,7 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return ErrInvalidPatch
 	}
 	dec.i += k2
-	for d := uint64(0); d < nDel; d++ {
+	for range nDel {
 		keyBuf := reflect.New(keyType).Elem()
 		if err := keyDesc.decode(dec, keyBuf.Addr().UnsafePointer()); err != nil {
 			return err
@@ -212,7 +209,7 @@ func applyStruct(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return ErrInvalidPatch
 	}
 	dec.i += k
-	for c := uint64(0); c < nChanged; c++ {
+	for range nChanged {
 		idx, k2 := readUvarint(dec.buf[dec.i:])
 		if k2 <= 0 || idx >= uint64(len(td.fields)) {
 			return ErrInvalidPatch

@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"maps"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -66,9 +67,7 @@ func deepCopyRec(r fuzzRec) fuzzRec {
 	c := r
 	if r.Tags != nil {
 		c.Tags = map[string]int{}
-		for k, v := range r.Tags {
-			c.Tags[k] = v
-		}
+		maps.Copy(c.Tags, r.Tags)
 	}
 	if r.Items != nil {
 		c.Items = make([]fuzzInner, len(r.Items))
