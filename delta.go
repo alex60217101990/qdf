@@ -7,6 +7,7 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"sync"
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/rans"
@@ -22,15 +23,26 @@ const maxDeltaDepth = 10000
 // build stability is not required for Phase 1 (both ends import the same type).
 var schemaSeed = maphash.MakeSeed()
 
+// schemaFPCache memoizes schemaFingerprint keyed by *typeDesc. The fingerprint
+// is a pure function of the (stable, descOf-cached) descriptor, so the visited-set
+// graph walk runs once per type instead of once per Diff/Apply call.
+var schemaFPCache sync.Map // map[*typeDesc]uint64
+
 // schemaFingerprint hashes a type descriptor's shape (kind + field names +
 // recursive field/element kinds) so Apply can reject a patch built for a
-// different type. Cycles are broken by a visited set.
+// different type. Cycles are broken by a visited set. The result is memoized
+// per descriptor (see schemaFPCache).
 func schemaFingerprint(td *typeDesc) uint64 {
+	if v, ok := schemaFPCache.Load(td); ok {
+		return v.(uint64)
+	}
 	var h maphash.Hash
 	h.SetSeed(schemaSeed)
 	visited := map[*typeDesc]bool{}
 	hashDesc(&h, td, visited)
-	return h.Sum64()
+	sum := h.Sum64()
+	schemaFPCache.Store(td, sum)
+	return sum
 }
 
 func hashDesc(h *maphash.Hash, td *typeDesc, visited map[*typeDesc]bool) {
@@ -86,8 +98,11 @@ func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error) {
 	if enc.mode == Dense {
 		flags |= flagPatchDense
 	}
-	flags |= flagPatchBaseFP // baseFP defaults ON
-	baseFP := valueFingerprint(td, unsafe.Pointer(&old))
+	var baseFP uint64
+	if !opts.Has(OptDeltaNoBaseFingerprint) {
+		flags |= flagPatchBaseFP // baseFP defaults ON
+		baseFP = valueFingerprint(td, unsafe.Pointer(&old))
+	}
 	schemaFP := schemaFingerprint(td)
 
 	start := len(dst)

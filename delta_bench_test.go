@@ -41,4 +41,16 @@ func BenchmarkDiffApply(b *testing.B) {
 	full, _ := Marshal(neu, OptBalanced)
 	b.Logf("patch size = %d bytes; full marshal = %d bytes (%.1fx smaller)",
 		len(patch), len(full), float64(len(full))/float64(len(patch)))
+
+	// Apply with the base fingerprint skipped: Apply no longer walks the whole
+	// (large) base via reflect, only the tiny patch.
+	patchNoFP, _ := Diff(old, neu, OptBalanced|OptDeltaNoBaseFingerprint)
+	b.Run("ApplyNoBaseFP", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			base := make([]fuzzRec, len(old))
+			copy(base, old)
+			_ = Apply(&base, patchNoFP)
+		}
+	})
 }

@@ -394,6 +394,13 @@ func equalMapEV(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 	if av.Len() != bv.Len() {
 		return false
 	}
+	if av.Len() == 0 {
+		// Both maps empty (lengths matched) and equalValue's Map case already
+		// pre-checked nil-vs-non-nil before calling here, so matching nilness +
+		// zero entries ⇒ equal contents. Skip the two reflect.New comparison
+		// buffers — the common (nil/empty map) case allocated them for nothing.
+		return true
+	}
 	valDesc := td.elem
 	if valDesc == nil {
 		var err error

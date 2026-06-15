@@ -288,6 +288,14 @@ const (
 	// recur.
 	OptMapShape
 
+	// OptDeltaNoBaseFingerprint disables the patch base fingerprint that Diff/Apply
+	// use to detect a mismatched base. With it set, Diff omits the fingerprint and
+	// Apply performs no base check — skipping a full reflect walk of the value on
+	// BOTH sides (a large speedup for a big base with a tiny patch), at the cost of
+	// the wrong-base safety guard. Use only when the caller guarantees Apply's base
+	// is exactly the value Diff was computed against. No effect outside Diff/Apply.
+	OptDeltaNoBaseFingerprint // bit 10
+
 	// Bits 11..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no

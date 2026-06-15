@@ -965,3 +965,37 @@ func TestDiffApplyInterfaceNonComparable(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDiffApplyNoBaseFingerprint(t *testing.T) {
+	type Rec struct {
+		N int
+		S string
+	}
+	old := Rec{N: 1, S: "x"}
+	neu := Rec{N: 2, S: "y"}
+	patch, err := Diff(old, neu, OptBalanced|OptDeltaNoBaseFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No baseFP flag in the header.
+	h, _, err := readPatchHeader(patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.flags&flagPatchBaseFP != 0 {
+		t.Fatal("expected no baseFP flag")
+	}
+	// Round-trips onto the correct base.
+	base := old
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if base != neu {
+		t.Fatalf("got %+v", base)
+	}
+	// And — by design — applies onto a WRONG base WITHOUT error (no guard).
+	wrong := Rec{N: 99, S: "zzz"}
+	if err := Apply(&wrong, patch); err != nil {
+		t.Fatalf("no-fingerprint apply should not error: %v", err)
+	}
+}
