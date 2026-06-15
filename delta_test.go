@@ -136,6 +136,41 @@ func TestEqualValueStructSliceMapPtr(t *testing.T) {
 	}
 }
 
+func TestDiffApplyFlatStruct(t *testing.T) {
+	type Rec struct {
+		ID   int
+		Name string
+		Age  uint8
+		On   bool
+	}
+	old := Rec{ID: 1, Name: "alice", Age: 30, On: true}
+	neu := Rec{ID: 1, Name: "alice", Age: 31, On: false} // Age + On changed
+
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	base := old // copy
+	if err := Apply(&base, patch); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if base != neu {
+		t.Fatalf("Apply mismatch:\n got %+v\nwant %+v", base, neu)
+	}
+
+	p2, err := Diff(old, old, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2 := old
+	if err := Apply(&b2, p2); err != nil {
+		t.Fatal(err)
+	}
+	if b2 != old {
+		t.Fatal("no-op patch changed value")
+	}
+}
+
 func TestEqualValueNonPODSliceField(t *testing.T) {
 	type Rec struct {
 		Tags  []string
