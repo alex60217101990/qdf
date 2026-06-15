@@ -58,8 +58,8 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 		enc.buf = append(enc.buf, opMerge)
 		return diffMap(enc, td, oldP, newP)
 	default:
-		// Phase 1: non-struct change is a whole-value replace. Pointer/slice/map
-		// merge ops are added in later tasks (they extend this switch).
+		// Scalars/string/[]byte and presence/nilness changes are a whole-value
+		// replace; structs/slices/arrays/maps/pointers merge in their own cases above.
 		return writeReplace(enc, td, newP)
 	}
 }
@@ -145,18 +145,17 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 			return err
 		}
 		if oVal.IsValid() {
-			oBuf := reflect.New(valDesc.rType).Elem()
-			oBuf.Set(oVal)
-			nBuf := reflect.New(valDesc.rType).Elem()
-			nBuf.Set(nVal)
+			// The skip check above ran valEqual (oVal is valid), which already set
+			// oCmp/nCmp to (oVal, nVal); reuse those addressable buffers directly.
 			if err := diffValue(enc, valDesc,
-				oBuf.Addr().UnsafePointer(), nBuf.Addr().UnsafePointer()); err != nil {
+				oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer()); err != nil {
 				return err
 			}
 		} else {
-			nBuf := reflect.New(valDesc.rType).Elem()
-			nBuf.Set(nVal)
-			if err := writeReplace(enc, valDesc, nBuf.Addr().UnsafePointer()); err != nil {
+			// Addition: oVal is invalid, so valEqual short-circuited and nCmp is
+			// stale; set it from nVal and reuse the buffer for the replace.
+			nCmp.Set(nVal)
+			if err := writeReplace(enc, valDesc, nCmp.Addr().UnsafePointer()); err != nil {
 				return err
 			}
 		}

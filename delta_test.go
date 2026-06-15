@@ -826,3 +826,64 @@ func TestApplyDivergentBaseRejected(t *testing.T) {
 		t.Fatalf("got %v", matching)
 	}
 }
+
+func TestApplyDivergentBaseInterfaceField(t *testing.T) {
+	type Rec struct {
+		N int
+		X any
+	}
+	// Patch changes only N; X ("alpha") is unchanged.
+	patch, err := Diff(Rec{N: 1, X: "alpha"}, Rec{N: 99, X: "alpha"}, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Apply onto a base whose interface field DIVERGES from old.
+	divergent := Rec{N: 1, X: "DIFFERENT"}
+	if err := Apply(&divergent, patch); !errors.Is(err, ErrPatchBaseMismatch) {
+		t.Fatalf("divergent interface base: got %v want ErrPatchBaseMismatch", err)
+	}
+	// Matching base applies cleanly.
+	matching := Rec{N: 1, X: "alpha"}
+	if err := Apply(&matching, patch); err != nil {
+		t.Fatalf("matching base: %v", err)
+	}
+	if matching.N != 99 || matching.X != "alpha" {
+		t.Fatalf("got %+v", matching)
+	}
+}
+
+func TestDiffApplyDenseInternRoundTrip(t *testing.T) {
+	type Rec struct {
+		A string
+		B string
+		C string
+		D string
+	}
+	// Repeated strings exercise the Dense intern path within one patch body.
+	old := Rec{A: "alpha", B: "alpha", C: "beta", D: "alpha"}
+	neu := Rec{A: "alpha", B: "gamma", C: "beta", D: "gamma"} // B, D change to a repeated new value
+	for _, opts := range []Options{OptDense, OptDense | OptBalanced, OptDense | OptCompression, OptBalanced} {
+		patch, err := Diff(old, neu, opts)
+		if err != nil {
+			t.Fatalf("opts=%v Diff: %v", opts, err)
+		}
+		base := old
+		if err := Apply(&base, patch); err != nil {
+			t.Fatalf("opts=%v Apply: %v", opts, err)
+		}
+		if base != neu {
+			t.Fatalf("opts=%v: got %+v want %+v", opts, base, neu)
+		}
+	}
+	// Pooled reuse: many sequential Diff/Apply must not leak intern state across calls.
+	for i := 0; i < 200; i++ {
+		patch, _ := Diff(old, neu, OptDense|OptBalanced)
+		base := old
+		if err := Apply(&base, patch); err != nil {
+			t.Fatalf("reuse %d: %v", i, err)
+		}
+		if base != neu {
+			t.Fatalf("reuse %d mismatch", i)
+		}
+	}
+}
