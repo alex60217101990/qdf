@@ -256,14 +256,145 @@ func decompressPatchBody(body []byte) ([]byte, error) {
 func valueFingerprint(td *typeDesc, p unsafe.Pointer) uint64 {
 	var h maphash.Hash
 	h.SetSeed(schemaSeed)
-	fpWalk(&h, reflect.NewAt(td.rType, p).Elem(), 0)
+	fpHash(&h, td, p, 0)
 	return h.Sum64()
 }
 
-func fpWalk(h *maphash.Hash, v reflect.Value, depth int) {
+// fpHash hashes the value of type td at p into h. For a pointer-free, padding-
+// free ("tight POD") type it issues a single maphash.Write over the whole
+// contiguous byte span — collapsing N per-field/per-element writes and all
+// reflect dispatch into one vectorized hash. Non-tight types (those carrying
+// pointers, strings, padding, or maps) recurse structurally, hashing per field /
+// per element so padding bytes are never read. nil-vs-empty markers for
+// slice/map/pointer are preserved exactly as the prior reflect walk emitted them.
+func fpHash(h *maphash.Hash, td *typeDesc, p unsafe.Pointer, depth int) {
 	if depth > maxDeltaDepth {
 		// A truncated fingerprint is fine here: the diff walk applies its own cap
 		// and surfaces the cycle as ErrCycleDetected.
+		return
+	}
+	if td.tightPOD {
+		// One write over the whole value: scalar, tight array, or tightly-packed
+		// pointer-free struct. The span is all content (no padding) so the hash is
+		// determined purely by the logical value.
+		_, _ = h.Write(unsafe.Slice((*byte)(p), td.rType.Size()))
+		return
+	}
+	switch td.kind {
+	case reflect.String:
+		_, _ = h.WriteString(*(*string)(p))
+	case reflect.Bool:
+		if *(*bool)(p) {
+			_ = h.WriteByte(1)
+		} else {
+			_ = h.WriteByte(0)
+		}
+	case reflect.Slice:
+		sh := (*sliceHeader)(p)
+		if sh.Data == nil {
+			_ = h.WriteByte(0) // nil-slice marker (distinct from empty-non-nil)
+			return
+		}
+		_ = h.WriteByte(1)
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], uint64(sh.Len))
+		_, _ = h.Write(b[:])
+		if sh.Len == 0 {
+			return
+		}
+		if td.rType.Elem().Kind() == reflect.Uint8 {
+			_, _ = h.Write(unsafe.Slice((*byte)(sh.Data), sh.Len))
+			return
+		}
+		elem := td.elem
+		if elem == nil {
+			elem, _ = descOf(td.rType.Elem())
+		}
+		stride := td.rType.Elem().Size()
+		if elem != nil && elem.tightPOD {
+			// Whole backing array is content: one write over len*stride bytes.
+			_, _ = h.Write(unsafe.Slice((*byte)(sh.Data), uintptr(sh.Len)*stride))
+			return
+		}
+		for i := range sh.Len {
+			fpHash(h, elem, unsafe.Add(sh.Data, uintptr(i)*stride), depth+1)
+		}
+	case reflect.Array:
+		// A tight array was handled by the tightPOD branch; a non-tight array has a
+		// non-tight element (strings/pointers/padding), so hash element by element.
+		n := td.rType.Len()
+		stride := td.rType.Elem().Size()
+		elem := td.elem
+		if elem == nil {
+			elem, _ = descOf(td.rType.Elem())
+		}
+		for i := range n {
+			fpHash(h, elem, unsafe.Add(p, uintptr(i)*stride), depth+1)
+		}
+	case reflect.Struct:
+		// A tight struct was handled above; this one has strings/pointers/padding.
+		// Hash per field (skipping any padding between fields).
+		for i := range td.fields {
+			f := &td.fields[i]
+			fpHash(h, f.desc, unsafe.Add(p, f.offset), depth+1)
+		}
+	case reflect.Pointer:
+		ep := *(*unsafe.Pointer)(p)
+		if ep == nil {
+			_ = h.WriteByte(0)
+			return
+		}
+		_ = h.WriteByte(1)
+		elem := td.elem
+		if elem == nil {
+			elem, _ = descOf(td.rType.Elem())
+		}
+		fpHash(h, elem, ep, depth+1)
+	case reflect.Map:
+		mp := *(*unsafe.Pointer)(p)
+		if mp == nil {
+			_ = h.WriteByte(0) // nil-map marker
+			return
+		}
+		_ = h.WriteByte(1)
+		v := reflect.NewAt(td.rType, p).Elem()
+		// Maps need reflect to iterate; hash key+value with the reflect fallback
+		// (no per-entry addressable scratch — that allocated two reflect.New values
+		// per entry and regressed map-heavy values). Commutative XOR fold keeps the
+		// result order-independent.
+		var acc uint64
+		for it := v.MapRange(); it.Next(); {
+			var e maphash.Hash
+			e.SetSeed(schemaSeed)
+			fpHashReflect(&e, it.Key(), depth+1)
+			fpHashReflect(&e, it.Value(), depth+1)
+			acc ^= e.Sum64()
+		}
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], acc)
+		_, _ = h.Write(b[:])
+	case reflect.Interface:
+		v := reflect.NewAt(td.rType, p).Elem()
+		if v.IsNil() {
+			_ = h.WriteByte(0)
+			return
+		}
+		_ = h.WriteByte(1)
+		el := v.Elem()
+		_, _ = h.WriteString(el.Type().String())
+		fpHashReflect(h, el, depth+1)
+	default:
+		// Exotic kinds (chan/func/complex via interface, etc.): hash the type name.
+		// Rare and off the hot path.
+		_, _ = h.WriteString(td.rType.String())
+	}
+}
+
+// fpHashReflect is the reflect fallback used only for the boxed dynamic value
+// inside an interface, where a stable typed pointer is awkward to obtain. It
+// mirrors the prior reflect walk for that one rare branch; perf does not matter.
+func fpHashReflect(h *maphash.Hash, v reflect.Value, depth int) {
+	if depth > maxDeltaDepth {
 		return
 	}
 	switch v.Kind() {
@@ -273,27 +404,27 @@ func fpWalk(h *maphash.Hash, v reflect.Value, depth int) {
 		for iter.Next() {
 			var e maphash.Hash
 			e.SetSeed(schemaSeed)
-			fpWalk(&e, iter.Key(), depth+1)
-			fpWalk(&e, iter.Value(), depth+1)
-			acc ^= e.Sum64() // commutative: order-independent
+			fpHashReflect(&e, iter.Key(), depth+1)
+			fpHashReflect(&e, iter.Value(), depth+1)
+			acc ^= e.Sum64()
 		}
 		var b [8]byte
 		binary.LittleEndian.PutUint64(b[:], acc)
 		_, _ = h.Write(b[:])
 	case reflect.Struct:
 		for i := range v.NumField() {
-			fpWalk(h, v.Field(i), depth+1)
+			fpHashReflect(h, v.Field(i), depth+1)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := range v.Len() {
-			fpWalk(h, v.Index(i), depth+1)
+			fpHashReflect(h, v.Index(i), depth+1)
 		}
 	case reflect.Pointer:
 		if v.IsNil() {
 			_ = h.WriteByte(0)
 		} else {
 			_ = h.WriteByte(1)
-			fpWalk(h, v.Elem(), depth+1)
+			fpHashReflect(h, v.Elem(), depth+1)
 		}
 	case reflect.String:
 		_, _ = h.WriteString(v.String())
@@ -323,7 +454,7 @@ func fpWalk(h *maphash.Hash, v reflect.Value, depth int) {
 		_ = h.WriteByte(1)
 		el := v.Elem()
 		_, _ = h.WriteString(el.Type().String())
-		fpWalk(h, el, depth+1)
+		fpHashReflect(h, el, depth+1)
 	default:
 		_, _ = h.WriteString(v.Type().String())
 	}

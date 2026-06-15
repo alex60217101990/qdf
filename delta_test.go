@@ -1068,3 +1068,57 @@ func TestDiffApplyNoBaseFingerprint(t *testing.T) {
 		t.Fatalf("no-fingerprint apply should not error: %v", err)
 	}
 }
+
+// TestFingerprintPaddingSafe proves the unsafe fingerprint never hashes struct
+// padding bytes: a padded pointer-free struct must NOT be tightPOD (so fpHash
+// recurses per field, skipping padding), and two logically-equal instances —
+// even with deliberately dirtied padding — must produce the SAME fingerprint,
+// so a valid base is never falsely rejected with ErrPatchBaseMismatch.
+func TestFingerprintPaddingSafe(t *testing.T) {
+	type Padded struct {
+		A int8  // 1 byte + 7 padding before B
+		B int64 // forces 8-byte alignment → internal padding
+	}
+	td, _ := descOf(reflect.TypeFor[Padded]())
+	if td.tightPOD {
+		t.Fatal("padded struct must not be tightPOD (else padding bytes get hashed)")
+	}
+	// Two equal values built in dirtied memory: write garbage into the struct's
+	// raw bytes first, then set the fields, so the padding holds different junk.
+	mk := func(junk byte) Padded {
+		var buf [16]byte
+		for i := range buf {
+			buf[i] = junk
+		}
+		p := (*Padded)(unsafe.Pointer(&buf[0]))
+		p.A = 7
+		p.B = 99
+		return *p
+	}
+	x := mk(0x00)
+	y := mk(0xFF) // identical fields, different padding bytes
+	fx := valueFingerprint(td, unsafe.Pointer(&x))
+	fy := valueFingerprint(td, unsafe.Pointer(&y))
+	if fx != fy {
+		t.Fatalf("padding changed the fingerprint: %#x != %#x (padding must be skipped)", fx, fy)
+	}
+	// And a real Diff/Apply round-trip onto a padding-dirtied-but-equal base must
+	// NOT trip ErrPatchBaseMismatch.
+	type Rec struct {
+		P Padded
+		N int
+	}
+	old := Rec{P: mk(0x00), N: 1}
+	neu := Rec{P: mk(0x00), N: 2}
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Rec{P: mk(0xAB), N: 1} // same logical P, dirty padding
+	if err := Apply(&base, patch); err != nil {
+		t.Fatalf("padding-dirty base falsely rejected: %v", err)
+	}
+	if base.N != 2 {
+		t.Fatalf("apply failed: %+v", base)
+	}
+}

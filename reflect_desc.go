@@ -40,6 +40,15 @@ type typeDesc struct {
 	// at build for the delta diff hot path (equalSliceEV/equalArrayEV/diffElems),
 	// which would otherwise call the structural noPointers walk per element.
 	pod bool
+	// tightPOD reports whether this type is pointer-free AND has no internal or
+	// tail padding — i.e. its entire byte span is content. The delta value
+	// fingerprint may bulk-hash such a span in ONE maphash.Write (collapsing N
+	// per-field/per-element hashes + reflect dispatch). It must NOT bulk-hash a
+	// padded type: padding bytes are indeterminate, so two logically-equal values
+	// could hash differently → a false ErrPatchBaseMismatch. Computed once at
+	// descBuild (single-threaded, published with the descriptor). Shares the
+	// 1-byte tail with kind/marshalerKind/pod (no new padding).
+	tightPOD bool
 }
 
 type fieldDesc struct {
@@ -121,6 +130,10 @@ func descBuild(t reflect.Type, ctx *buildCtx) (*typeDesc, error) {
 	// field instead of calling noPointers per element. Set before fillDesc so it
 	// is in place by the time descOf publishes td to typeCache.
 	td.pod = noPointersWalk(t)
+	// tightPOD is, like pod, a pure structural property of t (pointer-free AND no
+	// internal/tail padding). Compute it here with the uncached walk so the delta
+	// value-fingerprint hot path can bulk-hash a tight span in one maphash.Write.
+	td.tightPOD = tightPODWalk(t)
 	ctx.inProgress[t] = td
 	if err := fillDesc(td, t, ctx); err != nil {
 		// Leave nothing half-built reachable: the failed type stays only in
