@@ -44,6 +44,14 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int)
 		if ((*sliceHeader)(oldP).Data == nil) != ((*sliceHeader)(newP).Data == nil) {
 			return writeReplace(enc, td, newP)
 		}
+		elem := td.elem
+		if elem == nil {
+			elem, _ = descOf(td.rType.Elem())
+		}
+		if elem != nil && elem.keyed && keyTokenable(elem.keyDesc) {
+			enc.buf = append(enc.buf, opMerge)
+			return diffKeyedSlice(enc, td, elem, oldP, newP, depth)
+		}
 		enc.buf = append(enc.buf, opMerge)
 		return diffSlice(enc, td, oldP, newP, depth)
 	case reflect.Array:

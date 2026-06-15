@@ -174,6 +174,11 @@ type Encoder struct {
 	// zero. Bounded on return to the encoder pool (putEnc).
 	wideI64 []int64
 	wideU64 []uint64
+
+	// keyIdx is a reused (clear-not-realloc) old-key→index map for keyed slice
+	// diff. Lives on the Encoder so a many-element keyed slice builds its match
+	// table once per pool acquire; dropped past a spike cap in Reset().
+	keyIdx map[string]int
 }
 
 // applyOpts mirrors the options bitmask onto the cached mode / qpack
@@ -282,6 +287,11 @@ func (e *Encoder) Reset() {
 	// Pure []uint64 (no pointers) so no clear is needed.
 	if cap(e.alpScratch) > maxRetainedColScratch {
 		e.alpScratch = nil
+	}
+	// Drop a spike-sized keyed-diff match map before reuse; clearing happens
+	// lazily at build time (mirror the alpScratch cap-drop above).
+	if len(e.keyIdx) > 1<<16 {
+		e.keyIdx = nil
 	}
 	e.headerOut = false
 	if e.state != nil {

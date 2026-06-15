@@ -108,6 +108,19 @@ func TestKeyTokenByteArray(t *testing.T) {
 	}
 }
 
+func TestKeyedPatchUsesKeyedTag(t *testing.T) {
+	type E struct {
+		ID  string `qdf:"id,key"`
+		Val int
+	}
+	old := []E{{"a", 1}}
+	neu := []E{{"a", 2}}
+	patch, _ := Diff(old, neu, OptBalanced)
+	if !containsByte(patch, tagKeyedSlicePatch) {
+		t.Fatal("keyed type must emit tagKeyedSlicePatch")
+	}
+}
+
 func TestKeyTokenAtMatchesKeyToken(t *testing.T) {
 	// keyTokenAt over the key value alone must equal keyToken over the element.
 	type E struct {
