@@ -3,6 +3,7 @@ package qdf
 import (
 	"reflect"
 	"testing"
+	"unsafe"
 )
 
 func TestPatchHeaderRoundTrip(t *testing.T) {
@@ -67,5 +68,70 @@ func TestReadPatchHeaderRejectsBadMagic(t *testing.T) {
 	truncated := writePatchHeader(nil, flagPatchBaseFP, 1, 2)[:15] // cut mid-baseFP
 	if _, _, err := readPatchHeader(truncated); err != ErrInvalidPatch {
 		t.Fatalf("truncated baseFP: got %v want ErrInvalidPatch", err)
+	}
+}
+
+func TestEqualValueScalarsStringsBytes(t *testing.T) {
+	eq := func(td *typeDesc, a, b unsafe.Pointer) bool { return equalValue(td, a, b) }
+
+	tdI, _ := descOf(reflect.TypeFor[int]())
+	x, y := 5, 5
+	z := 6
+	if !eq(tdI, unsafe.Pointer(&x), unsafe.Pointer(&y)) {
+		t.Fatal("5==5 should be equal")
+	}
+	if eq(tdI, unsafe.Pointer(&x), unsafe.Pointer(&z)) {
+		t.Fatal("5!=6 should differ")
+	}
+
+	tdS, _ := descOf(reflect.TypeFor[string]())
+	s1, s2, s3 := "abc", "abc", "abd"
+	if !eq(tdS, unsafe.Pointer(&s1), unsafe.Pointer(&s2)) {
+		t.Fatal("abc==abc")
+	}
+	if eq(tdS, unsafe.Pointer(&s1), unsafe.Pointer(&s3)) {
+		t.Fatal("abc!=abd")
+	}
+
+	tdB, _ := descOf(reflect.TypeFor[[]byte]())
+	b1, b2, b3 := []byte{1, 2, 3}, []byte{1, 2, 3}, []byte{1, 2, 4}
+	if !eq(tdB, unsafe.Pointer(&b1), unsafe.Pointer(&b2)) {
+		t.Fatal("bytes equal")
+	}
+	if eq(tdB, unsafe.Pointer(&b1), unsafe.Pointer(&b3)) {
+		t.Fatal("bytes differ")
+	}
+}
+
+func TestEqualValueStructSliceMapPtr(t *testing.T) {
+	type Inner struct {
+		A int
+		B string
+	}
+	type Outer struct {
+		N  int
+		In Inner
+		Sl []int
+		M  map[string]int
+		P  *int
+	}
+	pi := 7
+	mk := func() Outer {
+		return Outer{N: 1, In: Inner{A: 2, B: "x"}, Sl: []int{1, 2}, M: map[string]int{"k": 9}, P: &pi}
+	}
+	a, b := mk(), mk()
+	tdO, _ := descOf(reflect.TypeFor[Outer]())
+	if !equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&b)) {
+		t.Fatal("identical Outer should be equal")
+	}
+	c := mk()
+	c.M["k"] = 10
+	if equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&c)) {
+		t.Fatal("map value change should differ")
+	}
+	d := mk()
+	d.P = nil
+	if equalValue(tdO, unsafe.Pointer(&a), unsafe.Pointer(&d)) {
+		t.Fatal("ptr presence change should differ")
 	}
 }
