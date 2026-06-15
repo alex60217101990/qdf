@@ -76,12 +76,15 @@ and never has to be told which `Options` the producer used.
 func Diff[T any](old, new T, opts Options) ([]byte, error)
 func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error)
 func Apply[T any](base *T, patch []byte) error
+func ApplyArena[T any](base *T, patch []byte, arena *Arena) error
 ```
 
 `Diff` returns a patch carrying only the difference `new − old`. `AppendDiff`
 does the same but appends to a caller-owned `dst`, so a hot loop can reuse one
 buffer with no per-call allocation for the output. `Apply` merges a patch onto
 `*base`, leaving every location the patch does not mention exactly as it was.
+`ApplyArena` is `Apply` with a decode arena for patches that replace many
+strings — see [Batching replaced strings](#batching-replaced-strings-with-an-arena).
 
 `opts` is the same `Options` bit-mask `Marshal` takes — `OptSpeed`,
 `OptBalanced`, `OptCompression`, and the modifiers. The tier only affects how
@@ -258,6 +261,34 @@ trusted pipelines where the caller *guarantees* `Apply`'s base is exactly the
 value `Diff` was computed against (a single-writer cache, a CDC stream you
 control end-to-end). When in doubt, leave it off — the schema fingerprint is
 always present regardless, so a wrong *type* is still rejected.
+
+### Batching replaced strings with an arena
+
+`Apply` decodes each string the patch replaces into its own heap allocation, so a
+patch that replaces many strings — a large changed `[]string` or
+`[]struct{…string…}` field, or a map with many changed string values — costs one
+allocation per string. `ApplyArena` copies those replaced strings into the
+contiguous bump blocks of a caller-provided `Arena` instead:
+
+```go
+arena := qdf.NewArena()
+err := qdf.ApplyArena(&base, patch, arena)
+// base's replaced string fields now alias arena's memory; keep arena
+// reachable for as long as you use base. Call arena.Reset() to reuse it
+// for the next epoch (which invalidates strings from the previous one).
+```
+
+In our benchmark, applying a patch that rewrites every string in a 1000-row
+slice drops from ~3000 allocations to a handful (≈ −99%) and ~25% wall-clock.
+The result, errors, and wire are identical to `Apply` — only where the replaced
+string bytes live differs.
+
+This helps **only** when a patch replaces many strings; a typical small patch
+changes few, and `Apply` is the simpler choice. The lifetime rule is the same as
+the decode arena: strings written into `base` alias the arena and stay valid only
+while it is reachable, so use one arena per epoch and drop it when the values
+built from it are done. Unchanged string fields already in `base` are not touched
+and never alias the arena.
 
 ---
 
