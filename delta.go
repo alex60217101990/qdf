@@ -12,6 +12,11 @@ import (
 	"github.com/alex60217101990/qdf/internal/rans"
 )
 
+// maxDeltaDepth bounds recursion in the diff/apply/fingerprint value walks,
+// matching the encoder's cycle guard. A cyclic or pathologically deep value is
+// rejected with ErrCycleDetected instead of overflowing the (uncatchable) stack.
+const maxDeltaDepth = 10000
+
 // schemaSeed is a process-stable seed. A fingerprint only needs to be stable
 // within a single producer→consumer exchange that shares this binary; cross-
 // build stability is not required for Phase 1 (both ends import the same type).
@@ -89,7 +94,7 @@ func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error) {
 	enc.buf = writePatchHeader(dst, flags, schemaFP, baseFP)
 	enc.MarkHeaderWritten() // QDP header, not QDF: suppress value-codec QDF header
 
-	if err := diffValue(enc, td, unsafe.Pointer(&old), unsafe.Pointer(&new)); err != nil {
+	if err := diffValue(enc, td, unsafe.Pointer(&old), unsafe.Pointer(&new), 0); err != nil {
 		enc.buf = nil
 		putEnc(enc, &encPool)
 		return dst, err
@@ -137,7 +142,7 @@ func Apply[T any](base *T, patch []byte) error {
 	}
 	dec := decPool.Get().(*Decoder)
 	resetPatchDecoder(dec, body, h.flags&flagPatchDense != 0)
-	err = applyValue(dec, td, unsafe.Pointer(base))
+	err = applyValue(dec, td, unsafe.Pointer(base), 0)
 	dec.buf = nil
 	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
 		dec.deltaScratch = nil
@@ -219,11 +224,16 @@ func decompressPatchBody(body []byte) ([]byte, error) {
 func valueFingerprint(td *typeDesc, p unsafe.Pointer) uint64 {
 	var h maphash.Hash
 	h.SetSeed(schemaSeed)
-	fpWalk(&h, reflect.NewAt(td.rType, p).Elem())
+	fpWalk(&h, reflect.NewAt(td.rType, p).Elem(), 0)
 	return h.Sum64()
 }
 
-func fpWalk(h *maphash.Hash, v reflect.Value) {
+func fpWalk(h *maphash.Hash, v reflect.Value, depth int) {
+	if depth > maxDeltaDepth {
+		// A truncated fingerprint is fine here: the diff walk applies its own cap
+		// and surfaces the cycle as ErrCycleDetected.
+		return
+	}
 	switch v.Kind() {
 	case reflect.Map:
 		var acc uint64
@@ -231,8 +241,8 @@ func fpWalk(h *maphash.Hash, v reflect.Value) {
 		for iter.Next() {
 			var e maphash.Hash
 			e.SetSeed(schemaSeed)
-			fpWalk(&e, iter.Key())
-			fpWalk(&e, iter.Value())
+			fpWalk(&e, iter.Key(), depth+1)
+			fpWalk(&e, iter.Value(), depth+1)
 			acc ^= e.Sum64() // commutative: order-independent
 		}
 		var b [8]byte
@@ -240,18 +250,18 @@ func fpWalk(h *maphash.Hash, v reflect.Value) {
 		_, _ = h.Write(b[:])
 	case reflect.Struct:
 		for i := range v.NumField() {
-			fpWalk(h, v.Field(i))
+			fpWalk(h, v.Field(i), depth+1)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := range v.Len() {
-			fpWalk(h, v.Index(i))
+			fpWalk(h, v.Index(i), depth+1)
 		}
 	case reflect.Pointer:
 		if v.IsNil() {
 			_ = h.WriteByte(0)
 		} else {
 			_ = h.WriteByte(1)
-			fpWalk(h, v.Elem())
+			fpWalk(h, v.Elem(), depth+1)
 		}
 	case reflect.String:
 		_, _ = h.WriteString(v.String())
@@ -281,7 +291,7 @@ func fpWalk(h *maphash.Hash, v reflect.Value) {
 		_ = h.WriteByte(1)
 		el := v.Elem()
 		_, _ = h.WriteString(el.Type().String())
-		fpWalk(h, el)
+		fpWalk(h, el, depth+1)
 	default:
 		_, _ = h.WriteString(v.Type().String())
 	}

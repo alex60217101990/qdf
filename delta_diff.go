@@ -9,8 +9,11 @@ import (
 // diffValue compares the value at oldP/newP and, if changed, writes one op
 // (op byte + payload). The caller has already written any preceding selector
 // (field index / slice index / map key).
-func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
-	if equalValue(td, oldP, newP) {
+func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
+	if depth > maxDeltaDepth {
+		return ErrCycleDetected
+	}
+	if equalValue(td, oldP, newP, depth) {
 		return nil
 	}
 	switch td.kind {
@@ -19,7 +22,7 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 			return writeReplace(enc, td, newP)
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return diffStruct(enc, td, oldP, newP)
+		return diffStruct(enc, td, oldP, newP, depth)
 	case reflect.Pointer:
 		op, np := *(*unsafe.Pointer)(oldP), *(*unsafe.Pointer)(newP)
 		if op == nil || np == nil {
@@ -28,7 +31,7 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 		}
 		if td.elem != nil && td.elem.kind == reflect.Struct && len(td.elem.fields) > 0 {
 			enc.buf = append(enc.buf, opMerge)
-			return diffStruct(enc, td.elem, op, np)
+			return diffStruct(enc, td.elem, op, np, depth+1)
 		}
 		return writeReplace(enc, td, newP)
 	case reflect.Slice:
@@ -42,13 +45,13 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 			return writeReplace(enc, td, newP)
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return diffSlice(enc, td, oldP, newP)
+		return diffSlice(enc, td, oldP, newP, depth)
 	case reflect.Array:
 		if td.rType.Elem().Kind() == reflect.Uint8 {
 			return writeReplace(enc, td, newP) // [N]byte: whole replace
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return diffArray(enc, td, oldP, newP)
+		return diffArray(enc, td, oldP, newP, depth)
 	case reflect.Map:
 		// Same nil↔non-nil concern as slices: applyMap never reconstructs a nil
 		// map, so a nilness transition must be a whole-value replace.
@@ -56,7 +59,7 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 			return writeReplace(enc, td, newP)
 		}
 		enc.buf = append(enc.buf, opMerge)
-		return diffMap(enc, td, oldP, newP)
+		return diffMap(enc, td, oldP, newP, depth)
 	default:
 		// Scalars/string/[]byte and presence/nilness changes are a whole-value
 		// replace; structs/slices/arrays/maps/pointers merge in their own cases above.
@@ -67,7 +70,7 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 // diffSlice writes a tagSlicePatch body for a non-[]byte slice. The whole-slice
 // equality short-circuit already happened in diffValue→equalValue (one SIMD
 // bytes.Equal over POD backing arrays), so we only get here on a real difference.
-func diffSlice(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+func diffSlice(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
 	oh := (*sliceHeader)(oldP)
 	nh := (*sliceHeader)(newP)
 	stride := td.rType.Elem().Size()
@@ -75,23 +78,23 @@ func diffSlice(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 	if elem == nil {
 		elem, _ = descOf(td.rType.Elem())
 	}
-	return diffElems(enc, elem, td.rType.Elem(), stride, oh.Data, oh.Len, nh.Data, nh.Len)
+	return diffElems(enc, elem, td.rType.Elem(), stride, oh.Data, oh.Len, nh.Data, nh.Len, depth)
 }
 
-func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
 	n := td.rType.Len()
 	stride := td.rType.Elem().Size()
 	elem := td.elem
 	if elem == nil {
 		elem, _ = descOf(td.rType.Elem())
 	}
-	return diffElems(enc, elem, td.rType.Elem(), stride, oldP, n, newP, n)
+	return diffElems(enc, elem, td.rType.Elem(), stride, oldP, n, newP, n, depth)
 }
 
 // diffMap writes a tagMapPatch: updated/added keys (each with a recursive op),
 // then a tombstone list of deleted keys. Keys are the identity, so there is no
 // positional ambiguity. Two passes (count, then emit) avoid buffer surgery.
-func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
 	ov := reflect.NewAt(td.rType, oldP).Elem()
 	nv := reflect.NewAt(td.rType, newP).Elem()
 	keyType := td.rType.Key()
@@ -116,7 +119,7 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 	valEqual := func(oVal, nVal reflect.Value) bool {
 		oCmp.Set(oVal)
 		nCmp.Set(nVal)
-		return equalValue(valDesc, oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer())
+		return equalValue(valDesc, oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer(), depth)
 	}
 
 	enc.buf = append(enc.buf, tagMapPatch)
@@ -148,7 +151,7 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 			// The skip check above ran valEqual (oVal is valid), which already set
 			// oCmp/nCmp to (oVal, nVal); reuse those addressable buffers directly.
 			if err := diffValue(enc, valDesc,
-				oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer()); err != nil {
+				oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer(), depth+1); err != nil {
 				return err
 			}
 		} else {
@@ -184,7 +187,7 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 
 // diffElems is the shared positional element differ for slices and arrays.
 func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintptr,
-	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int) error {
+	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int) error {
 	minLen := min(newLen, oldLen)
 	pod := noPointers(elemType)
 	var entries []int
@@ -195,7 +198,7 @@ func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintp
 		if pod {
 			same = bytes.Equal(unsafe.Slice((*byte)(oP), stride), unsafe.Slice((*byte)(nP), stride))
 		} else {
-			same = equalValue(elem, oP, nP)
+			same = equalValue(elem, oP, nP, depth)
 		}
 		if !same {
 			entries = append(entries, i)
@@ -213,7 +216,7 @@ func diffElems(enc *Encoder, elem *typeDesc, elemType reflect.Type, stride uintp
 		nP := unsafe.Add(newData, uintptr(i)*stride)
 		if i < oldLen {
 			oP := unsafe.Add(oldData, uintptr(i)*stride)
-			if err := diffValue(enc, elem, oP, nP); err != nil {
+			if err := diffValue(enc, elem, oP, nP, depth+1); err != nil {
 				return err
 			}
 		} else {
@@ -232,11 +235,11 @@ func writeReplace(enc *Encoder, td *typeDesc, newP unsafe.Pointer) error {
 }
 
 // diffStruct writes a tagStructPatch body with only the changed fields.
-func diffStruct(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
+func diffStruct(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
 	var changed []int
 	for i := range td.fields {
 		f := &td.fields[i]
-		if !equalValue(f.desc, unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset)) {
+		if !equalValue(f.desc, unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset), depth) {
 			changed = append(changed, i)
 		}
 	}
@@ -246,7 +249,7 @@ func diffStruct(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 		f := &td.fields[i]
 		enc.buf = appendUvarint(enc.buf, uint64(i))
 		if err := diffValue(enc, f.desc,
-			unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset)); err != nil {
+			unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset), depth+1); err != nil {
 			return err
 		}
 	}
@@ -257,7 +260,11 @@ func diffStruct(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) error {
 // one at bP. POD scalars reduce to a width compare; strings/[]byte to a SIMD
 // memcmp (bytes.Equal); containers recurse. This is the diff walk's unchanged
 // fast path — for an unchanged subtree it is the ONLY work done.
-func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
+func equalValue(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
+	if depth > maxDeltaDepth {
+		// Force the diff path, which hits its own cap and errors out.
+		return false
+	}
 	switch td.kind {
 	case reflect.Bool:
 		return *(*bool)(aP) == *(*bool)(bP)
@@ -285,9 +292,9 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		if td.rType.Elem().Kind() == reflect.Uint8 {
 			return bytes.Equal(*(*[]byte)(aP), *(*[]byte)(bP))
 		}
-		return equalSliceEV(td, aP, bP)
+		return equalSliceEV(td, aP, bP, depth)
 	case reflect.Array:
-		return equalArrayEV(td, aP, bP)
+		return equalArrayEV(td, aP, bP, depth)
 	case reflect.Struct:
 		// time.Time and custom-marshaler structs have no td.fields; fall back to
 		// reflect.DeepEqual on the reflect value (rare; correctness over speed).
@@ -297,7 +304,7 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		}
 		for i := range td.fields {
 			f := &td.fields[i]
-			if !equalValue(f.desc, unsafe.Add(aP, f.offset), unsafe.Add(bP, f.offset)) {
+			if !equalValue(f.desc, unsafe.Add(aP, f.offset), unsafe.Add(bP, f.offset), depth+1) {
 				return false
 			}
 		}
@@ -307,17 +314,21 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		if ap == nil || bp == nil {
 			return ap == bp
 		}
-		return equalValue(td.elem, ap, bp)
+		return equalValue(td.elem, ap, bp, depth+1)
 	case reflect.Map:
 		// nil map vs empty-non-nil map: same nil-vs-empty distinction as slices.
 		if (*(*unsafe.Pointer)(aP) == nil) != (*(*unsafe.Pointer)(bP) == nil) {
 			return false
 		}
-		return equalMapEV(td, aP, bP)
+		return equalMapEV(td, aP, bP, depth)
 	default:
-		// Interface and anything exotic: reflect fallback.
-		return reflect.NewAt(td.rType, aP).Elem().
-			Equal(reflect.NewAt(td.rType, bP).Elem())
+		// Interface and exotic kinds: reflect.Value.Equal panics on a
+		// non-comparable dynamic value (a []int / map / func inside an any), so
+		// compare structurally with DeepEqual, which handles them. This path is
+		// rare and off the hot path.
+		av := reflect.NewAt(td.rType, aP).Elem()
+		bv := reflect.NewAt(td.rType, bP).Elem()
+		return reflect.DeepEqual(av.Interface(), bv.Interface())
 	}
 }
 
@@ -326,7 +337,7 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer) bool {
 // (the block-memcmp fast path).
 //
 // Note: uses the existing sliceHeader type from reuse.go (fields Data/Len/Cap).
-func equalSliceEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
+func equalSliceEV(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 	ah := (*sliceHeader)(aP)
 	bh := (*sliceHeader)(bP)
 	if ah.Len != bh.Len {
@@ -349,14 +360,14 @@ func equalSliceEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 	}
 	for i := range n {
 		if !equalValue(elem, unsafe.Add(ah.Data, uintptr(i)*stride),
-			unsafe.Add(bh.Data, uintptr(i)*stride)) {
+			unsafe.Add(bh.Data, uintptr(i)*stride), depth+1) {
 			return false
 		}
 	}
 	return true
 }
 
-func equalArrayEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
+func equalArrayEV(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 	if td.rType.Elem().Kind() == reflect.Uint8 {
 		n := uintptr(td.rType.Len())
 		return bytes.Equal(unsafe.Slice((*byte)(aP), n), unsafe.Slice((*byte)(bP), n))
@@ -370,14 +381,14 @@ func equalArrayEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 	}
 	for i := range n {
 		if !equalValue(td.elem, unsafe.Add(aP, uintptr(i)*stride),
-			unsafe.Add(bP, uintptr(i)*stride)) {
+			unsafe.Add(bP, uintptr(i)*stride), depth+1) {
 			return false
 		}
 	}
 	return true
 }
 
-func equalMapEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
+func equalMapEV(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 	av := reflect.NewAt(td.rType, aP).Elem()
 	bv := reflect.NewAt(td.rType, bP).Elem()
 	if av.Len() != bv.Len() {
@@ -401,7 +412,7 @@ func equalMapEV(td *typeDesc, aP, bP unsafe.Pointer) bool {
 		}
 		aCmp.Set(iter.Value())
 		bCmp.Set(bVal)
-		if !equalValue(valDesc, aCmp.Addr().UnsafePointer(), bCmp.Addr().UnsafePointer()) {
+		if !equalValue(valDesc, aCmp.Addr().UnsafePointer(), bCmp.Addr().UnsafePointer(), depth+1) {
 			return false
 		}
 	}
