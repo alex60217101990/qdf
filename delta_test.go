@@ -4,6 +4,7 @@ import (
 	"errors"
 	"maps"
 	"reflect"
+	"slices"
 	"testing"
 	"unsafe"
 )
@@ -170,6 +171,74 @@ func TestDiffApplyFlatStruct(t *testing.T) {
 	}
 	if b2 != old {
 		t.Fatal("no-op patch changed value")
+	}
+}
+
+func TestApplyArena(t *testing.T) {
+	type Row struct {
+		ID    int
+		Name  string
+		Email string
+		Note  string
+	}
+	const n = 500
+	old := make([]Row, n)
+	neu := make([]Row, n)
+	for i := range n {
+		old[i] = Row{ID: i, Name: "old-name-padding", Email: "old@example.invalid", Note: "old note body text here"}
+		neu[i] = Row{ID: i, Name: "new-name-padding-changed", Email: "new@example.invalid", Note: "new note body text here changed"}
+	}
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+
+	// Correctness: ApplyArena reconstructs new exactly, same as Apply.
+	arena := NewArena()
+	base := slices.Clone(old)
+	if err := ApplyArena(&base, patch, arena); err != nil {
+		t.Fatalf("ApplyArena: %v", err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatalf("ApplyArena result != new")
+	}
+
+	// ApplyArena must agree with Apply byte-for-byte on the result.
+	baseplain := slices.Clone(old)
+	if err := Apply(&baseplain, patch); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !reflect.DeepEqual(base, baseplain) {
+		t.Fatalf("ApplyArena and Apply disagree")
+	}
+
+	// The arena actually backed the replaced strings: a string-heavy patch
+	// decodes ~3n string copies, and the arena collapses them to a tiny
+	// constant. Gate the budget on the race detector (it perturbs alloc
+	// accounting; see raceEnabled).
+	if !raceEnabled {
+		plainAllocs := testing.AllocsPerRun(50, func() {
+			b := slices.Clone(old)
+			if err := Apply(&b, patch); err != nil {
+				t.Fatal(err)
+			}
+		})
+		a2 := NewArena()
+		arenaAllocs := testing.AllocsPerRun(50, func() {
+			b := slices.Clone(old)
+			a2.Reset()
+			if err := ApplyArena(&b, patch, a2); err != nil {
+				t.Fatal(err)
+			}
+		})
+		// slices.Clone(old) itself allocs 1; the patch decodes 3n strings.
+		// Apply pays one heap alloc per string; ApplyArena batches them all.
+		if arenaAllocs >= plainAllocs {
+			t.Fatalf("ApplyArena did not cut allocs: arena=%.0f plain=%.0f", arenaAllocs, plainAllocs)
+		}
+		if arenaAllocs > 10 {
+			t.Fatalf("ApplyArena allocs/op=%.0f, expected the arena to batch the ~%d string copies into a small constant", arenaAllocs, 3*n)
+		}
 	}
 }
 
