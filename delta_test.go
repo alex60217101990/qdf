@@ -222,3 +222,60 @@ func TestApplyNoCopyIsolation(t *testing.T) {
 		t.Fatalf("Apply aliased the patch buffer: name=%q", base.Name)
 	}
 }
+
+func TestDiffApplyNestedAndPointer(t *testing.T) {
+	type Inner struct {
+		A int
+		B string
+	}
+	type Outer struct {
+		Tag string
+		In  Inner
+		Opt *Inner
+		Num *int
+	}
+	n7 := 7
+	n8 := 8
+	old := Outer{Tag: "t", In: Inner{A: 1, B: "x"}, Opt: &Inner{A: 5, B: "y"}, Num: &n7}
+	neu := Outer{Tag: "t", In: Inner{A: 1, B: "X"}, Opt: nil, Num: &n8}
+
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Outer{Tag: "t", In: Inner{A: 1, B: "x"}, Opt: &Inner{A: 5, B: "y"}, Num: &n7}
+	bIn := *base.Opt
+	base.Opt = &bIn
+	bn := *base.Num
+	base.Num = &bn
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if base.In.B != "X" || base.Opt != nil || base.Num == nil || *base.Num != 8 {
+		t.Fatalf("apply mismatch: %+v (Num=%v)", base, *base.Num)
+	}
+}
+
+func TestDiffApplyPointerToStructPartial(t *testing.T) {
+	type Inner struct {
+		A int
+		B string
+	}
+	type Outer struct {
+		P *Inner
+	}
+	old := Outer{P: &Inner{A: 1, B: "x"}}
+	neu := Outer{P: &Inner{A: 1, B: "Y"}} // only B changes, both non-nil → merge
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bi := Inner{A: 1, B: "x"}
+	base := Outer{P: &bi}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatal(err)
+	}
+	if base.P == nil || base.P.A != 1 || base.P.B != "Y" {
+		t.Fatalf("partial ptr-struct merge failed: %+v", base.P)
+	}
+}
