@@ -114,6 +114,31 @@ func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error) {
 // Apply merges patch onto base in place, reconstructing new. Unchanged fields
 // are untouched.
 func Apply[T any](base *T, patch []byte) error {
+	return applyImpl(base, patch, nil)
+}
+
+// ApplyArena is Apply with a caller-provided decode arena: every string (and
+// []byte-as-string) value the patch REPLACES is copied into arena's contiguous
+// bump blocks instead of one heap allocation per string. It is otherwise
+// byte-for-byte identical to Apply — same result, same errors, same wire — and
+// only differs in where replaced string bodies live.
+//
+// This helps only when a patch replaces MANY strings (a large changed []string
+// or []struct{...string} field, a map with many changed string values). A
+// typical small patch changes few strings and the arena has little to batch; in
+// that case Apply is the simpler choice.
+//
+// Lifetime / safety (identical to the decode arena, see Arena): strings written
+// into base by ApplyArena ALIAS arena's memory and stay valid only as long as
+// arena (or any string from it) is reachable. The safe pattern is one Arena per
+// epoch, then drop it; Reset reuses it but invalidates every string from the
+// prior epoch. Unchanged string fields already present in base are NOT touched
+// and do not alias arena.
+func ApplyArena[T any](base *T, patch []byte, arena *Arena) error {
+	return applyImpl(base, patch, arena)
+}
+
+func applyImpl[T any](base *T, patch []byte, arena *Arena) error {
 	if base == nil {
 		return ErrTypeMismatch
 	}
@@ -147,8 +172,10 @@ func Apply[T any](base *T, patch []byte) error {
 	}
 	dec := decPool.Get().(*Decoder)
 	resetPatchDecoder(dec, body, h.flags&flagPatchDense != 0)
+	dec.arena = arena // nil for Apply; set for ApplyArena so replaced strings bump-allocate
 	err = applyValue(dec, td, unsafe.Pointer(base), 0)
 	dec.buf = nil
+	dec.arena = nil // never pin the caller's arena across pooled reuse
 	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
 		dec.deltaScratch = nil
 	}
