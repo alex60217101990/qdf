@@ -590,3 +590,72 @@ func TestDiffApplyMapNoncomparableValues(t *testing.T) {
 		t.Fatalf("noncomparable-value map mismatch: %+v", base)
 	}
 }
+
+func TestDiffApplyRANSRoundTrip(t *testing.T) {
+	type Rec struct {
+		ID   int
+		Blob string
+	}
+	// A large, low-entropy change so the patch body exceeds ransMinBytes (512).
+	old := make([]Rec, 200)
+	neu := make([]Rec, 200)
+	for i := range old {
+		old[i] = Rec{ID: i, Blob: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+		neu[i] = Rec{ID: i, Blob: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"} // every Blob changes
+	}
+	patch, err := Diff(old, neu, OptCompression)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	h, _, err := readPatchHeader(patch)
+	if err != nil {
+		t.Fatalf("readPatchHeader: %v", err)
+	}
+	if h.flags&flagPatchRANS == 0 {
+		t.Logf("note: rANS did not fire (patch body may be below threshold or not entropy-reducible); test still validates the non-rANS path under OptCompression")
+	} else {
+		t.Logf("rANS fired: patch=%d bytes", len(patch))
+	}
+	base := make([]Rec, 200)
+	copy(base, old)
+	if err := Apply(&base, patch); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !reflect.DeepEqual(base, neu) {
+		t.Fatal("rANS round-trip mismatch")
+	}
+}
+
+func TestDiffApplyRANSForcedFire(t *testing.T) {
+	// Construct a payload almost certain to trigger rANS: a long highly-repetitive
+	// string field that changes, producing a large low-entropy patch body.
+	type Doc struct {
+		ID   int
+		Text string
+	}
+	old := Doc{ID: 1, Text: ""}
+	// 4 KB of a small alphabet → highly compressible.
+	buf := make([]byte, 4096)
+	for i := range buf {
+		buf[i] = byte('a' + (i % 4))
+	}
+	neu := Doc{ID: 1, Text: string(buf)}
+	patch, err := Diff(old, neu, OptCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, _, err := readPatchHeader(patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.flags&flagPatchRANS == 0 {
+		t.Fatalf("expected rANS to fire on a 4KB low-entropy patch body, but flagPatchRANS is unset (patch=%d bytes)", len(patch))
+	}
+	base := Doc{ID: 1, Text: ""}
+	if err := Apply(&base, patch); err != nil {
+		t.Fatalf("Apply (rANS): %v", err)
+	}
+	if base != neu {
+		t.Fatal("forced-rANS round-trip mismatch")
+	}
+}
