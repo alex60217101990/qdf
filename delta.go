@@ -3,7 +3,6 @@ package qdf
 import (
 	"errors"
 	"hash/maphash"
-	"reflect"
 )
 
 // schemaSeed is a process-stable seed. A fingerprint only needs to be stable
@@ -43,10 +42,6 @@ func hashDesc(h *maphash.Hash, td *typeDesc, visited map[*typeDesc]bool) {
 		hashDesc(h, td.elem, visited)
 	}
 }
-
-// _ keeps the reflect import used (reflect.Kind is used via td.kind which is
-// reflect.Kind; the import is needed for the type to resolve in this file).
-var _ reflect.Kind
 
 var (
 	// ErrInvalidPatch is returned when a patch blob is truncated, has a bad
