@@ -27,6 +27,15 @@ func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 	switch td.kind {
 	case reflect.Struct:
 		return applyStruct(dec, td, baseP)
+	case reflect.Pointer:
+		// merge into the pointed-at struct. base pointer must be non-nil: the diff
+		// side only emits opMerge for a pointer when both old/new were non-nil, and
+		// baseFP guarantees base matches old.
+		ptr := *(*unsafe.Pointer)(baseP)
+		if ptr == nil {
+			return ErrInvalidPatch
+		}
+		return applyStruct(dec, td.elem, ptr)
 	default:
 		return ErrInvalidPatch // later tasks add slice/map/ptr merge
 	}

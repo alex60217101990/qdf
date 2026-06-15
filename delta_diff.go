@@ -20,6 +20,17 @@ func diffValue(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer) (bool, err
 		}
 		enc.buf = append(enc.buf, opMerge)
 		return true, diffStruct(enc, td, oldP, newP)
+	case reflect.Pointer:
+		op, np := *(*unsafe.Pointer)(oldP), *(*unsafe.Pointer)(newP)
+		if op == nil || np == nil {
+			// presence change (both-nil was handled by equalValue earlier) → replace
+			return writeReplace(enc, td, newP)
+		}
+		if td.elem != nil && td.elem.kind == reflect.Struct && len(td.elem.fields) > 0 {
+			enc.buf = append(enc.buf, opMerge)
+			return true, diffStruct(enc, td.elem, op, np)
+		}
+		return writeReplace(enc, td, newP)
 	default:
 		// Phase 1: non-struct change is a whole-value replace. Pointer/slice/map
 		// merge ops are added in later tasks (they extend this switch).
