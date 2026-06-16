@@ -259,11 +259,12 @@ func TestBaselineApplyHostile(t *testing.T) {
 	r := NewBaselineRegistry[dnTop]()
 	base := gen[dnTop](1)
 	r.Register(&base)
-	seeds := [][]byte{nil, {}, {0x00}, []byte("not a patch at all")}
 	good, err := Diff(base, gen[dnTop](2), OptBalanced)
 	if err != nil {
 		t.Fatal(err)
 	}
+	seeds := make([][]byte, 0, 4+len(good))
+	seeds = append(seeds, nil, []byte{}, []byte{0x00}, []byte("not a patch at all"))
 	for i := range len(good) {
 		trunc := make([]byte, i)
 		copy(trunc, good[:i])
