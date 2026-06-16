@@ -187,3 +187,36 @@ func TestBaselineApplyUnknownBaseline(t *testing.T) {
 		t.Fatalf("Apply of never-registered baseline = %v, want ErrBaselineEvicted", err)
 	}
 }
+
+func TestBaselineStreamChain(t *testing.T) {
+	tiers := []Options{OptSpeed, OptBalanced, OptCompression}
+	for _, tier := range tiers {
+		r := NewBaselineRegistry[dnTop]()
+		prev := gen[dnTop](1000)
+		cur := &prev
+		r.Register(cur)
+		for step := int64(1001); step < 1030; step++ {
+			next := gen[dnTop](step)
+			patch, err := Diff(*cur, next, tier)
+			if err != nil {
+				t.Fatalf("tier %v step %d Diff: %v", tier, step, err)
+			}
+			got, err := r.Apply(patch)
+			if err != nil {
+				t.Fatalf("tier %v step %d Apply: %v", tier, step, err)
+			}
+			if !reflect.DeepEqual(*got, next) {
+				t.Fatalf("tier %v step %d: reconstructed != expected", tier, step)
+			}
+			// The registry holds baselines through non-pinning weak pointers, so
+			// the baseline this step's patch is based on (*cur) must stay reachable
+			// until Apply has resolved it. Without this, the compiler treats cur as
+			// dead right after Diff reads it (the next op overwrites cur), letting
+			// the GC reclaim the intermediate baseline before Apply -> flaky
+			// ErrBaselineEvicted at a chain step. Keep cur live across Apply.
+			runtime.KeepAlive(cur)
+			cur = got
+		}
+		runtime.KeepAlive(cur)
+	}
+}
