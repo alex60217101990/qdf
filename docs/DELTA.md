@@ -70,6 +70,72 @@ and never has to be told which `Options` the producer used.
 
 ---
 
+## When to use what
+
+Most of the delta is **automatic** — you call `Diff` / `Apply` and the format
+picks the smallest representation per location, never larger than the
+alternative. The only things you actively choose are the `Options` tier, a few
+opt-ins for specific workloads, and whether to tag identity fields. This section
+is the decision guide; the rest of the document is the reference.
+
+### Which `Options` tier?
+
+The tier is the same bit-mask `Marshal` takes, and it only affects how *replaced
+values* inside the patch are codec-encoded (plus whether the optional rANS pass
+runs). The op-level structure is identical across tiers, and a patch is
+self-describing — **the consumer never needs to match the producer's tier.**
+
+| Tier | Use when | Cost |
+| ---- | -------- | ---- |
+| `OptSpeed` | Lowest latency matters more than bytes — a single-process cache, a LAN sync, a high-frequency tick where CPU is the budget. | Largest patches (no entropy pass, lightest codecs). |
+| `OptBalanced` *(default)* | The general choice. Good wire size, low CPU. Start here. | — |
+| `OptCompression` | Bytes are scarce — WAN replication, cross-region CDC, anything you pay egress for or persist at volume. Adds a never-larger order-0 rANS pass over the patch body. | More producer CPU; decode is cheap. |
+
+Rule of thumb: **`OptBalanced` unless you are measurably bottlenecked** on
+latency (→ `OptSpeed`) or on bytes over an expensive link (→ `OptCompression`).
+
+### Opt-ins, by workload
+
+| You have… | Do this | Why |
+| --------- | ------- | --- |
+| A **`[]struct` that reorders / inserts / deletes** in the middle (entity lists, ECS components, ordered records with a stable id) | Tag the identity field: `` `qdf:"id,key"` `` | Matches elements by key, not position — a reorder ships only the key order, an insert/delete touches one element instead of reshipping the tail. See [Keyed slices](#keyed-slices). |
+| A **consumer applying a stream of patches** (server pushes deltas of an evolving value) and you don't want to thread the previous value by hand | Use a `BaselineRegistry[T]` | Resolves each patch's base from a small weak-pointer cache; GC-reclaims dropped baselines. See [Baseline registry](#baseline-registry). |
+| A **large base, tiny patch, fully trusted pipeline** (single-writer cache, end-to-end-controlled CDC) where `Apply` latency matters | `Diff(old, new, tier \| OptDeltaNoBaseFingerprint)` | Skips the base-fingerprint walk — ~10× faster `Apply` on a large base. **Drops the wrong-base safety net** — only in trusted pipelines. See [Skipping the base fingerprint](#skipping-the-base-fingerprint). |
+| A patch that **replaces many strings** (a large changed `[]string`, a map of changed string values) and you apply at volume | `ApplyArena(&base, patch, arena)` | Batches the replaced-string copies into one arena instead of one heap alloc each — ~−99% allocs on string-heavy patches. See [Batching replaced strings](#batching-replaced-strings-with-an-arena). |
+| `Apply` that **creates maps / grows slices** on the hot path | Build with `-tags qdf_reflect2` | Faster destination allocation; default build unchanged. See [the build tag](#the-qdf_reflect2-build-tag). |
+| A **batch of flat all-scalar rows** (telemetry, metrics, time-series) where a few *columns* move across many rows | Nothing — it's **automatic** | An equal-length diff of a pure-columnar `[]struct` groups changes by column when that is smaller. See [Columnar column-level diff](#columnar-column-level-diff). |
+
+### What you never have to do
+
+- **Match the producer's tier on the consumer.** Patches are self-describing.
+- **Write per-type diff code, an IDL, or a `FieldMask`.** `Diff` works straight
+  from the two typed values.
+- **Choose between positional / keyed / columnar.** The format picks per case and
+  guarantees the result is never larger than the alternative; you only *enable*
+  keyed matching by tagging the id field.
+
+### Worked recipes
+
+```go
+// 1. Config hot-reload over a control plane — bytes matter, base is trusted.
+patch, _ := qdf.Diff(oldCfg, newCfg, qdf.OptCompression|qdf.OptDeltaNoBaseFingerprint)
+
+// 2. Game/realtime entity sync — latency matters, entities reorder by id.
+//    type Entity struct { ID uint64 `qdf:"id,key"`; X, Y float32 }
+patch, _ := qdf.Diff(prevWorld, curWorld, qdf.OptSpeed)
+
+// 3. Streaming consumer applying a chain — no manual base bookkeeping.
+reg := qdf.NewBaselineRegistry[State]()
+reg.Register(&s0)            // bootstrap from a decoded full value, keep it alive
+s1, _ := reg.Apply(patch1)   // resolves s0, returns *s1
+s2, _ := reg.Apply(patch2)   // resolves s1 (auto-registered), returns *s2
+
+// 4. CDC of a large row set, one field changes — default is already optimal.
+patch, _ := qdf.Diff(oldRows, newRows, qdf.OptBalanced)
+```
+
+---
+
 ## API
 
 ```go
@@ -389,9 +455,9 @@ without threading `old` by hand.
 	func (r *BaselineRegistry[T]) Len() int
 
 **No wire change.** A patch already carries `baseFP`, an 8-byte content hash of
-`old` (on by default; see *Skipping the base fingerprint*). Phase 1 uses it only
-to *reject* a mismatched base; the registry reuses the very same `baseFP` as a
-*lookup key*. The producer ships an ordinary `Diff` — there is no new tag, flag,
+`old` (on by default; see *Skipping the base fingerprint*). Plain `Apply` uses it
+only to *reject* a mismatched base; the registry reuses the very same `baseFP` as
+a *lookup key*. The producer ships an ordinary `Diff` — there is no new tag, flag,
 or field. The registry is a consumer-side construct layered on the existing
 format.
 
@@ -417,7 +483,7 @@ step). Resolving a baseline the caller has dropped is a clean miss
 `Apply` **deep-clones** the resolved baseline before applying — the registry
 keeps the original intact, since another patch may branch off it — and
 auto-registers the result so it can base the next patch. The clone preserves
-nil-vs-empty exactly, so its fingerprint matches the original's; the Phase 1
+nil-vs-empty exactly, so its fingerprint matches the original's; `Apply`'s
 `baseFP` check is the backstop that turns any clone discrepancy into an error,
 never silent corruption.
 
@@ -431,15 +497,19 @@ The registry is safe for concurrent `Register` / `Apply` / `Len`.
 
 ## Limitations
 
-A few things are not currently supported and may come later:
+Known boundaries of the current implementation:
 
-- **Column-level diff for `[]struct`** — when a slice of flat structs is stored
-  columnar, shipping only the columns that changed instead of per-element ops.
-
-A few things are not currently supported and may come later:
-
-- **Column-level diff for `[]struct`** — when a slice of flat structs is stored
-  columnar, shipping only the columns that changed instead of per-element ops.
-- **Content-addressed baselines** — addressing the base by a content hash so a
-  patch can be applied against a baseline fetched from a store, rather than the
-  caller holding `old`.
+- **Unkeyed slice middle edits.** A slice without a `,key` tag is matched
+  positionally, so inserting or deleting in the *middle* reships the shifted
+  tail. Tag the element's identity field (see [Keyed slices](#keyed-slices)) to
+  avoid this; end appends/truncates are already cheap.
+- **Columnar column-diff scope.** The by-column path covers equal-length diffs of
+  **pure-columnar** elements only. A **hybrid** element (one with a `map`,
+  non-`[]byte` slice, or nested-struct field) and a **nullable-string**
+  (`*string`) column fall back to the positional path (still correct, just not
+  column-grouped). A length change also uses the positional/keyed path.
+- **Codec coercions on replaced values.** A whole-value replace round-trips
+  through the normal qdf value codec, which (as elsewhere in qdf) normalizes
+  `time.Time` to UTC seconds + nanoseconds (dropping the monotonic-clock reading
+  and `*Location`) and widens an `int` boxed in an `interface{}` to its 64-bit
+  form. These are inherent to the wire format, not delta-specific.
