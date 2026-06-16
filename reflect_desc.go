@@ -251,13 +251,6 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 			td.elem = elem
 			if elem.kind == reflect.Struct {
 				td.colPlan = buildColumnarPlan(elem)
-				// Mirror the plan onto the element struct descriptor so the
-				// columnar column-level diff (delta_columnar.go) can route off the
-				// element desc it is handed (diffColumnarEligible). Additive: a
-				// struct desc's colPlan is otherwise unused.
-				if elem.colPlan == nil {
-					elem.colPlan = td.colPlan
-				}
 			}
 			td.encode = encodeSlice(elem, t.Elem().Size(), td.colPlan)
 			td.decode = decodeSlice(t, elem, t.Elem().Size(), td.colPlan)
