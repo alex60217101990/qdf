@@ -609,15 +609,24 @@ func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.
 		}
 	default:
 		// Float and exotic comparable key kinds (struct / array / interface):
-		// gather reflect.Value keys and sort with a stable comparator. Slow but
-		// rare; correctness over speed. Each key Value is itself addressable via
-		// MapIndex order is preserved by setting the key holder from the sorted
-		// reflect.Value.
-		keys := rv.MapKeys()
-		slices.SortFunc(keys, canonReflectKeyCompare)
-		for i := range keys {
-			keyHolder.Set(keys[i])
-			if err := emit(); err != nil {
+		// gather (key, value) PAIRS via MapRange and sort by key. Slow but rare;
+		// correctness over speed. We must NOT re-fetch the value via MapIndex here:
+		// a NaN float key (NaN != NaN) is unfindable by MapIndex, which would return
+		// an invalid Value and panic on Set. MapRange yields every entry, NaN keys
+		// included, so carrying the value alongside the key avoids the lookup.
+		type kvPair struct{ k, v reflect.Value }
+		pairs := make([]kvPair, 0, rv.Len())
+		for it := rv.MapRange(); it.Next(); {
+			pairs = append(pairs, kvPair{it.Key(), it.Value()})
+		}
+		slices.SortFunc(pairs, func(x, y kvPair) int { return canonReflectKeyCompare(x.k, y.k) })
+		for i := range pairs {
+			keyHolder.Set(pairs[i].k)
+			valHolder.Set(pairs[i].v)
+			if err := k.encode(e, kp); err != nil {
+				return err
+			}
+			if err := v.encode(e, vp); err != nil {
 				return err
 			}
 		}
@@ -699,17 +708,21 @@ func (e *Encoder) canonKeysRelease(pooled bool) {
 // tie and distinct NaNs collapse). Structs/arrays compare field/element-wise.
 // Other kinds fall back to a string rendering, which is stable within a type.
 func canonReflectKeyCompare(a, b reflect.Value) int {
+	// Kind-mismatch guard: interface keys (map[any]K) unwrap to differing dynamic
+	// kinds, and an invalid (nil-interface) Value has Kind Invalid. Order by kind
+	// ordinal so the kind-specific accessors below are never called on the wrong
+	// kind (e.g. b.Int() on a float64) — that would panic.
+	if a.Kind() != b.Kind() {
+		return cmp.Compare(int(a.Kind()), int(b.Kind()))
+	}
 	switch a.Kind() {
 	case reflect.Float32, reflect.Float64:
-		af, bf := canonicalizeFloat64(a.Float()), canonicalizeFloat64(b.Float())
-		if af < bf {
-			return -1
-		}
-		if af > bf {
-			return 1
-		}
-		ab, bb := math.Float64bits(af), math.Float64bits(bf)
-		return cmp.Compare(ab, bb)
+		// Order by raw bits — a strict total order even across NaN payloads (so
+		// distinct NaN keys sort deterministically, not tie). -0.0 and +0.0 are the
+		// SAME Go map key so never coexist. The EMITTED key bytes are normalized
+		// separately by the float choke points (WriteFloat*); ordering only needs
+		// to be deterministic, not numeric.
+		return cmp.Compare(math.Float64bits(a.Float()), math.Float64bits(b.Float()))
 	case reflect.String:
 		return cmp.Compare(a.String(), b.String())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
