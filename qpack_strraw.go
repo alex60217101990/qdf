@@ -85,6 +85,30 @@ func (e *Encoder) tryWriteStringColumnRaw(strs []string) bool {
 	return true
 }
 
+// writeStringColumnRawForced ALWAYS emits strs as a tagColStrRaw block, with no
+// size/cardinality decline. It is the unconditional emit half of
+// tryWriteStringColumnRaw (same wire shape, decoded by readStringColumnRaw for
+// any n >= 0). Used by the column-diff path, which needs a wire-stateless string
+// codec (raw is fully self-contained) it can build on a shared encoder state
+// without polluting the intern state table.
+func (e *Encoder) writeStringColumnRawForced(strs []string) {
+	n := len(strs)
+	total := 0
+	for _, s := range strs {
+		total += len(s)
+	}
+	e.writeHeader()
+	out := e.buf
+	out = append(out, tagColStrRaw)
+	out = appendUvarint(out, uint64(n))
+	out = appendUvarint(out, uint64(total))
+	for _, s := range strs {
+		out = appendUvarint(out, uint64(len(s)))
+		out = append(out, s...)
+	}
+	e.buf = out
+}
+
 // readStringColumnRaw decodes a tagColStrRaw block (tag at d.i) into n strings.
 // Under noCopy each row aliases the input buffer directly (zero allocation past
 // the result slice); otherwise every row is a sub-slice of one owned slab pre-

@@ -337,3 +337,177 @@ func TestColDiffNullable(t *testing.T) {
 		t.Fatal("nullable round-trip mismatch")
 	}
 }
+
+type ccStr struct {
+	A int64
+	S string
+}
+
+// TestColDiffStringLowCardDict exercises the dict codec on the column-diff path:
+// a low-cardinality string column with many changed cells. Under OptBalanced
+// (Dense mode) the column patch must WIN over positional AND Apply must succeed
+// — this is the exact bug the stateless routing fixes (a stateful intern body
+// would emit a state-table ref the decoder never built → "unknown state-table
+// id" on Apply). Run under both Dense (OptBalanced) and Speed.
+func TestColDiffStringLowCardDict(t *testing.T) {
+	const n = 200
+	vals := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
+	for _, opt := range []Options{OptBalanced, OptSpeed} {
+		old := make([]ccStr, n)
+		neu := make([]ccStr, n)
+		for i := range old {
+			old[i] = ccStr{A: int64(i), S: vals[i%len(vals)]}
+			neu[i] = old[i]
+		}
+		// Change many cells (~half) to a different value from the small set.
+		for i := 0; i < n; i += 2 {
+			neu[i].S = vals[(i+1)%len(vals)]
+		}
+		patch, err := Diff(old, neu, opt)
+		if err != nil {
+			t.Fatalf("%v diff: %v", opt, err)
+		}
+		if tag, ok := patchTag(patch); !ok || tag != tagColSlicePatch {
+			t.Fatalf("%v: expected tagColSlicePatch (column body must win), got %#x ok=%v", opt, tag, ok)
+		}
+		got := append([]ccStr(nil), old...)
+		if err := Apply(&got, patch); err != nil {
+			t.Fatalf("%v apply: %v", opt, err)
+		}
+		if !reflect.DeepEqual(got, neu) {
+			t.Fatalf("%v low-card string round-trip mismatch", opt)
+		}
+	}
+}
+
+// TestColDiffStringHighCard exercises the raw codec: an all-distinct string
+// column. Round-trip + Apply success under Dense (OptBalanced) and Speed.
+func TestColDiffStringHighCard(t *testing.T) {
+	const n = 200
+	for _, opt := range []Options{OptBalanced, OptSpeed} {
+		old := make([]ccStr, n)
+		neu := make([]ccStr, n)
+		for i := range old {
+			old[i] = ccStr{A: int64(i), S: "id-" + string(rune('A'+i%26)) + "-" + itoaTest(i)}
+			neu[i] = old[i]
+		}
+		// Mutate enough cells that the whole column re-ships (dense-whole → raw).
+		for i := range neu {
+			neu[i].S += "-mut"
+		}
+		patch, err := Diff(old, neu, opt)
+		if err != nil {
+			t.Fatalf("%v diff: %v", opt, err)
+		}
+		got := append([]ccStr(nil), old...)
+		if err := Apply(&got, patch); err != nil {
+			t.Fatalf("%v apply: %v", opt, err)
+		}
+		if !reflect.DeepEqual(got, neu) {
+			t.Fatalf("%v high-card string round-trip mismatch", opt)
+		}
+	}
+}
+
+func itoaTest(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b [20]byte
+	p := len(b)
+	for i > 0 {
+		p--
+		b[p] = byte('0' + i%10)
+		i /= 10
+	}
+	return string(b[p:])
+}
+
+// FuzzColDiffStringOracle mutates a string column with random per-row choices
+// (drawn from a mix of low-cardinality and high-cardinality candidates) and
+// asserts Diff then Apply round-trips DeepEqual across all modes — directly
+// stressing the stateless dict/raw column-diff path.
+func FuzzColDiffStringOracle(f *testing.F) {
+	f.Add(uint64(1), uint64(2), 64)
+	f.Add(uint64(7), uint64(7), 13)
+	f.Add(uint64(0xdead), uint64(0xbeef), 200)
+	pool := []string{"", "a", "alpha", "beta", "gamma", "x", "id-12345", "long-distinct-value-"}
+	mkVal := func(r uint64, i int) string {
+		choice := (r ^ uint64(i*2654435761)) % uint64(len(pool)+2)
+		switch {
+		case choice < uint64(len(pool)):
+			return pool[choice]
+		case choice == uint64(len(pool)):
+			return "u-" + itoaTest(int(r%97)) + "-" + itoaTest(i) // semi-distinct
+		default:
+			return "d-" + itoaTest(i) + "-" + itoaTest(int(r&0xffff)) // distinct-ish
+		}
+	}
+	f.Fuzz(func(t *testing.T, so, sn uint64, nRaw int) {
+		n := nRaw % 257
+		if n < 0 {
+			n = -n
+		}
+		// n >= 1: an empty slice exercises the framework's nil-vs-empty base
+		// fingerprint distinction (append([]T(nil), empty...) yields nil), which is
+		// orthogonal to the string-column codec under test and covered elsewhere.
+		n++
+		old := make([]ccStr, n)
+		neu := make([]ccStr, n)
+		for i := range old {
+			old[i] = ccStr{A: int64(i), S: mkVal(so, i)}
+			neu[i] = ccStr{A: int64(i), S: mkVal(sn, i)}
+		}
+		for _, opt := range []Options{OptSpeed, OptBalanced, OptCompression} {
+			patch, err := Diff(old, neu, opt)
+			if err != nil {
+				t.Fatalf("opt=%v diff: %v", opt, err)
+			}
+			got := append([]ccStr(nil), old...)
+			if err := Apply(&got, patch); err != nil {
+				t.Fatalf("opt=%v apply: %v", opt, err)
+			}
+			if !reflect.DeepEqual(got, neu) {
+				t.Fatalf("opt=%v mismatch\n old=%+v\n new=%+v\n got=%+v", opt, old, neu, got)
+			}
+		}
+	})
+}
+
+type ccBytes struct {
+	A int64
+	B []byte
+}
+
+// TestColDiffBytesColumn exercises a []byte column (classified colKindString
+// with isByte) on the column-diff path, both sparse (few changed) and
+// dense-whole (all changed), under Dense (OptBalanced) and Speed.
+func TestColDiffBytesColumn(t *testing.T) {
+	const n = 200
+	for _, opt := range []Options{OptBalanced, OptSpeed} {
+		for _, ratio := range []int{20, 1} { // sparse, then dense-whole
+			old := make([]ccBytes, n)
+			neu := make([]ccBytes, n)
+			for i := range old {
+				old[i] = ccBytes{A: int64(i), B: []byte("payload-" + itoaTest(i%7))}
+				neu[i] = ccBytes{A: int64(i), B: append([]byte(nil), old[i].B...)}
+			}
+			for i := range neu {
+				if ratio == 1 || i%ratio == 0 {
+					neu[i].B = append(append([]byte(nil), neu[i].B...), 0xAB)
+				}
+			}
+			patch, err := Diff(old, neu, opt)
+			if err != nil {
+				t.Fatalf("%v/ratio%d diff: %v", opt, ratio, err)
+			}
+			got := append([]ccBytes(nil), old...)
+			if err := Apply(&got, patch); err != nil {
+				t.Fatalf("%v/ratio%d apply: %v", opt, ratio, err)
+			}
+			if !reflect.DeepEqual(got, neu) {
+				t.Fatalf("%v/ratio%d bytes round-trip mismatch", opt, ratio)
+			}
+		}
+	}
+}
