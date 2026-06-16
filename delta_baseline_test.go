@@ -297,3 +297,27 @@ func TestBaselineLenDropsToZero(t *testing.T) {
 		t.Fatalf("Len() = %d after release+GC, want 0 (registry must not pin)", got)
 	}
 }
+
+func FuzzBaselineApply(f *testing.F) {
+	base := gen[dnTop](1)
+	good, _ := Diff(base, gen[dnTop](2), OptBalanced)
+	f.Add(good)
+	f.Add([]byte{})
+	f.Add([]byte("garbage"))
+	f.Fuzz(func(t *testing.T, patch []byte) {
+		r := NewBaselineRegistry[dnTop]()
+		b := gen[dnTop](1)
+		r.Register(&b)
+		defer func() {
+			if rec := recover(); rec != nil {
+				t.Fatalf("panic on patch %x: %v", patch, rec)
+			}
+		}()
+		got, err := r.Apply(patch)
+		if err == nil && got == nil {
+			t.Fatal("Apply returned nil,nil")
+		}
+		runtime.KeepAlive(b)
+		runtime.KeepAlive(got)
+	})
+}
