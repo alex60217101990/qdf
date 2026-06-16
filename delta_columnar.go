@@ -43,31 +43,30 @@ func diffColumnarEligible(colPlan *columnarPlan) bool {
 // encoder/decoder. Nullable columns are dense-whole only (pickColMode forces
 // it).
 //
-// BLOCKED: string/[]byte columns (and nullable with a string base) are gated
-// OUT of the column path and fall back to the positional differ. They encode
-// through the stateful intern / state-table machinery (tagStateRef/tagStateMTF,
-// string-dict/FSST shape IDs), but diffColumnar's build-and-compare picker
-// builds the positional body AND the column body on the SAME encoder state. The
-// discarded loser's string emissions pollute enc.state's intern table, so the
-// kept body emits state-table refs the decoder never built → "unknown
-// state-table id" on Apply. The fix needs encoder-state isolation between the
-// two candidate builds (snapshot/restore, or measure positional on a throwaway
-// encoder and re-encode only the winner on the real one); this is a picker
-// design change beyond the per-kind extension and is not specified in the plan.
-// The stateless kinds (int/uint/float/float32/bool/time, nullable-scalar) are
-// unaffected and fully supported.
+// String/[]byte columns are supported via the wire-stateless dict/raw codecs
+// (writeStringColumnStateless): those bodies ship their own table/indices and
+// touch e.state only for scratch, so they can be built on the shared encoder
+// state during diffColumnar's build-and-compare without polluting the intern
+// state table. The stateful intern fallback (e.WriteString) and FSST are never
+// used on this path.
+//
+// BLOCKED: nullable with a STRING base. encodeNullableColumn's string case calls
+// the stateful e.writeStringColumn (which can fall through to e.WriteString),
+// and nullable columns only have a dense-whole path (encodeOneColumn →
+// encodeNullableColumn), so there is no stateless route for it yet. It stays
+// gated out and falls back to the positional differ. All other nullable bases
+// (int/uint/float/float32/bool/time) are stateless and fully supported.
 func colKindColumnDiffSupported(col *colColumn) bool {
 	if col.kind.isNullable() {
 		// Dense-whole only (pickColMode forces it). A string base re-ships through
-		// the stateful string column codec → same pollution hazard; gate it out.
+		// the stateful nullable string codec (encodeNullableColumn → WriteString),
+		// for which there is no stateless route → gate it out.
 		return col.kind.base() != colKindString
 	}
 	switch col.kind {
 	case colKindInt, colKindUint, colKindFloat, colKindFloat32,
-		colKindBool, colKindTime:
+		colKindBool, colKindTime, colKindString:
 		return true
-	case colKindString:
-		return false // stateful intern codec; see the doc comment above (BLOCKED)
 	default:
 		return false
 	}
@@ -143,7 +142,21 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 		case colDiffModeDelta:
 			err = encodeDeltaColumn(enc, col, stride, oldData, newData, n)
 		case colDiffModeDenseWhole:
-			err = enc.encodeOneColumn(plan, newData, col, n)
+			if col.kind.base() == colKindString {
+				// encodeOneColumn's string path can hit the stateful intern fallback
+				// (writeStringColumn → WriteString) and pollute enc.state shared with
+				// the discarded positional body. Gather the whole column and emit a
+				// wire-stateless dict/raw body instead. Non-string kinds are stateless
+				// and use encodeOneColumn unchanged.
+				s := st.colScratchStr[:0]
+				for i := range n {
+					s = append(s, loadStringField(newData, stride, col, i))
+				}
+				st.colScratchStr = s
+				enc.writeStringColumnStateless(s)
+			} else {
+				err = enc.encodeOneColumn(plan, newData, col, n)
+			}
 		default:
 			err = ErrInvalidPatch
 		}
@@ -289,6 +302,21 @@ func pickColMode(col *colColumn, nChanged, n int) byte {
 	}
 }
 
+// writeStringColumnStateless emits a string column using only self-contained
+// codecs (dict or raw), never the stateful intern fallback (e.WriteString) or
+// FSST — safe to build on a shared encoder state during the column-diff
+// build-and-compare. The dict/raw bodies ship their own table/indices and read
+// e.state only for scratch, so the discarded loser body cannot pollute the
+// intern state table and the kept body never emits a state-table ref the decoder
+// did not build. Decode is automatic: decodeColumnInto/readStringColumn dispatch
+// on the bulk tag we always emit.
+func (e *Encoder) writeStringColumnStateless(strs []string) {
+	if e.tryWriteStringColumnDict(strs) {
+		return
+	}
+	e.writeStringColumnRawForced(strs)
+}
+
 // encodeSparseColumn writes nChanged, the gap-encoded ascending row indices, and
 // the changed cells as a length-nChanged subcolumn via the column codec. Only
 // int/uint/bool reach this via sparse mode for some kinds; float/float32/string/
@@ -342,21 +370,16 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 		st.colScratchBool = s
 		return encodeSliceBool(enc, unsafe.Pointer(&s))
 	case colKindString:
-		if col.isByte {
-			// Producer/decoder contract: per-cell WriteBytes, decoded per-cell via
-			// readStringBytes() in applySparseColumn (NOT readStringColumn).
-			for _, r := range rows {
-				p := unsafe.Add(newData, uintptr(r)*stride+col.offset)
-				enc.WriteBytes(*(*[]byte)(p))
-			}
-			return nil
-		}
+		// Both string and []byte columns gather the changed cells into a []string
+		// and emit a wire-stateless dict/raw body (never the intern fallback). A
+		// []byte field is viewed as a string via loadStringField (col.isByte), so
+		// the same codec handles both; the decoder copies back to owned bytes.
 		s := st.colScratchStr[:0]
 		for _, r := range rows {
 			s = append(s, loadStringField(newData, stride, col, r))
 		}
 		st.colScratchStr = s
-		enc.writeStringColumn(s)
+		enc.writeStringColumnStateless(s)
 		return nil
 	case colKindTime:
 		sec := st.colScratchI64[:0]
@@ -639,24 +662,22 @@ func applySparseColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base un
 			*(*bool)(unsafe.Add(base, uintptr(r)*plan.stride+col.offset)) = s[j]
 		}
 	case colKindString:
+		// Producer emitted a wire-stateless dict/raw body (writeStringColumnStateless)
+		// for both string and []byte columns; readStringColumn dispatches on the
+		// bulk tag. dec.colMaxLen is already tightened to nc above.
+		strs, err := dec.readStringColumn(nc)
+		if err != nil {
+			return err
+		}
+		if len(strs) != nc {
+			return ErrTypeMismatch
+		}
 		if col.isByte {
-			// Producer wrote per-cell WriteBytes → decode per-cell readStringBytes.
-			for _, r := range rows {
-				sb, err := dec.readStringBytes()
-				if err != nil {
-					return err
-				}
+			for j, r := range rows {
 				dp := unsafe.Add(base, uintptr(r)*plan.stride+col.offset)
-				*(*[]byte)(dp) = append([]byte(nil), sb...)
+				*(*[]byte)(dp) = append([]byte(nil), strs[j]...)
 			}
 		} else {
-			strs, err := dec.readStringColumn(nc)
-			if err != nil {
-				return err
-			}
-			if len(strs) != nc {
-				return ErrTypeMismatch
-			}
 			for j, r := range rows {
 				*(*string)(unsafe.Add(base, uintptr(r)*plan.stride+col.offset)) = strs[j]
 			}
