@@ -565,7 +565,8 @@ func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.
 
 	switch keyType.Kind() {
 	case reflect.String:
-		keys := e.gatherStringKeys(rv)
+		keys, pooled := e.gatherStringKeys(rv)
+		defer e.canonKeysRelease(pooled)
 		for _, key := range keys {
 			keyHolder.SetString(key)
 			if err := emit(); err != nil {
@@ -573,7 +574,8 @@ func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.
 			}
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		keys := e.gatherIntKeys(rv)
+		keys, pooled := e.gatherIntKeys(rv)
+		defer e.canonKeysRelease(pooled)
 		for _, key := range keys {
 			keyHolder.SetInt(key)
 			if err := emit(); err != nil {
@@ -581,7 +583,8 @@ func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.
 			}
 		}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		keys := e.gatherUintKeys(rv)
+		keys, pooled := e.gatherUintKeys(rv)
+		defer e.canonKeysRelease(pooled)
 		for _, key := range keys {
 			keyHolder.SetUint(key)
 			if err := emit(); err != nil {
@@ -622,55 +625,72 @@ func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.
 	return nil
 }
 
-// gatherStringKeys collects the map's string keys into the pooled canonKeysStr
-// scratch, sorted. The returned slice aliases the scratch — valid until the next
-// gather on the same encoder.
-func (e *Encoder) gatherStringKeys(rv reflect.Value) []string {
+// gatherStringKeys collects the map's string keys, sorted. The returned slice is
+// valid until the caller calls canonKeysRelease(pooled). pooled is true when the
+// shared canonKeysStr scratch was used (the zero-alloc flat-map case); it is
+// false for a nested re-entrant gather (a map whose values contain maps), which
+// allocates a fresh local slice so it cannot clobber the outer map's keys still
+// being iterated. The caller MUST release after it finishes iterating.
+func (e *Encoder) gatherStringKeys(rv reflect.Value) (keys []string, pooled bool) {
 	var buf []string
-	if e.state != nil {
+	if e.state != nil && !e.state.canonKeysBusy {
 		buf = e.state.canonKeysStr[:0]
+		pooled = true
 	}
 	it := rv.MapRange()
 	for it.Next() {
 		buf = append(buf, it.Key().String())
 	}
 	slices.Sort(buf)
-	if e.state != nil {
+	if pooled {
 		e.state.canonKeysStr = buf
+		e.state.canonKeysBusy = true
 	}
-	return buf
+	return buf, pooled
 }
 
-func (e *Encoder) gatherIntKeys(rv reflect.Value) []int64 {
+func (e *Encoder) gatherIntKeys(rv reflect.Value) (keys []int64, pooled bool) {
 	var buf []int64
-	if e.state != nil {
+	if e.state != nil && !e.state.canonKeysBusy {
 		buf = e.state.canonKeysI64[:0]
+		pooled = true
 	}
 	it := rv.MapRange()
 	for it.Next() {
 		buf = append(buf, it.Key().Int())
 	}
 	slices.Sort(buf)
-	if e.state != nil {
+	if pooled {
 		e.state.canonKeysI64 = buf
+		e.state.canonKeysBusy = true
 	}
-	return buf
+	return buf, pooled
 }
 
-func (e *Encoder) gatherUintKeys(rv reflect.Value) []uint64 {
+func (e *Encoder) gatherUintKeys(rv reflect.Value) (keys []uint64, pooled bool) {
 	var buf []uint64
-	if e.state != nil {
+	if e.state != nil && !e.state.canonKeysBusy {
 		buf = e.state.canonKeysU64[:0]
+		pooled = true
 	}
 	it := rv.MapRange()
 	for it.Next() {
 		buf = append(buf, it.Key().Uint())
 	}
 	slices.Sort(buf)
-	if e.state != nil {
+	if pooled {
 		e.state.canonKeysU64 = buf
+		e.state.canonKeysBusy = true
 	}
-	return buf
+	return buf, pooled
+}
+
+// canonKeysRelease clears the re-entrancy guard set by a pooled gather. A no-op
+// when the gather allocated a fresh local slice (pooled false).
+func (e *Encoder) canonKeysRelease(pooled bool) {
+	if pooled && e.state != nil {
+		e.state.canonKeysBusy = false
+	}
 }
 
 // canonReflectKeyCompare is a stable total order over comparable reflect key

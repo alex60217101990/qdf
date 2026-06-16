@@ -182,12 +182,14 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 		return writeReplace(enc, valDesc, nCmp.Addr().UnsafePointer())
 	}
 	if canon {
-		keys := enc.canonSortedMapKeys(nv, keyType)
+		keys, release := enc.canonSortedMapKeys(nv, keyType)
 		for i := range keys {
 			if err := emitUpd(keys[i]); err != nil {
+				release()
 				return err
 			}
 		}
+		release()
 	} else {
 		for it := nv.MapRange(); it.Next(); {
 			if err := emitUpd(it.Key()); err != nil {
@@ -212,12 +214,14 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 		return keyDesc.encode(enc, keyBuf.Addr().UnsafePointer())
 	}
 	if canon {
-		keys := enc.canonSortedMapKeys(ov, keyType)
+		keys, release := enc.canonSortedMapKeys(ov, keyType)
 		for i := range keys {
 			if err := emitDel(keys[i]); err != nil {
+				release()
 				return err
 			}
 		}
+		release()
 	} else {
 		for it := ov.MapRange(); it.Next(); {
 			if err := emitDel(it.Key()); err != nil {
@@ -229,46 +233,62 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 }
 
 // canonSortedMapKeys returns the map's keys as reflect.Values in canonical sorted
-// order. For the hot string/int/uint key kinds it reuses the typed pooled sort
-// scratch (canonKeys*) the reflect map encoder uses, then materializes each sorted
-// key into a reused addressable holder. Exotic/float/bool key kinds fall back to
-// rv.MapKeys() sorted by canonReflectKeyCompare. The returned slice aliases the
-// per-call scratch on the encoder; it is valid until the next call on the same
-// encoder, which is sufficient because diffMap drains it fully before re-gathering.
-func (e *Encoder) canonSortedMapKeys(rv reflect.Value, keyType reflect.Type) []reflect.Value {
+// order, plus a release func the caller MUST defer. For the hot string/int/uint
+// key kinds it sorts via the typed pooled scratch (canonKeys*) the reflect map
+// encoder uses, materializing each sorted key into its own holder; exotic / float
+// / bool key kinds fall back to rv.MapKeys() sorted by canonReflectKeyCompare.
+//
+// Re-entrancy: the returned slice is held while diffMap encodes each value, which
+// can recurse into a nested map's diffMap (clobbering the shared scratch). The
+// canonKeysBusy guard routes a nested call to a fresh local slice; release clears
+// it. The typed gather's own pooled flag is released here immediately because its
+// output is fully consumed into out before this returns.
+func (e *Encoder) canonSortedMapKeys(rv reflect.Value, keyType reflect.Type) (keys []reflect.Value, release func()) {
 	var out []reflect.Value
-	if e.state != nil {
+	pooledOut := false
+	if e.state != nil && !e.state.canonKeysBusy {
 		out = e.state.canonKeyVals[:0]
+		pooledOut = true
 	}
 	switch keyType.Kind() {
 	case reflect.String:
-		for _, k := range e.gatherStringKeys(rv) {
+		ks, gp := e.gatherStringKeys(rv)
+		for _, k := range ks {
 			kh := reflect.New(keyType).Elem()
 			kh.SetString(k)
 			out = append(out, kh)
 		}
+		e.canonKeysRelease(gp)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		for _, k := range e.gatherIntKeys(rv) {
+		ks, gp := e.gatherIntKeys(rv)
+		for _, k := range ks {
 			kh := reflect.New(keyType).Elem()
 			kh.SetInt(k)
 			out = append(out, kh)
 		}
+		e.canonKeysRelease(gp)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		for _, k := range e.gatherUintKeys(rv) {
+		ks, gp := e.gatherUintKeys(rv)
+		for _, k := range ks {
 			kh := reflect.New(keyType).Elem()
 			kh.SetUint(k)
 			out = append(out, kh)
 		}
+		e.canonKeysRelease(gp)
 	default:
 		// Float / bool / struct / array / interface keys: gather and sort with the
 		// shared stable comparator (also covers the rare exotic kinds).
 		out = append(out, rv.MapKeys()...)
 		slices.SortFunc(out, canonReflectKeyCompare)
 	}
-	if e.state != nil {
+	// Re-set canonKeysBusy: a gatherRelease above may have cleared it, but out is
+	// still live and held by the caller, so the guard must stay set until release.
+	if pooledOut {
 		e.state.canonKeyVals = out
+		e.state.canonKeysBusy = true
+		return out, func() { e.state.canonKeysBusy = false }
 	}
-	return out
+	return out, func() {}
 }
 
 // diffElems is the shared element differ for slices and arrays. For an

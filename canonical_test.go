@@ -431,3 +431,125 @@ func TestCanonicalDiffFloat32Columnar(t *testing.T) {
 		t.Fatalf("float32 columnar diff: -0.0 patch != +0.0 patch under canonical")
 	}
 }
+
+// TestCanonicalNestedStable encodes a deeply nested value (maps within maps,
+// float slices with -0.0) many times and asserts byte-stability — Go randomizes
+// map iteration per range, so 300 iterations exercises the perturbation.
+func TestCanonicalNestedStable(t *testing.T) {
+	type Inner struct {
+		Tags map[string]int64
+		Vals []float64
+	}
+	type Outer struct {
+		ID       string
+		Sections map[string]Inner
+		Nums     map[int64]string
+	}
+	mk := func() Outer {
+		return Outer{
+			ID: "x",
+			Sections: map[string]Inner{
+				"s2": {Tags: map[string]int64{"b": 2, "a": 1}, Vals: []float64{math.Copysign(0, -1), 1.5}},
+				"s1": {Tags: map[string]int64{"z": 9, "k": 8}},
+			},
+			Nums: map[int64]string{3: "c", 1: "a", 2: "b"},
+		}
+	}
+	base, err := Marshal(mk(), OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 300 {
+		b, err := Marshal(mk(), OptBalanced|OptCanonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(b, base) {
+			t.Fatalf("nested canonical unstable at %d", i)
+		}
+	}
+}
+
+// TestCanonicalIdempotent verifies Marshal(Unmarshal(Marshal(v,C)),C) ==
+// Marshal(v,C): a value round-tripped through decode and re-encoded canonically
+// yields the same bytes (the normalization is a fixed point).
+func TestCanonicalIdempotent(t *testing.T) {
+	type S struct{ M map[string]float64 }
+	v := S{M: map[string]float64{"a": math.Copysign(0, -1), "b": 1.5, "c": 2.5}}
+	b1, err := Marshal(v, OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d S
+	if err := Unmarshal(b1, &d); err != nil {
+		t.Fatal(err)
+	}
+	b2, err := Marshal(d, OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(b1, b2) {
+		t.Fatal("canonical encoding not idempotent")
+	}
+}
+
+// TestCanonicalMapAllocZeroOverhead checks the sorted-key map emit adds no
+// steady-state allocations over the default map emit: the key-sort scratch is
+// pooled on the encoder state, so once warmed it allocates nothing extra. Skipped
+// under -race (sync.Pool churn instrumentation inflates counts — see assertAllocs).
+func TestCanonicalMapAllocZeroOverhead(t *testing.T) {
+	if raceEnabled {
+		t.Skip("alloc budgets are not measured under -race (sync.Pool churn instrumentation)")
+	}
+	m := map[string]int64{"delta": 4, "alpha": 1, "gamma": 3, "beta": 2, "epsilon": 5}
+	dst := make([]byte, 0, 256)
+	plainFn := func() {
+		var err error
+		dst, err = AppendMarshal(dst[:0], m, OptBalanced)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonFn := func() {
+		var err error
+		dst, err = AppendMarshal(dst[:0], m, OptBalanced|OptCanonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Warm both paths so the pooled scratch is sized before measuring.
+	for range 50 {
+		plainFn()
+		canonFn()
+	}
+	plain := testing.AllocsPerRun(200, plainFn)
+	canon := testing.AllocsPerRun(200, canonFn)
+	t.Logf("map encode allocs: default=%.1f canonical=%.1f", plain, canon)
+	if canon > plain {
+		t.Fatalf("canonical map encode adds allocs: default=%.1f canonical=%.1f", plain, canon)
+	}
+}
+
+// FuzzCanonicalStable marshals a randomly-generated deep-nested value twice under
+// OptCanonical and asserts the two encodings are byte-identical and never panic.
+// Any non-determinism it finds is a real canonical bug (a map-range or other
+// order-dependent emit that escaped normalization), not a test weakness.
+func FuzzCanonicalStable(f *testing.F) {
+	for _, s := range []int64{1, 2, 7, 42, 1000, -5} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, seed int64) {
+		v := gen[dnTop](seed)
+		b1, err := Marshal(v, OptBalanced|OptCanonical)
+		if err != nil {
+			return
+		}
+		b2, err := Marshal(v, OptBalanced|OptCanonical)
+		if err != nil {
+			t.Fatalf("second canonical marshal errored for seed %d: %v", seed, err)
+		}
+		if !bytes.Equal(b1, b2) {
+			t.Fatalf("canonical unstable for seed %d", seed)
+		}
+	})
+}
