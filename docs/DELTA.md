@@ -327,6 +327,44 @@ The key field must be comparable — a scalar, string, or `[N]byte`. If keys are
 not unique, the diff transparently falls back to the positional path (still
 correct). One `,key` field per element type.
 
+## Columnar column-level diff
+
+The positional diff walks a `[]struct` element by element: a changed row ships
+the whole element's per-field patch. For a large batch where only a few
+*columns* move — telemetry, metrics, event rows — that scatters the changes
+across every touched element. When the diff is **equal-length** (same number of
+elements old and new) and the element is **pure-columnar** (every field is a
+column the columnar encoder understands, with no map/slice/nested residual), at
+least `16` elements, the diff instead groups the changes **by column** and emits
+a compact column patch.
+
+Each changed column is encoded independently, in whichever of three modes is
+smallest for that column:
+
+- **sparse** — the changed row indices (gap-encoded, ascending) plus the new
+  values of just those cells, for a column touched in few rows;
+- **arithmetic-delta** — a full-length per-row delta added back on apply, for a
+  numeric (or bool) column that moved in most rows but by small amounts;
+- **dense-whole** — the entire new column re-shipped, when neither of the above
+  is cheaper.
+
+The per-column bodies reuse the existing column codecs — FOR / delta / RLE /
+dictionary for numerics, the dictionary-or-raw bulk path for strings, the
+sec/nsec sub-columns for `time.Time` — so each column is packed as tightly as a
+fresh columnar encode would pack it.
+
+This needs **no flag**: it is chosen automatically, and only when the resulting
+column patch is **smaller** than the positional patch for the same change
+(never-larger — if the changes are scattered across many columns, the positional
+patch wins and is used). Apply mirrors it, scattering each decoded column back
+into its rows.
+
+v1 covers pure-columnar elements only — a **hybrid** element (one carrying a
+`map` or non-columnar field) always uses the positional path — and every column
+kind except **nullable string** (`*string`), which also falls back to
+positional. Float columns never use arithmetic delta (floating-point subtraction
+does not round-trip exactly), so they pick sparse or dense-whole.
+
 ## Baseline registry
 
 `Apply[T](base *T, patch)` requires the caller to hold the exact `old` value the
