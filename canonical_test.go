@@ -352,3 +352,82 @@ func TestCanonicalMapFreeIdentical(t *testing.T) {
 		}
 	}
 }
+
+// TestCanonicalDiffStable verifies a map-bearing struct's Diff(..., OptCanonical)
+// is byte-stable across map rebuilds (Go randomizes iteration), and still applies
+// correctly. The map-patch update/add and deletion-tombstone emit passes must be
+// sorted under canonical.
+func TestCanonicalDiffStable(t *testing.T) {
+	type S struct{ M map[string]int }
+	old := S{M: map[string]int{"a": 1, "b": 2, "c": 3}}
+	// new value: "b" changes, "d" added, "c" deleted, "e"/"f" added — both
+	// emit passes (updates/adds and deletions) carry several keys to sort.
+	mk := func() S {
+		m := map[string]int{}
+		for k, v := range map[string]int{"a": 1, "b": 9, "d": 4, "e": 5, "f": 6} {
+			m[k] = v
+		}
+		return S{M: m}
+	}
+	base, err := Diff(old, mk(), OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 100 {
+		p, err := Diff(old, mk(), OptBalanced|OptCanonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(p, base) {
+			t.Fatalf("canonical diff unstable at iter %d", i)
+		}
+	}
+	got := old
+	got.M = map[string]int{"a": 1, "b": 2, "c": 3}
+	if err := Apply(&got, base); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, mk()) {
+		t.Fatalf("apply mismatch: got %v want %v", got, mk())
+	}
+}
+
+// TestCanonicalDiffFloat32Columnar exercises the delta columnar float32 gather:
+// a -0.0 cell and a +0.0 cell must diff to the same patch under canonical (the
+// raw-bits uint64 codec never re-floats, so the gather must normalize).
+func TestCanonicalDiffFloat32Columnar(t *testing.T) {
+	type Row struct {
+		A int64
+		G float32
+	}
+	// n=64 with only 4 changed float32 cells → sparse column mode (the gather at
+	// delta_columnar.go that emits raw float32 bits, which must normalize).
+	const n = 64
+	old := make([]Row, n)
+	for i := range old {
+		old[i] = Row{A: int64(i), G: 5.0}
+	}
+	// newA flips 4 cells to -0.0; newB flips the SAME 4 cells to +0.0 (both differ
+	// from old's 5.0 → same changed-row set). Logically equal under canonical →
+	// identical patches.
+	newA := make([]Row, n)
+	newB := make([]Row, n)
+	copy(newA, old)
+	copy(newB, old)
+	nz := float32(math.Copysign(0, -1))
+	for _, i := range []int{3, 17, 40, 58} {
+		newA[i].G = nz
+		newB[i].G = 0.0
+	}
+	pa, err := Diff(old, newA, OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, err := Diff(old, newB, OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(pa, pb) {
+		t.Fatalf("float32 columnar diff: -0.0 patch != +0.0 patch under canonical")
+	}
+}

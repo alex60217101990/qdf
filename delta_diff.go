@@ -3,6 +3,7 @@ package qdf
 import (
 	"bytes"
 	"reflect"
+	"slices"
 	"time"
 	"unsafe"
 )
@@ -138,6 +139,15 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 
 	enc.buf = append(enc.buf, tagMapPatch)
 
+	// Under OptCanonical both emit passes (updates/adds and deletion tombstones)
+	// must visit keys in sorted order so logically-equal patches serialize
+	// byte-identically. The count passes are order-independent, so they keep the
+	// fast MapRange loop; only the two emit passes route through the sorted
+	// iterator, which reuses the SAME kind-specialized sort as the reflect map
+	// encoder (typed pooled scratch for string/int/uint, a reflect-comparator
+	// fallback for exotic key kinds).
+	canon := enc.opts.Has(OptCanonical)
+
 	// Pass 1: count updates/additions.
 	nUpd := 0
 	for it := nv.MapRange(); it.Next(); {
@@ -150,12 +160,11 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 	enc.buf = appendUvarint(enc.buf, uint64(nUpd))
 	// Pass 2: emit updates/additions.
 	keyBuf := reflect.New(keyType).Elem()
-	for it := nv.MapRange(); it.Next(); {
-		k := it.Key()
-		nVal := it.Value()
+	emitUpd := func(k reflect.Value) error {
+		nVal := nv.MapIndex(k)
 		oVal := ov.MapIndex(k)
 		if oVal.IsValid() && valEqual(oVal, nVal) {
-			continue
+			return nil
 		}
 		keyBuf.Set(k)
 		if err := keyDesc.encode(enc, keyBuf.Addr().UnsafePointer()); err != nil {
@@ -164,15 +173,24 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 		if oVal.IsValid() {
 			// The skip check above ran valEqual (oVal is valid), which already set
 			// oCmp/nCmp to (oVal, nVal); reuse those addressable buffers directly.
-			if err := diffValue(enc, valDesc,
-				oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer(), depth+1); err != nil {
+			return diffValue(enc, valDesc,
+				oCmp.Addr().UnsafePointer(), nCmp.Addr().UnsafePointer(), depth+1)
+		}
+		// Addition: oVal is invalid, so valEqual short-circuited and nCmp is
+		// stale; set it from nVal and reuse the buffer for the replace.
+		nCmp.Set(nVal)
+		return writeReplace(enc, valDesc, nCmp.Addr().UnsafePointer())
+	}
+	if canon {
+		keys := enc.canonSortedMapKeys(nv, keyType)
+		for i := range keys {
+			if err := emitUpd(keys[i]); err != nil {
 				return err
 			}
-		} else {
-			// Addition: oVal is invalid, so valEqual short-circuited and nCmp is
-			// stale; set it from nVal and reuse the buffer for the replace.
-			nCmp.Set(nVal)
-			if err := writeReplace(enc, valDesc, nCmp.Addr().UnsafePointer()); err != nil {
+		}
+	} else {
+		for it := nv.MapRange(); it.Next(); {
+			if err := emitUpd(it.Key()); err != nil {
 				return err
 			}
 		}
@@ -186,17 +204,71 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 		}
 	}
 	enc.buf = appendUvarint(enc.buf, uint64(nDel))
-	for it := ov.MapRange(); it.Next(); {
-		k := it.Key()
+	emitDel := func(k reflect.Value) error {
 		if nv.MapIndex(k).IsValid() {
-			continue
+			return nil
 		}
 		keyBuf.Set(k)
-		if err := keyDesc.encode(enc, keyBuf.Addr().UnsafePointer()); err != nil {
-			return err
+		return keyDesc.encode(enc, keyBuf.Addr().UnsafePointer())
+	}
+	if canon {
+		keys := enc.canonSortedMapKeys(ov, keyType)
+		for i := range keys {
+			if err := emitDel(keys[i]); err != nil {
+				return err
+			}
+		}
+	} else {
+		for it := ov.MapRange(); it.Next(); {
+			if err := emitDel(it.Key()); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// canonSortedMapKeys returns the map's keys as reflect.Values in canonical sorted
+// order. For the hot string/int/uint key kinds it reuses the typed pooled sort
+// scratch (canonKeys*) the reflect map encoder uses, then materializes each sorted
+// key into a reused addressable holder. Exotic/float/bool key kinds fall back to
+// rv.MapKeys() sorted by canonReflectKeyCompare. The returned slice aliases the
+// per-call scratch on the encoder; it is valid until the next call on the same
+// encoder, which is sufficient because diffMap drains it fully before re-gathering.
+func (e *Encoder) canonSortedMapKeys(rv reflect.Value, keyType reflect.Type) []reflect.Value {
+	var out []reflect.Value
+	if e.state != nil {
+		out = e.state.canonKeyVals[:0]
+	}
+	switch keyType.Kind() {
+	case reflect.String:
+		for _, k := range e.gatherStringKeys(rv) {
+			kh := reflect.New(keyType).Elem()
+			kh.SetString(k)
+			out = append(out, kh)
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		for _, k := range e.gatherIntKeys(rv) {
+			kh := reflect.New(keyType).Elem()
+			kh.SetInt(k)
+			out = append(out, kh)
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		for _, k := range e.gatherUintKeys(rv) {
+			kh := reflect.New(keyType).Elem()
+			kh.SetUint(k)
+			out = append(out, kh)
+		}
+	default:
+		// Float / bool / struct / array / interface keys: gather and sort with the
+		// shared stable comparator (also covers the rare exotic kinds).
+		out = append(out, rv.MapKeys()...)
+		slices.SortFunc(out, canonReflectKeyCompare)
+	}
+	if e.state != nil {
+		e.state.canonKeyVals = out
+	}
+	return out
 }
 
 // diffElems is the shared element differ for slices and arrays. For an
