@@ -60,7 +60,7 @@ func TestColChangedAttribution(t *testing.T) {
 	nd := unsafe.Pointer(&neu[0])
 
 	bm := newChangedBitmap(nil, 64)
-	any := markChangedRows(bm, plan, stride, od, nd, 64)
+	any := markChangedRows(bm, plan, stride, od, nd, 64, false)
 	if !any {
 		t.Fatal("expected changes")
 	}

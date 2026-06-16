@@ -98,7 +98,7 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	// WHOLE slice only if it actually changed (an unchanged unsupported column
 	// emits nothing, so its presence is harmless). Decide before touching enc.buf.
 	st.deltaColBitmap = newChangedBitmap(st.deltaColBitmap, n)
-	markChangedRows(st.deltaColBitmap, plan, stride, oldData, newData, n)
+	markChangedRows(st.deltaColBitmap, plan, stride, oldData, newData, n, elem.pod)
 
 	// Build the positional body into enc.buf first (the comparison baseline).
 	posStart := len(enc.buf)
@@ -197,12 +197,30 @@ func newChangedBitmap(dst []uint64, n int) []uint64 {
 }
 
 // markChangedRows sets bit i for every row whose bytes differ between old and
-// new. Returns true if any row changed. The pure-columnar element may carry
-// strings ([]byte/string columns make it non-POD), so compare per column rather
-// than assuming a flat byte span.
+// new. Returns true if any row changed.
+//
+// For a pointer-free (POD) element a row changed iff its whole stride span
+// differs, so one SIMD bytes.Equal per row replaces a per-column-per-cell sweep
+// — the same block-memcmp fast path the positional differ uses (equalSliceEV).
+// A padding-only difference can spuriously flag a row, but then every column's
+// per-cell compare in colChangedRows finds no real change → the column is
+// skipped → no wrong data, only a wasted attribution pass (the documented POD
+// trade). A non-POD element (string/[]byte columns) must compare per column.
 func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
-	oldData, newData unsafe.Pointer, n int) bool {
+	oldData, newData unsafe.Pointer, n int, pod bool) bool {
 	any := false
+	if pod {
+		for i := range n {
+			off := uintptr(i) * stride
+			ob := unsafe.Slice((*byte)(unsafe.Add(oldData, off)), stride)
+			nb := unsafe.Slice((*byte)(unsafe.Add(newData, off)), stride)
+			if !bytes.Equal(ob, nb) {
+				bm[i>>6] |= 1 << (uint(i) & 63)
+				any = true
+			}
+		}
+		return any
+	}
 	for ci := range plan.cols {
 		col := &plan.cols[ci]
 		for i := range n {
@@ -407,19 +425,23 @@ func encodeDeltaColumn(enc *Encoder, col *colColumn,
 	st := enc.state
 	switch col.kind {
 	case colKindInt:
-		s := st.colScratchI64[:0]
-		for i := range n {
-			s = append(s, loadIntCell(col, stride, newData, i)-loadIntCell(col, stride, oldData, i))
+		// Gather new and old contiguously (each gather hoists the width switch
+		// once), then a vectorizable subtract — no per-element width branch.
+		cur := gatherColI64(st.colScratchI64, newData, stride, col, n)
+		prev := gatherColI64(st.deltaColAuxI64, oldData, stride, col, n)
+		st.colScratchI64, st.deltaColAuxI64 = cur, prev
+		for i := range cur {
+			cur[i] -= prev[i]
 		}
-		st.colScratchI64 = s
-		return encodeSliceInt64(enc, unsafe.Pointer(&s))
+		return encodeSliceInt64(enc, unsafe.Pointer(&cur))
 	case colKindUint:
-		s := st.colScratchU64[:0]
-		for i := range n {
-			s = append(s, loadUintCell(col, stride, newData, i)-loadUintCell(col, stride, oldData, i))
+		cur := gatherColU64(st.colScratchU64, newData, stride, col, n)
+		prev := gatherColU64(st.deltaColAuxU64, oldData, stride, col, n)
+		st.colScratchU64, st.deltaColAuxU64 = cur, prev
+		for i := range cur {
+			cur[i] -= prev[i]
 		}
-		st.colScratchU64 = s
-		return encodeSliceUint64(enc, unsafe.Pointer(&s))
+		return encodeSliceUint64(enc, unsafe.Pointer(&cur))
 	case colKindBool:
 		// changed-flag column: true where the cell flipped. Apply XORs base where set.
 		s := st.colScratchBool[:0]
@@ -434,61 +456,24 @@ func encodeDeltaColumn(enc *Encoder, col *colColumn,
 	return ErrInvalidPatch
 }
 
-// loadIntCell / loadUintCell read a width-normalized scalar from a column cell.
+// loadIntCell / loadUintCell / storeIntCell / storeUintCell read or write a
+// width-normalized scalar at column cell i. They reuse the loadI64At/loadU64At/
+// storeI64At/storeU64At width helpers (nullable_col.go) so the width switch
+// lives in one place.
 func loadIntCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int) int64 {
-	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
-	switch col.width {
-	case 1:
-		return int64(*(*int8)(p))
-	case 2:
-		return int64(*(*int16)(p))
-	case 4:
-		return int64(*(*int32)(p))
-	default:
-		return *(*int64)(p)
-	}
+	return loadI64At(unsafe.Add(data, uintptr(i)*stride+col.offset), col.width)
 }
 
 func loadUintCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int) uint64 {
-	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
-	switch col.width {
-	case 1:
-		return uint64(*(*uint8)(p))
-	case 2:
-		return uint64(*(*uint16)(p))
-	case 4:
-		return uint64(*(*uint32)(p))
-	default:
-		return *(*uint64)(p)
-	}
+	return loadU64At(unsafe.Add(data, uintptr(i)*stride+col.offset), col.width)
 }
 
 func storeIntCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int, v int64) {
-	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
-	switch col.width {
-	case 1:
-		*(*int8)(p) = int8(v)
-	case 2:
-		*(*int16)(p) = int16(v)
-	case 4:
-		*(*int32)(p) = int32(v)
-	default:
-		*(*int64)(p) = v
-	}
+	storeI64At(unsafe.Add(data, uintptr(i)*stride+col.offset), col.width, v)
 }
 
 func storeUintCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int, v uint64) {
-	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
-	switch col.width {
-	case 1:
-		*(*uint8)(p) = uint8(v)
-	case 2:
-		*(*uint16)(p) = uint16(v)
-	case 4:
-		*(*uint32)(p) = uint32(v)
-	default:
-		*(*uint64)(p) = v
-	}
+	storeU64At(unsafe.Add(data, uintptr(i)*stride+col.offset), col.width, v)
 }
 
 // applyColSlice applies a tagColSlicePatch onto the base slice at baseP. It does
