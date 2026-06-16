@@ -254,3 +254,46 @@ func TestBaselineConcurrent(t *testing.T) {
 	wg.Wait()
 	runtime.KeepAlive(base)
 }
+
+func TestBaselineApplyHostile(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	base := gen[dnTop](1)
+	r.Register(&base)
+	seeds := [][]byte{nil, {}, {0x00}, []byte("not a patch at all")}
+	good, err := Diff(base, gen[dnTop](2), OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range len(good) {
+		trunc := make([]byte, i)
+		copy(trunc, good[:i])
+		seeds = append(seeds, trunc)
+	}
+	for i, b := range seeds {
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					t.Fatalf("seed %d panicked: %v", i, rec)
+				}
+			}()
+			_, _ = r.Apply(b)
+		}()
+	}
+	runtime.KeepAlive(base)
+}
+
+func TestBaselineLenDropsToZero(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	func() {
+		for i := range int64(16) {
+			v := gen[dnTop](i)
+			r.Register(&v)
+			runtime.KeepAlive(v)
+		}
+	}()
+	runtime.GC()
+	runtime.GC()
+	if got := r.Len(); got != 0 {
+		t.Fatalf("Len() = %d after release+GC, want 0 (registry must not pin)", got)
+	}
+}
