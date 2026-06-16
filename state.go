@@ -195,6 +195,11 @@ type encState struct {
 	deltaColBitmap []uint64
 	deltaColRows   []int
 	deltaColBuf    []byte
+	// deltaColAux* hold the OLD column gathered contiguously for the arithmetic
+	// delta encode (new − old), so both operands are width-hoisted gathers fed to
+	// a vectorizable subtract instead of two per-element width switches.
+	deltaColAuxI64 []int64
+	deltaColAuxU64 []uint64
 	colDictTable   []string // distinct table for the string-dict codec
 	colMaskScratch []byte   // presence bitmap for nullable columns
 	// FSST codec scratch, reused across columns (same lifetime as colDictTable).
