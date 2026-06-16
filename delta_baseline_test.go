@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"errors"
 	"reflect"
 	"runtime"
 	"testing"
@@ -133,4 +134,18 @@ func TestBaselineApplyHappyPath(t *testing.T) {
 		t.Fatal("chained Apply result != expected")
 	}
 	runtime.KeepAlive(s1)
+}
+
+func TestBaselineApplyNoFingerprint(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	s0 := gen[dnTop](1)
+	r.Register(&s0)
+	patch, err := Diff(s0, gen[dnTop](2), OptBalanced|OptDeltaNoBaseFingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Apply(patch); !errors.Is(err, ErrBaselineRequired) {
+		t.Fatalf("Apply error = %v, want ErrBaselineRequired", err)
+	}
+	runtime.KeepAlive(s0)
 }
