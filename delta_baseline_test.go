@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"reflect"
+	"runtime"
 	"testing"
 	"unsafe"
 )
@@ -21,7 +22,7 @@ func TestDeepCloneFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for seed := int64(0); seed < 200; seed++ {
+	for seed := range int64(200) {
 		v := gen[dnTop](seed)
 		c := deepClone(&v)
 		if !reflect.DeepEqual(*c, v) {
@@ -97,4 +98,39 @@ func TestRegisterIdMatchesDiffBaseFP(t *testing.T) {
 	if got := r.Len(); got != 1 {
 		t.Fatalf("Len() = %d, want 1", got)
 	}
+}
+
+func TestBaselineApplyHappyPath(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	s0 := gen[dnTop](1)
+	s1want := gen[dnTop](2)
+
+	r.Register(&s0)
+	patch, err := Diff(s0, s1want, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s1, err := r.Apply(patch)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !reflect.DeepEqual(*s1, s1want) {
+		t.Fatal("Apply result != expected new value")
+	}
+	if !reflect.DeepEqual(s0, gen[dnTop](1)) {
+		t.Fatal("Apply mutated the registered baseline")
+	}
+	s2want := gen[dnTop](3)
+	patch2, err := Diff(*s1, s2want, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s2, err := r.Apply(patch2)
+	if err != nil {
+		t.Fatalf("Apply chain step 2: %v", err)
+	}
+	if !reflect.DeepEqual(*s2, s2want) {
+		t.Fatal("chained Apply result != expected")
+	}
+	runtime.KeepAlive(s1)
 }

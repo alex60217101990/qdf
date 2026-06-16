@@ -140,3 +140,47 @@ func (r *BaselineRegistry[T]) fingerprint(v *T) uint64 {
 	}
 	return valueFingerprint(td, unsafe.Pointer(v))
 }
+
+// Apply resolves the patch's baseline (by its embedded baseFP) to a *T, applies
+// the patch onto a fresh deep copy of it, registers the result as a new
+// baseline (so it can base the next patch in the stream), and returns the new
+// *T. The caller should keep the returned pointer to chain further patches off
+// it; dropping it lets the GC reclaim it.
+//
+// Errors: ErrBaselineRequired (the patch carries no baseFP — produced with
+// OptDeltaNoBaseFingerprint), ErrBaselineEvicted (the baseline id is not
+// resolvable), plus any error from the underlying Apply.
+func (r *BaselineRegistry[T]) Apply(patch []byte) (*T, error) {
+	h, _, err := readPatchHeader(patch)
+	if err != nil {
+		return nil, err
+	}
+	if h.flags&flagPatchBaseFP == 0 {
+		return nil, ErrBaselineRequired
+	}
+	r.mu.Lock()
+	wp, ok := r.m[h.baseFP]
+	r.mu.Unlock()
+	var base *T
+	if ok {
+		base = wp.Value()
+	}
+	if base == nil {
+		if ok {
+			r.mu.Lock()
+			if cur, still := r.m[h.baseFP]; still && cur.Value() == nil {
+				delete(r.m, h.baseFP)
+			}
+			r.mu.Unlock()
+		}
+		return nil, ErrBaselineEvicted
+	}
+	clone := deepClone(base)
+	if err := Apply(clone, patch); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.m[r.fingerprint(clone)] = weak.Make(clone)
+	r.mu.Unlock()
+	return clone, nil
+}
