@@ -373,9 +373,17 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 		st.colScratchF64 = s
 		return encodeSliceFloat64(enc, unsafe.Pointer(&s))
 	case colKindFloat32:
+		// Float32 cells are gathered as raw bits and emitted via the uint64 codec,
+		// which never re-floats them — so the canonical -0.0/NaN normalization that
+		// columnar.go applies must be repeated here under OptCanonical.
+		canon := enc.opts.Has(OptCanonical)
 		s := st.colScratchU64[:0]
 		for _, r := range rows {
-			s = append(s, loadFloat32Bits(newData, stride, col, r))
+			bits := loadFloat32Bits(newData, stride, col, r)
+			if canon {
+				bits = canonicalizeFloat32Bits(bits)
+			}
+			s = append(s, bits)
 		}
 		st.colScratchU64 = s
 		return encodeSliceUint64(enc, unsafe.Pointer(&s))
