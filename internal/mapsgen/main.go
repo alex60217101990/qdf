@@ -327,10 +327,19 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 	}
 	needCast := p.K.goType != scratchElem
 
+	// Re-entrancy: the pooled canonKeys* scratch is shared with the reflect map
+	// encoder and the other generated encoders. A map nested inside another map's
+	// value (or a reflect map whose value reaches this generated encoder) would
+	// clobber the outer map's sorted-key slice while it is still being iterated.
+	// canonKeysBusy guards it: when already busy, this encoder allocates a fresh
+	// local slice; otherwise it borrows the pool and sets the guard for the
+	// duration of the emit loop (the value writes may recurse into another map).
 	fmt.Fprintf(buf, "\tif e.opts.Has(OptCanonical) {\n")
 	fmt.Fprintf(buf, "\t\tvar keys []%s\n", scratchElem)
-	fmt.Fprintf(buf, "\t\tif e.state != nil {\n")
+	fmt.Fprintf(buf, "\t\tcanonPooled := false\n")
+	fmt.Fprintf(buf, "\t\tif e.state != nil && !e.state.canonKeysBusy {\n")
 	fmt.Fprintf(buf, "\t\t\tkeys = e.state.%s[:0]\n", scratchField)
+	fmt.Fprintf(buf, "\t\t\tcanonPooled = true\n")
 	fmt.Fprintf(buf, "\t\t} else {\n")
 	fmt.Fprintf(buf, "\t\t\tkeys = make([]%s, 0, len(m))\n", scratchElem)
 	fmt.Fprintf(buf, "\t\t}\n")
@@ -340,7 +349,7 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 		fmt.Fprintf(buf, "\t\tfor k := range m {\n\t\t\tkeys = append(keys, k)\n\t\t}\n")
 	}
 	fmt.Fprintf(buf, "\t\tslices.Sort(keys)\n")
-	fmt.Fprintf(buf, "\t\tif e.state != nil {\n\t\t\te.state.%s = keys\n\t\t}\n", scratchField)
+	fmt.Fprintf(buf, "\t\tif canonPooled {\n\t\t\te.state.%s = keys\n\t\t\te.state.canonKeysBusy = true\n\t\t}\n", scratchField)
 	fmt.Fprintf(buf, "\t\tfor _, sk := range keys {\n")
 	if needCast {
 		fmt.Fprintf(buf, "\t\t\tk := %s(sk)\n", p.K.goType)
@@ -350,7 +359,9 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "\t\t\tv := m[k]\n")
 	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.K.writeBlock("k"))))
 	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.V.writeBlock("v"))))
-	fmt.Fprintf(buf, "\t\t}\n\t\treturn nil\n\t}\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t\tif canonPooled {\n\t\t\te.state.canonKeysBusy = false\n\t\t}\n")
+	fmt.Fprintf(buf, "\t\treturn nil\n\t}\n")
 }
 
 func emitDispatch(buf *bytes.Buffer) {

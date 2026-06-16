@@ -195,6 +195,12 @@ type encState struct {
 	canonKeysStr []string
 	canonKeysI64 []int64
 	canonKeysU64 []uint64
+	// canonKeysBusy guards the pooled canonKeys* scratch against re-entrancy: a
+	// map whose values contain maps recurses into the gather mid-iteration and
+	// would clobber the outer map's sorted-key slice. When busy, the gather falls
+	// back to a fresh local slice (like mapHolderCache.busy). Flat maps — the
+	// common case — keep the zero-alloc pooled path.
+	canonKeysBusy bool
 	// Canonical sorted map-key holders for the delta map-patch emit
 	// (delta_diff.go canonSortedMapKeys). Holds reflect.Value key holders in
 	// sorted order; cleared on reset to drop references to caller map keys (the
