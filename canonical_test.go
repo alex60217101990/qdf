@@ -2,9 +2,40 @@ package qdf
 
 import (
 	"bytes"
+	"math"
 	"reflect"
 	"testing"
 )
+
+// TestCanonicalizeFloatHelpers exercises the float-normalization helpers
+// directly (the encode choke-point wiring lands in a later phase).
+func TestCanonicalizeFloatHelpers(t *testing.T) {
+	negZero := math.Copysign(0, -1)
+	if got := canonicalizeFloat64(negZero); math.Float64bits(got) != 0 {
+		t.Fatalf("canonicalizeFloat64(-0.0) bits = %#x, want 0", math.Float64bits(got))
+	}
+	if got := canonicalizeFloat64(math.Float64frombits(0x7FFABCDEF0000001)); math.Float64bits(got) != 0x7FF8000000000000 {
+		t.Fatalf("canonicalizeFloat64(NaN) bits = %#x", math.Float64bits(got))
+	}
+	if got := canonicalizeFloat64(3.5); got != 3.5 {
+		t.Fatalf("canonicalizeFloat64(3.5) = %v", got)
+	}
+	if got := canonicalizeFloat32(float32(negZero)); math.Float32bits(got) != 0 {
+		t.Fatalf("canonicalizeFloat32(-0.0) bits = %#x", math.Float32bits(got))
+	}
+	if got := canonicalizeFloat32(math.Float32frombits(0x7FABCDEF)); math.Float32bits(got) != 0x7FC00000 {
+		t.Fatalf("canonicalizeFloat32(NaN) bits = %#x", math.Float32bits(got))
+	}
+	if got := canonicalizeFloat32Bits(uint64(math.Float32bits(float32(negZero)))); got != 0 {
+		t.Fatalf("canonicalizeFloat32Bits(-0.0) = %#x", got)
+	}
+	if got := canonicalizeFloat32Bits(0x7FABCDEF); got != 0x7FC00000 {
+		t.Fatalf("canonicalizeFloat32Bits(NaN) = %#x", got)
+	}
+	if got := canonicalizeFloat32Bits(uint64(math.Float32bits(1.25))); got != uint64(math.Float32bits(1.25)) {
+		t.Fatalf("canonicalizeFloat32Bits(1.25) = %#x", got)
+	}
+}
 
 func TestOptCanonicalExists(t *testing.T) {
 	if OptCanonical == 0 {
