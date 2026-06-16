@@ -511,3 +511,143 @@ func TestColDiffBytesColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestColDiffApplyHostile(t *testing.T) {
+	old := make([]ccRow, 64)
+	for i := range old {
+		old[i] = ccRow{A: int64(i), B: uint32(i), F: float64(i)}
+	}
+	neu := append([]ccRow(nil), old...)
+	for i := 0; i < 64; i += 2 {
+		neu[i].A = int64(i) * 5
+	}
+	good, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeds := make([][]byte, 0, 3+len(good))
+	seeds = append(seeds, nil, []byte{}, []byte{0x00})
+	for i := range len(good) {
+		trunc := make([]byte, i)
+		copy(trunc, good[:i])
+		seeds = append(seeds, trunc)
+	}
+	for i, b := range seeds {
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					t.Fatalf("seed %d panicked: %v", i, rec)
+				}
+			}()
+			got := append([]ccRow(nil), old...)
+			_ = Apply(&got, b)
+		}()
+	}
+}
+
+func FuzzColDiffApply(f *testing.F) {
+	old := make([]ccRow, 32)
+	for i := range old {
+		old[i] = ccRow{A: int64(i), B: uint32(i), F: float64(i)}
+	}
+	neu := append([]ccRow(nil), old...)
+	neu[1].A = 5
+	if good, err := Diff(old, neu, OptBalanced); err == nil {
+		f.Add(good)
+	}
+	f.Add([]byte{})
+	f.Add([]byte("garbage"))
+	f.Fuzz(func(t *testing.T, patch []byte) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				t.Fatalf("panic on %x: %v", patch, rec)
+			}
+		}()
+		got := append([]ccRow(nil), old...)
+		_ = Apply(&got, patch)
+	})
+}
+
+func FuzzColDiffOracle(f *testing.F) {
+	f.Add(int64(1), uint8(3), uint8(5))
+	f.Fuzz(func(t *testing.T, seed int64, nMod, which uint8) {
+		const n = 80
+		old := make([]ccRow, n)
+		for i := range old {
+			old[i] = ccRow{A: int64(i) ^ seed, B: uint32(i), F: float64(i)}
+		}
+		neu := append([]ccRow(nil), old...)
+		r := seed
+		for k := 0; k < int(nMod)%n; k++ {
+			r = r*1103515245 + 12345
+			idx := int(uint64(r)>>33) % n
+			switch which % 3 {
+			case 0:
+				neu[idx].A += r
+			case 1:
+				neu[idx].B ^= uint32(r)
+			case 2:
+				neu[idx].F = float64(r)
+			}
+		}
+		patch, err := Diff(old, neu, OptBalanced)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := append([]ccRow(nil), old...)
+		if err := Apply(&got, patch); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, neu) {
+			t.Fatalf("oracle mismatch seed=%d", seed)
+		}
+	})
+}
+
+func TestColDiffLengthChange(t *testing.T) {
+	old := make([]ccRow, 64)
+	for i := range old {
+		old[i] = ccRow{A: int64(i)}
+	}
+	neu := append(append([]ccRow(nil), old...), ccRow{A: 999}) // grew by 1
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := append([]ccRow(nil), old...)
+	if err := Apply(&got, patch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, neu) {
+		t.Fatal("length-change round-trip mismatch")
+	}
+}
+
+func TestColDiffHybridFallsBack(t *testing.T) {
+	type hybrid struct {
+		A int64
+		M map[string]int
+	}
+	n := 32
+	old := make([]hybrid, n)
+	neu := make([]hybrid, n)
+	for i := range old {
+		old[i] = hybrid{A: int64(i), M: map[string]int{"k": i}}
+		neu[i] = hybrid{A: int64(i), M: map[string]int{"k": i}}
+	}
+	neu[3].A = 100
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]hybrid, n)
+	for i := range old {
+		got[i] = hybrid{A: old[i].A, M: map[string]int{"k": i}}
+	}
+	if err := Apply(&got, patch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, neu) {
+		t.Fatal("hybrid round-trip mismatch")
+	}
+}
