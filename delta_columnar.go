@@ -29,10 +29,14 @@ const (
 	colDiffSparseDen = 4
 )
 
-// diffColumnarEligible reports whether a slice element type can use the
-// column-level diff: pure columnar (every field is a column, no residual).
-func diffColumnarEligible(elem *typeDesc) bool {
-	return elem != nil && elem.colPlan != nil && elem.colPlan.residual == nil
+// diffColumnarEligible reports whether a slice's columnar plan can use the
+// column-level diff: pure columnar (every field is a column, no residual) with
+// fewer than 128 columns. The 128 cap keeps the nChangedCols count a single
+// uvarint byte (nChanged <= len(cols) < 128 < 0x80), so the placeholder-patch
+// in diffColumnar is always valid; a struct with >=128 columns (pathological)
+// declines to the positional path.
+func diffColumnarEligible(colPlan *columnarPlan) bool {
+	return colPlan != nil && colPlan.residual == nil && len(colPlan.cols) < 128
 }
 
 // colKindColumnDiffSupported reports whether a column's kind has a column-diff
@@ -64,9 +68,8 @@ func colKindColumnDiffSupported(col *colColumn) bool {
 // column kind means the caller should fall back to the positional path, or
 // (false, err) on a real error. n == oldLen == newLen is guaranteed by the
 // caller. Exactly one body remains in enc.buf on a true return.
-func diffColumnar(enc *Encoder, elem *typeDesc, stride uintptr,
+func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintptr,
 	oldData, newData unsafe.Pointer, n, depth int) (bool, error) {
-	plan := elem.colPlan
 	if enc.state == nil {
 		enc.state = newEncState()
 	}
@@ -381,14 +384,12 @@ func applyColSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 		return ErrInvalidPatch
 	}
 	dec.i++
-	elem := td.elem
-	if elem == nil {
-		elem, _ = descOf(td.rType.Elem())
-	}
-	if elem == nil || elem.colPlan == nil {
+	// The columnar plan lives on the slice descriptor (td.colPlan), built by
+	// descBuild; it is not mirrored onto the element desc.
+	plan := td.colPlan
+	if plan == nil {
 		return ErrInvalidPatch
 	}
-	plan := elem.colPlan
 	n64, k := readUvarint(dec.buf[dec.i:])
 	if k <= 0 {
 		return ErrInvalidPatch
@@ -403,6 +404,12 @@ func applyColSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 	if dec.state == nil {
 		dec.state = newDecState()
 	}
+	// Bound every column codec's element claim to n (matches decodeColumnInto and
+	// the other columnar decode sites); applySparseColumn tightens it to nc for
+	// the subcolumn. Defends against an allocation-amplification patch.
+	savedColMax := dec.colMaxLen
+	dec.colMaxLen = n
+	defer func() { dec.colMaxLen = savedColMax }()
 	nCols64, k2 := readUvarint(dec.buf[dec.i:])
 	if k2 <= 0 || nCols64 > uint64(len(plan.cols)) {
 		return ErrInvalidPatch
@@ -479,6 +486,11 @@ func applySparseColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base un
 		prev = idx
 	}
 	st.deltaColRows = rows
+	// The subcolumn has exactly nc elements; tighten the per-column bound so a
+	// codec cannot claim more than the changed-cell count before the len check.
+	savedColMax := dec.colMaxLen
+	dec.colMaxLen = nc
+	defer func() { dec.colMaxLen = savedColMax }()
 	switch col.kind {
 	case colKindInt:
 		if err := decodeSliceInt64Into(dec, &st.colScratchI64); err != nil {

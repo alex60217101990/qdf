@@ -45,11 +45,15 @@ func TestColChangedAttribution(t *testing.T) {
 	neu[40].A = 2 // col 0 (A) changed at row 40
 	neu[7].F = 9  // col 2 (F) changed at row 7
 
-	td, err := descOf(reflect.TypeFor[ccRow]())
+	// The columnar plan is built on the slice descriptor, not the element struct.
+	td, err := descOf(reflect.TypeFor[[]ccRow]())
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan := td.colPlan
+	if plan == nil {
+		t.Fatal("expected columnar plan on []ccRow")
+	}
 	stride := plan.stride
 	od := unsafe.Pointer(&old[0])
 	nd := unsafe.Pointer(&neu[0])

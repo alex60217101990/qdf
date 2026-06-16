@@ -86,7 +86,10 @@ func diffSlice(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int)
 	if elem == nil {
 		elem, _ = descOf(td.rType.Elem())
 	}
-	return diffElems(enc, elem, stride, oh.Data, oh.Len, nh.Data, nh.Len, depth)
+	// td.colPlan (the slice element's columnar plan, built on the slice
+	// descriptor) is threaded in so diffColumnar routes off a parameter rather
+	// than a field on the shared element typeDesc — no write to a published desc.
+	return diffElems(enc, elem, td.colPlan, stride, oh.Data, oh.Len, nh.Data, nh.Len, depth)
 }
 
 func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
@@ -200,10 +203,10 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 // patch, never-larger picker); every other case falls through to the positional
 // differ. Arrays never reach diffColumnar (they call diffElemsPositional
 // directly via diffArray).
-func diffElems(enc *Encoder, elem *typeDesc, stride uintptr,
+func diffElems(enc *Encoder, elem *typeDesc, colPlan *columnarPlan, stride uintptr,
 	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int) error {
-	if oldLen == newLen && oldLen >= columnarMinElems && diffColumnarEligible(elem) {
-		handled, err := diffColumnar(enc, elem, stride, oldData, newData, oldLen, depth)
+	if oldLen == newLen && oldLen >= columnarMinElems && diffColumnarEligible(colPlan) {
+		handled, err := diffColumnar(enc, elem, colPlan, stride, oldData, newData, oldLen, depth)
 		if err != nil {
 			return err
 		}
