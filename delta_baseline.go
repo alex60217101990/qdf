@@ -6,6 +6,8 @@ import (
 	"sync"
 	"unsafe"
 	"weak"
+
+	"github.com/alex60217101990/qdf/internal/reflectutil"
 )
 
 var (
@@ -52,28 +54,40 @@ func (r *BaselineRegistry[T]) Len() int {
 	return len(r.m)
 }
 
-// deepClone returns a structural deep copy of *v: scalars/strings/[N]byte
-// copied by value; slices/maps/pointers/interfaces recursively allocated and
-// copied. It preserves nil-vs-empty (a nil slice/map stays nil, an empty
-// non-nil one stays empty non-nil) so the clone's fingerprint equals the
-// original's — which is correctness-critical, because Apply's baseFP check
-// would otherwise reject the cloned baseline.
+// deepClone returns a structural deep copy of *v. It walks the value by its
+// *typeDesc over unsafe.Pointer — the same idiom as fpHash / applyValue /
+// equalValue — rather than reflect.Value, so it shares the package's fast paths
+// and honors the qdf_reflect2 build tag (slice/map backing is allocated through
+// reflectutil, exactly as the decode path does).
 //
-// Struct cloning mirrors how fpHash hashes the struct, so the two never
-// disagree: a struct with qdf-visible fields is cloned field-by-field (its
-// unexported fields are left zero, which is safe because the fingerprint, like
-// the wire, ignores them); a fields-less struct — time.Time, a custom
-// Marshaler, or a struct with no exported fields — is copied whole by value,
-// because the fingerprint reads its real contents (the instant, the marshaled
-// form, or all fields) and a field-by-field clone would zero the unexported
-// internals (time.Time is entirely unexported) and fingerprint differently.
+// The clone is byte-for-byte equivalent in everything the fingerprint reads, so
+// it always fingerprints identically to its source — the invariant Apply's
+// baseFP check relies on. It preserves nil-vs-empty (a nil slice/map stays nil,
+// an empty non-nil one stays empty non-nil). Containers (slice/map/pointer) are
+// freshly allocated so Apply's in-place mutation of the clone never touches the
+// registered baseline.
 func deepClone[T any](v *T) *T {
 	out := new(T)
-	cloneValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(v).Elem(), 0)
+	td, err := descOf(reflect.TypeFor[T]())
+	if err != nil || td == nil {
+		// Unsupported type: descOf failing means no patch can target it, so the
+		// clone is unreachable through Apply in practice. A plain value copy is the
+		// safe best effort.
+		*out = *v
+		return out
+	}
+	cloneValue(td, unsafe.Pointer(out), unsafe.Pointer(v), 0)
 	return out
 }
 
-func cloneValue(dst, src reflect.Value, depth int) {
+// cloneValue writes a deep copy of the value of type td at src into dst,
+// mirroring fpHash's structural walk so a clone always fingerprints identically
+// to its source. A pointer-free (pod) span is bulk-copied in one byte copy — no
+// GC write barrier needed, since it holds no pointers. Every pointer-bearing
+// write goes through a typed store (string, unsafe.Pointer) or reflect.Set, so
+// the GC write barrier fires; a raw byte copy is never used over a span that
+// contains pointers.
+func cloneValue(td *typeDesc, dst, src unsafe.Pointer, depth int) {
 	if depth > maxDeltaDepth {
 		// Mirror the diff/apply/fingerprint walks: stop instead of overflowing the
 		// (uncatchable) stack on a cyclic or pathologically deep structure. A
@@ -81,42 +95,20 @@ func cloneValue(dst, src reflect.Value, depth int) {
 		// rejects it with ErrPatchBaseMismatch — a clean error, never a crash.
 		return
 	}
-	switch src.Kind() {
-	case reflect.Pointer:
-		if src.IsNil() {
-			return
-		}
-		np := reflect.New(src.Type().Elem())
-		cloneValue(np.Elem(), src.Elem(), depth+1)
-		dst.Set(np)
+	if td.pod {
+		// Pointer-free: one byte copy reproduces every byte (scalars, tight
+		// arrays/structs, padded pointer-free structs) and is GC-safe.
+		sz := td.rType.Size()
+		copy(unsafe.Slice((*byte)(dst), sz), unsafe.Slice((*byte)(src), sz))
+		return
+	}
+	switch td.kind {
+	case reflect.String:
+		*(*string)(dst) = *(*string)(src) // typed string store: GC-barriered
 	case reflect.Slice:
-		if src.IsNil() {
-			return
-		}
-		n := src.Len()
-		ns := reflect.MakeSlice(src.Type(), n, n)
-		for i := range n {
-			cloneValue(ns.Index(i), src.Index(i), depth+1)
-		}
-		dst.Set(ns)
-	case reflect.Map:
-		if src.IsNil() {
-			return
-		}
-		nm := reflect.MakeMapWithSize(src.Type(), src.Len())
-		it := src.MapRange()
-		for it.Next() {
-			k := reflect.New(src.Type().Key()).Elem()
-			cloneValue(k, it.Key(), depth+1)
-			val := reflect.New(src.Type().Elem()).Elem()
-			cloneValue(val, it.Value(), depth+1)
-			nm.SetMapIndex(k, val)
-		}
-		dst.Set(nm)
+		cloneSlice(td, dst, src, depth)
 	case reflect.Array:
-		for i := range src.Len() {
-			cloneValue(dst.Index(i), src.Index(i), depth+1)
-		}
+		cloneArray(td, dst, src, depth)
 	case reflect.Struct:
 		// Mirror fpHash's struct dispatch. A struct the delta layer treats as
 		// fields-less (len(td.fields)==0: time.Time, a custom Marshaler, or a
@@ -125,30 +117,135 @@ func cloneValue(dst, src reflect.Value, depth int) {
 		// fields. Cloning such a struct field-by-field would skip its unexported
 		// fields (which is ALL of time.Time's wall/ext/loc), zeroing it and
 		// producing a clone whose fingerprint differs → ErrPatchBaseMismatch on a
-		// legitimate baseline. Copy it by value instead, which reproduces every
-		// field. (A shallow value copy is safe: Apply replaces such a value
-		// wholesale via the codec, never mutates its internals in place.)
-		if td, err := descOf(src.Type()); err == nil && len(td.fields) == 0 {
-			dst.Set(src)
+		// legitimate baseline. A typed value copy reproduces every field, is
+		// GC-safe, and shares no mutable structure Apply would touch in place
+		// (Apply replaces such a value wholesale via the codec).
+		if len(td.fields) == 0 {
+			reflect.NewAt(td.rType, dst).Elem().Set(reflect.NewAt(td.rType, src).Elem())
 			return
 		}
-		for i := range src.NumField() {
-			df := dst.Field(i)
-			if !df.CanSet() {
-				continue
+		for i := range td.fields {
+			f := &td.fields[i]
+			cloneValue(f.desc, unsafe.Add(dst, f.offset), unsafe.Add(src, f.offset), depth+1)
+		}
+	case reflect.Pointer:
+		sp := *(*unsafe.Pointer)(src)
+		if sp == nil {
+			return // nil pointer: dst already nil
+		}
+		elem := td.elem
+		if elem == nil {
+			elem, _ = descOf(td.rType.Elem())
+			if elem == nil {
+				return
 			}
-			cloneValue(df, src.Field(i), depth+1)
 		}
+		np := reflect.New(elem.rType) // GC-safe allocation of the pointee
+		cloneValue(elem, np.UnsafePointer(), sp, depth+1)
+		reflect.NewAt(td.rType, dst).Elem().Set(np) // typed pointer store: barriered
+	case reflect.Map:
+		cloneMap(td, dst, src, depth)
 	case reflect.Interface:
-		if src.IsNil() {
+		iv := reflect.NewAt(td.rType, src).Elem()
+		if iv.IsNil() {
 			return
 		}
-		ev := src.Elem()
-		nv := reflect.New(ev.Type()).Elem()
-		cloneValue(nv, ev, depth+1)
-		dst.Set(nv)
+		ev := iv.Elem() // dynamic value
+		edesc, derr := descOf(ev.Type())
+		if derr != nil || edesc == nil {
+			reflect.NewAt(td.rType, dst).Elem().Set(iv) // fallback: shallow box copy
+			return
+		}
+		srcBuf := reflect.New(ev.Type())
+		srcBuf.Elem().Set(ev) // addressable copy of the boxed value
+		dstBuf := reflect.New(ev.Type())
+		cloneValue(edesc, dstBuf.UnsafePointer(), srcBuf.UnsafePointer(), depth+1)
+		reflect.NewAt(td.rType, dst).Elem().Set(dstBuf.Elem()) // box the clone
 	default:
-		dst.Set(src)
+		// Exotic kinds (chan/func): a typed value copy (barriered, shallow).
+		reflect.NewAt(td.rType, dst).Elem().Set(reflect.NewAt(td.rType, src).Elem())
+	}
+}
+
+// cloneSlice deep-copies the slice at src into a freshly allocated backing at
+// dst, preserving nil-vs-empty.
+func cloneSlice(td *typeDesc, dst, src unsafe.Pointer, depth int) {
+	sh := (*sliceHeader)(src)
+	if sh.Data == nil {
+		return // nil slice stays nil (dst already zeroed)
+	}
+	n := sh.Len
+	reflectutil.MakeSlice(td.rType, n, dst) // reflect2-aware; non-nil even for n==0
+	if n == 0 {
+		return // empty-non-nil preserved
+	}
+	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+		if elem == nil {
+			return
+		}
+	}
+	dsh := (*sliceHeader)(dst)
+	stride := td.rType.Elem().Size()
+	if elem.pod {
+		// Pointer-free elements: one bulk byte copy (GC-safe, holds no pointers).
+		copy(unsafe.Slice((*byte)(dsh.Data), uintptr(n)*stride),
+			unsafe.Slice((*byte)(sh.Data), uintptr(n)*stride))
+		return
+	}
+	for i := range n {
+		cloneValue(elem, unsafe.Add(dsh.Data, uintptr(i)*stride),
+			unsafe.Add(sh.Data, uintptr(i)*stride), depth+1)
+	}
+}
+
+// cloneArray deep-copies a non-pod array (a pod array took the byte-copy fast
+// path) element by element.
+func cloneArray(td *typeDesc, dst, src unsafe.Pointer, depth int) {
+	n := td.rType.Len()
+	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+		if elem == nil {
+			return
+		}
+	}
+	stride := td.rType.Elem().Size()
+	for i := range n {
+		cloneValue(elem, unsafe.Add(dst, uintptr(i)*stride),
+			unsafe.Add(src, uintptr(i)*stride), depth+1)
+	}
+}
+
+// cloneMap deep-copies the map at src into a freshly allocated map at dst,
+// preserving nil-vs-empty. Keys are shared (a map key is immutable; Apply never
+// mutates one); values are deep-cloned, because Apply can mutate a value's inner
+// containers in place and must not reach through to the registered baseline.
+func cloneMap(td *typeDesc, dst, src unsafe.Pointer, depth int) {
+	mv := reflect.NewAt(td.rType, src).Elem()
+	if mv.IsNil() {
+		return // nil map stays nil
+	}
+	// Allocate through reflectutil so qdf_reflect2 swaps in the faster allocator,
+	// matching applyMap / the decode path.
+	reflectutil.MakeMap(td.rType, mv.Len(), dst)
+	dmv := reflect.NewAt(td.rType, dst).Elem()
+	valDesc := td.elem
+	if valDesc == nil {
+		valDesc, _ = descOf(td.rType.Elem())
+	}
+	if valDesc == nil {
+		dmv.Set(mv) // unsupported value type: shallow copy (still a fresh map)
+		return
+	}
+	valType := td.rType.Elem()
+	for it := mv.MapRange(); it.Next(); {
+		srcBuf := reflect.New(valType)
+		srcBuf.Elem().Set(it.Value()) // addressable copy of the value
+		dstBuf := reflect.New(valType)
+		cloneValue(valDesc, dstBuf.UnsafePointer(), srcBuf.UnsafePointer(), depth+1)
+		dmv.SetMapIndex(it.Key(), dstBuf.Elem())
 	}
 }
 
