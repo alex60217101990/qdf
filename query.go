@@ -357,11 +357,29 @@ func popcount(b []uint64) int {
 	return n
 }
 
-// matchedIndices appends the set-bit indices (< n) of b to dst in order.
+// matchedIndices appends the set-bit indices (< n) of b to dst in order. It
+// enumerates per word via bits.TrailingZeros64, skipping whole zero words, so a
+// sparse (selective) result mask costs ~one append per match instead of n
+// per-bit tests — the common case for a selective columnar-query predicate.
+// Bit layout is LSB-first (see getBit), so the lowest set bit is the lowest
+// index and the emitted order is ascending, identical to the per-bit scan.
 func matchedIndices(b []uint64, n int, dst []int) []int {
-	for i := range n {
-		if getBit(b, i) {
-			dst = append(dst, i)
+	full := n >> 6 // count of words wholly in range [0, n)
+	for w := range full {
+		x := b[w]
+		base := w << 6
+		for x != 0 {
+			dst = append(dst, base+bits.TrailingZeros64(x))
+			x &= x - 1 // clear lowest set bit
+		}
+	}
+	// Tail word: keep only the bits below n.
+	if r := n & 63; r != 0 && full < len(b) {
+		x := b[full] & ((uint64(1) << uint(r)) - 1)
+		base := full << 6
+		for x != 0 {
+			dst = append(dst, base+bits.TrailingZeros64(x))
+			x &= x - 1
 		}
 	}
 	return dst
