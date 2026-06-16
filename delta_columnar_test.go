@@ -3,6 +3,7 @@ package qdf
 import (
 	"reflect"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -243,5 +244,96 @@ func BenchmarkColDiffApply(b *testing.B) {
 		if err := Apply(&got, patch); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+type ccAll struct {
+	I  int32
+	U  uint16
+	F  float64
+	F3 float32
+	Bo bool
+	S  string
+	By []byte
+	T  time.Time
+}
+
+func TestColDiffAllKinds(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0).UTC()
+	mk := func() []ccAll {
+		rows := make([]ccAll, 120)
+		for i := range rows {
+			rows[i] = ccAll{
+				I: int32(i), U: uint16(i), F: float64(i) * 1.5, F3: float32(i),
+				Bo: i%2 == 0, S: "v" + string(rune('a'+i%26)),
+				By: []byte{byte(i)}, T: base.Add(time.Duration(i) * time.Second),
+			}
+		}
+		return rows
+	}
+	mutators := map[string]func(*ccAll){
+		"int":     func(r *ccAll) { r.I += 1000 },
+		"uint":    func(r *ccAll) { r.U += 7 },
+		"float":   func(r *ccAll) { r.F += 0.25 },
+		"float32": func(r *ccAll) { r.F3 += 2 },
+		"bool":    func(r *ccAll) { r.Bo = !r.Bo },
+		"string":  func(r *ccAll) { r.S += "X" },
+		"bytes":   func(r *ccAll) { r.By = append(append([]byte(nil), r.By...), 0xFF) },
+		"time":    func(r *ccAll) { r.T = r.T.Add(time.Hour) },
+	}
+	for _, opt := range []Options{OptSpeed, OptBalanced, OptCompression} {
+		old := mk()
+		for name, mut := range mutators {
+			// sparse: mutate a few rows (ratio 20); dense/delta: mutate all (ratio 1).
+			for _, ratio := range []int{20, 1} {
+				neu := mk()
+				for i := range neu {
+					if ratio == 1 || i%ratio == 0 {
+						mut(&neu[i])
+					}
+				}
+				patch, err := Diff(old, neu, opt)
+				if err != nil {
+					t.Fatalf("%s/%v/ratio%d diff: %v", name, opt, ratio, err)
+				}
+				got := append([]ccAll(nil), old...)
+				if err := Apply(&got, patch); err != nil {
+					t.Fatalf("%s/%v/ratio%d apply: %v", name, opt, ratio, err)
+				}
+				if !reflect.DeepEqual(got, neu) {
+					t.Fatalf("%s/%v/ratio%d round-trip mismatch", name, opt, ratio)
+				}
+			}
+		}
+	}
+}
+
+func TestColDiffNullable(t *testing.T) {
+	type ccNull struct {
+		A int64
+		P *int32
+	}
+	n := 64
+	old := make([]ccNull, n)
+	neu := make([]ccNull, n)
+	for i := range old {
+		v := int32(i)
+		old[i] = ccNull{A: int64(i), P: &v}
+		w := int32(i)
+		neu[i] = ccNull{A: int64(i), P: &w}
+	}
+	x := int32(999)
+	neu[10].P = &x
+	neu[20].P = nil
+	patch, err := Diff(old, neu, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := append([]ccNull(nil), old...)
+	if err := Apply(&got, patch); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, neu) {
+		t.Fatal("nullable round-trip mismatch")
 	}
 }

@@ -40,15 +40,34 @@ func diffColumnarEligible(colPlan *columnarPlan) bool {
 }
 
 // colKindColumnDiffSupported reports whether a column's kind has a column-diff
-// encoder/decoder yet. (int/uint only in this phase; other kinds decline →
-// whole-slice falls back to the positional path.)
+// encoder/decoder. Nullable columns are dense-whole only (pickColMode forces
+// it).
+//
+// BLOCKED: string/[]byte columns (and nullable with a string base) are gated
+// OUT of the column path and fall back to the positional differ. They encode
+// through the stateful intern / state-table machinery (tagStateRef/tagStateMTF,
+// string-dict/FSST shape IDs), but diffColumnar's build-and-compare picker
+// builds the positional body AND the column body on the SAME encoder state. The
+// discarded loser's string emissions pollute enc.state's intern table, so the
+// kept body emits state-table refs the decoder never built → "unknown
+// state-table id" on Apply. The fix needs encoder-state isolation between the
+// two candidate builds (snapshot/restore, or measure positional on a throwaway
+// encoder and re-encode only the winner on the real one); this is a picker
+// design change beyond the per-kind extension and is not specified in the plan.
+// The stateless kinds (int/uint/float/float32/bool/time, nullable-scalar) are
+// unaffected and fully supported.
 func colKindColumnDiffSupported(col *colColumn) bool {
 	if col.kind.isNullable() {
-		return false
+		// Dense-whole only (pickColMode forces it). A string base re-ships through
+		// the stateful string column codec → same pollution hazard; gate it out.
+		return col.kind.base() != colKindString
 	}
 	switch col.kind {
-	case colKindInt, colKindUint:
+	case colKindInt, colKindUint, colKindFloat, colKindFloat32,
+		colKindBool, colKindTime:
 		return true
+	case colKindString:
+		return false // stateful intern codec; see the doc comment above (BLOCKED)
 	default:
 		return false
 	}
@@ -123,6 +142,8 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 			err = encodeSparseColumn(enc, col, stride, oldData, newData, rows)
 		case colDiffModeDelta:
 			err = encodeDeltaColumn(enc, col, stride, oldData, newData, n)
+		case colDiffModeDenseWhole:
+			err = enc.encodeOneColumn(plan, newData, col, n)
 		default:
 			err = ErrInvalidPatch
 		}
@@ -254,19 +275,25 @@ func nullableCellEqual(col *colColumn, op, np unsafe.Pointer) bool {
 // its n cells changed. Size heuristic only — the top-level build-and-compare is
 // the never-larger guarantee.
 func pickColMode(col *colColumn, nChanged, n int) byte {
+	if col.kind.isNullable() {
+		return colDiffModeDenseWhole // nullable: whole-column re-ship only
+	}
 	if nChanged*colDiffSparseDen <= n*colDiffSparseNum {
 		return colDiffModeSparse
 	}
 	switch col.kind {
 	case colKindInt, colKindUint, colKindBool:
 		return colDiffModeDelta
-	default:
+	default: // float, float32, string, []byte, time
 		return colDiffModeDenseWhole
 	}
 }
 
 // encodeSparseColumn writes nChanged, the gap-encoded ascending row indices, and
-// the changed cells as a length-nChanged subcolumn via the column codec.
+// the changed cells as a length-nChanged subcolumn via the column codec. Only
+// int/uint/bool reach this via sparse mode for some kinds; float/float32/string/
+// []byte/time can also be sparse (pickColMode returns sparse when changes are
+// few), but never delta.
 func encodeSparseColumn(enc *Encoder, col *colColumn,
 	stride uintptr, oldData, newData unsafe.Pointer, rows []int) error {
 	_ = oldData
@@ -292,6 +319,60 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 		}
 		st.colScratchU64 = s
 		return encodeSliceUint64(enc, unsafe.Pointer(&s))
+	case colKindFloat:
+		s := st.colScratchF64[:0]
+		for _, r := range rows {
+			s = append(s, loadFloat64Field(newData, stride, col, r))
+		}
+		st.colScratchF64 = s
+		return encodeSliceFloat64(enc, unsafe.Pointer(&s))
+	case colKindFloat32:
+		s := st.colScratchU64[:0]
+		for _, r := range rows {
+			s = append(s, loadFloat32Bits(newData, stride, col, r))
+		}
+		st.colScratchU64 = s
+		return encodeSliceUint64(enc, unsafe.Pointer(&s))
+	case colKindBool:
+		s := st.colScratchBool[:0]
+		for _, r := range rows {
+			p := unsafe.Add(newData, uintptr(r)*stride+col.offset)
+			s = append(s, *(*bool)(p))
+		}
+		st.colScratchBool = s
+		return encodeSliceBool(enc, unsafe.Pointer(&s))
+	case colKindString:
+		if col.isByte {
+			// Producer/decoder contract: per-cell WriteBytes, decoded per-cell via
+			// readStringBytes() in applySparseColumn (NOT readStringColumn).
+			for _, r := range rows {
+				p := unsafe.Add(newData, uintptr(r)*stride+col.offset)
+				enc.WriteBytes(*(*[]byte)(p))
+			}
+			return nil
+		}
+		s := st.colScratchStr[:0]
+		for _, r := range rows {
+			s = append(s, loadStringField(newData, stride, col, r))
+		}
+		st.colScratchStr = s
+		enc.writeStringColumn(s)
+		return nil
+	case colKindTime:
+		sec := st.colScratchI64[:0]
+		nsec := st.colScratchU64[:0]
+		for _, r := range rows {
+			p := unsafe.Add(newData, uintptr(r)*stride+col.offset)
+			tt := (*time.Time)(p).UTC()
+			sec = append(sec, tt.Unix())
+			nsec = append(nsec, uint64(tt.Nanosecond()))
+		}
+		st.colScratchI64 = sec
+		st.colScratchU64 = nsec
+		if err := encodeSliceInt64(enc, unsafe.Pointer(&sec)); err != nil {
+			return err
+		}
+		return encodeSliceUint64(enc, unsafe.Pointer(&nsec))
 	}
 	return ErrInvalidPatch
 }
@@ -316,6 +397,16 @@ func encodeDeltaColumn(enc *Encoder, col *colColumn,
 		}
 		st.colScratchU64 = s
 		return encodeSliceUint64(enc, unsafe.Pointer(&s))
+	case colKindBool:
+		// changed-flag column: true where the cell flipped. Apply XORs base where set.
+		s := st.colScratchBool[:0]
+		for i := range n {
+			po := unsafe.Add(oldData, uintptr(i)*stride+col.offset)
+			pn := unsafe.Add(newData, uintptr(i)*stride+col.offset)
+			s = append(s, *(*bool)(po) != *(*bool)(pn))
+		}
+		st.colScratchBool = s
+		return encodeSliceBool(enc, unsafe.Pointer(&s))
 	}
 	return ErrInvalidPatch
 }
@@ -514,6 +605,84 @@ func applySparseColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base un
 		for j, r := range rows {
 			storeUintCell(col, plan.stride, base, r, s[j])
 		}
+	case colKindFloat:
+		if err := decodeSliceFloat64Into(dec, &st.colScratchF64); err != nil {
+			return err
+		}
+		s := st.colScratchF64
+		if len(s) != nc {
+			return ErrTypeMismatch
+		}
+		for j, r := range rows {
+			storeFloat64(base, plan.stride, col, r, s[j])
+		}
+	case colKindFloat32:
+		if err := decodeSliceUint64Into(dec, &st.colScratchU64); err != nil {
+			return err
+		}
+		s := st.colScratchU64
+		if len(s) != nc {
+			return ErrTypeMismatch
+		}
+		for j, r := range rows {
+			storeFloat32Bits(base, plan.stride, col, r, s[j])
+		}
+	case colKindBool:
+		if err := decodeSliceBoolInto(dec, &st.colScratchBool); err != nil {
+			return err
+		}
+		s := st.colScratchBool
+		if len(s) != nc {
+			return ErrTypeMismatch
+		}
+		for j, r := range rows {
+			*(*bool)(unsafe.Add(base, uintptr(r)*plan.stride+col.offset)) = s[j]
+		}
+	case colKindString:
+		if col.isByte {
+			// Producer wrote per-cell WriteBytes → decode per-cell readStringBytes.
+			for _, r := range rows {
+				sb, err := dec.readStringBytes()
+				if err != nil {
+					return err
+				}
+				dp := unsafe.Add(base, uintptr(r)*plan.stride+col.offset)
+				*(*[]byte)(dp) = append([]byte(nil), sb...)
+			}
+		} else {
+			strs, err := dec.readStringColumn(nc)
+			if err != nil {
+				return err
+			}
+			if len(strs) != nc {
+				return ErrTypeMismatch
+			}
+			for j, r := range rows {
+				*(*string)(unsafe.Add(base, uintptr(r)*plan.stride+col.offset)) = strs[j]
+			}
+		}
+	case colKindTime:
+		if err := decodeSliceInt64Into(dec, &st.colScratchI64); err != nil {
+			return err
+		}
+		sec := st.colScratchI64 // distinct scratch from nsec (U64) → no copy needed
+		if len(sec) != nc {
+			return ErrTypeMismatch
+		}
+		if err := decodeSliceUint64Into(dec, &st.colScratchU64); err != nil {
+			return err
+		}
+		nsec := st.colScratchU64
+		if len(nsec) != nc {
+			return ErrTypeMismatch
+		}
+		if err := checkNsecColumn(nsec); err != nil {
+			return err
+		}
+		for j, r := range rows {
+			dp := unsafe.Add(base, uintptr(r)*plan.stride+col.offset)
+			*(*time.Time)(dp) = time.Unix(sec[j], int64(nsec[j])).UTC()
+		}
 	default:
 		return ErrInvalidPatch
 	}
@@ -545,6 +714,21 @@ func applyDeltaColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base uns
 		}
 		for i := range n {
 			storeUintCell(col, plan.stride, base, i, loadUintCell(col, plan.stride, base, i)+s[i])
+		}
+	case colKindBool:
+		// changed-flag column: flip base where the flag is set.
+		if err := decodeSliceBoolInto(dec, &st.colScratchBool); err != nil {
+			return err
+		}
+		s := st.colScratchBool
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			if s[i] {
+				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+				*(*bool)(p) = !*(*bool)(p)
+			}
 		}
 	default:
 		return ErrInvalidPatch
