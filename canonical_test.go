@@ -57,15 +57,20 @@ func TestOptCanonicalExists(t *testing.T) {
 	}
 }
 
+// TestCanonicalMapStableReflect covers the reflect encodeMap sorted-key emit.
+// It must use a map type WITHOUT a generated fast path so it actually exercises
+// the reflect path: map[string]int and the scalar value kinds are generated
+// (maps_fast_generated.go, covered by the generated-path task). A []int64 value
+// has no generated entry, so this routes through reflect encodeMap.
 func TestCanonicalMapStableReflect(t *testing.T) {
-	m := map[string]int{"z": 1, "a": 2, "m": 3, "b": 4, "q": 5}
+	m := map[string][]int64{"z": {1}, "a": {2}, "m": {3}, "b": {4}, "q": {5}}
 	first, err := Marshal(m, OptBalanced|OptCanonical)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 200; i++ {
 		// rebuild the map so Go's iteration order differs
-		m2 := map[string]int{}
+		m2 := map[string][]int64{}
 		for k, v := range m {
 			m2[k] = v
 		}
@@ -78,7 +83,7 @@ func TestCanonicalMapStableReflect(t *testing.T) {
 		}
 	}
 	// round-trips
-	var out map[string]int
+	var out map[string][]int64
 	if err := Unmarshal(first, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -87,14 +92,17 @@ func TestCanonicalMapStableReflect(t *testing.T) {
 	}
 }
 
+// TestCanonicalMapStableInt64Key covers an integer-keyed map on the reflect
+// path. map[int64][]int64 has no generated fast path (only int64-keyed
+// string/int64/any are generated), so this exercises gatherIntKeys + SetInt.
 func TestCanonicalMapStableInt64Key(t *testing.T) {
-	m := map[int64]string{9: "x", 1: "y", 5: "z", 3: "w", 7: "v"}
+	m := map[int64][]int64{9: {1}, 1: {2}, 5: {3}, 3: {4}, 7: {5}}
 	first, err := Marshal(m, OptBalanced|OptCanonical)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 200; i++ {
-		m2 := map[int64]string{}
+		m2 := map[int64][]int64{}
 		for k, v := range m {
 			m2[k] = v
 		}
@@ -106,7 +114,66 @@ func TestCanonicalMapStableInt64Key(t *testing.T) {
 			t.Fatalf("canonical int64-key map unstable at iter %d", i)
 		}
 	}
-	var out map[int64]string
+	var out map[int64][]int64
+	if err := Unmarshal(first, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out, m) {
+		t.Fatal("round-trip mismatch")
+	}
+}
+
+// TestCanonicalMapStableUintKey covers an unsigned-int-keyed reflect map
+// (gatherUintKeys + SetUint). map[uint32][]int64 has no generated fast path.
+func TestCanonicalMapStableUintKey(t *testing.T) {
+	m := map[uint32][]int64{9: {1}, 1: {2}, 5: {3}, 3: {4}, 7: {5}}
+	first, err := Marshal(m, OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 200; i++ {
+		m2 := map[uint32][]int64{}
+		for k, v := range m {
+			m2[k] = v
+		}
+		b, err := Marshal(m2, OptBalanced|OptCanonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(b, first) {
+			t.Fatalf("canonical uint-key map unstable at iter %d", i)
+		}
+	}
+	var out map[uint32][]int64
+	if err := Unmarshal(first, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out, m) {
+		t.Fatal("round-trip mismatch")
+	}
+}
+
+// TestCanonicalMapStableBoolKey covers the no-sort false-then-true bool emit.
+func TestCanonicalMapStableBoolKey(t *testing.T) {
+	m := map[bool][]int64{true: {1, 2}, false: {3, 4}}
+	first, err := Marshal(m, OptBalanced|OptCanonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		m2 := map[bool][]int64{}
+		for k, v := range m {
+			m2[k] = v
+		}
+		b, err := Marshal(m2, OptBalanced|OptCanonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(b, first) {
+			t.Fatalf("canonical bool-key map unstable at iter %d", i)
+		}
+	}
+	var out map[bool][]int64
 	if err := Unmarshal(first, &out); err != nil {
 		t.Fatal(err)
 	}
