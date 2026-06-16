@@ -3,6 +3,7 @@ package qdf
 import (
 	"bytes"
 	"reflect"
+	"time"
 	"unsafe"
 )
 
@@ -338,6 +339,14 @@ func equalValue(td *typeDesc, aP, bP unsafe.Pointer, depth int) bool {
 		// holds a non-comparable field (slice/map/func) — a real crash for a
 		// Marshaler type with e.g. a []int field. Rare path; correctness over speed.
 		if len(td.fields) == 0 {
+			if td.rType == timeType {
+				// time.Time is the common fields-less struct. Compare the instant the
+				// codec actually round-trips (absolute sec + nsec) — no reflect, and it
+				// avoids a spurious change when only the monotonic-clock reading or the
+				// *Location differs (which the UTC sec+nsec wire form drops anyway).
+				at, bt := (*time.Time)(aP), (*time.Time)(bP)
+				return at.Unix() == bt.Unix() && at.Nanosecond() == bt.Nanosecond()
+			}
 			av := reflect.NewAt(td.rType, aP).Elem()
 			bv := reflect.NewAt(td.rType, bP).Elem()
 			// Fast path: a comparable fields-less struct (time.Time — common, on the
