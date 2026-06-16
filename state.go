@@ -188,6 +188,13 @@ type encState struct {
 	colScratchF64  []float64
 	colScratchBool []bool
 	colScratchStr  []string // gathered string column values
+	// Columnar column-level diff scratch (delta_columnar.go). deltaColBitmap is
+	// the per-row changed bitmap; deltaColRows the changed-row indices for one
+	// column; deltaColBuf the built tagColSlicePatch body for the never-larger
+	// compare. Row-scaled, retained/dropped like the colScratch* above.
+	deltaColBitmap []uint64
+	deltaColRows   []int
+	deltaColBuf    []byte
 	colDictTable   []string // distinct table for the string-dict codec
 	colMaskScratch []byte   // presence bitmap for nullable columns
 	// FSST codec scratch, reused across columns (same lifetime as colDictTable).
@@ -420,6 +427,17 @@ func (e *encState) reset() {
 	// memory. sync.Pool's GC eviction reclaims it when the encoder goes idle.
 	if cap(e.colScratchI64) > maxRetainedColScratch {
 		e.colScratchI64, e.colScratchU64, e.colScratchF64, e.colScratchBool = nil, nil, nil, nil
+	}
+	// Column-diff scratch (delta_columnar.go): same row-scaled hard-ceiling
+	// retention as colScratch* (pointer-free, no clear needed).
+	if cap(e.deltaColBitmap) > maxRetainedColScratch {
+		e.deltaColBitmap = nil
+	}
+	if cap(e.deltaColRows) > maxRetainedColScratch {
+		e.deltaColRows = nil
+	}
+	if cap(e.deltaColBuf) > maxRetainedColScratch {
+		e.deltaColBuf = nil
 	}
 	if cap(e.fsstScratch) > maxRetainedColScratch {
 		e.fsstScratch = nil
@@ -875,6 +893,10 @@ type decState struct {
 	colScratchF64  []float64
 	colScratchBool []bool
 
+	// deltaColRows is reused storage for a sparse column's decoded ascending row
+	// indices during a tagColSlicePatch apply (delta_columnar.go).
+	deltaColRows []int
+
 	// colLenScratch is reused storage for the column-length index parsed from
 	// a FlagColIndex columnar payload (one uint32 byte-length per column).
 	colLenScratch []uint32
@@ -968,6 +990,10 @@ func (d *decState) reset() {
 	}
 	if cap(d.colLenScratch) > maxRetainedColScratch {
 		d.colLenScratch = nil
+	}
+	// Column-diff sparse-row scratch (delta_columnar.go): same ceiling policy.
+	if cap(d.deltaColRows) > maxRetainedColScratch {
+		d.deltaColRows = nil
 	}
 	for i := range d.mruRing {
 		d.mruRing[i] = mruEmpty
