@@ -327,7 +327,76 @@ The key field must be comparable — a scalar, string, or `[N]byte`. If keys are
 not unique, the diff transparently falls back to the positional path (still
 correct). One `,key` field per element type.
 
+## Baseline registry
+
+`Apply[T](base *T, patch)` requires the caller to hold the exact `old` value the
+patch was diffed against. In a state-sync stream — a server pushing successive
+deltas of an evolving value to clients — the consumer would have to remember the
+previous state to apply the next patch. `BaselineRegistry[T]` does that
+bookkeeping: it keeps a small content-addressed cache of recent baselines and
+resolves a patch's base from it, so the consumer applies a chain of patches
+without threading `old` by hand.
+
+	// NewBaselineRegistry returns an empty registry for baselines of type T.
+	func NewBaselineRegistry[T any]() *BaselineRegistry[T]
+
+	// Register stores *v as a resolvable baseline and returns its content id.
+	func (r *BaselineRegistry[T]) Register(v *T) uint64
+
+	// Apply resolves the patch's baseline by its embedded fingerprint, applies
+	// the patch onto a fresh deep copy, registers the result, and returns it.
+	func (r *BaselineRegistry[T]) Apply(patch []byte) (*T, error)
+
+	// Len reports the number of live baselines (prunes dead entries).
+	func (r *BaselineRegistry[T]) Len() int
+
+**No wire change.** A patch already carries `baseFP`, an 8-byte content hash of
+`old` (on by default; see *Skipping the base fingerprint*). Phase 1 uses it only
+to *reject* a mismatched base; the registry reuses the very same `baseFP` as a
+*lookup key*. The producer ships an ordinary `Diff` — there is no new tag, flag,
+or field. The registry is a consumer-side construct layered on the existing
+format.
+
+	// producer holds prev; ships an ordinary diff (baseFP embedded by default)
+	patch, _ := qdf.Diff(prev, cur, qdf.OptBalanced)
+
+	// consumer
+	reg := qdf.NewBaselineRegistry[State]()
+	s0 := &decodedFullState        // a *State the consumer decoded and keeps alive
+	reg.Register(s0)               // bootstrap from a full value
+	s1, err := reg.Apply(patch)    // resolves s0 by baseFP, applies, returns *s1
+	// keep s1 to apply the next patch in the chain; drop it to let the GC reclaim it.
+
+**Non-pinning lifetime.** The registry holds each baseline through a
+`weak.Pointer`, never a strong reference, so the GC reclaims any baseline the
+**caller** has dropped — zero leak, automatic reclamation. The flip side is the
+caller's contract: a baseline stays resolvable only while the caller keeps a
+strong reference to it. In a chain, keep the previous `*T` reachable across the
+`Apply` that consumes it (the returned pointer is the natural anchor for the next
+step). Resolving a baseline the caller has dropped is a clean miss
+(`ErrBaselineEvicted`); recover by re-syncing a full value.
+
+`Apply` **deep-clones** the resolved baseline before applying — the registry
+keeps the original intact, since another patch may branch off it — and
+auto-registers the result so it can base the next patch. The clone preserves
+nil-vs-empty exactly, so its fingerprint matches the original's; the Phase 1
+`baseFP` check is the backstop that turns any clone discrepancy into an error,
+never silent corruption.
+
+`OptDeltaNoBaseFingerprint` is incompatible with the registry: such a patch
+carries no id, so `Apply` returns `ErrBaselineRequired`. Baselines are addressed
+by a 64-bit fingerprint; two distinct values sharing one (probability ~N²/2⁶⁴,
+negligible for thousands of live baselines) collide on the same key, the later
+registration wins, and the earlier baseline then reads as `ErrBaselineEvicted`.
+
+The registry is safe for concurrent `Register` / `Apply` / `Len`.
+
 ## Limitations
+
+A few things are not currently supported and may come later:
+
+- **Column-level diff for `[]struct`** — when a slice of flat structs is stored
+  columnar, shipping only the columns that changed instead of per-element ops.
 
 A few things are not currently supported and may come later:
 
