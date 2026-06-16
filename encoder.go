@@ -534,11 +534,17 @@ func (e *Encoder) WriteInt(v int64) {
 
 func (e *Encoder) WriteFloat32(v float32) {
 	e.writeHeader()
+	if e.opts.Has(OptCanonical) {
+		v = canonicalizeFloat32(v)
+	}
 	e.buf = appendU32(append(e.buf, tagFloat32), math.Float32bits(v))
 }
 
 func (e *Encoder) WriteFloat64(v float64) {
 	e.writeHeader()
+	if e.opts.Has(OptCanonical) {
+		v = canonicalizeFloat64(v)
+	}
 	e.buf = appendU64(append(e.buf, tagFloat64), math.Float64bits(v))
 }
 

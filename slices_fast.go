@@ -754,6 +754,9 @@ func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 
 func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float32)(p)
+	if e.opts.Has(OptCanonical) {
+		s = e.canonicalFloat32Slice(s)
+	}
 	if e.qpack {
 		// Mirror encodeSliceFloat64's Gorilla branch (float32 has no ALP). The
 		// projection from pickF32Codec is only a hint, so emit Gorilla for real,
@@ -827,6 +830,9 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 }
 func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float64)(p)
+	if e.opts.Has(OptCanonical) {
+		s = e.canonicalFloat64Slice(s)
+	}
 	if e.qpack {
 		// Under OptCompression both Gorilla and ALP are enabled. Pick the
 		// smallest of {raw-LE, Gorilla projection, ALP estimate}. ALP's

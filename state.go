@@ -195,6 +195,11 @@ type encState struct {
 	canonKeysStr []string
 	canonKeysI64 []int64
 	canonKeysU64 []uint64
+	// Canonical float-slice normalization scratch (OptCanonical): when a
+	// []float64/[]float32 contains -0.0 or NaN, the normalized copy lands here
+	// (never mutating the caller's slice). Pointer-free, adaptive retention.
+	canonFloat64 []float64
+	canonFloat32 []float32
 	// Columnar column-level diff scratch (delta_columnar.go). deltaColBitmap is
 	// the per-row changed bitmap; deltaColRows the changed-row indices for one
 	// column; deltaColBuf the built tagColSlicePatch body for the never-larger
@@ -483,6 +488,10 @@ func (e *encState) reset() {
 	} else {
 		clear(e.canonKeysStr)
 		e.canonKeysStr = e.canonKeysStr[:0]
+	}
+	// Canonical float-slice scratch is pointer-free: drop only past the ceiling.
+	if cap(e.canonFloat64) > maxRetainedColScratch {
+		e.canonFloat64, e.canonFloat32 = nil, nil
 	}
 	if cap(e.colDictTable) > maxRetainedColScratch {
 		e.colDictTable = nil

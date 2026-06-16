@@ -591,8 +591,14 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 		// float32 column: store raw 32-bit patterns via the uint codec (4 B,
 		// bit-exact). Reuses the u64 scratch — the high 32 bits are always zero.
 		s := st.colScratchU64[:0]
-		for i := range n {
-			s = append(s, loadFloat32Bits(base, plan.stride, col, i))
+		if e.opts.Has(OptCanonical) {
+			for i := range n {
+				s = append(s, canonicalizeFloat32Bits(loadFloat32Bits(base, plan.stride, col, i)))
+			}
+		} else {
+			for i := range n {
+				s = append(s, loadFloat32Bits(base, plan.stride, col, i))
+			}
 		}
 		st.colScratchU64 = s
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
