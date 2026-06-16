@@ -188,6 +188,13 @@ type encState struct {
 	colScratchF64  []float64
 	colScratchBool []bool
 	colScratchStr  []string // gathered string column values
+	// Canonical map-key sort scratch (OptCanonical), reused across maps; adaptive
+	// retention (dropped when oversized in the encoder pool reset, like
+	// colScratch*). Pointer-free numeric scratch needs no clear; canonKeysStr
+	// holds caller string headers, so it is cleared on reset to drop references.
+	canonKeysStr []string
+	canonKeysI64 []int64
+	canonKeysU64 []uint64
 	// Columnar column-level diff scratch (delta_columnar.go). deltaColBitmap is
 	// the per-row changed bitmap; deltaColRows the changed-row indices for one
 	// column; deltaColBuf the built tagColSlicePatch body for the never-larger
@@ -464,6 +471,18 @@ func (e *encState) reset() {
 	} else {
 		clear(e.colScratchStr)
 		e.colScratchStr = e.colScratchStr[:0]
+	}
+	// Canonical map-key sort scratch (OptCanonical): numeric scratch is
+	// pointer-free (drop only past the ceiling); canonKeysStr holds caller
+	// string headers, so clear them to drop references across a pool recycle.
+	if cap(e.canonKeysI64) > maxRetainedColScratch {
+		e.canonKeysI64, e.canonKeysU64 = nil, nil
+	}
+	if cap(e.canonKeysStr) > maxRetainedColScratch {
+		e.canonKeysStr = nil
+	} else {
+		clear(e.canonKeysStr)
+		e.canonKeysStr = e.canonKeysStr[:0]
 	}
 	if cap(e.colDictTable) > maxRetainedColScratch {
 		e.colDictTable = nil
