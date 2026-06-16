@@ -5,6 +5,7 @@ package qdf
 
 import (
 	"reflect"
+	"slices"
 	"unsafe"
 )
 
@@ -24,6 +25,28 @@ func encodeMapStringString(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteString(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteString(v)
@@ -97,6 +120,28 @@ func encodeMapStringBool(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteBool(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteBool(v)
@@ -170,6 +215,28 @@ func encodeMapStringInt8(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteInt(int64(v))
@@ -245,6 +312,28 @@ func encodeMapStringInt16(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteInt(int64(v))
@@ -320,6 +409,28 @@ func encodeMapStringInt32(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteInt(int64(v))
@@ -395,6 +506,28 @@ func encodeMapStringInt(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteInt(int64(v))
@@ -470,6 +603,28 @@ func encodeMapStringInt64(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteInt(int64(v))
@@ -543,6 +698,28 @@ func encodeMapStringUint8(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteUint(uint64(v))
@@ -618,6 +795,28 @@ func encodeMapStringUint16(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteUint(uint64(v))
@@ -693,6 +892,28 @@ func encodeMapStringUint32(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteUint(uint64(v))
@@ -768,6 +989,28 @@ func encodeMapStringUint(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteUint(uint64(v))
@@ -843,6 +1086,28 @@ func encodeMapStringUint64(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteUint(uint64(v))
@@ -916,6 +1181,28 @@ func encodeMapStringFloat32(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteFloat32(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteFloat32(v)
@@ -989,6 +1276,28 @@ func encodeMapStringFloat64(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteFloat64(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteFloat64(v)
@@ -1062,6 +1371,28 @@ func encodeMapStringBytes(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteBytes(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteBytes(v)
@@ -1138,6 +1469,31 @@ func encodeMapStringStringSlice(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			e.WriteArrayHeader(len(v))
+			for _, sv := range v {
+				e.WriteString(sv)
+			}
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		e.WriteArrayHeader(len(v))
@@ -1238,6 +1594,30 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []string
+		if e.state != nil {
+			keys = e.state.canonKeysStr[:0]
+		} else {
+			keys = make([]string, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysStr = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteString(k)
+			if err := encodeReflect(e, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteString(k)
 		if err := encodeReflect(e, v); err != nil {
@@ -1306,6 +1686,28 @@ func encodeMapIntString(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []int64
+		if e.state != nil {
+			keys = e.state.canonKeysI64[:0]
+		} else {
+			keys = make([]int64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, int64(k))
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysI64 = keys
+		}
+		for _, sk := range keys {
+			k := int(sk)
+			v := m[k]
+			e.WriteInt(int64(k))
+			e.WriteString(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
 		e.WriteString(v)
@@ -1356,6 +1758,28 @@ func encodeMapIntInt(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []int64
+		if e.state != nil {
+			keys = e.state.canonKeysI64[:0]
+		} else {
+			keys = make([]int64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, int64(k))
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysI64 = keys
+		}
+		for _, sk := range keys {
+			k := int(sk)
+			v := m[k]
+			e.WriteInt(int64(k))
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
 		e.WriteInt(int64(v))
@@ -1407,6 +1831,28 @@ func encodeMapIntInt64(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []int64
+		if e.state != nil {
+			keys = e.state.canonKeysI64[:0]
+		} else {
+			keys = make([]int64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, int64(k))
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysI64 = keys
+		}
+		for _, sk := range keys {
+			k := int(sk)
+			v := m[k]
+			e.WriteInt(int64(k))
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
 		e.WriteInt(int64(v))
@@ -1457,6 +1903,30 @@ func encodeMapIntAny(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []int64
+		if e.state != nil {
+			keys = e.state.canonKeysI64[:0]
+		} else {
+			keys = make([]int64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, int64(k))
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysI64 = keys
+		}
+		for _, sk := range keys {
+			k := int(sk)
+			v := m[k]
+			e.WriteInt(int64(k))
+			if err := encodeReflect(e, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
 		if err := encodeReflect(e, v); err != nil {
@@ -1509,6 +1979,28 @@ func encodeMapInt64String(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []int64
+		if e.state != nil {
+			keys = e.state.canonKeysI64[:0]
+		} else {
+			keys = make([]int64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysI64 = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteInt(int64(k))
+			e.WriteString(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
 		e.WriteString(v)
@@ -1558,6 +2050,28 @@ func encodeMapInt64Int64(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []int64
+		if e.state != nil {
+			keys = e.state.canonKeysI64[:0]
+		} else {
+			keys = make([]int64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysI64 = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteInt(int64(k))
+			e.WriteInt(int64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
 		e.WriteInt(int64(v))
@@ -1607,6 +2121,30 @@ func encodeMapInt64Any(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []int64
+		if e.state != nil {
+			keys = e.state.canonKeysI64[:0]
+		} else {
+			keys = make([]int64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysI64 = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteInt(int64(k))
+			if err := encodeReflect(e, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
 		if err := encodeReflect(e, v); err != nil {
@@ -1658,6 +2196,28 @@ func encodeMapUint64String(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []uint64
+		if e.state != nil {
+			keys = e.state.canonKeysU64[:0]
+		} else {
+			keys = make([]uint64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysU64 = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteUint(uint64(k))
+			e.WriteString(v)
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteUint(uint64(k))
 		e.WriteString(v)
@@ -1707,6 +2267,28 @@ func encodeMapUint64Uint64(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []uint64
+		if e.state != nil {
+			keys = e.state.canonKeysU64[:0]
+		} else {
+			keys = make([]uint64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysU64 = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteUint(uint64(k))
+			e.WriteUint(uint64(v))
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteUint(uint64(k))
 		e.WriteUint(uint64(v))
@@ -1756,6 +2338,30 @@ func encodeMapUint64Any(e *Encoder, p unsafe.Pointer) error {
 		return nil
 	}
 	e.WriteMapHeader(len(m))
+	if e.opts.Has(OptCanonical) {
+		var keys []uint64
+		if e.state != nil {
+			keys = e.state.canonKeysU64[:0]
+		} else {
+			keys = make([]uint64, 0, len(m))
+		}
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		if e.state != nil {
+			e.state.canonKeysU64 = keys
+		}
+		for _, sk := range keys {
+			k := sk
+			v := m[k]
+			e.WriteUint(uint64(k))
+			if err := encodeReflect(e, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	for k, v := range m {
 		e.WriteUint(uint64(k))
 		if err := encodeReflect(e, v); err != nil {
