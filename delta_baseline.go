@@ -30,11 +30,13 @@ var (
 type BaselineRegistry[T any] struct {
 	mu sync.Mutex
 	m  map[uint64]weak.Pointer[T]
+	td *typeDesc
 }
 
 // NewBaselineRegistry returns an empty registry for baselines of type T.
 func NewBaselineRegistry[T any]() *BaselineRegistry[T] {
-	return &BaselineRegistry[T]{m: make(map[uint64]weak.Pointer[T])}
+	td, _ := descOf(reflect.TypeFor[T]())
+	return &BaselineRegistry[T]{m: make(map[uint64]weak.Pointer[T]), td: td}
 }
 
 // Len reports the number of live (non-evicted) baselines, pruning dead weak
@@ -59,18 +61,25 @@ func (r *BaselineRegistry[T]) Len() int {
 // supported (consistent with qdf encoding) and are left zero.
 func deepClone[T any](v *T) *T {
 	out := new(T)
-	cloneValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(v).Elem())
+	cloneValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(v).Elem(), 0)
 	return out
 }
 
-func cloneValue(dst, src reflect.Value) {
+func cloneValue(dst, src reflect.Value, depth int) {
+	if depth > maxDeltaDepth {
+		// Mirror the diff/apply/fingerprint walks: stop instead of overflowing the
+		// (uncatchable) stack on a cyclic or pathologically deep structure. A
+		// truncated clone fingerprints differently, so Apply's baseFP check then
+		// rejects it with ErrPatchBaseMismatch — a clean error, never a crash.
+		return
+	}
 	switch src.Kind() {
 	case reflect.Pointer:
 		if src.IsNil() {
 			return
 		}
 		np := reflect.New(src.Type().Elem())
-		cloneValue(np.Elem(), src.Elem())
+		cloneValue(np.Elem(), src.Elem(), depth+1)
 		dst.Set(np)
 	case reflect.Slice:
 		if src.IsNil() {
@@ -79,7 +88,7 @@ func cloneValue(dst, src reflect.Value) {
 		n := src.Len()
 		ns := reflect.MakeSlice(src.Type(), n, n)
 		for i := range n {
-			cloneValue(ns.Index(i), src.Index(i))
+			cloneValue(ns.Index(i), src.Index(i), depth+1)
 		}
 		dst.Set(ns)
 	case reflect.Map:
@@ -90,15 +99,15 @@ func cloneValue(dst, src reflect.Value) {
 		it := src.MapRange()
 		for it.Next() {
 			k := reflect.New(src.Type().Key()).Elem()
-			cloneValue(k, it.Key())
+			cloneValue(k, it.Key(), depth+1)
 			val := reflect.New(src.Type().Elem()).Elem()
-			cloneValue(val, it.Value())
+			cloneValue(val, it.Value(), depth+1)
 			nm.SetMapIndex(k, val)
 		}
 		dst.Set(nm)
 	case reflect.Array:
 		for i := range src.Len() {
-			cloneValue(dst.Index(i), src.Index(i))
+			cloneValue(dst.Index(i), src.Index(i), depth+1)
 		}
 	case reflect.Struct:
 		for i := range src.NumField() {
@@ -106,7 +115,7 @@ func cloneValue(dst, src reflect.Value) {
 			if !df.CanSet() {
 				continue
 			}
-			cloneValue(df, src.Field(i))
+			cloneValue(df, src.Field(i), depth+1)
 		}
 	case reflect.Interface:
 		if src.IsNil() {
@@ -114,7 +123,7 @@ func cloneValue(dst, src reflect.Value) {
 		}
 		ev := src.Elem()
 		nv := reflect.New(ev.Type()).Elem()
-		cloneValue(nv, ev)
+		cloneValue(nv, ev, depth+1)
 		dst.Set(nv)
 	default:
 		dst.Set(src)
@@ -134,11 +143,10 @@ func (r *BaselineRegistry[T]) Register(v *T) uint64 {
 
 // fingerprint computes the content id of *v (identical to Diff's baseFP).
 func (r *BaselineRegistry[T]) fingerprint(v *T) uint64 {
-	td, err := descOf(reflect.TypeFor[T]())
-	if err != nil {
-		return 0
+	if r.td == nil {
+		return 0 // unsupported type; such a T can never produce a patch either
 	}
-	return valueFingerprint(td, unsafe.Pointer(v))
+	return valueFingerprint(r.td, unsafe.Pointer(v))
 }
 
 // Apply resolves the patch's baseline (by its embedded baseFP) to a *T, applies
@@ -150,6 +158,12 @@ func (r *BaselineRegistry[T]) fingerprint(v *T) uint64 {
 // Errors: ErrBaselineRequired (the patch carries no baseFP — produced with
 // OptDeltaNoBaseFingerprint), ErrBaselineEvicted (the baseline id is not
 // resolvable), plus any error from the underlying Apply.
+//
+// Because baselines are content-addressed by a 64-bit fingerprint, two distinct
+// values that happen to share a fingerprint (probability ~N²/2⁶⁴, negligible
+// for thousands of live baselines) collide on the same map key, and the later
+// registration overwrites the earlier one; the earlier baseline then resolves
+// as ErrBaselineEvicted even while the caller still holds it.
 func (r *BaselineRegistry[T]) Apply(patch []byte) (*T, error) {
 	h, _, err := readPatchHeader(patch)
 	if err != nil {
