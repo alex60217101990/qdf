@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 	"weak"
 )
@@ -46,4 +47,75 @@ func (r *BaselineRegistry[T]) Len() int {
 		}
 	}
 	return len(r.m)
+}
+
+// deepClone returns a structural deep copy of *v: scalars/strings/[N]byte
+// copied by value; slices/maps/pointers/interfaces recursively allocated and
+// copied. It preserves nil-vs-empty (a nil slice/map stays nil, an empty
+// non-nil one stays empty non-nil) so the clone's fingerprint equals the
+// original's — which is correctness-critical, because Apply's baseFP check
+// would otherwise reject the cloned baseline. Unexported struct fields are not
+// supported (consistent with qdf encoding) and are left zero.
+func deepClone[T any](v *T) *T {
+	out := new(T)
+	cloneValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(v).Elem())
+	return out
+}
+
+func cloneValue(dst, src reflect.Value) {
+	switch src.Kind() {
+	case reflect.Pointer:
+		if src.IsNil() {
+			return
+		}
+		np := reflect.New(src.Type().Elem())
+		cloneValue(np.Elem(), src.Elem())
+		dst.Set(np)
+	case reflect.Slice:
+		if src.IsNil() {
+			return
+		}
+		n := src.Len()
+		ns := reflect.MakeSlice(src.Type(), n, n)
+		for i := range n {
+			cloneValue(ns.Index(i), src.Index(i))
+		}
+		dst.Set(ns)
+	case reflect.Map:
+		if src.IsNil() {
+			return
+		}
+		nm := reflect.MakeMapWithSize(src.Type(), src.Len())
+		it := src.MapRange()
+		for it.Next() {
+			k := reflect.New(src.Type().Key()).Elem()
+			cloneValue(k, it.Key())
+			val := reflect.New(src.Type().Elem()).Elem()
+			cloneValue(val, it.Value())
+			nm.SetMapIndex(k, val)
+		}
+		dst.Set(nm)
+	case reflect.Array:
+		for i := 0; i < src.Len(); i++ {
+			cloneValue(dst.Index(i), src.Index(i))
+		}
+	case reflect.Struct:
+		for i := 0; i < src.NumField(); i++ {
+			df := dst.Field(i)
+			if !df.CanSet() {
+				continue
+			}
+			cloneValue(df, src.Field(i))
+		}
+	case reflect.Interface:
+		if src.IsNil() {
+			return
+		}
+		ev := src.Elem()
+		nv := reflect.New(ev.Type()).Elem()
+		cloneValue(nv, ev)
+		dst.Set(nv)
+	default:
+		dst.Set(src)
+	}
 }
