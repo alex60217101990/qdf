@@ -602,6 +602,23 @@ divergent base (`ErrPatchSchemaMismatch` / `ErrPatchBaseMismatch`). On a
 Marshal — ~635× smaller**. Full semantics, wire format, and the deletion /
 nil-vs-empty rules are in **[`docs/DELTA.md`](docs/DELTA.md)**.
 
+### Canonical encoding
+
+`OptCanonical` makes logically-equal values serialize to byte-identical output —
+map keys are emitted in sorted order (all key kinds) and floats are normalized
+(`-0.0 → +0.0`, any NaN → a canonical quiet NaN). The bytes are ordinary qdf
+(decode unaffected) and safe to hash, sign, content-address, or dedup.
+
+```go
+b, _ := qdf.Marshal(v, qdf.OptBalanced|qdf.OptCanonical)
+sum := sha256.Sum256(b) // stable across runs, machines, and map rebuilds
+```
+
+Zero overhead for map-free / normal-float values, composes with `Diff`, and is
+lossy only for the sign of zero and NaN payloads (use the default mode for a
+bit-exact float round-trip). Full guarantee, scope, and caveats are in
+**[`docs/CANONICAL.md`](docs/CANONICAL.md)**.
+
 ### Zero-extra-copy encode
 
 `AppendMarshal` lets callers own the destination buffer:
