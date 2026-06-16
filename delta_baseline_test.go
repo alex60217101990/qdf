@@ -74,3 +74,27 @@ func TestDeepCloneIndependent(t *testing.T) {
 		t.Error("mutating clone map touched original")
 	}
 }
+
+func TestRegisterIdMatchesDiffBaseFP(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	v := gen[dnTop](7)
+	id := r.Register(&v)
+
+	patch, err := Diff(v, gen[dnTop](8), OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, _, err := readPatchHeader(patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.flags&flagPatchBaseFP == 0 {
+		t.Fatal("patch unexpectedly has no baseFP")
+	}
+	if h.baseFP != id {
+		t.Fatalf("Register id %x != Diff baseFP %x", id, h.baseFP)
+	}
+	if got := r.Len(); got != 1 {
+		t.Fatalf("Len() = %d, want 1", got)
+	}
+}

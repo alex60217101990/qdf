@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"sync"
+	"unsafe"
 	"weak"
 )
 
@@ -96,11 +97,11 @@ func cloneValue(dst, src reflect.Value) {
 		}
 		dst.Set(nm)
 	case reflect.Array:
-		for i := 0; i < src.Len(); i++ {
+		for i := range src.Len() {
 			cloneValue(dst.Index(i), src.Index(i))
 		}
 	case reflect.Struct:
-		for i := 0; i < src.NumField(); i++ {
+		for i := range src.NumField() {
 			df := dst.Field(i)
 			if !df.CanSet() {
 				continue
@@ -118,4 +119,24 @@ func cloneValue(dst, src reflect.Value) {
 	default:
 		dst.Set(src)
 	}
+}
+
+// Register stores v as a resolvable baseline and returns its content id — the
+// same fingerprint Diff embeds as baseFP. The registry holds v through a
+// weak.Pointer; the CALLER must keep v reachable for it to remain resolvable.
+func (r *BaselineRegistry[T]) Register(v *T) uint64 {
+	id := r.fingerprint(v)
+	r.mu.Lock()
+	r.m[id] = weak.Make(v)
+	r.mu.Unlock()
+	return id
+}
+
+// fingerprint computes the content id of *v (identical to Diff's baseFP).
+func (r *BaselineRegistry[T]) fingerprint(v *T) uint64 {
+	td, err := descOf(reflect.TypeFor[T]())
+	if err != nil {
+		return 0
+	}
+	return valueFingerprint(td, unsafe.Pointer(v))
 }
