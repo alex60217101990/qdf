@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"runtime"
+	"sync"
 	"testing"
 	"unsafe"
 )
@@ -219,4 +220,37 @@ func TestBaselineStreamChain(t *testing.T) {
 		}
 		runtime.KeepAlive(cur)
 	}
+}
+
+func TestBaselineConcurrent(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	base := gen[dnTop](1)
+	r.Register(&base)
+	patch, err := Diff(base, gen[dnTop](2), OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for g := range 8 {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := range 200 {
+				switch i % 3 {
+				case 0:
+					v := gen[dnTop](int64(g*1000 + i))
+					r.Register(&v)
+					runtime.KeepAlive(v)
+				case 1:
+					if got, err := r.Apply(patch); err == nil {
+						runtime.KeepAlive(got)
+					}
+				case 2:
+					_ = r.Len()
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	runtime.KeepAlive(base)
 }
