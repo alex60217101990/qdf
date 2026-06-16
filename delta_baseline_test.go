@@ -149,3 +149,41 @@ func TestBaselineApplyNoFingerprint(t *testing.T) {
 	}
 	runtime.KeepAlive(s0)
 }
+
+func TestBaselineApplyEvicted(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	s0 := gen[dnTop](1)
+	patch, err := Diff(s0, gen[dnTop](2), OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Register(&s0)
+	// Live strong ref → resolves.
+	if _, err := r.Apply(patch); err != nil {
+		t.Fatalf("Apply with live baseline: %v", err)
+	}
+	runtime.KeepAlive(s0)
+
+	// Separate registry whose only baseline goes out of scope → GC reclaims it.
+	r2 := NewBaselineRegistry[dnTop]()
+	func() {
+		local := gen[dnTop](1)
+		r2.Register(&local)
+	}()
+	runtime.GC()
+	runtime.GC()
+	if _, err := r2.Apply(patch); !errors.Is(err, ErrBaselineEvicted) {
+		t.Fatalf("Apply after GC = %v, want ErrBaselineEvicted", err)
+	}
+}
+
+func TestBaselineApplyUnknownBaseline(t *testing.T) {
+	r := NewBaselineRegistry[dnTop]()
+	patch, err := Diff(gen[dnTop](1), gen[dnTop](2), OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Apply(patch); !errors.Is(err, ErrBaselineEvicted) {
+		t.Fatalf("Apply of never-registered baseline = %v, want ErrBaselineEvicted", err)
+	}
+}
