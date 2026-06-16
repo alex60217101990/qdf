@@ -39,6 +39,46 @@ func TestBaselineTimeFieldRoundTrip(t *testing.T) {
 	runtime.KeepAlive(s1)
 }
 
+func TestDeepCloneDeepIndependence(t *testing.T) {
+	type inner struct {
+		Xs []int
+	}
+	type outer struct {
+		P *inner
+		M map[string]*inner
+		S [][]int
+	}
+	v := outer{
+		P: &inner{Xs: []int{1, 2}},
+		M: map[string]*inner{"k": {Xs: []int{3, 4}}},
+		S: [][]int{{5, 6}},
+	}
+	c := deepClone(&v)
+	if !reflect.DeepEqual(*c, v) {
+		t.Fatal("deep clone not equal to original")
+	}
+	// Mutating every nested container in the clone must not touch the original.
+	c.P.Xs[0] = 99
+	c.M["k"].Xs[0] = 99
+	c.S[0][0] = 99
+	if v.P.Xs[0] != 1 {
+		t.Error("clone shares pointer-field backing with original")
+	}
+	if v.M["k"].Xs[0] != 3 {
+		t.Error("clone shares map-value backing with original")
+	}
+	if v.S[0][0] != 5 {
+		t.Error("clone shares nested-slice backing with original")
+	}
+	// The clone's pointer/map-value must be distinct allocations.
+	if c.P == v.P {
+		t.Error("clone pointer field aliases original pointer")
+	}
+	if c.M["k"] == v.M["k"] {
+		t.Error("clone map value aliases original map value")
+	}
+}
+
 func TestDeepCloneTimeField(t *testing.T) {
 	v := bnRegTimeStamped{ID: "a", TS: time.Unix(1700000000, 999).UTC()}
 	c := deepClone(&v)
