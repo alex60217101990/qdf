@@ -296,7 +296,15 @@ const (
 	// is exactly the value Diff was computed against. No effect outside Diff/Apply.
 	OptDeltaNoBaseFingerprint // bit 10
 
-	// Bits 11..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptCanonical guarantees byte-identical output for logically-equal values:
+	// map keys are emitted in sorted order (all key kinds) and floats are
+	// normalized (-0.0 → +0.0, any NaN → a canonical quiet NaN). Encode-side
+	// only; the bytes are ordinary qdf and decode normally. Intended for hashing
+	// / signing / dedup of serialized output. Lossy for the sign of zero and NaN
+	// payloads (use the default mode for bit-exact float round-trip).
+	OptCanonical // bit 11
+
+	// Bits 12..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.
