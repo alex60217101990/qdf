@@ -57,8 +57,16 @@ func (r *BaselineRegistry[T]) Len() int {
 // copied. It preserves nil-vs-empty (a nil slice/map stays nil, an empty
 // non-nil one stays empty non-nil) so the clone's fingerprint equals the
 // original's — which is correctness-critical, because Apply's baseFP check
-// would otherwise reject the cloned baseline. Unexported struct fields are not
-// supported (consistent with qdf encoding) and are left zero.
+// would otherwise reject the cloned baseline.
+//
+// Struct cloning mirrors how fpHash hashes the struct, so the two never
+// disagree: a struct with qdf-visible fields is cloned field-by-field (its
+// unexported fields are left zero, which is safe because the fingerprint, like
+// the wire, ignores them); a fields-less struct — time.Time, a custom
+// Marshaler, or a struct with no exported fields — is copied whole by value,
+// because the fingerprint reads its real contents (the instant, the marshaled
+// form, or all fields) and a field-by-field clone would zero the unexported
+// internals (time.Time is entirely unexported) and fingerprint differently.
 func deepClone[T any](v *T) *T {
 	out := new(T)
 	cloneValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(v).Elem(), 0)
@@ -110,6 +118,20 @@ func cloneValue(dst, src reflect.Value, depth int) {
 			cloneValue(dst.Index(i), src.Index(i), depth+1)
 		}
 	case reflect.Struct:
+		// Mirror fpHash's struct dispatch. A struct the delta layer treats as
+		// fields-less (len(td.fields)==0: time.Time, a custom Marshaler, or a
+		// degenerate struct with no qdf-visible fields) is hashed as a whole — by
+		// its instant, its marshaled form, or via fpHashReflect over its real
+		// fields. Cloning such a struct field-by-field would skip its unexported
+		// fields (which is ALL of time.Time's wall/ext/loc), zeroing it and
+		// producing a clone whose fingerprint differs → ErrPatchBaseMismatch on a
+		// legitimate baseline. Copy it by value instead, which reproduces every
+		// field. (A shallow value copy is safe: Apply replaces such a value
+		// wholesale via the codec, never mutates its internals in place.)
+		if td, err := descOf(src.Type()); err == nil && len(td.fields) == 0 {
+			dst.Set(src)
+			return
+		}
 		for i := range src.NumField() {
 			df := dst.Field(i)
 			if !df.CanSet() {

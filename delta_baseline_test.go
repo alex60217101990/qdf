@@ -6,8 +6,53 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 	"unsafe"
 )
+
+// bnRegTimeStamped exercises the fields-less-struct clone path (time.Time is
+// entirely unexported): a field-by-field deepClone would zero it and the
+// baseFP check would reject every patch. See deepClone's struct handling.
+type bnRegTimeStamped struct {
+	ID   string
+	TS   time.Time
+	Tags []string
+}
+
+func TestBaselineTimeFieldRoundTrip(t *testing.T) {
+	r := NewBaselineRegistry[bnRegTimeStamped]()
+	s0 := bnRegTimeStamped{ID: "a", TS: time.Unix(1700000000, 12345).UTC(), Tags: []string{"x"}}
+	r.Register(&s0)
+	s1want := bnRegTimeStamped{ID: "b", TS: s0.TS.Add(90 * time.Minute), Tags: []string{"x", "y"}}
+	patch, err := Diff(s0, s1want, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s1, err := r.Apply(patch)
+	if err != nil {
+		t.Fatalf("Apply with time.Time field: %v", err)
+	}
+	if !reflect.DeepEqual(*s1, s1want) {
+		t.Fatalf("reconstructed = %+v, want %+v", *s1, s1want)
+	}
+	runtime.KeepAlive(s0)
+	runtime.KeepAlive(s1)
+}
+
+func TestDeepCloneTimeField(t *testing.T) {
+	v := bnRegTimeStamped{ID: "a", TS: time.Unix(1700000000, 999).UTC()}
+	c := deepClone(&v)
+	if !c.TS.Equal(v.TS) {
+		t.Fatalf("clone zeroed time.Time: orig=%v clone=%v", v.TS, c.TS)
+	}
+	td, err := descOf(reflect.TypeFor[bnRegTimeStamped]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valueFingerprint(td, unsafe.Pointer(&v)) != valueFingerprint(td, unsafe.Pointer(c)) {
+		t.Fatal("clone fingerprint differs from original for a time.Time-bearing type")
+	}
+}
 
 func TestBaselineRegistryEmpty(t *testing.T) {
 	r := NewBaselineRegistry[dnTop]()
