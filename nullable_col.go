@@ -147,11 +147,16 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		// float32: loadU64At(width==4) reads *(*uint32) — the raw f32 bits — so
 		// the uint codec carries them losslessly (NaN payloads survive).
 		s := st.colScratchU64[:0]
+		canon := e.opts.Has(OptCanonical)
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
 			if pp != nil {
 				mask[i>>3] |= 1 << uint(i&7)
-				s = append(s, loadU64At(pp, col.width))
+				bits := loadU64At(pp, col.width)
+				if canon {
+					bits = canonicalizeFloat32Bits(bits)
+				}
+				s = append(s, bits)
 			}
 		}
 		st.colScratchU64 = s
