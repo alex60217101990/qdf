@@ -1,0 +1,541 @@
+package qdf
+
+import (
+	"bytes"
+	"math/bits"
+	"reflect"
+	"time"
+	"unsafe"
+)
+
+// Columnar column-level diff. For an equal-length diff of a pure-columnar
+// []struct, group changes by column (sparse / arithmetic-delta / dense-whole
+// per column) and emit a tagColSlicePatch only when it is strictly smaller than
+// the positional patch (build-and-compare, never-larger). See
+// docs/superpowers/specs/2026-06-16-columnar-column-diff-design.md.
+
+// colDiffMode* are the per-column reconstruction modes in a tagColSlicePatch
+// body.
+const (
+	colDiffModeSparse     byte = 0 // changed-row indices + changed cells
+	colDiffModeDelta      byte = 1 // full per-row arithmetic delta (numeric/bool)
+	colDiffModeDenseWhole byte = 2 // whole new column re-shipped
+)
+
+// colDiffSparseNum/Den: a column with <= n*(Num/Den) changed cells prefers
+// sparse mode; otherwise delta/dense-whole. Benchstat-gated knob (Task 5).
+const (
+	colDiffSparseNum = 1
+	colDiffSparseDen = 4
+)
+
+// diffColumnarEligible reports whether a slice element type can use the
+// column-level diff: pure columnar (every field is a column, no residual).
+func diffColumnarEligible(elem *typeDesc) bool {
+	return elem != nil && elem.colPlan != nil && elem.colPlan.residual == nil
+}
+
+// colKindColumnDiffSupported reports whether a column's kind has a column-diff
+// encoder/decoder yet. (int/uint only in this phase; other kinds decline →
+// whole-slice falls back to the positional path.)
+func colKindColumnDiffSupported(col *colColumn) bool {
+	if col.kind.isNullable() {
+		return false
+	}
+	switch col.kind {
+	case colKindInt, colKindUint:
+		return true
+	default:
+		return false
+	}
+}
+
+// Benchstat (Intel i7-9750H, OptBalanced, clustered 1000-row batch, ~1/3 of one
+// int column changed; -benchmem -count=8): diff ~130 us/op, 22 KB, 23 allocs;
+// apply ~58 us/op, 25 KB, 3 allocs. Wire: column body 1007 B vs positional body
+// 3276 B (0.31x, a 3.25x shrink). The build-and-compare picker keeps the smaller
+// body, so the diff cost (positional build + column build) is paid only on an
+// eligible equal-length pure-columnar batch and the wire is never larger.
+// Decision: KEEP unconditionally — no pre-gate needed at this scale.
+//
+// diffColumnar attempts to write a tagColSlicePatch body that is smaller than
+// the positional body. It returns (true, nil) when it has placed the winning
+// body (column OR positional) into enc.buf, (false, nil) when an unsupported
+// column kind means the caller should fall back to the positional path, or
+// (false, err) on a real error. n == oldLen == newLen is guaranteed by the
+// caller. Exactly one body remains in enc.buf on a true return.
+func diffColumnar(enc *Encoder, elem *typeDesc, stride uintptr,
+	oldData, newData unsafe.Pointer, n, depth int) (bool, error) {
+	plan := elem.colPlan
+	if enc.state == nil {
+		enc.state = newEncState()
+	}
+	st := enc.state
+
+	// Detect which rows changed and, per column, which columns are affected. A
+	// column whose kind is not yet column-diff-supported forces a decline of the
+	// WHOLE slice only if it actually changed (an unchanged unsupported column
+	// emits nothing, so its presence is harmless). Decide before touching enc.buf.
+	st.deltaColBitmap = newChangedBitmap(st.deltaColBitmap, n)
+	markChangedRows(st.deltaColBitmap, plan, stride, oldData, newData, n)
+
+	// Build the positional body into enc.buf first (the comparison baseline).
+	posStart := len(enc.buf)
+	if err := diffElemsPositional(enc, elem, stride, oldData, n, newData, n, depth); err != nil {
+		return false, err
+	}
+	posLen := len(enc.buf) - posStart
+
+	body := st.deltaColBuf[:0]
+	body = append(body, tagColSlicePatch)
+	body = appendUvarint(body, uint64(n))
+	colCountPos := len(body)
+	body = appendUvarint(body, 0) // nChangedCols placeholder (single byte for <128 cols)
+	nChanged := 0
+	// Column codecs write through enc.buf; swap it to point at our scratch body,
+	// restore enc.buf afterward.
+	savedBuf := enc.buf
+	for ci := range plan.cols {
+		col := &plan.cols[ci]
+		rows := colChangedRows(st.deltaColRows, st.deltaColBitmap, col, stride, oldData, newData, n)
+		st.deltaColRows = rows
+		if len(rows) == 0 {
+			continue
+		}
+		if !colKindColumnDiffSupported(col) {
+			// A changed column we cannot encode → abandon the column patch; the
+			// positional body already in enc.buf handles the whole slice.
+			enc.buf = savedBuf
+			st.deltaColBuf = body[:0]
+			return true, nil
+		}
+		nChanged++
+		body = appendUvarint(body, uint64(ci))
+		mode := pickColMode(col, len(rows), n)
+		body = append(body, mode)
+		enc.buf = body
+		var err error
+		switch mode {
+		case colDiffModeSparse:
+			err = encodeSparseColumn(enc, col, stride, oldData, newData, rows)
+		case colDiffModeDelta:
+			err = encodeDeltaColumn(enc, col, stride, oldData, newData, n)
+		default:
+			err = ErrInvalidPatch
+		}
+		if err != nil {
+			enc.buf = savedBuf
+			st.deltaColBuf = body[:0]
+			return false, err
+		}
+		body = enc.buf
+	}
+	enc.buf = savedBuf
+	// Patch the nChangedCols count (always < 128 columns → single uvarint byte).
+	body[colCountPos] = byte(nChanged)
+	st.deltaColBuf = body
+
+	// Never-larger: keep the column body only if it strictly beats positional.
+	if len(body) < posLen {
+		enc.buf = enc.buf[:posStart]
+		enc.buf = append(enc.buf, body...)
+	}
+	// Otherwise the positional body already sits in enc.buf and wins. Either
+	// way exactly one body remains and the slice is handled.
+	return true, nil
+}
+
+// newChangedBitmap returns a []uint64 with ceil(n/64) words, reusing dst's
+// backing when large enough, cleared to zero.
+func newChangedBitmap(dst []uint64, n int) []uint64 {
+	words := (n + 63) >> 6
+	if cap(dst) >= words {
+		dst = dst[:words]
+		for i := range dst {
+			dst[i] = 0
+		}
+		return dst
+	}
+	return make([]uint64, words)
+}
+
+// markChangedRows sets bit i for every row whose bytes differ between old and
+// new. Returns true if any row changed. The pure-columnar element may carry
+// strings ([]byte/string columns make it non-POD), so compare per column rather
+// than assuming a flat byte span.
+func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
+	oldData, newData unsafe.Pointer, n int) bool {
+	any := false
+	for ci := range plan.cols {
+		col := &plan.cols[ci]
+		for i := range n {
+			if bm[i>>6]&(1<<(uint(i)&63)) != 0 {
+				continue // already marked by an earlier column
+			}
+			if !colCellEqual(col, stride, oldData, newData, i) {
+				bm[i>>6] |= 1 << (uint(i) & 63)
+				any = true
+			}
+		}
+	}
+	return any
+}
+
+// colChangedRows appends, in ascending order, the indices where col differs
+// between old and new, restricted to rows already flagged in bm (iterating bm
+// via bits.TrailingZeros64 word-skip). dst is reused.
+func colChangedRows(dst []int, bm []uint64, col *colColumn,
+	stride uintptr, oldData, newData unsafe.Pointer, n int) []int {
+	dst = dst[:0]
+	for w := range bm {
+		word := bm[w]
+		base := w << 6
+		for word != 0 {
+			b := bits.TrailingZeros64(word)
+			word &= word - 1
+			i := base + b
+			if i >= n {
+				break
+			}
+			if !colCellEqual(col, stride, oldData, newData, i) {
+				dst = append(dst, i)
+			}
+		}
+	}
+	return dst
+}
+
+// colCellEqual reports whether column col's cell i is byte/value-equal between
+// old and new.
+func colCellEqual(col *colColumn, stride uintptr, oldData, newData unsafe.Pointer, i int) bool {
+	off := uintptr(i)*stride + col.offset
+	op := unsafe.Add(oldData, off)
+	np := unsafe.Add(newData, off)
+	if col.kind.isNullable() {
+		return nullableCellEqual(col, op, np)
+	}
+	switch col.kind {
+	case colKindString:
+		if col.isByte {
+			return bytes.Equal(*(*[]byte)(op), *(*[]byte)(np))
+		}
+		return *(*string)(op) == *(*string)(np)
+	case colKindTime:
+		ot := (*time.Time)(op).UTC()
+		nt := (*time.Time)(np).UTC()
+		return ot.Unix() == nt.Unix() && ot.Nanosecond() == nt.Nanosecond()
+	default:
+		// pointer-free scalar: compare width bytes.
+		w := col.width
+		return bytes.Equal(unsafe.Slice((*byte)(op), w), unsafe.Slice((*byte)(np), w))
+	}
+}
+
+// nullableCellEqual compares two *T cells: both nil, or both non-nil with equal
+// pointees (string by value, otherwise width-bytes).
+func nullableCellEqual(col *colColumn, op, np unsafe.Pointer) bool {
+	pa := *(*unsafe.Pointer)(op)
+	pb := *(*unsafe.Pointer)(np)
+	if pa == nil || pb == nil {
+		return pa == pb
+	}
+	switch col.kind.base() {
+	case colKindString:
+		return *(*string)(pa) == *(*string)(pb)
+	default:
+		return bytes.Equal(unsafe.Slice((*byte)(pa), col.width), unsafe.Slice((*byte)(pb), col.width))
+	}
+}
+
+// pickColMode chooses the reconstruction mode for a column given how many of
+// its n cells changed. Size heuristic only — the top-level build-and-compare is
+// the never-larger guarantee.
+func pickColMode(col *colColumn, nChanged, n int) byte {
+	if nChanged*colDiffSparseDen <= n*colDiffSparseNum {
+		return colDiffModeSparse
+	}
+	switch col.kind {
+	case colKindInt, colKindUint, colKindBool:
+		return colDiffModeDelta
+	default:
+		return colDiffModeDenseWhole
+	}
+}
+
+// encodeSparseColumn writes nChanged, the gap-encoded ascending row indices, and
+// the changed cells as a length-nChanged subcolumn via the column codec.
+func encodeSparseColumn(enc *Encoder, col *colColumn,
+	stride uintptr, oldData, newData unsafe.Pointer, rows []int) error {
+	_ = oldData
+	enc.buf = appendUvarint(enc.buf, uint64(len(rows)))
+	prev := 0
+	for _, r := range rows {
+		enc.buf = appendUvarint(enc.buf, uint64(r-prev))
+		prev = r
+	}
+	st := enc.state
+	switch col.kind {
+	case colKindInt:
+		s := st.colScratchI64[:0]
+		for _, r := range rows {
+			s = append(s, loadIntCell(col, stride, newData, r))
+		}
+		st.colScratchI64 = s
+		return encodeSliceInt64(enc, unsafe.Pointer(&s))
+	case colKindUint:
+		s := st.colScratchU64[:0]
+		for _, r := range rows {
+			s = append(s, loadUintCell(col, stride, newData, r))
+		}
+		st.colScratchU64 = s
+		return encodeSliceUint64(enc, unsafe.Pointer(&s))
+	}
+	return ErrInvalidPatch
+}
+
+// encodeDeltaColumn writes the full-length per-row arithmetic delta column
+// (new[i] - old[i]). Unchanged cells are 0 → delta/FOR/RLE crush them.
+func encodeDeltaColumn(enc *Encoder, col *colColumn,
+	stride uintptr, oldData, newData unsafe.Pointer, n int) error {
+	st := enc.state
+	switch col.kind {
+	case colKindInt:
+		s := st.colScratchI64[:0]
+		for i := range n {
+			s = append(s, loadIntCell(col, stride, newData, i)-loadIntCell(col, stride, oldData, i))
+		}
+		st.colScratchI64 = s
+		return encodeSliceInt64(enc, unsafe.Pointer(&s))
+	case colKindUint:
+		s := st.colScratchU64[:0]
+		for i := range n {
+			s = append(s, loadUintCell(col, stride, newData, i)-loadUintCell(col, stride, oldData, i))
+		}
+		st.colScratchU64 = s
+		return encodeSliceUint64(enc, unsafe.Pointer(&s))
+	}
+	return ErrInvalidPatch
+}
+
+// loadIntCell / loadUintCell read a width-normalized scalar from a column cell.
+func loadIntCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int) int64 {
+	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
+	switch col.width {
+	case 1:
+		return int64(*(*int8)(p))
+	case 2:
+		return int64(*(*int16)(p))
+	case 4:
+		return int64(*(*int32)(p))
+	default:
+		return *(*int64)(p)
+	}
+}
+
+func loadUintCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int) uint64 {
+	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
+	switch col.width {
+	case 1:
+		return uint64(*(*uint8)(p))
+	case 2:
+		return uint64(*(*uint16)(p))
+	case 4:
+		return uint64(*(*uint32)(p))
+	default:
+		return *(*uint64)(p)
+	}
+}
+
+func storeIntCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int, v int64) {
+	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
+	switch col.width {
+	case 1:
+		*(*int8)(p) = int8(v)
+	case 2:
+		*(*int16)(p) = int16(v)
+	case 4:
+		*(*int32)(p) = int32(v)
+	default:
+		*(*int64)(p) = v
+	}
+}
+
+func storeUintCell(col *colColumn, stride uintptr, data unsafe.Pointer, i int, v uint64) {
+	p := unsafe.Add(data, uintptr(i)*stride+col.offset)
+	switch col.width {
+	case 1:
+		*(*uint8)(p) = uint8(v)
+	case 2:
+		*(*uint16)(p) = uint16(v)
+	case 4:
+		*(*uint32)(p) = uint32(v)
+	default:
+		*(*uint64)(p) = v
+	}
+}
+
+// applyColSlice applies a tagColSlicePatch onto the base slice at baseP. It does
+// not recurse (every column is a flat reconstruction), so it takes no depth.
+func applyColSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
+	if dec.i >= len(dec.buf) || dec.buf[dec.i] != tagColSlicePatch {
+		return ErrInvalidPatch
+	}
+	dec.i++
+	elem := td.elem
+	if elem == nil {
+		elem, _ = descOf(td.rType.Elem())
+	}
+	if elem == nil || elem.colPlan == nil {
+		return ErrInvalidPatch
+	}
+	plan := elem.colPlan
+	n64, k := readUvarint(dec.buf[dec.i:])
+	if k <= 0 {
+		return ErrInvalidPatch
+	}
+	dec.i += k
+	bv := reflect.NewAt(td.rType, baseP).Elem()
+	if int64(n64) != int64(bv.Len()) {
+		return ErrInvalidPatch // equal-length invariant
+	}
+	n := int(n64)
+	base := (*sliceHeader)(baseP).Data
+	if dec.state == nil {
+		dec.state = newDecState()
+	}
+	nCols64, k2 := readUvarint(dec.buf[dec.i:])
+	if k2 <= 0 || nCols64 > uint64(len(plan.cols)) {
+		return ErrInvalidPatch
+	}
+	dec.i += k2
+	prevCol := -1
+	for range int(nCols64) {
+		colIdx64, k3 := readUvarint(dec.buf[dec.i:])
+		if k3 <= 0 || colIdx64 >= uint64(len(plan.cols)) {
+			return ErrInvalidPatch
+		}
+		dec.i += k3
+		if int(colIdx64) <= prevCol {
+			return ErrInvalidPatch // columns must be ascending, no duplicates
+		}
+		prevCol = int(colIdx64)
+		col := &plan.cols[colIdx64]
+		if dec.i >= len(dec.buf) {
+			return ErrInvalidPatch
+		}
+		mode := dec.buf[dec.i]
+		dec.i++
+		var err error
+		switch mode {
+		case colDiffModeSparse:
+			err = applySparseColumn(dec, plan, col, base, n)
+		case colDiffModeDelta:
+			err = applyDeltaColumn(dec, plan, col, base, n)
+		case colDiffModeDenseWhole:
+			err = dec.decodeColumnInto(base, plan, col, n)
+		default:
+			err = ErrInvalidPatch
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applySparseColumn reads nChanged, gap-decodes ascending row indices, decodes
+// the length-nChanged subcolumn, and scatters into base at those rows.
+//
+// Gap encoding: gap[0] = idx0, gap[j] = idx[j] - idx[j-1] (>= 1 for j>0).
+func applySparseColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base unsafe.Pointer, n int) error {
+	nc64, k := readUvarint(dec.buf[dec.i:])
+	if k <= 0 || nc64 > uint64(n) {
+		return ErrInvalidPatch
+	}
+	dec.i += k
+	nc := int(nc64)
+	st := dec.state
+	rows := st.deltaColRows[:0]
+	prev := -1
+	for j := range nc {
+		gap, kg := readUvarint(dec.buf[dec.i:])
+		if kg <= 0 {
+			return ErrInvalidPatch
+		}
+		dec.i += kg
+		var idx int
+		if j == 0 {
+			idx = int(gap)
+		} else {
+			if gap == 0 {
+				return ErrInvalidPatch // non-ascending
+			}
+			idx = prev + int(gap)
+		}
+		if idx < 0 || idx >= n {
+			return ErrInvalidPatch
+		}
+		rows = append(rows, idx)
+		prev = idx
+	}
+	st.deltaColRows = rows
+	switch col.kind {
+	case colKindInt:
+		if err := decodeSliceInt64Into(dec, &st.colScratchI64); err != nil {
+			return err
+		}
+		s := st.colScratchI64
+		if len(s) != nc {
+			return ErrTypeMismatch
+		}
+		for j, r := range rows {
+			storeIntCell(col, plan.stride, base, r, s[j])
+		}
+	case colKindUint:
+		if err := decodeSliceUint64Into(dec, &st.colScratchU64); err != nil {
+			return err
+		}
+		s := st.colScratchU64
+		if len(s) != nc {
+			return ErrTypeMismatch
+		}
+		for j, r := range rows {
+			storeUintCell(col, plan.stride, base, r, s[j])
+		}
+	default:
+		return ErrInvalidPatch
+	}
+	return nil
+}
+
+// applyDeltaColumn reads the full-length delta column and adds it onto base.
+func applyDeltaColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base unsafe.Pointer, n int) error {
+	st := dec.state
+	switch col.kind {
+	case colKindInt:
+		if err := decodeSliceInt64Into(dec, &st.colScratchI64); err != nil {
+			return err
+		}
+		s := st.colScratchI64
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			storeIntCell(col, plan.stride, base, i, loadIntCell(col, plan.stride, base, i)+s[i])
+		}
+	case colKindUint:
+		if err := decodeSliceUint64Into(dec, &st.colScratchU64); err != nil {
+			return err
+		}
+		s := st.colScratchU64
+		if len(s) != n {
+			return ErrTypeMismatch
+		}
+		for i := range n {
+			storeUintCell(col, plan.stride, base, i, loadUintCell(col, plan.stride, base, i)+s[i])
+		}
+	default:
+		return ErrInvalidPatch
+	}
+	return nil
+}

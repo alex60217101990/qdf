@@ -96,7 +96,9 @@ func diffArray(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int)
 	if elem == nil {
 		elem, _ = descOf(td.rType.Elem())
 	}
-	return diffElems(enc, elem, stride, oldP, n, newP, n, depth)
+	// Arrays are never columnar-eligible here (colPlan lives on slice element
+	// descriptors), so route straight to the positional differ.
+	return diffElemsPositional(enc, elem, stride, oldP, n, newP, n, depth)
 }
 
 // diffMap writes a tagMapPatch: updated/added keys (each with a recursive op),
@@ -193,8 +195,28 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 	return nil
 }
 
-// diffElems is the shared positional element differ for slices and arrays.
+// diffElems is the shared element differ for slices and arrays. For an
+// equal-length pure-columnar slice it routes through diffColumnar (column-level
+// patch, never-larger picker); every other case falls through to the positional
+// differ. Arrays never reach diffColumnar (they call diffElemsPositional
+// directly via diffArray).
 func diffElems(enc *Encoder, elem *typeDesc, stride uintptr,
+	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int) error {
+	if oldLen == newLen && oldLen >= columnarMinElems && diffColumnarEligible(elem) {
+		handled, err := diffColumnar(enc, elem, stride, oldData, newData, oldLen, depth)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
+	}
+	return diffElemsPositional(enc, elem, stride, oldData, oldLen, newData, newLen, depth)
+}
+
+// diffElemsPositional is the positional element differ: one tagSlicePatch body
+// listing each changed/appended element index with its recursive op.
+func diffElemsPositional(enc *Encoder, elem *typeDesc, stride uintptr,
 	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int) error {
 	minLen := min(newLen, oldLen)
 	// elem.pod was precomputed at build (noPointersWalk of the element type) —

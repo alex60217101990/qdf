@@ -32,6 +32,7 @@ const (
 	tagSlicePatch      = 0x02 // varuint(newLen), varuint(nEntries), nEntries×(varuint(idx), op)
 	tagMapPatch        = 0x03 // varuint(nUpdate), nUpdate×(key-value, op), varuint(nDelete), nDelete×(key-value)
 	tagKeyedSlicePatch = 0x04 // flags byte, [if orderChanged: varuint(newLen)+newLen×key], varuint(nOps), nOps×(key, op)
+	tagColSlicePatch   = 0x05 // varuint(n), varuint(nChangedCols), per col: varuint(colIdx), mode byte, body
 )
 
 // Keyed-slice-patch flag bits (the flags byte after tagKeyedSlicePatch).

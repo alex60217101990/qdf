@@ -45,6 +45,9 @@ func applyMerge(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) err
 		if dec.i < len(dec.buf) && dec.buf[dec.i] == tagKeyedSlicePatch {
 			return applyKeyedSlice(dec, td, baseP, depth)
 		}
+		if dec.i < len(dec.buf) && dec.buf[dec.i] == tagColSlicePatch {
+			return applyColSlice(dec, td, baseP)
+		}
 		return applySlice(dec, td, baseP, depth)
 	case reflect.Array:
 		return applyArray(dec, td, baseP, depth)
