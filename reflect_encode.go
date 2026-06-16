@@ -1,6 +1,9 @@
 package qdf
 
 import (
+	"cmp"
+	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"time"
@@ -463,6 +466,14 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 			return nil
 		}
 		n := rv.Len()
+		// Canonical emit takes precedence over the OptMapShape/OptDense shape
+		// branch so exactly one deterministic, sorted emit happens regardless of
+		// the other shape bits. It reuses the same key/value encode closures
+		// (k.encode / v.encode) as the default path — only the iteration ORDER
+		// changes; the value codec, intern, and dict are untouched.
+		if n > 0 && e.opts.Has(OptCanonical) {
+			return e.encodeMapCanonical(rv, keyType, valType, k, v)
+		}
 		if stringKey && n > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 			return e.encodeStringMapShaped(rv, keyType, valType, v)
 		}
@@ -509,6 +520,225 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 			}
 		}
 		return nil
+	}
+}
+
+// encodeMapCanonical emits a map under OptCanonical: keys in sorted order so
+// logically-equal maps serialize byte-identically. It writes the same plain map
+// header and reuses the SAME key/value encode closures as the default path
+// (k.encode / v.encode) — only the order changes. A single reused addressable
+// key holder fetches each value via rv.MapIndex(kh), with no per-lookup boxing
+// allocation. The common integer/string/bool key kinds use a type-specialized,
+// pooled, monomorphized sort; float and exotic comparable key kinds (struct /
+// array / interface) take a slow reflect-comparator fallback (rare).
+func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.Type, k, v *typeDesc) error {
+	n := rv.Len()
+	e.WriteMapHeader(n)
+
+	// Reused holders: a key holder set per sorted key for MapIndex, and a value
+	// holder the value codec reads through (addressable, so v.encode can take its
+	// pointer). Pooled on the state when available (no reflect.New per map row).
+	var keyHolder, valHolder reflect.Value
+	var vp unsafe.Pointer
+	var pooled bool
+	if e.state != nil {
+		keyHolder, valHolder, vp, pooled = e.state.mapEnc.acquire(keyType, valType)
+		defer e.state.mapEnc.release(pooled)
+	} else {
+		keyHolder = reflect.New(keyType).Elem()
+		valHolder = reflect.New(valType).Elem()
+		vp = unsafe.Pointer(valHolder.UnsafeAddr())
+	}
+	kp := unsafe.Pointer(keyHolder.UnsafeAddr())
+
+	// emit fetches the value for the (already-set) key holder, copies it into the
+	// value holder, and runs both encode closures. MapIndex returns a fresh
+	// non-addressable Value; valHolder.Set copies it into the addressable holder
+	// the codec reads through vp.
+	emit := func() error {
+		valHolder.Set(rv.MapIndex(keyHolder))
+		if err := k.encode(e, kp); err != nil {
+			return err
+		}
+		return v.encode(e, vp)
+	}
+
+	switch keyType.Kind() {
+	case reflect.String:
+		keys := e.gatherStringKeys(rv)
+		for _, key := range keys {
+			keyHolder.SetString(key)
+			if err := emit(); err != nil {
+				return err
+			}
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		keys := e.gatherIntKeys(rv)
+		for _, key := range keys {
+			keyHolder.SetInt(key)
+			if err := emit(); err != nil {
+				return err
+			}
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		keys := e.gatherUintKeys(rv)
+		for _, key := range keys {
+			keyHolder.SetUint(key)
+			if err := emit(); err != nil {
+				return err
+			}
+		}
+	case reflect.Bool:
+		// At most two keys; emit false then true if present (no sort needed).
+		for _, b := range [...]bool{false, true} {
+			keyHolder.SetBool(b)
+			mv := rv.MapIndex(keyHolder)
+			if !mv.IsValid() {
+				continue
+			}
+			valHolder.Set(mv)
+			if err := k.encode(e, kp); err != nil {
+				return err
+			}
+			if err := v.encode(e, vp); err != nil {
+				return err
+			}
+		}
+	default:
+		// Float and exotic comparable key kinds (struct / array / interface):
+		// gather reflect.Value keys and sort with a stable comparator. Slow but
+		// rare; correctness over speed. Each key Value is itself addressable via
+		// MapIndex order is preserved by setting the key holder from the sorted
+		// reflect.Value.
+		keys := rv.MapKeys()
+		slices.SortFunc(keys, canonReflectKeyCompare)
+		for i := range keys {
+			keyHolder.Set(keys[i])
+			if err := emit(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// gatherStringKeys collects the map's string keys into the pooled canonKeysStr
+// scratch, sorted. The returned slice aliases the scratch — valid until the next
+// gather on the same encoder.
+func (e *Encoder) gatherStringKeys(rv reflect.Value) []string {
+	var buf []string
+	if e.state != nil {
+		buf = e.state.canonKeysStr[:0]
+	}
+	it := rv.MapRange()
+	for it.Next() {
+		buf = append(buf, it.Key().String())
+	}
+	slices.Sort(buf)
+	if e.state != nil {
+		e.state.canonKeysStr = buf
+	}
+	return buf
+}
+
+func (e *Encoder) gatherIntKeys(rv reflect.Value) []int64 {
+	var buf []int64
+	if e.state != nil {
+		buf = e.state.canonKeysI64[:0]
+	}
+	it := rv.MapRange()
+	for it.Next() {
+		buf = append(buf, it.Key().Int())
+	}
+	slices.Sort(buf)
+	if e.state != nil {
+		e.state.canonKeysI64 = buf
+	}
+	return buf
+}
+
+func (e *Encoder) gatherUintKeys(rv reflect.Value) []uint64 {
+	var buf []uint64
+	if e.state != nil {
+		buf = e.state.canonKeysU64[:0]
+	}
+	it := rv.MapRange()
+	for it.Next() {
+		buf = append(buf, it.Key().Uint())
+	}
+	slices.Sort(buf)
+	if e.state != nil {
+		e.state.canonKeysU64 = buf
+	}
+	return buf
+}
+
+// canonReflectKeyCompare is a stable total order over comparable reflect key
+// values for the slow canonical fallback (float / struct / array / interface
+// keys). Floats compare by canonicalized value then raw bits (so -0.0 and +0.0
+// tie and distinct NaNs collapse). Structs/arrays compare field/element-wise.
+// Other kinds fall back to a string rendering, which is stable within a type.
+func canonReflectKeyCompare(a, b reflect.Value) int {
+	switch a.Kind() {
+	case reflect.Float32, reflect.Float64:
+		af, bf := canonicalizeFloat64(a.Float()), canonicalizeFloat64(b.Float())
+		if af < bf {
+			return -1
+		}
+		if af > bf {
+			return 1
+		}
+		ab, bb := math.Float64bits(af), math.Float64bits(bf)
+		return cmp.Compare(ab, bb)
+	case reflect.String:
+		return cmp.Compare(a.String(), b.String())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return cmp.Compare(a.Int(), b.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return cmp.Compare(a.Uint(), b.Uint())
+	case reflect.Bool:
+		if a.Bool() == b.Bool() {
+			return 0
+		}
+		if !a.Bool() {
+			return -1
+		}
+		return 1
+	case reflect.Struct:
+		for i := range a.NumField() {
+			if c := canonReflectKeyCompare(a.Field(i), b.Field(i)); c != 0 {
+				return c
+			}
+		}
+		return 0
+	case reflect.Array:
+		for i := range a.Len() {
+			if c := canonReflectKeyCompare(a.Index(i), b.Index(i)); c != 0 {
+				return c
+			}
+		}
+		return 0
+	case reflect.Interface, reflect.Pointer:
+		return canonReflectKeyCompare(a.Elem(), b.Elem())
+	default:
+		// Stable rendering for any residual comparable kind (complex, chan, etc.).
+		return cmp.Compare(reflectRender(a), reflectRender(b))
+	}
+}
+
+func reflectRender(v reflect.Value) string {
+	if !v.IsValid() {
+		return ""
+	}
+	return v.Type().String() + ":" + valueRenderString(v)
+}
+
+func valueRenderString(v reflect.Value) string {
+	switch v.Kind() {
+	case reflect.String:
+		return v.String()
+	default:
+		return fmt.Sprintf("%v", v.Interface())
 	}
 }
 
