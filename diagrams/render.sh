@@ -59,6 +59,8 @@ for md in "${SCRIPT_DIR}"/README.md \
            "${SCRIPT_DIR}"/qpack-codecs.md \
            "${SCRIPT_DIR}"/dense-interning.md \
            "${SCRIPT_DIR}"/columnar-and-selective-decode.md \
+           "${SCRIPT_DIR}"/delta.md \
+           "${SCRIPT_DIR}"/canonical.md \
            "${SCRIPT_DIR}"/performance.md; do
 
     stem="$(basename "$md" .md)"
