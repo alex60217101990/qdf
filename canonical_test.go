@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"bytes"
+	"maps"
 	"math"
 	"reflect"
 	"testing"
@@ -68,12 +69,10 @@ func TestCanonicalMapStableReflect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		// rebuild the map so Go's iteration order differs
 		m2 := map[string][]int64{}
-		for k, v := range m {
-			m2[k] = v
-		}
+		maps.Copy(m2, m)
 		b, err := Marshal(m2, OptBalanced|OptCanonical)
 		if err != nil {
 			t.Fatal(err)
@@ -101,11 +100,9 @@ func TestCanonicalMapStableInt64Key(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		m2 := map[int64][]int64{}
-		for k, v := range m {
-			m2[k] = v
-		}
+		maps.Copy(m2, m)
 		b, err := Marshal(m2, OptBalanced|OptCanonical)
 		if err != nil {
 			t.Fatal(err)
@@ -131,11 +128,9 @@ func TestCanonicalMapStableUintKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		m2 := map[uint32][]int64{}
-		for k, v := range m {
-			m2[k] = v
-		}
+		maps.Copy(m2, m)
 		b, err := Marshal(m2, OptBalanced|OptCanonical)
 		if err != nil {
 			t.Fatal(err)
@@ -160,11 +155,9 @@ func TestCanonicalMapStableBoolKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		m2 := map[bool][]int64{}
-		for k, v := range m {
-			m2[k] = v
-		}
+		maps.Copy(m2, m)
 		b, err := Marshal(m2, OptBalanced|OptCanonical)
 		if err != nil {
 			t.Fatal(err)
@@ -197,11 +190,9 @@ func TestCanonicalMapStableStructValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		m2 := map[string]V{}
-		for k, v := range m {
-			m2[k] = v
-		}
+		maps.Copy(m2, m)
 		b, err := Marshal(m2, OptBalanced|OptCanonical)
 		if err != nil {
 			t.Fatal(err)
@@ -238,7 +229,7 @@ func TestCanonicalMapStableGenerated(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			b, err := Marshal(mk(), OptBalanced|OptCanonical|OptDense)
 			if err != nil {
 				t.Fatal(err)
@@ -364,9 +355,7 @@ func TestCanonicalDiffStable(t *testing.T) {
 	// emit passes (updates/adds and deletions) carry several keys to sort.
 	mk := func() S {
 		m := map[string]int{}
-		for k, v := range map[string]int{"a": 1, "b": 9, "d": 4, "e": 5, "f": 6} {
-			m[k] = v
-		}
+		maps.Copy(m, map[string]int{"a": 1, "b": 9, "d": 4, "e": 5, "f": 6})
 		return S{M: m}
 	}
 	base, err := Diff(old, mk(), OptBalanced|OptCanonical)
