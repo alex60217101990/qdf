@@ -18,6 +18,16 @@ netcode (send only the entities that moved), and live dashboards. It works
 straight from the two values, type-generically — no IDL, no `FieldMask` to
 maintain by hand, no diff code to write per type.
 
+> **Visual reference:** the [`Diff`/`Apply` diagram](../diagrams/delta.md) shows
+> the patch pipeline, the `'Q','D','P'` wire format, the keyed-slice and columnar
+> column-diff matchers, and the baseline-registry state-sync flow.
+
+<img src="../diagrams/svg/delta-1.svg" alt="Diff and Apply pipeline flowchart">
+
+`Diff` walks the type, emits one op per changed location (`opReplace` whole value
+or `opMerge` recursive sub-patch) and nothing for unchanged locations; `Apply` is
+the mirror — absent means unchanged.
+
 ---
 
 ## Quick start
@@ -228,6 +238,8 @@ inserting or deleting in the middle is not. See
 A patch is not a normal qdf blob — it carries its own magic so a patch can never
 be mistaken for a full value or vice versa.
 
+<img src="../diagrams/svg/delta-2.svg" alt="patch wire format layout">
+
 ```
 +-----+-----+-----+-----+-----+--------- 8 ---------+----- 8 (optional) -----+
 | 'Q' | 'D' | 'P' | ver |flags|       schemaFP      |   baseFP (if flag set) |
@@ -372,6 +384,8 @@ negligible.
 
 ## Keyed slices
 
+<img src="../diagrams/svg/delta-3.svg" alt="slice matcher decision tree: keyed vs columnar column-diff vs positional">
+
 By default slices are matched **positionally**: reordering a slice, or inserting
 or deleting in the middle, reships the shifted tail. For slices whose elements
 have a stable identity, tag the identity field with `,key` on its `qdf` tag and
@@ -432,6 +446,8 @@ positional. Float columns never use arithmetic delta (floating-point subtraction
 does not round-trip exactly), so they pick sparse or dense-whole.
 
 ## Baseline registry
+
+<img src="../diagrams/svg/delta-4.svg" alt="baseline registry state-sync sequence">
 
 `Apply[T](base *T, patch)` requires the caller to hold the exact `old` value the
 patch was diffed against. In a state-sync stream — a server pushing successive

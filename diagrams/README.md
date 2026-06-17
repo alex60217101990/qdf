@@ -54,4 +54,6 @@ The rANS pass is the last stage and fires only when it shrinks the output.
 | [qpack-codecs.md](qpack-codecs.md) | QPack codec picker for numeric/bool/float slices, never-larger floor, SIMD kernels |
 | [dense-interning.md](dense-interning.md) | Intern table, state-ref emission, Markov-0/MTF/Markov-1/shape-intern predictors |
 | [columnar-and-selective-decode.md](columnar-and-selective-decode.md) | []struct columnar transpose, Time split, Nullable column, colIndex, Select/Where predicate-pushdown with 3VL |
+| [delta.md](delta.md) | `Diff` / `Apply` structural delta: patch pipeline, `'Q','D','P'` wire format, keyed slices, columnar column-level diff, baseline registry |
+| [canonical.md](canonical.md) | `OptCanonical` deterministic encoding: sorted map keys (every kind), float (`-0.0`/NaN) normalization, byte-identical-for-equal-values guarantee |
 | [performance.md](performance.md) | The 10 algorithmic/CPU/memory wins grouped by category |

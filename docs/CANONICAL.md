@@ -11,6 +11,10 @@ b, _ := qdf.Marshal(v, qdf.OptBalanced|qdf.OptCanonical)
 sum := sha256.Sum256(b) // stable across runs, machines, and map rebuilds
 ```
 
+> **Visual reference:** the [canonical-encoding diagram](../diagrams/canonical.md)
+> shows the two normalizations (sorted map keys per key kind + `-0.0`/NaN float
+> normalization) and where each fires in the encode path.
+
 This is the primitive behind any *content-addressed* or *integrity* workload:
 caching keyed by a hash of the value, deduplicating identical records, signing a
 payload and verifying the signature elsewhere, Merkle trees over serialized
@@ -60,6 +64,8 @@ to one stable encoding.
 
 ## What it guarantees
 
+<img src="../diagrams/svg/canonical-1.svg" alt="canonical encoding two normalizations: sorted map keys and float normalization">
+
 For two values that are logically equal, the canonical bytes are identical:
 
 - **Map keys are emitted in sorted order**, for *every* key kind — string,
@@ -75,6 +81,14 @@ dictionary ids are assigned in value-scan order, the columnar codec picker is
 value-determined, FSST builds a strict total order, and the delta fingerprints
 are commutative. The *only* structural nondeterminism was Go map iteration order
 and the sign-of-zero / NaN payload, and `OptCanonical` removes both.
+
+The sorted-key emit splits by key kind — string / int / uint / bool keys sort a
+pooled typed scratch and fetch values by `MapIndex`, while float / struct /
+array / interface keys gather `(k, v)` pairs and sort with a stable comparator
+(no `MapIndex`, since a NaN key is unfindable):
+
+<img src="../diagrams/svg/canonical-2.svg" alt="sorted map key emit per key kind">
+
 
 ## Scope
 

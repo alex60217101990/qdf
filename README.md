@@ -1206,6 +1206,8 @@ flowchart and index of all diagrams.
 | [qpack-codecs.md](diagrams/qpack-codecs.md) | Codec picker (FOR/Delta/RLE/dict/PFOR/Gorilla/ALP), never-larger floor, SIMD |
 | [dense-interning.md](diagrams/dense-interning.md) | Intern table, state-ref predictors (Markov-0/MTF/Markov-1/shape) |
 | [columnar-and-selective-decode.md](diagrams/columnar-and-selective-decode.md) | []struct transpose, Time split, Nullable slab, colIndex, 3VL pushdown |
+| [delta.md](diagrams/delta.md) | `Diff`/`Apply` pipeline, `'Q','D','P'` patch wire format, keyed slices, columnar column-diff, baseline registry |
+| [canonical.md](diagrams/canonical.md) | `OptCanonical`: sorted map keys (every kind), `-0.0`/NaN float normalization, byte-identical-for-equal-values |
 | [performance.md](diagrams/performance.md) | 10 algorithmic wins grouped by CPU / wire size / memory |
 
 ## Status

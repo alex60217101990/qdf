@@ -10,13 +10,15 @@ tradeoff for a specific workload without touching the API.
 ## Options bit positions
 
 ```
-bit:  31..7      6          5               4            3       2           1              0
-   (reserved)  OptRANS  OptGorillaFloat  OptColumnIndex  OptMTF  OptPairPred  OptShapeIntern  OptQPack / OptDense
+bit: 31..12     11           10               9         8        7              6       5               4
+  (reserved) OptCanonical OptDeltaNoBaseFP OptMapShape OptFSST OptColumnIndex OptRANS OptGorillaFloat OptColumnIndex
+bit:    4            3       2           1              0
+  OptColumnIndex  OptMTF  OptPairPred  OptShapeIntern  OptQPack / OptDense
 ```
 
 | Bit | Constant | Gates |
 |-----|----------|-------|
-| 0 | `OptDense` | Inline intern table; required by ShapeIntern/PairPred/MTF |
+| 0 | `OptDense` | Inline intern table; required by ShapeIntern/PairPred/MTF/MapShape |
 | 1 | `OptQPack` | Numeric/bool slice codecs (FOR/Delta/RLE/dict/PFOR/bitpack); required by GorillaFloat |
 | 2 | `OptShapeIntern` | Struct shape table (`tagMapShape 0xEC`); no-op without OptDense |
 | 3 | `OptPairPred` | Markov-1 successor predictor (`tagStatePair 0xEA`); no-op without OptDense |
@@ -24,11 +26,19 @@ bit:  31..7      6          5               4            3       2           1  
 | 5 | `OptGorillaFloat` | Gorilla XOR for `[]float64`/`[]float32`; no-op without OptQPack |
 | 6 | `OptRANS` | Order-0 rANS entropy pass over whole body; independent |
 | 7 | `OptColumnIndex` | Column-length index on `[]struct` columnar payloads; independent |
-| 8..31 | (reserved) | Silent no-ops today; may opt into future codecs |
+| 8 | `OptFSST` | FSST string codec for columnar string columns; never-larger; bundled into OptCompression |
+| 9 | `OptMapShape` | Interns map key-sets (`tagMapShape`); no-op without OptDense |
+| 10 | `OptDeltaNoBaseFingerprint` | `Diff`/`Apply` only: drops the 8-byte base fingerprint from the patch (smaller patch, no wrong-base guard, incompatible with `BaselineRegistry`) |
+| 11 | `OptCanonical` | Byte-identical output for logically-equal values: sorted map keys + float (`-0.0`/NaN) normalization; encode-side only |
+| 12..31 | (reserved) | Silent no-ops today; may opt into future codecs |
 
 > Note: `OptDense` and `OptQPack` are independent — either can be set
-> without the other. `OptShapeIntern`, `OptPairPred`, and `OptMTF` are
-> no-ops without `OptDense`. `OptGorillaFloat` is a no-op without `OptQPack`.
+> without the other. `OptShapeIntern`, `OptPairPred`, `OptMTF`, and
+> `OptMapShape` are no-ops without `OptDense`. `OptGorillaFloat` is a no-op
+> without `OptQPack`. `OptFSST`, `OptColumnIndex`, and `OptCanonical` are
+> independent of the bundles. `OptDeltaNoBaseFingerprint` only affects the
+> `Diff` / `Apply` delta path (see [delta.md](delta.md)); `OptCanonical` is
+> detailed in [canonical.md](canonical.md).
 
 ## Bundle compositions
 
@@ -46,9 +56,10 @@ flowchart TD
     MTF["OptMTF"]
     Gorilla["OptGorillaFloat"]
     RANS["OptRANS"]
+    FSST["OptFSST"]
 
     Balanced["OptBalanced\n= OptDense | OptQPack\n| OptShapeIntern\n| OptPairPred | OptMTF"]
-    Compression["OptCompression\n= OptBalanced\n| OptGorillaFloat | OptRANS"]
+    Compression["OptCompression\n= OptBalanced\n| OptGorillaFloat | OptRANS | OptFSST"]
 
     Speed -.->|"add intern"| Dense
     Speed -.->|"add codecs"| QPack
@@ -60,7 +71,13 @@ flowchart TD
     Balanced --> Compression
     Gorilla --> Compression
     RANS --> Compression
+    FSST --> Compression
 ```
+
+Three more bits sit outside the bundles. `OptColumnIndex` and `OptCanonical`
+are orthogonal — add either to any bundle. `OptMapShape` (map key-set interning)
+needs `OptDense`. `OptDeltaNoBaseFingerprint` only affects the `Diff` / `Apply`
+delta path.
 
 </details>
 
@@ -109,6 +126,7 @@ flowchart LR
     OptShapeIntern -->|"requires"| OptDense
     OptPairPred -->|"requires"| OptDense
     OptMTF -->|"requires"| OptDense
+    OptMapShape -->|"requires"| OptDense
     OptGorillaFloat -->|"requires"| OptQPack
 ```
 
