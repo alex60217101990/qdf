@@ -60,6 +60,18 @@ import (
 // growth, matching the runtime's slice-growth heuristic.
 const initialChunkBytes = 4 * 1024
 
+// maxChunkBytes caps individual slab growth. The loc-pack format gives each
+// chunk a 32-bit offset field (see the locs doc on Arena), so a single chunk
+// must never exceed what a uint32 offset can address — otherwise Put would
+// truncate the offset at line `uint32(a.off)` and Get would resolve the wrong
+// byte range (silent corruption). Doubling growth is unbounded, so without
+// this cap a long-lived arena that interns multiple GiB of strings would
+// eventually allocate a >4 GiB slab and trip the truncation. Capping well
+// below 4 GiB keeps every offset in range; with the 16-bit chunk index
+// (65 535 slabs) the arena still addresses ~64 TiB total — far past any real
+// payload, and normal workloads never fill even one of these slabs.
+const maxChunkBytes = 1 << 30 // 1 GiB
+
 // Arena holds a chain of byte slabs and hands out ids that resolve
 // to slices into the active slab.
 type Arena struct {
@@ -237,6 +249,14 @@ func (a *Arena) grow(need uintptr) {
 	}
 	// Round up to the nearest power of two for slab-friendly sizes.
 	size = nextPow2(size)
+	// Cap slab size so a chunk offset can never exceed the 32-bit field in
+	// the loc-pack format. need is always <= MaxStringLen (65 535), far below
+	// the cap, so clamping here never starves a request; it only bounds the
+	// doubling growth. Growth past this point adds chunks instead of a giant
+	// slab (chunkIdx is 16-bit, so ~64 TiB of headroom remains).
+	if size > maxChunkBytes {
+		size = maxChunkBytes
+	}
 	c := make([]byte, 0, size)
 	a.chunks = append(a.chunks, c)
 	a.cur = len(a.chunks) - 1
