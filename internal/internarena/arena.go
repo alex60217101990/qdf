@@ -248,15 +248,13 @@ func (a *Arena) grow(need uintptr) {
 		size = need
 	}
 	// Round up to the nearest power of two for slab-friendly sizes.
-	size = nextPow2(size)
-	// Cap slab size so a chunk offset can never exceed the 32-bit field in
-	// the loc-pack format. need is always <= MaxStringLen (65 535), far below
-	// the cap, so clamping here never starves a request; it only bounds the
-	// doubling growth. Growth past this point adds chunks instead of a giant
-	// slab (chunkIdx is 16-bit, so ~64 TiB of headroom remains).
-	if size > maxChunkBytes {
-		size = maxChunkBytes
-	}
+	size = min(
+		// Cap slab size so a chunk offset can never exceed the 32-bit field in
+		// the loc-pack format. need is always <= MaxStringLen (65 535), far below
+		// the cap, so clamping here never starves a request; it only bounds the
+		// doubling growth. Growth past this point adds chunks instead of a giant
+		// slab (chunkIdx is 16-bit, so ~64 TiB of headroom remains).
+		nextPow2(size), maxChunkBytes)
 	c := make([]byte, 0, size)
 	a.chunks = append(a.chunks, c)
 	a.cur = len(a.chunks) - 1

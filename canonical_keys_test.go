@@ -21,7 +21,7 @@ func canonStable(t *testing.T, mk func() any) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for i := 0; i < iters; i++ {
+	for i := range iters {
 		b, err := Marshal(mk(), OptBalanced|OptCanonical)
 		if err != nil {
 			t.Fatalf("iter %d: %v", i, err)

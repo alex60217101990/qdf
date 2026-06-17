@@ -130,8 +130,8 @@ func randValue(rv reflect.Value, r *rand.Rand, depth int) {
 		randValue(p.Elem(), r, depth+1)
 		rv.Set(p)
 	case reflect.Struct:
-		for i := range rv.NumField() {
-			randValue(rv.Field(i), r, depth+1)
+		for _, field := range rv.Fields() {
+			randValue(field, r, depth+1)
 		}
 	}
 }
