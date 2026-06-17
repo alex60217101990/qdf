@@ -24,6 +24,9 @@ func matrixBundles() []bundle {
 		{"B7_Compression_ColIndex", OptCompression | OptColumnIndex, true},
 		{"B8_QPack_Gorilla", OptQPack | OptGorillaFloat, false},
 		{"B9_Dense_RANS", OptDense | OptRANS, false},
+		{"B10_Balanced_MapShape", OptBalanced | OptMapShape, false},
+		{"B11_Balanced_FSST", OptBalanced | OptFSST, true},
+		{"B12_Compression_FSST_ColIndex", OptCompression | OptFSST | OptColumnIndex, true},
 	}
 }
 
