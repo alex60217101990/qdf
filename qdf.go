@@ -9,9 +9,10 @@
 //
 //	OptSpeed       — Fast mode, no codecs (matches encoding/json shape)
 //	OptBalanced    — Dense + QPack + shape interning + Markov-1 + MTF
-//	OptCompression — OptBalanced + heavier float codecs: Gorilla XOR for
-//	                 smooth time-series and ALP for quantized/decimal
-//	                 float64 (large wire reduction at higher encode CPU)
+//	OptCompression — OptBalanced + heavier codecs: Gorilla XOR and ALP for
+//	                 float series, a final order-0 rANS entropy pass, and
+//	                 FSST for columnar string columns (large wire reduction
+//	                 at higher encode CPU)
 //
 // A single decoder handles every variant; the wire header self-
 // describes the dialect.
@@ -97,6 +98,29 @@
 // decoding the whole thing — see docs/PREDICATE-PUSHDOWN.md for the full
 // guide, rationale, and tutorial.
 //
+// # Structural delta
+//
+// Diff(old, new, opts) computes a patch carrying only the locations that
+// changed; Apply(&base, patch) merges it back in place. The patch is
+// self-describing — the receiver never has to know which Options produced it —
+// and far smaller than a re-encode because unchanged fields, elements, and keys
+// cost no bytes. Slices whose elements have a stable identity field tagged ",key"
+// match by key (cheap reorder / middle edit) instead of by position, and an
+// equal-length columnar batch is diffed column-by-column when that wins. Two
+// fingerprints guard Apply against the wrong type or the wrong base.
+// BaselineRegistry[T] applies a chain of patches in a state-sync stream without
+// threading the previous value by hand. See docs/DELTA.md.
+//
+// # Canonical encoding
+//
+// OptCanonical makes the same logical value serialize to byte-identical output:
+// map keys are emitted in sorted order (every key kind) and floats are
+// normalized (-0.0 → +0.0, any NaN → one quiet NaN). The bytes are then safe to
+// hash, sign, content-address, or deduplicate. It is encode-side only and
+// decodes like any other qdf output; it is lossy for the sign of zero and the
+// NaN payload, so use the default mode for a bit-exact float round-trip. See
+// docs/CANONICAL.md.
+//
 // See docs/USAGE.md in the repository for a fuller guide.
 //
 // # Public API surface
@@ -130,6 +154,16 @@
 //	func MarshalT[T any](v T, opts Options) ([]byte, error)
 //	func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error)
 //	func UnmarshalT[T any](data []byte) (T, error)
+//
+// Structural delta — patch / merge two values, key-matched slices, and
+// content-addressed baselines for state-sync streams (files: delta.go,
+// delta_baseline.go):
+//
+//	func Diff[T any](old, new T, opts Options) ([]byte, error)
+//	func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error)
+//	func Apply[T any](base *T, patch []byte) error
+//	func ApplyArena[T any](base *T, patch []byte, arena *Arena) error
+//	type BaselineRegistry[T any]   // NewBaselineRegistry / Register / Apply / Len
 //
 // Low-level encoder / decoder for callers driving the wire directly
 // or interoperating with the qdfgen code generator (files:
@@ -321,10 +355,12 @@ const (
 
 	// OptCompression bundles every codec that the encoder will spend
 	// CPU on for wire-size gains. On top of OptBalanced it adds
-	// OptGorillaFloat (Gorilla XOR for float slices), which trades
-	// encode/decode CPU for wire size, so it stays out of the
-	// OptBalanced default; future heavy codecs (rANS, dictionary
-	// preloading) will land in this bundle without breaking the name.
+	// OptGorillaFloat (Gorilla XOR for float slices), OptRANS (a final
+	// order-0 rANS entropy pass over the whole body), and OptFSST (the
+	// FSST string codec for columnar string columns). Each trades
+	// encode/decode CPU for wire size, which is why they stay out of the
+	// OptBalanced default; future heavy codecs land in this bundle without
+	// breaking the name.
 	OptCompression Options = OptBalanced | OptGorillaFloat | OptRANS | OptFSST
 )
 
