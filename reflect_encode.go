@@ -1306,10 +1306,10 @@ func encodeIface(e *Encoder, p unsafe.Pointer) error {
 // generic encodeReflect path would take for the slice header. It is byte- and
 // behavior-identical to the descOf([]any).encode closure (encodeSlice): a []any
 // element carries no columnar plan, so that path reduces to nil-guard + depth
-// guard + WriteArrayHeader + per-element encodeIface — exactly what this does.
-// The probe-and-grow buffer pre-sizing in encodeSlice is a capacity optimization
-// only and does not affect the emitted bytes, so it is omitted here. The pointer
-// is not retained, so the caller's &tv stays on the stack.
+// guard + WriteArrayHeader + per-element encodeIface — exactly what this does,
+// including the probe-and-grow buffer pre-sizing that avoids the log(n) realloc
+// chain on large arrays. The pointer is not retained, so the caller's &tv stays
+// on the stack.
 func encodeSliceAny(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) { // nil slice → tagNil (distinct from empty)
 		return nil
@@ -1324,10 +1324,33 @@ func encodeSliceAny(e *Encoder, p unsafe.Pointer) error {
 		defer func() { e.depth-- }()
 	}
 	s := *(*[]any)(p)
-	e.WriteArrayHeader(len(s))
-	for i := range s {
-		// encodeIface applies its own per-element depth guard then dispatches via
-		// encodeReflect — identical to elem.encode for an interface element.
+	n := len(s)
+	e.WriteArrayHeader(n)
+	// encodeIface applies its own per-element depth guard then dispatches via
+	// encodeReflect — identical to elem.encode for an interface element.
+	const probe = 32
+	if n <= probe {
+		for i := range s {
+			if err := encodeIface(e, unsafe.Pointer(&s[i])); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	probeStart := len(e.buf)
+	for i := range probe {
+		if err := encodeIface(e, unsafe.Pointer(&s[i])); err != nil {
+			return err
+		}
+	}
+	// Project the remaining size from the probe (+25% slack) and grow once,
+	// killing the doubling chain on large dynamic arrays.
+	if probeBytes := len(e.buf) - probeStart; probeBytes > 0 {
+		projected := probeBytes * (n - probe) / probe
+		projected += projected >> 2
+		e.buf = slices.Grow(e.buf, projected)
+	}
+	for i := probe; i < n; i++ {
 		if err := encodeIface(e, unsafe.Pointer(&s[i])); err != nil {
 			return err
 		}
