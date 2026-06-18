@@ -574,6 +574,34 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 	w := &g.body
 
+	// DecodeQDF holds the field-reading body and operates on a SHARED decoder,
+	// advancing it. It lets a parent thread one decoder through nested values
+	// (via qdf.DecodeNested) instead of opening a fresh decoder per nested value.
+	// noCopy / arena live on the shared decoder, so nested decodes inherit them.
+	fmt.Fprintf(w, "// DecodeQDF reads v's fields from the shared decoder d, advancing it. It lets\n")
+	fmt.Fprintf(w, "// a parent thread one decoder through nested values (see qdf.DecodeNested).\n")
+	fmt.Fprintf(w, "func (v *%s) DecodeQDF(d *qdf.Decoder) error {\n", typeName)
+	fmt.Fprintf(w, "\tn, err := d.ReadMapHeader()\n")
+	fmt.Fprintf(w, "\tif err != nil {\n\t\treturn err\n\t}\n")
+	fmt.Fprintf(w, "\tfor range n {\n")
+	fmt.Fprintf(w, "\t\tkb, err := d.ReadStringBytes()\n")
+	fmt.Fprintf(w, "\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
+	fmt.Fprintf(w, "\t\tswitch string(kb) {\n")
+	for _, f := range fields {
+		fmt.Fprintf(w, "\t\tcase %q:\n", f.WireKey)
+		if err := g.emitDecodeValue(w, "v."+f.Access, f.Field.Type(), "\t\t\t"); err != nil {
+			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
+		}
+	}
+	fmt.Fprintf(w, "\t\tdefault:\n")
+	fmt.Fprintf(w, "\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n")
+	fmt.Fprintf(w, "\t\t}\n")
+	fmt.Fprintf(w, "\t}\n")
+	fmt.Fprintf(w, "\treturn nil\n")
+	fmt.Fprintf(w, "}\n\n")
+
+	// Wrappers: open one decoder, set flags, consume the stream header, delegate
+	// the field reading to DecodeQDF, and report the bytes consumed.
 	fmt.Fprintf(w, "// UnmarshalQDF decodes a qdf payload into v and returns the number of\n")
 	fmt.Fprintf(w, "// bytes consumed.\n")
 	fmt.Fprintf(w, "func (v *%s) UnmarshalQDF(src []byte) (int, error) {\n", typeName)
@@ -592,28 +620,14 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "\td := qdf.NewDecoderOnBuf(src)\n")
 	fmt.Fprintf(w, "\tif noCopy {\n\t\td.SetNoCopy(true)\n\t}\n")
 	fmt.Fprintf(w, "\tif a != nil {\n\t\td.SetArena(a)\n\t}\n")
-	// If src starts with QDF magic this is a top-level decode; otherwise
-	// a nested call from a parent decoder that already consumed the
-	// header.
-	fmt.Fprintf(w, "\tif !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {\n")
+	// If src starts with QDF magic this is a top-level decode (the first read
+	// consumes the header); otherwise a nested call from a parent decoder that
+	// already consumed the header.
+	fmt.Fprintf(w, "\thasHeader := len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2\n")
+	fmt.Fprintf(w, "\tif !hasHeader {\n")
 	fmt.Fprintf(w, "\t\td.MarkHeaderRead()\n")
 	fmt.Fprintf(w, "\t}\n")
-	fmt.Fprintf(w, "\tn, err := d.ReadMapHeader()\n")
-	fmt.Fprintf(w, "\tif err != nil {\n\t\treturn 0, err\n\t}\n")
-	fmt.Fprintf(w, "\tfor range n {\n")
-	fmt.Fprintf(w, "\t\tkb, err := d.ReadStringBytes()\n")
-	fmt.Fprintf(w, "\t\tif err != nil {\n\t\t\treturn 0, err\n\t\t}\n")
-	fmt.Fprintf(w, "\t\tswitch string(kb) {\n")
-	for _, f := range fields {
-		fmt.Fprintf(w, "\t\tcase %q:\n", f.WireKey)
-		if err := g.emitDecodeValue(w, "v."+f.Access, f.Field.Type(), "\t\t\t"); err != nil {
-			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
-		}
-	}
-	fmt.Fprintf(w, "\t\tdefault:\n")
-	fmt.Fprintf(w, "\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n")
-	fmt.Fprintf(w, "\t\t}\n")
-	fmt.Fprintf(w, "\t}\n")
+	fmt.Fprintf(w, "\tif err := v.DecodeQDF(d); err != nil {\n\t\treturn 0, err\n\t}\n")
 	fmt.Fprintf(w, "\treturn d.Pos(), nil\n")
 	fmt.Fprintf(w, "}\n\n")
 	return nil
@@ -786,7 +800,7 @@ func (g *gen) emitDecodeValue(w io.Writer, lhs string, t types.Type, indent stri
 		nsecTmp := g.fresh("nsec")
 		fmt.Fprintf(w, "%s{\n", indent)
 		fmt.Fprintf(w, "%s\t%s, %s, err := d.ReadTimestamp()\n", indent, secTmp, nsecTmp)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		g.imports["time"] = ""
 		fmt.Fprintf(w, "%s\t%s = time.Unix(%s, int64(%s)).UTC()\n", indent, lhs, secTmp, nsecTmp)
 		fmt.Fprintf(w, "%s}\n", indent)
@@ -810,7 +824,7 @@ func (g *gen) emitDecodeValue(w io.Writer, lhs string, t types.Type, indent stri
 		// Empty interface (any): decode the dynamic value via the runtime,
 		// mirroring the e.EncodeValue emitted on the encode side.
 		if tt.NumMethods() == 0 {
-			fmt.Fprintf(w, "%sif err := d.DecodeValue(&%s); err != nil {\n%s\treturn 0, err\n%s}\n", indent, lhs, indent, indent)
+			fmt.Fprintf(w, "%sif err := d.DecodeValue(&%s); err != nil {\n%s\treturn err\n%s}\n", indent, lhs, indent, indent)
 			return nil
 		}
 		return fmt.Errorf("non-empty interface fields are not supported by qdfgen")
@@ -824,7 +838,7 @@ func (g *gen) emitDecodeBasic(w io.Writer, lhs string, b *types.Basic, indent st
 	switch k := b.Kind(); k {
 	case types.Bool:
 		fmt.Fprintf(w, "%s{\n%s\t%s, err := d.ReadBool()\n", indent, indent, tmp)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\t%s = %s\n%s}\n", indent, lhs, tmp, indent)
 	case types.Int:
 		g.emitDecodeIntoInt(w, lhs, "int", indent, tmp)
@@ -850,15 +864,15 @@ func (g *gen) emitDecodeBasic(w io.Writer, lhs string, b *types.Basic, indent st
 		g.emitDecodeIntoUint(w, lhs, "uintptr", indent, tmp)
 	case types.Float32:
 		fmt.Fprintf(w, "%s{\n%s\t%s, err := d.ReadFloat32()\n", indent, indent, tmp)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\t%s = %s\n%s}\n", indent, lhs, tmp, indent)
 	case types.Float64:
 		fmt.Fprintf(w, "%s{\n%s\t%s, err := d.ReadFloat64()\n", indent, indent, tmp)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\t%s = %s\n%s}\n", indent, lhs, tmp, indent)
 	case types.String:
 		fmt.Fprintf(w, "%s{\n%s\t%s, err := d.ReadString()\n", indent, indent, tmp)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\t%s = %s\n%s}\n", indent, lhs, tmp, indent)
 	default:
 		return fmt.Errorf("unsupported basic kind %v", k)
@@ -868,13 +882,13 @@ func (g *gen) emitDecodeBasic(w io.Writer, lhs string, b *types.Basic, indent st
 
 func (g *gen) emitDecodeIntoInt(w io.Writer, lhs, target, indent, tmp string) {
 	fmt.Fprintf(w, "%s{\n%s\t%s, err := d.ReadInt()\n", indent, indent, tmp)
-	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s\t%s = %s(%s)\n%s}\n", indent, lhs, target, tmp, indent)
 }
 
 func (g *gen) emitDecodeIntoUint(w io.Writer, lhs, target, indent, tmp string) {
 	fmt.Fprintf(w, "%s{\n%s\t%s, err := d.ReadUint()\n", indent, indent, tmp)
-	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s\t%s = %s(%s)\n%s}\n", indent, lhs, target, tmp, indent)
 }
 
@@ -899,19 +913,14 @@ func (g *gen) emitDecodeNamed(w io.Writer, lhs string, n *types.Named, indent st
 		default:
 			return fmt.Errorf("unsupported named basic kind %v", k)
 		}
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\t%s = %s(%s)\n", indent, lhs, g.typeRef(n), tmp)
 		fmt.Fprintf(w, "%s}\n", indent)
 		return nil
 	case *types.Struct:
-		// Nested struct: dispatch on the remaining bytes, threading noCopy so
-		// nested string/[]byte fields alias the buffer too when requested.
-		tmp := g.fresh("nn")
-		fmt.Fprintf(w, "%s{\n", indent)
-		fmt.Fprintf(w, "%s\t%s, err := qdf.UnmarshalNestedArena(&%s, d.RemainingBytes(), noCopy, a)\n", indent, tmp, lhs)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
-		fmt.Fprintf(w, "%s\td.Advance(%s)\n", indent, tmp)
-		fmt.Fprintf(w, "%s}\n", indent)
+		// Nested struct: thread the shared decoder (no new decoder; the nested
+		// DecodeQDF inherits d's noCopy / arena).
+		fmt.Fprintf(w, "%sif err := qdf.DecodeNested(d, &%s); err != nil {\n%s\treturn err\n%s}\n", indent, lhs, indent, indent)
 		return nil
 	case *types.Slice, *types.Array, *types.Map, *types.Pointer:
 		return g.emitDecodeValue(w, lhs, ut, indent)
@@ -923,7 +932,7 @@ func (g *gen) emitDecodeNamed(w io.Writer, lhs string, n *types.Named, indent st
 func (g *gen) emitDecodePointer(w io.Writer, lhs string, p *types.Pointer, indent string) error {
 	fmt.Fprintf(w, "%s{\n", indent)
 	fmt.Fprintf(w, "%s\tisNil, err := d.IsNil()\n", indent)
-	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s\tif isNil {\n%s\t\t%s = nil\n%s\t} else {\n", indent, indent, lhs, indent)
 
 	elem := p.Elem()
@@ -931,17 +940,14 @@ func (g *gen) emitDecodePointer(w io.Writer, lhs string, p *types.Pointer, inden
 		secTmp := g.fresh("sec")
 		nsecTmp := g.fresh("nsec")
 		fmt.Fprintf(w, "%s\t\t%s, %s, err := d.ReadTimestamp()\n", indent, secTmp, nsecTmp)
-		fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, indent, indent)
 		g.imports["time"] = ""
 		fmt.Fprintf(w, "%s\t\tt := time.Unix(%s, int64(%s)).UTC()\n", indent, secTmp, nsecTmp)
 		fmt.Fprintf(w, "%s\t\t%s = &t\n", indent, lhs)
 	} else if named, ok := elem.(*types.Named); ok {
 		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
-			tmp := g.fresh("nn")
 			fmt.Fprintf(w, "%s\t\t%s = new(%s)\n", indent, lhs, g.typeRef(named))
-			fmt.Fprintf(w, "%s\t\t%s, err := qdf.UnmarshalNestedArena(%s, d.RemainingBytes(), noCopy, a)\n", indent, tmp, lhs)
-			fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
-			fmt.Fprintf(w, "%s\t\td.Advance(%s)\n", indent, tmp)
+			fmt.Fprintf(w, "%s\t\tif err := qdf.DecodeNested(d, %s); err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, lhs, indent, indent)
 		} else {
 			// Named non-struct element (e.g. *Label where type Label string):
 			// route through emitDecodeNamed so it emits the Label(tmp) conversion.
@@ -968,10 +974,10 @@ func (g *gen) emitDecodeSlice(w io.Writer, lhs string, s *types.Slice, indent st
 	if b, ok := elem.(*types.Basic); ok && b.Kind() == types.Uint8 {
 		fmt.Fprintf(w, "%s{\n", indent)
 		fmt.Fprintf(w, "%s\tisNil, err := d.IsNil()\n", indent)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\tif isNil {\n%s\t\t%s = nil\n%s\t} else {\n", indent, indent, lhs, indent)
 		fmt.Fprintf(w, "%s\t\t_v, err := d.ReadBytes()\n", indent)
-		fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\t\t%s = _v\n", indent, lhs)
 		fmt.Fprintf(w, "%s\t}\n", indent)
 		fmt.Fprintf(w, "%s}\n", indent)
@@ -979,15 +985,15 @@ func (g *gen) emitDecodeSlice(w io.Writer, lhs string, s *types.Slice, indent st
 	}
 	fmt.Fprintf(w, "%s{\n", indent)
 	fmt.Fprintf(w, "%s\tisNil, err := d.IsNil()\n", indent)
-	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s\tif isNil {\n%s\t\t%s = nil\n%s\t} else {\n", indent, indent, lhs, indent)
 	nVar := g.fresh("n")
 	fmt.Fprintf(w, "%s\t\t%s, err := d.ReadArrayHeader()\n", indent, nVar)
-	fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, indent, indent)
 	// Bound the allocation by remaining input so a hostile length header
 	// can't trigger a multi-GB make before any element is read (matches the
 	// reflect decoder's CheckLength gate).
-	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, nVar, indent, indent)
+	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, nVar, indent, indent)
 	fmt.Fprintf(w, "%s\t\t%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%s\t\tfor %s := range %s {\n", indent, loopVar, nVar)
@@ -1008,7 +1014,7 @@ func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent st
 		bv := g.fresh("ab")
 		fmt.Fprintf(w, "%s{\n", indent)
 		fmt.Fprintf(w, "%s\t%s, err := d.ReadStringBytes()\n", indent, bv)
-		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%s\tif len(%s) != %d {\n%s\t\treturn 0, qdf.ErrTypeMismatch\n%s\t}\n", indent, bv, a.Len(), indent, indent)
 		fmt.Fprintf(w, "%s\tcopy(%s[:], %s)\n", indent, lhs, bv)
 		fmt.Fprintf(w, "%s}\n", indent)
@@ -1017,7 +1023,7 @@ func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent st
 	fmt.Fprintf(w, "%s{\n", indent)
 	nVar := g.fresh("n")
 	fmt.Fprintf(w, "%s\t%s, err := d.ReadArrayHeader()\n", indent, nVar)
-	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s\tif %s != %d {\n%s\t\treturn 0, qdf.ErrTypeMismatch\n%s\t}\n", indent, nVar, a.Len(), indent, indent)
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%s\tfor %s := range %d {\n", indent, loopVar, a.Len())
@@ -1032,16 +1038,16 @@ func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent st
 func (g *gen) emitDecodeMap(w io.Writer, lhs string, m *types.Map, indent string) error {
 	fmt.Fprintf(w, "%s{\n", indent)
 	fmt.Fprintf(w, "%s\tisNil, err := d.IsNil()\n", indent)
-	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn 0, err\n%s\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s\tif isNil {\n%s\t\t%s = nil\n%s\t} else {\n", indent, indent, lhs, indent)
 	nVar := g.fresh("n")
 	fmt.Fprintf(w, "%s\t\t%s, err := d.ReadMapHeader()\n", indent, nVar)
-	fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, indent, indent)
 	keyExpr := g.typeExprFromType(m.Key())
 	valExpr := g.typeExprFromType(m.Elem())
 	// Each map entry is at least two wire bytes (key + value); CheckLength(n,1)
 	// conservatively bounds the alloc by remaining input against a hostile count.
-	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn 0, err\n%s\t\t}\n", indent, nVar, indent, indent)
+	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, nVar, indent, indent)
 	fmt.Fprintf(w, "%s\t\t%s = make(map[%s]%s, %s)\n", indent, lhs, keyExpr, valExpr, nVar)
 	fmt.Fprintf(w, "%s\t\tfor range %s {\n", indent, nVar)
 	kVar := g.fresh("k")
@@ -1053,7 +1059,7 @@ func (g *gen) emitDecodeMap(w io.Writer, lhs string, m *types.Map, indent string
 	if b, ok := m.Key().Underlying().(*types.Basic); ok && b.Kind() == types.String {
 		kbVar := g.fresh("kb")
 		fmt.Fprintf(w, "%s\t\t\t%s, err := d.ReadStringBytes()\n", indent, kbVar)
-		fmt.Fprintf(w, "%s\t\t\tif err != nil { return 0, err }\n", indent)
+		fmt.Fprintf(w, "%s\t\t\tif err != nil { return err }\n", indent)
 		// InternKey returns string; a defined string key type (e.g. type K string)
 		// needs an explicit conversion. keyExpr is "string" for a plain key, so
 		// the conversion is a harmless no-op there.
