@@ -551,16 +551,27 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "\treturn e.Bytes(), nil\n")
 	fmt.Fprintf(w, "}\n\n")
 
+	// Shape-interning state for this type: a stable per-type token the encoder
+	// keys the field-name shape on, and the field-name headers in field order.
+	// EncodeQDF declares the shape once per encoder (StructShape) so a slice of
+	// this struct threaded through one encoder writes the names once.
+	shapeTok := fmt.Sprintf("qdfShapeTok_%s", typeName)
+	hdrsVar := fmt.Sprintf("qdfFieldHdrs_%s", typeName)
+	hdrNames := make([]string, len(fields))
+	for i, f := range fields {
+		hdrNames[i] = g.fieldNameVar(f.WireKey)
+	}
+	fmt.Fprintf(w, "var %s byte\n", shapeTok)
+	fmt.Fprintf(w, "var %s = [][]byte{%s}\n\n", hdrsVar, strings.Join(hdrNames, ", "))
+
 	// Encoder-based body — writes v's fields into a shared encoder. A parent
 	// threads one encoder through nested values via qdf.EncodeNested, avoiding
 	// the per-nested-value *Encoder allocation the buffer-based path costs.
 	fmt.Fprintf(w, "// EncodeQDF writes v's fields into e. It lets a parent thread one encoder\n")
 	fmt.Fprintf(w, "// through nested values instead of allocating an encoder per value.\n")
 	fmt.Fprintf(w, "func (v *%s) EncodeQDF(e *qdf.Encoder) error {\n", typeName)
-	fmt.Fprintf(w, "\te.WriteMapHeader(%d)\n", len(fields))
+	fmt.Fprintf(w, "\te.StructShape(&%s, %s)\n", shapeTok, hdrsVar)
 	for _, f := range fields {
-		hdrVar := g.fieldNameVar(f.WireKey)
-		fmt.Fprintf(w, "\te.AppendBytes(%s)\n", hdrVar)
 		expr := "v." + f.Access
 		if err := g.emitEncodeValue(w, expr, f.Field.Type(), "\t"); err != nil {
 			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
@@ -581,21 +592,35 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "// DecodeQDF reads v's fields from the shared decoder d, advancing it. It lets\n")
 	fmt.Fprintf(w, "// a parent thread one decoder through nested values (see qdf.DecodeNested).\n")
 	fmt.Fprintf(w, "func (v *%s) DecodeQDF(d *qdf.Decoder) error {\n", typeName)
-	fmt.Fprintf(w, "\tn, err := d.ReadMapHeader()\n")
+	fmt.Fprintf(w, "\tnames, plainN, shaped, err := d.ReadStructHeader()\n")
 	fmt.Fprintf(w, "\tif err != nil {\n\t\treturn err\n\t}\n")
-	fmt.Fprintf(w, "\tfor range n {\n")
+	fmt.Fprintf(w, "\tif shaped {\n")
+	fmt.Fprintf(w, "\t\tfor _, name := range names {\n")
+	fmt.Fprintf(w, "\t\t\tif err := v.decodeQDFField(d, name); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n")
+	fmt.Fprintf(w, "\t\t}\n")
+	fmt.Fprintf(w, "\t\treturn nil\n")
+	fmt.Fprintf(w, "\t}\n")
+	fmt.Fprintf(w, "\tfor range plainN {\n")
 	fmt.Fprintf(w, "\t\tkb, err := d.ReadStringBytes()\n")
 	fmt.Fprintf(w, "\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
-	fmt.Fprintf(w, "\t\tswitch string(kb) {\n")
+	fmt.Fprintf(w, "\t\tif err := v.decodeQDFField(d, string(kb)); err != nil {\n\t\t\treturn err\n\t\t}\n")
+	fmt.Fprintf(w, "\t}\n")
+	fmt.Fprintf(w, "\treturn nil\n")
+	fmt.Fprintf(w, "}\n\n")
+
+	// decodeQDFField decodes one field by wire name from the shared decoder. The
+	// switch is shared by both DecodeQDF loops (shape-interned and plain-map), so
+	// the field-reading code is emitted once.
+	fmt.Fprintf(w, "func (v *%s) decodeQDFField(d *qdf.Decoder, name string) error {\n", typeName)
+	fmt.Fprintf(w, "\tswitch name {\n")
 	for _, f := range fields {
-		fmt.Fprintf(w, "\t\tcase %q:\n", f.WireKey)
-		if err := g.emitDecodeValue(w, "v."+f.Access, f.Field.Type(), "\t\t\t"); err != nil {
+		fmt.Fprintf(w, "\tcase %q:\n", f.WireKey)
+		if err := g.emitDecodeValue(w, "v."+f.Access, f.Field.Type(), "\t\t"); err != nil {
 			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
 		}
 	}
-	fmt.Fprintf(w, "\t\tdefault:\n")
-	fmt.Fprintf(w, "\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n")
-	fmt.Fprintf(w, "\t\t}\n")
+	fmt.Fprintf(w, "\tdefault:\n")
+	fmt.Fprintf(w, "\t\tif err := d.Skip(); err != nil {\n\t\t\treturn err\n\t\t}\n")
 	fmt.Fprintf(w, "\t}\n")
 	fmt.Fprintf(w, "\treturn nil\n")
 	fmt.Fprintf(w, "}\n\n")
