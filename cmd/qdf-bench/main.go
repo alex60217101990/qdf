@@ -59,6 +59,16 @@ var bundles = []struct {
 // qdf as most callers would run it.
 const summaryBundle = "Balanced"
 
+// bundleOpts returns the qdf.Options for a bundle name (falls back to Balanced).
+func bundleOpts(name string) qdf.Options {
+	for _, b := range bundles {
+		if b.name == name {
+			return b.opts
+		}
+	}
+	return qdf.OptBalanced
+}
+
 // mapDecModes is the decode-option axis for the map representation. The decode
 // QueryOptions (WithNoCopy / WithArena) only ride on the dynamic Unmarshal path;
 // the typed UnmarshalT API takes no options, so typed rows only ever run "copy".
@@ -258,6 +268,8 @@ func main() {
 	w.Flush()
 
 	printSummary(sumQTyped, sumJTyped, sumMTyped, sumQMap, sumJMap, sumMMap)
+	printCodegen(*iters, typed)
+	printStreaming(*iters, typed, dyn)
 
 	var ru syscall.Rusage
 	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) == nil {

@@ -153,3 +153,19 @@ type Privilege struct {
 	Name         string   `json:"Name"`
 	AssignedSIDs []string `json:"AssignedSIDs"`
 }
+
+// GenService and GenTask are codegen counterparts of Service and Task, used by
+// the bench's codegen-vs-reflect comparison. They are distinct defined types so
+// the qdfgen-generated MarshalQDF/UnmarshalQDF methods land on THEM, leaving the
+// real Service / Task on the reflection path (and the typed×bundle matrix
+// honoring Options — a Marshaler ignores Options by contract). GenTask carries
+// the same map[string]any Definition field, so it also exercises codegen's
+// dynamic-value fallback (Encoder.EncodeValue / Decoder.DecodeValue) on real
+// data — proving code generation handles arbitrary values, not only static
+// schema. They are zero-cost conversions of the real types (identical layout).
+//
+//go:generate go run github.com/alex60217101990/qdf/cmd/qdfgen -type GenService,GenTask -output types_qdf_gen.go .
+type (
+	GenService Service
+	GenTask    Task
+)
