@@ -107,7 +107,6 @@ func TestRoundtripMatrix(t *testing.T) {
 		}
 
 		for _, b := range bundles {
-			b := b
 			t.Run(fmt.Sprintf("%s/typed/%s", name, b.name), func(t *testing.T) {
 				buf, err := qdf.MarshalT(*info, b.opts)
 				if err != nil {
@@ -123,7 +122,6 @@ func TestRoundtripMatrix(t *testing.T) {
 			})
 
 			for _, dm := range mapDecModes {
-				dm := dm
 				t.Run(fmt.Sprintf("%s/map/%s/%s", name, b.name, dm.name), func(t *testing.T) {
 					buf, err := qdf.Marshal(m, b.opts)
 					if err != nil {

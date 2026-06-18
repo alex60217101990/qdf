@@ -149,10 +149,7 @@ func liveHeapKiB(reset, produce func()) int64 {
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
 	reset() // drop the held results so they don't linger across the whole run
-	d := int64(m1.HeapAlloc) - int64(m0.HeapAlloc)
-	if d < 0 {
-		d = 0
-	}
+	d := max(int64(m1.HeapAlloc)-int64(m0.HeapAlloc), 0)
 	return d / int64(liveSamples) / 1024
 }
 
