@@ -87,6 +87,152 @@ func (v *GenService) EncodeQDF(e *qdf.Encoder) error {
 	return nil
 }
 
+// DecodeQDF reads v's fields from the shared decoder d, advancing it. It lets
+// a parent thread one decoder through nested values (see qdf.DecodeNested).
+func (v *GenService) DecodeQDF(d *qdf.Decoder) error {
+	n, err := d.ReadMapHeader()
+	if err != nil {
+		return err
+	}
+	for range n {
+		kb, err := d.ReadStringBytes()
+		if err != nil {
+			return err
+		}
+		switch string(kb) {
+		case "RegistryOwner":
+			{
+				rv15, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.RegistryOwner = rv15
+			}
+		case "RegistryDACL":
+			{
+				rv16, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.RegistryDACL = rv16
+			}
+		case "Name":
+			{
+				rv17, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.Name = rv17
+			}
+		case "DisplayName":
+			{
+				rv18, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.DisplayName = rv18
+			}
+		case "Description":
+			{
+				rv19, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.Description = rv19
+			}
+		case "ImagePath":
+			{
+				rv20, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.ImagePath = rv20
+			}
+		case "ImageExecutable":
+			{
+				rv21, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.ImageExecutable = rv21
+			}
+		case "ImageExecutableOwner":
+			{
+				rv22, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.ImageExecutableOwner = rv22
+			}
+		case "ImageExecutableDACL":
+			{
+				rv23, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.ImageExecutableDACL = rv23
+			}
+		case "Start":
+			{
+				rv24, err := d.ReadInt()
+				if err != nil {
+					return err
+				}
+				v.Start = int(rv24)
+			}
+		case "Type":
+			{
+				rv25, err := d.ReadInt()
+				if err != nil {
+					return err
+				}
+				v.Type = int(rv25)
+			}
+		case "Account":
+			{
+				rv26, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.Account = rv26
+			}
+		case "RequiredPrivileges":
+			{
+				isNil, err := d.IsNil()
+				if err != nil {
+					return err
+				}
+				if isNil {
+					v.RequiredPrivileges = nil
+				} else {
+					n27, err := d.ReadArrayHeader()
+					if err != nil {
+						return err
+					}
+					if err := d.CheckLength(n27, 1); err != nil {
+						return err
+					}
+					v.RequiredPrivileges = make([]string, n27)
+					for i28 := range n27 {
+						{
+							rv29, err := d.ReadString()
+							if err != nil {
+								return err
+							}
+							v.RequiredPrivileges[i28] = rv29
+						}
+					}
+				}
+			}
+		default:
+			if err := d.Skip(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *GenService) UnmarshalQDF(src []byte) (int, error) {
@@ -111,148 +257,12 @@ func (v *GenService) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (i
 	if a != nil {
 		d.SetArena(a)
 	}
-	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
+	hasHeader := len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2
+	if !hasHeader {
 		d.MarkHeaderRead()
 	}
-	n, err := d.ReadMapHeader()
-	if err != nil {
+	if err := v.DecodeQDF(d); err != nil {
 		return 0, err
-	}
-	for range n {
-		kb, err := d.ReadStringBytes()
-		if err != nil {
-			return 0, err
-		}
-		switch string(kb) {
-		case "RegistryOwner":
-			{
-				rv15, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.RegistryOwner = rv15
-			}
-		case "RegistryDACL":
-			{
-				rv16, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.RegistryDACL = rv16
-			}
-		case "Name":
-			{
-				rv17, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.Name = rv17
-			}
-		case "DisplayName":
-			{
-				rv18, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.DisplayName = rv18
-			}
-		case "Description":
-			{
-				rv19, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.Description = rv19
-			}
-		case "ImagePath":
-			{
-				rv20, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.ImagePath = rv20
-			}
-		case "ImageExecutable":
-			{
-				rv21, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.ImageExecutable = rv21
-			}
-		case "ImageExecutableOwner":
-			{
-				rv22, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.ImageExecutableOwner = rv22
-			}
-		case "ImageExecutableDACL":
-			{
-				rv23, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.ImageExecutableDACL = rv23
-			}
-		case "Start":
-			{
-				rv24, err := d.ReadInt()
-				if err != nil {
-					return 0, err
-				}
-				v.Start = int(rv24)
-			}
-		case "Type":
-			{
-				rv25, err := d.ReadInt()
-				if err != nil {
-					return 0, err
-				}
-				v.Type = int(rv25)
-			}
-		case "Account":
-			{
-				rv26, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.Account = rv26
-			}
-		case "RequiredPrivileges":
-			{
-				isNil, err := d.IsNil()
-				if err != nil {
-					return 0, err
-				}
-				if isNil {
-					v.RequiredPrivileges = nil
-				} else {
-					n27, err := d.ReadArrayHeader()
-					if err != nil {
-						return 0, err
-					}
-					if err := d.CheckLength(n27, 1); err != nil {
-						return 0, err
-					}
-					v.RequiredPrivileges = make([]string, n27)
-					for i28 := range n27 {
-						{
-							rv29, err := d.ReadString()
-							if err != nil {
-								return 0, err
-							}
-							v.RequiredPrivileges[i28] = rv29
-						}
-					}
-				}
-			}
-		default:
-			if err := d.Skip(); err != nil {
-				return 0, err
-			}
-		}
 	}
 	return d.Pos(), nil
 }
@@ -306,6 +316,116 @@ func (v *GenTask) EncodeQDF(e *qdf.Encoder) error {
 	return nil
 }
 
+// DecodeQDF reads v's fields from the shared decoder d, advancing it. It lets
+// a parent thread one decoder through nested values (see qdf.DecodeNested).
+func (v *GenTask) DecodeQDF(d *qdf.Decoder) error {
+	n, err := d.ReadMapHeader()
+	if err != nil {
+		return err
+	}
+	for range n {
+		kb, err := d.ReadStringBytes()
+		if err != nil {
+			return err
+		}
+		switch string(kb) {
+		case "Name":
+			{
+				rv39, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.Name = rv39
+			}
+		case "Path":
+			{
+				rv40, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.Path = rv40
+			}
+		case "Definition":
+			{
+				isNil, err := d.IsNil()
+				if err != nil {
+					return err
+				}
+				if isNil {
+					v.Definition = nil
+				} else {
+					n41, err := d.ReadMapHeader()
+					if err != nil {
+						return err
+					}
+					if err := d.CheckLength(n41, 1); err != nil {
+						return err
+					}
+					v.Definition = make(map[string]any, n41)
+					for range n41 {
+						var k42 string
+						var vv43 any
+						kb44, err := d.ReadStringBytes()
+						if err != nil {
+							return err
+						}
+						k42 = string(d.InternKey(kb44))
+						if err := d.DecodeValue(&vv43); err != nil {
+							return err
+						}
+						v.Definition[k42] = vv43
+					}
+				}
+			}
+		case "Enabled":
+			{
+				rv45, err := d.ReadBool()
+				if err != nil {
+					return err
+				}
+				v.Enabled = rv45
+			}
+		case "State":
+			{
+				rv46, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.State = rv46
+			}
+		case "MissedRuns":
+			{
+				rv47, err := d.ReadInt()
+				if err != nil {
+					return err
+				}
+				v.MissedRuns = int(rv47)
+			}
+		case "NextRunTime":
+			{
+				rv48, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.NextRunTime = rv48
+			}
+		case "LastRunTime":
+			{
+				rv49, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v.LastRunTime = rv49
+			}
+		default:
+			if err := d.Skip(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // UnmarshalQDF decodes a qdf payload into v and returns the number of
 // bytes consumed.
 func (v *GenTask) UnmarshalQDF(src []byte) (int, error) {
@@ -330,112 +450,12 @@ func (v *GenTask) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int,
 	if a != nil {
 		d.SetArena(a)
 	}
-	if !(len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2) {
+	hasHeader := len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2
+	if !hasHeader {
 		d.MarkHeaderRead()
 	}
-	n, err := d.ReadMapHeader()
-	if err != nil {
+	if err := v.DecodeQDF(d); err != nil {
 		return 0, err
-	}
-	for range n {
-		kb, err := d.ReadStringBytes()
-		if err != nil {
-			return 0, err
-		}
-		switch string(kb) {
-		case "Name":
-			{
-				rv39, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.Name = rv39
-			}
-		case "Path":
-			{
-				rv40, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.Path = rv40
-			}
-		case "Definition":
-			{
-				isNil, err := d.IsNil()
-				if err != nil {
-					return 0, err
-				}
-				if isNil {
-					v.Definition = nil
-				} else {
-					n41, err := d.ReadMapHeader()
-					if err != nil {
-						return 0, err
-					}
-					if err := d.CheckLength(n41, 1); err != nil {
-						return 0, err
-					}
-					v.Definition = make(map[string]any, n41)
-					for range n41 {
-						var k42 string
-						var vv43 any
-						kb44, err := d.ReadStringBytes()
-						if err != nil {
-							return 0, err
-						}
-						k42 = string(d.InternKey(kb44))
-						if err := d.DecodeValue(&vv43); err != nil {
-							return 0, err
-						}
-						v.Definition[k42] = vv43
-					}
-				}
-			}
-		case "Enabled":
-			{
-				rv45, err := d.ReadBool()
-				if err != nil {
-					return 0, err
-				}
-				v.Enabled = rv45
-			}
-		case "State":
-			{
-				rv46, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.State = rv46
-			}
-		case "MissedRuns":
-			{
-				rv47, err := d.ReadInt()
-				if err != nil {
-					return 0, err
-				}
-				v.MissedRuns = int(rv47)
-			}
-		case "NextRunTime":
-			{
-				rv48, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.NextRunTime = rv48
-			}
-		case "LastRunTime":
-			{
-				rv49, err := d.ReadString()
-				if err != nil {
-					return 0, err
-				}
-				v.LastRunTime = rv49
-			}
-		default:
-			if err := d.Skip(); err != nil {
-				return 0, err
-			}
-		}
 	}
 	return d.Pos(), nil
 }

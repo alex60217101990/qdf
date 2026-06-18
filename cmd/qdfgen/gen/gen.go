@@ -1015,7 +1015,7 @@ func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent st
 		fmt.Fprintf(w, "%s{\n", indent)
 		fmt.Fprintf(w, "%s\t%s, err := d.ReadStringBytes()\n", indent, bv)
 		fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
-		fmt.Fprintf(w, "%s\tif len(%s) != %d {\n%s\t\treturn 0, qdf.ErrTypeMismatch\n%s\t}\n", indent, bv, a.Len(), indent, indent)
+		fmt.Fprintf(w, "%s\tif len(%s) != %d {\n%s\t\treturn qdf.ErrTypeMismatch\n%s\t}\n", indent, bv, a.Len(), indent, indent)
 		fmt.Fprintf(w, "%s\tcopy(%s[:], %s)\n", indent, lhs, bv)
 		fmt.Fprintf(w, "%s}\n", indent)
 		return nil
@@ -1024,7 +1024,7 @@ func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent st
 	nVar := g.fresh("n")
 	fmt.Fprintf(w, "%s\t%s, err := d.ReadArrayHeader()\n", indent, nVar)
 	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
-	fmt.Fprintf(w, "%s\tif %s != %d {\n%s\t\treturn 0, qdf.ErrTypeMismatch\n%s\t}\n", indent, nVar, a.Len(), indent, indent)
+	fmt.Fprintf(w, "%s\tif %s != %d {\n%s\t\treturn qdf.ErrTypeMismatch\n%s\t}\n", indent, nVar, a.Len(), indent, indent)
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%s\tfor %s := range %d {\n", indent, loopVar, a.Len())
 	if err := g.emitDecodeValue(w, lhs+"["+loopVar+"]", elem, indent+"\t\t"); err != nil {
