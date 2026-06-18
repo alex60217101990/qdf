@@ -53,6 +53,41 @@ func resolveSamplesAndRun(m *testing.M) int {
 	return m.Run()
 }
 
+// TestCodegenAnyField guards the qdfgen interface-field support: GenTask is a
+// code-generated type (MarshalQDF / UnmarshalQDF) carrying a map[string]any
+// Definition, so its round trip exercises the EncodeValue / DecodeValue fallback
+// that lets generated code carry fully dynamic data. A regression that drops
+// that support would either fail to generate or corrupt the dynamic field here.
+func TestCodegenAnyField(t *testing.T) {
+	in := GenTask{
+		Name:    "Defrag",
+		Path:    `\Microsoft\Windows\Defrag`,
+		Enabled: true,
+		State:   "Ready",
+		Definition: map[string]any{
+			"Triggers": []any{
+				map[string]any{"Type": "Daily", "Interval": float64(1), "Enabled": true},
+			},
+			"Actions": []any{map[string]any{"Exec": "defrag.exe", "Args": "-c"}},
+			"Author":  "Microsoft",
+			"Nested":  map[string]any{"a": float64(2), "b": []any{"x", "y"}},
+		},
+	}
+	// GenTask implements Marshaler/Unmarshaler, so Marshal/Unmarshal route through
+	// the generated methods.
+	b, err := qdf.Marshal(in, qdf.OptSpeed)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got GenTask
+	if err := qdf.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(in, got) {
+		t.Fatalf("codegen any-field round-trip mismatch:\n in=%#v\ngot=%#v", in, got)
+	}
+}
+
 // TestRoundtripMatrix round-trips every sample file across the full encode
 // option matrix (and, for the map representation, every decode mode), asserting
 // a lossless DeepEqual on each combination.
