@@ -100,6 +100,14 @@ type stat struct {
 	n                        int
 }
 
+// bundleRow holds one option bundle's measured stats (typed, and the copy-decode
+// map row) for the matrix-vs-baseline overview.
+type bundleRow struct {
+	name    string
+	typed   stat
+	mapCopy stat
+}
+
 func (s *stat) addSer(ns int64, b, allocs uint64) {
 	s.serNs += ns
 	s.serB += b
@@ -227,25 +235,29 @@ func main() {
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "repr\tbundle\tdec\tser_ns\tser_B\tser_alloc\tser_liveKiB\tdeser_ns\tdeser_B\tdeser_alloc\tdeser_liveKiB\twire_B")
 
-	// Stats captured for the final qdf-vs-baseline summary (summaryBundle for qdf,
-	// copy decode mode for the map row so it is comparable to json/msgpack which
-	// have no zero-copy mode).
+	// Stats captured for the summaries. matrix holds every bundle (typed + the
+	// copy-decode map row, the mode comparable to json/msgpack which have no
+	// zero-copy decode) so the matrix-vs-baseline overview can rate every branch;
+	// sumQ* hold summaryBundle for the detailed default-vs-both-baselines table.
+	var matrix []bundleRow
 	var sumQTyped, sumQMap, sumJTyped, sumJMap, sumMTyped, sumMMap stat
 	for _, b := range bundles {
 		tt := benchTyped(*iters, typed, b.opts)
 		printRow(w, "typed", b.name, "copy", tt)
 		// Encode is decode-mode-independent: measure it once, reuse across modes.
 		ser := benchMapSer(*iters, dyn, b.opts)
+		var mapCopy stat
 		for _, dm := range mapDecModes {
 			deser := benchMapDeser(*iters, dyn, b.opts, dm.build, dm.usesArena)
 			row := withDeser(ser, deser)
 			printRow(w, "map", b.name, dm.name, row)
-			if b.name == summaryBundle && dm.name == "copy" {
-				sumQMap = row
+			if dm.name == "copy" {
+				mapCopy = row
 			}
 		}
+		matrix = append(matrix, bundleRow{b.name, tt, mapCopy})
 		if b.name == summaryBundle {
-			sumQTyped = tt
+			sumQTyped, sumQMap = tt, mapCopy
 		}
 	}
 	// Reference codecs on the same data: encoding/json and msgpack, so the qdf
@@ -264,6 +276,7 @@ func main() {
 	}
 	w.Flush()
 
+	printMatrixVsBaseline(matrix, sumMTyped, sumMMap)
 	printSummary(sumQTyped, sumJTyped, sumMTyped, sumQMap, sumJMap, sumMMap)
 	printCodegen(*iters, typed)
 	printStreaming(*iters, typed, dyn)
@@ -573,6 +586,34 @@ func ratio(base, qval uint64) string {
 		return fmt.Sprintf("%.2f× WORSE", r)
 	}
 	return fmt.Sprintf("%.2f×", r)
+}
+
+// printMatrixVsBaseline rates EVERY option bundle against msgpack — the stronger
+// baseline (json is larger and slower across the board) — so the whole qdf matrix
+// can be read against a familiar reference at a glance, not just the default
+// bundle. Each cell is msgpack/qdf for a lower-is-better metric: >1 means that
+// bundle beats msgpack by that factor, <1 is flagged WORSE.
+func printMatrixVsBaseline(matrix []bundleRow, mT, mM stat) {
+	fmt.Printf("\n=== qdf MATRIX vs msgpack — every option bundle rated against msgpack\n" +
+		"    (the stronger baseline; json loses on every metric). ratio = msgpack / qdf\n" +
+		"    (>1 ⇒ qdf better by that factor; <1 ⇒ qdf WORSE) ===\n")
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(w, "repr\tbundle\twire\tser_ns\tser_alloc\tdeser_ns\tdeser_alloc")
+	row := func(repr, name string, q, base stat) {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", repr, name,
+			ratio(avgU(base.wire, base.n), avgU(q.wire, q.n)),
+			ratio(uint64(avgU(uint64(base.serNs), base.n)), uint64(avgU(uint64(q.serNs), q.n))),
+			ratio(avgU(base.serAllocs, base.n), avgU(q.serAllocs, q.n)),
+			ratio(uint64(avgU(uint64(base.deserNs), base.n)), uint64(avgU(uint64(q.deserNs), q.n))),
+			ratio(avgU(base.deserAllocs, base.n), avgU(q.deserAllocs, q.n)))
+	}
+	for _, b := range matrix {
+		row("typed", b.name, b.typed, mT)
+	}
+	for _, b := range matrix {
+		row("map", b.name, b.mapCopy, mM)
+	}
+	w.Flush()
 }
 
 // printSummary prints the headline qdf(summaryBundle)-vs-json-vs-msgpack diff for

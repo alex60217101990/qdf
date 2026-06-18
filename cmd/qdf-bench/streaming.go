@@ -70,8 +70,13 @@ func benchStream(iters int, sc streamCase) streamStat {
 	st.serNs, st.serB, st.serAllocs = streamRounds(iters, encOnce, sc.n)
 
 	// ---- decode ----
+	// Reuse one *bytes.Reader (Reset per call) so the harness's reader allocation
+	// is not attributed to the codec's decode B/op — only the codec's own
+	// per-batch decoder allocation counts.
+	rd := bytes.NewReader(encoded)
 	decOnce := func() {
-		_ = sc.decodeBatch(bytes.NewReader(encoded))
+		rd.Reset(encoded)
+		_ = sc.decodeBatch(rd)
 	}
 	for range min(iters, maxWarmupIters) {
 		decOnce()

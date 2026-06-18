@@ -103,6 +103,24 @@ map    Balanced  arena   2098801 656730 1576      298         2173360  848768  1
   wire size, allocs, and CPU can be read directly against a familiar baseline. A
   reference round-trip that doesn't DeepEqual the source is reported as a warning
   (a reference codec needn't preserve values the way qdf does) and still timed.
+## Comparison tables
+
+After the raw matrix the bench prints two comparison views so the whole matrix can
+be read against the baselines at a glance:
+
+- **qdf MATRIX vs msgpack** — every option bundle (typed and map) rated against
+  msgpack (the stronger baseline; json loses on every metric) as `msgpack / qdf`
+  for wire, ser_ns, ser_alloc, deser_ns, deser_alloc. `>1` means that bundle beats
+  msgpack by that factor; `<1` is flagged `WORSE`. This is the generalized "where
+  does each branch stand vs a familiar codec" view: wire shrinks across the matrix
+  (Speed ≈ msgpack, Compression ~3.3×), allocations are crushed, and the encode-CPU
+  trade (and the opt-in rANS/FSST cost) shows up as the `WORSE` ser_ns cells.
+- **SUMMARY** — the recommended default (`Balanced`) against *both* json and
+  msgpack, every metric, with the same ratio convention. The headline number.
+
+Both tables are deterministic per run; on a thermally-throttling laptop run the
+full `-iters 200` for stable ratios (short runs are noisy on ser_alloc/ser_ns).
+
 - A `whole-process peak RSS` line follows. This is the **whole process**, not a
   per-op cost: it holds all sample files in both representations at once, plus the
   Go runtime baseline, and is a high-water mark inflated by retained (not-yet-
