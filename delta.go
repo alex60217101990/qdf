@@ -241,7 +241,11 @@ func maybeApplyPatchRANS(enc *Encoder, start int) {
 	if len(cand) >= len(body) {
 		return
 	}
-	if uint64(len(body)) > uint64(hdr+len(cand))*64+(1<<20) {
+	// Decline rANS whenever decompressPatchBody would later reject the frame:
+	// it strips the QDP header first and bounds origLen by the post-header body
+	// length (len(cand)), not hdr+len(cand). Using the same measure here keeps
+	// the encoder from ever emitting a patch its own Apply rejects.
+	if uint64(len(body)) > uint64(len(cand))*64+(1<<20) {
 		return
 	}
 	enc.buf = append(enc.buf[:start+hdr], cand...)
