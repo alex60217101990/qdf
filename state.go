@@ -161,8 +161,12 @@ type encState struct {
 	// which have no *typeDesc — keyed on a stable per-type token address the
 	// generated EncodeQDF passes (see Encoder.StructShape). Shares the shapeCount
 	// ID space with shapeBindings / mapShapes so the decoder's single shape table
-	// stays in lockstep.
-	tokenShapes []tokenShape
+	// stays in lockstep. lastTokenPtr/lastTokenID memoise the most recent lookup
+	// so a homogeneous slice (the common case: one token, N elements threaded
+	// through one encoder) hits a single pointer compare, mirroring lastShapeTd.
+	tokenShapes  []tokenShape
+	lastTokenPtr *byte
+	lastTokenID  uint32
 
 	// mapShapes interns recurring map key-sets (OptMapShape), parallel to
 	// shapeBindings but keyed on the key-set rather than a *typeDesc. Shares
@@ -447,6 +451,8 @@ func (e *encState) reset() {
 	} else {
 		e.tokenShapes = e.tokenShapes[:0]
 	}
+	e.lastTokenPtr = nil
+	e.lastTokenID = 0
 	if cap(e.mapShapes) > maxRetainedShapeCap && release {
 		e.mapShapes = nil
 	} else {
@@ -585,8 +591,13 @@ func (e *encState) shapeBindType(t *typeDesc, id uint32) {
 // address in this encoder's state, or 0 if none. Pair with shapeBindToken after
 // a declaration.
 func (e *encState) shapeForToken(token *byte) uint32 {
+	if e.lastTokenPtr == token && e.lastTokenID != 0 {
+		return e.lastTokenID
+	}
 	for i := range e.tokenShapes {
 		if e.tokenShapes[i].token == token {
+			e.lastTokenPtr = token
+			e.lastTokenID = e.tokenShapes[i].id
 			return e.tokenShapes[i].id
 		}
 	}
@@ -595,6 +606,8 @@ func (e *encState) shapeForToken(token *byte) uint32 {
 
 func (e *encState) shapeBindToken(token *byte, id uint32) {
 	e.tokenShapes = append(e.tokenShapes, tokenShape{token: token, id: id})
+	e.lastTokenPtr = token
+	e.lastTokenID = id
 }
 
 // shapeDeclareEnc reserves the next sequential wire ID and returns
