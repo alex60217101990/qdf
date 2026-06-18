@@ -1301,6 +1301,40 @@ func encodeIface(e *Encoder, p unsafe.Pointer) error {
 	}
 	return encodeReflect(e, iv)
 }
+
+// encodeSliceAny encodes a []any without the per-value reflect.New that the
+// generic encodeReflect path would take for the slice header. It is byte- and
+// behavior-identical to the descOf([]any).encode closure (encodeSlice): a []any
+// element carries no columnar plan, so that path reduces to nil-guard + depth
+// guard + WriteArrayHeader + per-element encodeIface — exactly what this does.
+// The probe-and-grow buffer pre-sizing in encodeSlice is a capacity optimization
+// only and does not affect the emitted bytes, so it is omitted here. The pointer
+// is not retained, so the caller's &tv stays on the stack.
+func encodeSliceAny(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) { // nil slice → tagNil (distinct from empty)
+		return nil
+	}
+	// Depth guard mirroring encodeSlice (and Decoder.descend in decodeSlice).
+	if e.maxDepth != 0 {
+		e.depth++
+		if e.depth > e.maxDepth {
+			e.depth--
+			return ErrCycleDetected
+		}
+		defer func() { e.depth-- }()
+	}
+	s := *(*[]any)(p)
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		// encodeIface applies its own per-element depth guard then dispatches via
+		// encodeReflect — identical to elem.encode for an interface element.
+		if err := encodeIface(e, unsafe.Pointer(&s[i])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func decodeIface(d *Decoder, p unsafe.Pointer) error {
 	v, err := decodeAny(d)
 	if err != nil {
@@ -1693,6 +1727,17 @@ func encodeReflect(e *Encoder, v any) error {
 	case []byte:
 		e.WriteBytes(tv)
 		return nil
+	case map[string]any:
+		// Fast path for the dominant dynamic shapes (json.Unmarshal output):
+		// take the address of the local typed copy and hand it to the concrete
+		// generated encoder. This is byte-identical to the general path below
+		// (descOf(map[string]any).encode IS encodeMapStringAny) but skips the
+		// reflect.New + Set copy — and because encodeMapStringAny does not retain
+		// the pointer, &tv stays on the stack, so it is allocation-free. Without
+		// this, every nested map[string]any in an any-tree cost one reflect.New.
+		return encodeMapStringAny(e, unsafe.Pointer(&tv))
+	case []any:
+		return encodeSliceAny(e, unsafe.Pointer(&tv))
 	}
 	rv := reflect.ValueOf(v)
 	t := rv.Type()
