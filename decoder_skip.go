@@ -229,7 +229,6 @@ func (d *Decoder) Skip() error {
 			}
 			cnt = int(cnt64)
 			sh := d.state.shapeDeclare()
-			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
 			for i := 0; i < cnt; i++ {
 				kb, err := d.readStringBytes()
@@ -237,11 +236,6 @@ func (d *Decoder) Skip() error {
 					return err
 				}
 				sh.names = append(sh.names, string(kb))
-				if d.state.lastID != lruInvalidID {
-					sh.keyIDs = append(sh.keyIDs, d.state.lastID)
-				} else {
-					sh.keyIDs = append(sh.keyIDs, 0)
-				}
 			}
 		} else {
 			sh := d.state.shapeLookup(uint32(shapeID))

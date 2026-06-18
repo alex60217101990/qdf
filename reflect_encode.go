@@ -1186,28 +1186,14 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					return err
 				}
 				sh := d.state.shapeDeclare()
-				sh.keyIDs = make([]uint32, 0, cnt)
 				keys := make([]string, 0, cnt)
 				for range cnt {
 					kb, err := d.readStringBytes()
 					if err != nil {
 						return err
 					}
-					// Cache the resolved name. The decoder state's
-					// lastID is updated by readStringBytes for state-ref
-					// variants, so we capture it as the key's intern ID
-					// when available (purely informational; we look up
-					// by name string anyway).
 					keys = append(keys, d.keyCache.Make(kb))
-					if d.state.lastID != lruInvalidID {
-						sh.keyIDs = append(sh.keyIDs, d.state.lastID)
-					} else {
-						sh.keyIDs = append(sh.keyIDs, 0)
-					}
 				}
-				// Attach the field name slice to the shape entry by
-				// stashing it after keyIDs: we reuse a small parallel
-				// slice (the names) keyed by index.
 				sh.names = keys
 				fieldNames = keys
 			} else {
@@ -1546,7 +1532,6 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, err
 			}
 			sh := d.state.shapeDeclare()
-			sh.keyIDs = make([]uint32, 0, cnt)
 			sh.names = make([]string, 0, cnt)
 			for range cnt {
 				kb, err := d.readStringBytes()
@@ -1554,11 +1539,6 @@ func decodeAny(d *Decoder) (any, error) {
 					return nil, err
 				}
 				sh.names = append(sh.names, d.keyCache.Make(kb))
-				if d.state.lastID != lruInvalidID {
-					sh.keyIDs = append(sh.keyIDs, d.state.lastID)
-				} else {
-					sh.keyIDs = append(sh.keyIDs, 0)
-				}
 			}
 			names = sh.names
 		} else {
