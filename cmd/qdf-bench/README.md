@@ -111,6 +111,31 @@ map    Balanced  arena   2098801 656730 1576      298         2173360  848768  1
   MiB — the figure is GC/runtime span retention, not a qdf leak. Use `*_B` and
   `*_liveKiB` for actual per-op memory.
 
+## Codegen vs reflect
+
+After the matrix the bench prints a **codegen** section: the `[]Service` and
+`[]Task` slices gathered from every host, encoded both through the reflection
+path (the real `Service` / `Task` types) and through qdfgen-generated
+`MarshalQDF` / `UnmarshalQDF` (the `GenService` / `GenTask` defined types —
+regenerate with `go generate ./cmd/qdf-bench`). `GenTask` keeps the dynamic
+`map[string]any` Definition field, so its codegen row also proves qdfgen now
+handles interface (`any`) fields via a reflect fallback — code generation is no
+longer limited to fully static schemas.
+
+Reading it: codegen emits a fixed Fast-framed body and **ignores Options** (a
+`Marshaler` is opts-invariant by contract), so it does not get the cross-record
+shape-intern / columnar transposition that `Balanced` reflection applies to a
+homogeneous `[]struct`. On these repetitive slices that makes reflect+`Balanced`
+the smaller, lower-alloc choice; codegen's win is on single / heterogeneous
+records and nested encoder threading, where there is nothing to intern.
+
+## Streaming
+
+A **streaming** section encodes the whole batch through each codec's streaming
+encoder and decodes it back, per value: qdf `StreamEncoder` / `StreamDecoder`
+vs `encoding/json` and msgpack `NewEncoder` / `NewDecoder`, for both the typed
+and map representations. qdf streams the `summaryBundle` options.
+
 ## Profiling
 
 ```sh
@@ -127,6 +152,15 @@ On this data the cumulative allocation is dominated by the dynamic
 every value is boxed in an `interface{}` and every map is allocated. The typed
 struct path allocates ~half as much. String-body copies are the next chunk, and
 are what `nocopy` / `arena` cut.
+
+Profiling already paid off once: it found `encodeReflect` taking a `reflect.New`
+per by-value `any`, so every nested `map[string]any` / `[]any` cost an
+allocation — fixed with concrete fast paths (typed encode 739 → 4 allocs/op,
+map encode 1571 → 5). The remaining encode-CPU gap vs msgpack is the
+intern / shape bookkeeping that buys the 2.4–4× smaller wire (an opt-out via
+`OptSpeed`), plus the opt-in rANS / FSST codecs in the Compression bundles;
+decode is at the structural floor of dynamic Go (interface boxing + map
+allocation + string copies). No further free lever was found.
 
 ## Tests
 
