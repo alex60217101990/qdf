@@ -83,6 +83,21 @@ func printCodegen(iters int, typed []*Info) {
 			return qdf.Unmarshal(b, &out) == nil && reflect.DeepEqual(genTasks, out)
 		},
 		iters)
+
+	// GenHost{Services,Tasks}: the THREADED codegen path — host.MarshalQDF threads
+	// one encoder through every element, so struct field-name shape-interning fires
+	// (names written once per type, not per record). Compare its wire_B to the sum
+	// of the per-record []Service + []Task codegen rows above to see the win; the
+	// bare-slice codegen rows open a fresh encoder per element and can't intern.
+	host := GenHost{Services: genServices, Tasks: genTasks}
+	printCodegenRow(w, "GenHost", "codegen-threaded",
+		func() ([]byte, error) { return qdf.Marshal(host, opts) },
+		func(b []byte) error { var out GenHost; return qdf.Unmarshal(b, &out) },
+		func(b []byte) bool {
+			var out GenHost
+			return qdf.Unmarshal(b, &out) == nil && reflect.DeepEqual(host, out)
+		},
+		iters)
 	w.Flush()
 }
 

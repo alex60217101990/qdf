@@ -164,8 +164,20 @@ type Privilege struct {
 // data — proving code generation handles arbitrary values, not only static
 // schema. They are zero-cost conversions of the real types (identical layout).
 //
-//go:generate go run github.com/alex60217101990/qdf/cmd/qdfgen -type GenService,GenTask -output types_qdf_gen.go .
+//go:generate go run github.com/alex60217101990/qdf/cmd/qdfgen -type GenService,GenTask,GenHost -output types_qdf_gen.go .
 type (
 	GenService Service
 	GenTask    Task
 )
+
+// GenHost is a code-generated wrapper holding slices of GenService / GenTask, so
+// the bench can exercise the THREADED encode/decode path: host.MarshalQDF()
+// threads one encoder through every element (qdf.EncodeNested), which is where
+// struct field-name shape-interning pays off — the field names are written once
+// per type instead of per record. The bare []GenService path (reflect-Marshal of
+// a slice) opens a fresh encoder per element and cannot intern, so it does not
+// show the win; GenHost does.
+type GenHost struct {
+	Services []GenService `json:"services"`
+	Tasks    []GenTask    `json:"tasks"`
+}
