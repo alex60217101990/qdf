@@ -34,6 +34,62 @@ func EncodeNested(e *Encoder, m Marshaler) error {
 	return nil
 }
 
+// DecoderUnmarshaler is the decode counterpart of EncoderMarshaler: it reads its
+// value from a SHARED Decoder, advancing it, so a parent can thread one decoder
+// through a whole value graph instead of opening one per nested value (one
+// *Decoder plus its scratch / intern state per nested value otherwise).
+// Generated code (cmd/qdfgen) implements it; DecodeNested prefers it. noCopy and
+// arena live on the shared decoder, so a threaded nested decode inherits them
+// with no extra arguments.
+type DecoderUnmarshaler interface {
+	Unmarshaler
+	DecodeQDF(d *Decoder) error
+}
+
+// DecodeNested decodes one nested value from the shared decoder d. When u
+// implements DecoderUnmarshaler it reads directly from d (no new decoder, and it
+// inherits d's noCopy / arena). Otherwise it falls back to the buffer-based
+// UnmarshalQDF over d's remaining bytes — honoring d's noCopy / arena via the
+// Opts / Arena extensions — and advances d by the bytes consumed. Exported for
+// cmd/qdfgen-generated code.
+func DecodeNested(d *Decoder, u Unmarshaler) error {
+	if du, ok := u.(DecoderUnmarshaler); ok {
+		return du.DecodeQDF(d)
+	}
+	src := d.RemainingBytes()
+	var n int
+	var err error
+	switch {
+	case d.arena != nil:
+		if ua, ok := u.(UnmarshalerArena); ok {
+			n, err = ua.UnmarshalQDFArena(src, d.noCopy, d.arena)
+			break
+		}
+		if uo, ok := u.(UnmarshalerOpts); ok && d.noCopy {
+			n, err = uo.UnmarshalQDFOpts(src, true)
+		} else {
+			n, err = u.UnmarshalQDF(src)
+		}
+	default:
+		if uo, ok := u.(UnmarshalerOpts); ok && d.noCopy {
+			n, err = uo.UnmarshalQDFOpts(src, true)
+		} else {
+			n, err = u.UnmarshalQDF(src)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	// Guard the shared cursor against a misbehaving Unmarshaler (mirrors
+	// UnmarshalNested): a count past the remaining bytes would push the cursor
+	// out of bounds and panic the next read.
+	if n < 0 || n > d.Remaining() {
+		return ErrShortBuffer
+	}
+	d.Advance(n)
+	return nil
+}
+
 // Unmarshaler is implemented by types that know how to deserialize themselves
 // from a QDF wire-format slice. Implementations should consume exactly one
 // value from src and return the number of bytes consumed.
