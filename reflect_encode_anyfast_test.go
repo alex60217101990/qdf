@@ -83,3 +83,37 @@ func TestEncodeReflectAnyFastRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestEncodeSliceAnyProbeGrow exercises encodeSliceAny's probe-and-grow branch
+// (n > 32): a large []any of mixed dynamic values must round-trip exactly, and
+// the buffer pre-sizing must not corrupt the bytes.
+func TestEncodeSliceAnyProbeGrow(t *testing.T) {
+	const n = 2000
+	big := make([]any, n)
+	for i := range big {
+		switch i % 4 {
+		case 0:
+			big[i] = "string-value-" + itoaSmall(i)
+		case 1:
+			big[i] = float64(i)
+		case 2:
+			big[i] = map[string]any{"i": float64(i), "ok": true}
+		case 3:
+			big[i] = []any{"x", float64(i), false}
+		}
+	}
+	v := map[string]any{"items": big}
+	for _, opts := range []Options{OptSpeed, OptBalanced, OptCompression} {
+		b, err := Marshal(v, opts)
+		if err != nil {
+			t.Fatalf("opts=%d marshal: %v", opts, err)
+		}
+		var got map[string]any
+		if err := Unmarshal(b, &got); err != nil {
+			t.Fatalf("opts=%d unmarshal: %v", opts, err)
+		}
+		if !reflect.DeepEqual(v, got) {
+			t.Fatalf("opts=%d large []any round-trip mismatch", opts)
+		}
+	}
+}
