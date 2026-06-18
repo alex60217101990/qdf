@@ -84,7 +84,7 @@ var mapDecModes = []struct {
 }{
 	{"copy", nil, false},
 	{"nocopy", func(*qdf.Arena) qdf.QueryOption { return qdf.WithNoCopy() }, false},
-	{"arena", func(a *qdf.Arena) qdf.QueryOption { return qdf.WithArena(a) }, true},
+	{"arena", qdf.WithArena, true},
 }
 
 // stat accumulates per-(repr,bundle) results across the sample files. Time,
@@ -161,7 +161,12 @@ func liveHeapKiB(reset, produce func()) int64 {
 	return d / int64(liveSamples) / 1024
 }
 
-func main() {
+func main() { os.Exit(run()) }
+
+// run is main's body as a function returning an exit code, so every defer
+// (sample-data cleanup, StopCPUProfile) runs on a normal return instead of being
+// skipped by an os.Exit in an error path.
+func run() int {
 	datapath := flag.String("datapath", "", "path to a local clone of github.com/lkarlslund/adalanche-sampledata (default: download to a temp dir and clean up afterwards)")
 	iters := flag.Int("iters", 200, "iterations per measured operation")
 	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile to this file (go tool pprof)")
@@ -170,20 +175,6 @@ func main() {
 
 	if *iters < 1 {
 		*iters = 1 // benchOp divides by iters; never let it be zero
-	}
-
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "qdf-bench: create cpuprofile: %v\n", err)
-			os.Exit(1)
-		}
-		defer f.Close()
-		if err := pprof.StartCPUProfile(f); err != nil {
-			fmt.Fprintf(os.Stderr, "qdf-bench: start cpuprofile: %v\n", err)
-			os.Exit(1)
-		}
-		defer pprof.StopCPUProfile()
 	}
 
 	// Resolve the localmachine JSON files. With -datapath we use a caller-owned
@@ -198,7 +189,7 @@ func main() {
 		dir, cleanup, err := fetchSampleData()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "qdf-bench: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 		defer cleanup()
 		glob = filepath.Join(dir, "*.json")
@@ -207,7 +198,7 @@ func main() {
 	files, err := filepath.Glob(glob)
 	if err != nil || len(files) == 0 {
 		fmt.Fprintf(os.Stderr, "qdf-bench: no localmachine JSON files at %s\n", glob)
-		os.Exit(1)
+		return 1
 	}
 
 	// Load both representations of every file once.
@@ -217,12 +208,12 @@ func main() {
 		ti, err := loadTyped(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "load %s: %v\n", f, err)
-			os.Exit(1)
+			return 1
 		}
 		mi, err := loadMap(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "load %s: %v\n", f, err)
-			os.Exit(1)
+			return 1
 		}
 		typed = append(typed, ti)
 		dyn = append(dyn, mi)
@@ -231,6 +222,24 @@ func main() {
 	fmt.Printf("qdf-bench — adalanche localmachine dumps\n")
 	fmt.Printf("build tags : %s\n", buildTagLabel())
 	fmt.Printf("files      : %d   iters/op : %d\n\n", len(files), *iters)
+
+	// Start CPU profiling here — after all the os.Exit-able setup (flag parse,
+	// data download/load) — so the deferred StopCPUProfile is never skipped by an
+	// early exit, and the profile covers only the measured work.
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "qdf-bench: create cpuprofile: %v\n", err)
+			return 1
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			f.Close()
+			fmt.Fprintf(os.Stderr, "qdf-bench: start cpuprofile: %v\n", err)
+			return 1
+		}
+		// StopCPUProfile flushes the profile; close the file after it.
+		defer func() { pprof.StopCPUProfile(); f.Close() }()
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "repr\tbundle\tdec\tser_ns\tser_B\tser_alloc\tser_liveKiB\tdeser_ns\tdeser_B\tdeser_alloc\tdeser_liveKiB\twire_B")
@@ -294,7 +303,7 @@ func main() {
 		f, err := os.Create(*memprofile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "qdf-bench: create memprofile: %v\n", err)
-			return
+			return 1
 		}
 		defer f.Close()
 		runtime.GC() // settle the heap so the profile reflects live, not garbage
@@ -302,10 +311,19 @@ func main() {
 			fmt.Fprintf(os.Stderr, "qdf-bench: write memprofile: %v\n", err)
 		}
 	}
+
+	// Anchor the sinks the timed loops wrote to: keeping them alive here means the
+	// compiler cannot prove the benchmarked Marshal/Unmarshal results are dead and
+	// elide the calls, and the linter sees the package-level sinks as used.
+	runtime.KeepAlive(encSink)
+	runtime.KeepAlive(decInfo)
+	runtime.KeepAlive(decMap)
+	return 0
 }
 
 // sinks defeat dead-code elimination: the benchmarked qdf call writes its result
-// here so the compiler cannot drop it as unused.
+// here so the compiler cannot drop it as unused (anchored via runtime.KeepAlive
+// at the end of main).
 var (
 	encSink []byte
 	decInfo Info
@@ -458,10 +476,9 @@ func benchMapDeser(iters int, vals []map[string]any, opts qdf.Options, build fun
 		},
 		func() {
 			var out map[string]any
-			switch {
-			case build == nil:
+			if build == nil {
 				_ = qdf.Unmarshal(lastBuf, &out)
-			default:
+			} else {
 				_ = qdf.Unmarshal(lastBuf, &out, build(liveArena))
 			}
 			keepMap = append(keepMap, out)
@@ -602,9 +619,9 @@ func printMatrixVsBaseline(matrix []bundleRow, mT, mM stat) {
 	row := func(repr, name string, q, base stat) {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", repr, name,
 			ratio(avgU(base.wire, base.n), avgU(q.wire, q.n)),
-			ratio(uint64(avgU(uint64(base.serNs), base.n)), uint64(avgU(uint64(q.serNs), q.n))),
+			ratio(avgU(uint64(base.serNs), base.n), avgU(uint64(q.serNs), q.n)),
 			ratio(avgU(base.serAllocs, base.n), avgU(q.serAllocs, q.n)),
-			ratio(uint64(avgU(uint64(base.deserNs), base.n)), uint64(avgU(uint64(q.deserNs), q.n))),
+			ratio(avgU(uint64(base.deserNs), base.n), avgU(uint64(q.deserNs), q.n)),
 			ratio(avgU(base.deserAllocs, base.n), avgU(q.deserAllocs, q.n)))
 	}
 	for _, b := range matrix {
@@ -632,11 +649,11 @@ func printSummary(qT, jT, mT, qM, jM, mM stat) {
 			q, j, mval uint64
 		}
 		rows := []row{
-			{"ser_ns", uint64(avgU(uint64(q.serNs), q.n)), uint64(avgU(uint64(j.serNs), j.n)), uint64(avgU(uint64(m.serNs), m.n))},
+			{"ser_ns", avgU(uint64(q.serNs), q.n), avgU(uint64(j.serNs), j.n), avgU(uint64(m.serNs), m.n)},
 			{"ser_B", avgU(q.serB, q.n), avgU(j.serB, j.n), avgU(m.serB, m.n)},
 			{"ser_alloc", avgU(q.serAllocs, q.n), avgU(j.serAllocs, j.n), avgU(m.serAllocs, m.n)},
 			{"ser_liveKiB", uint64(q.serLiveKiB), uint64(j.serLiveKiB), uint64(m.serLiveKiB)},
-			{"deser_ns", uint64(avgU(uint64(q.deserNs), q.n)), uint64(avgU(uint64(j.deserNs), j.n)), uint64(avgU(uint64(m.deserNs), m.n))},
+			{"deser_ns", avgU(uint64(q.deserNs), q.n), avgU(uint64(j.deserNs), j.n), avgU(uint64(m.deserNs), m.n)},
 			{"deser_B", avgU(q.deserB, q.n), avgU(j.deserB, j.n), avgU(m.deserB, m.n)},
 			{"deser_alloc", avgU(q.deserAllocs, q.n), avgU(j.deserAllocs, j.n), avgU(m.deserAllocs, m.n)},
 			{"deser_liveKiB", uint64(q.deserLiveKiB), uint64(j.deserLiveKiB), uint64(m.deserLiveKiB)},

@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,7 +74,7 @@ func extractLocalmachineJSON(r io.Reader, dir string) (int, error) {
 	count := 0
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -85,15 +86,19 @@ func extractLocalmachineJSON(r io.Reader, dir string) (int, error) {
 		if !strings.Contains(hdr.Name, localmachineSuffix) || !strings.HasSuffix(hdr.Name, ".json") {
 			continue
 		}
-		// Flatten to the base name; the loader globs dir/*.json.
-		dst := filepath.Join(dir, filepath.Base(hdr.Name))
+		// The destination name is synthesized from the extraction counter, NOT from
+		// the archive entry name — the loader only globs dir/*.json and the tests
+		// compare decoded data, not file names, so the entry name never reaches a
+		// filesystem path. This makes archive path traversal (zip-slip) structurally
+		// impossible: no attacker-controlled bytes flow into os.Create's argument.
+		dst := filepath.Join(dir, fmt.Sprintf("localmachine-%d.json", count))
 		f, err := os.Create(dst)
 		if err != nil {
 			return count, fmt.Errorf("create %s: %w", dst, err)
 		}
 		// Bound the copy by the declared header size so a hostile archive
 		// cannot stream an unbounded body into the temp file.
-		if _, err := io.CopyN(f, tr, hdr.Size); err != nil && err != io.EOF {
+		if _, err := io.CopyN(f, tr, hdr.Size); err != nil && !errors.Is(err, io.EOF) {
 			f.Close()
 			return count, fmt.Errorf("extract %s: %w", dst, err)
 		}
