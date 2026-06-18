@@ -110,7 +110,6 @@ func decodeMapStringShapeHeader(d *Decoder) ([]string, error) {
 			return nil, err
 		}
 		sh := d.state.shapeDeclare()
-		sh.keyIDs = make([]uint32, 0, cnt)
 		keys := make([]string, 0, cnt)
 		for range cnt {
 			kb, err := d.readStringBytes()
@@ -118,11 +117,6 @@ func decodeMapStringShapeHeader(d *Decoder) ([]string, error) {
 				return nil, err
 			}
 			keys = append(keys, d.keyCache.Make(kb))
-			if d.state.lastID != lruInvalidID {
-				sh.keyIDs = append(sh.keyIDs, d.state.lastID)
-			} else {
-				sh.keyIDs = append(sh.keyIDs, 0)
-			}
 		}
 		sh.names = keys
 		return keys, nil

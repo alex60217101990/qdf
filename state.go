@@ -921,14 +921,11 @@ func (e *encState) internTableGrow() {
 	}
 }
 
-// decShape is the decoder-side mirror of an encShape. keyIDs holds
-// the intern IDs of the field names (informational; same ordering as
-// names). names is the resolved Go-string for each field in
-// declaration order — used to dispatch values to struct fields when
-// the shape is re-used.
+// decShape is the decoder-side mirror of an encShape. names is the
+// resolved Go-string for each field in declaration order — used to
+// dispatch values to struct fields when the shape is re-used.
 type decShape struct {
-	keyIDs []uint32
-	names  []string
+	names []string
 }
 
 // decColShape is the decoder-side descriptor for a columnar struct shape
