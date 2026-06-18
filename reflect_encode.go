@@ -1702,6 +1702,12 @@ func decodeUnmarshaler(t reflect.Type) func(*Decoder, unsafe.Pointer) error {
 			return err
 		}
 		u := reflect.NewAt(t, p).Interface().(Unmarshaler)
+		// Thread the shared decoder when the type supports it (generated code):
+		// no fresh decoder per element, and it inherits d's noCopy / arena. This
+		// is what drops the per-element decoder on a []GeneratedStruct decode.
+		if du, ok := u.(DecoderUnmarshaler); ok {
+			return du.DecodeQDF(d)
+		}
 		var n int
 		var err error
 		if d.arena != nil {

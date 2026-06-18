@@ -546,7 +546,7 @@ func (v *Sample) DecodeQDF(d *qdf.Decoder) error {
 					return err
 				}
 				if n50 != 3 {
-					return 0, qdf.ErrTypeMismatch
+					return qdf.ErrTypeMismatch
 				}
 				for i51 := range 3 {
 					{
