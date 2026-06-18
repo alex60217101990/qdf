@@ -1682,6 +1682,13 @@ func encodeMarshaler(t reflect.Type) func(*Encoder, unsafe.Pointer) error {
 			e.customFramed = true
 		}
 		m := reflect.NewAt(t, p).Interface().(Marshaler)
+		// Thread the shared encoder when the type supports it (generated code):
+		// no fresh encoder (and its state) per element, and shape/intern state is
+		// shared across a slice so it can be interned. The top-level framing above
+		// has already run; EncodeQDF writes the body into e directly.
+		if em, ok := m.(EncoderMarshaler); ok {
+			return em.EncodeQDF(e)
+		}
 		out, err := m.MarshalQDF(e.buf)
 		if err != nil {
 			return err

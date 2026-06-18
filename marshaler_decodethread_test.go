@@ -34,6 +34,34 @@ func (t *threadProbe) UnmarshalQDF(src []byte) (int, error) {
 	return d.Pos(), nil
 }
 
+func (t *threadProbe) EncodeQDF(e *Encoder) error {
+	e.WriteMapHeader(1)
+	e.WriteString("V")
+	e.WriteInt(t.V)
+	return nil
+}
+
+// TestMarshalSliceThreadsEncoder: a []EncoderMarshaler encoded through the
+// reflect slice path must share ONE encoder (threaded via EncodeQDF), not open a
+// fresh encoder per element.
+func TestMarshalSliceThreadsEncoder(t *testing.T) {
+	const n = 200
+	in := make([]*threadProbe, n)
+	for i := range in {
+		in[i] = &threadProbe{V: int64(i)}
+	}
+	if _, err := Marshal(in, OptSpeed); err != nil { // warm
+		t.Fatal(err)
+	}
+	allocs := testing.AllocsPerRun(20, func() { _, _ = Marshal(in, OptSpeed) })
+	// Threaded: one encoder + output buffer (a small constant). The
+	// fresh-encoder-per-element path adds an encoder per element (~n). 50 fails
+	// hard on the unthreaded path while leaving headroom for buffer growth.
+	if allocs > 50 {
+		t.Fatalf("marshal allocs=%.0f (>50) — per-element encoder not eliminated (threading regressed)", allocs)
+	}
+}
+
 func (t *threadProbe) DecodeQDF(d *Decoder) error {
 	t.seen = d
 	n, err := d.ReadMapHeader()
