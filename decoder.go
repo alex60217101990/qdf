@@ -121,6 +121,21 @@ func (d *Decoder) ReadStringBytes() ([]byte, error) { return d.readStringBytes()
 // PeekTag returns the next tag byte without advancing the cursor.
 func (d *Decoder) PeekTag() (byte, error) { return d.peekTag() }
 
+// DecodeValue decodes the next value as a dynamic any — the schemaless form
+// (string, bool, int64/uint64/float64, []any, map[string]any, …) that decoding
+// into an interface{} produces, mirroring encoding/json. It is the decode
+// counterpart of Encoder.EncodeValue and is what qdfgen-generated code calls for
+// an interface{} (any) struct field, so a code-generated type can still carry
+// fully dynamic data on that field.
+func (d *Decoder) DecodeValue(out *any) error {
+	v, err := decodeAny(d)
+	if err != nil {
+		return err
+	}
+	*out = v
+	return nil
+}
+
 // IsNil reports whether the next value is the nil tag, consuming it on
 // true. Returns (false, nil) for any other tag.
 func (d *Decoder) IsNil() (bool, error) {
