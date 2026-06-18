@@ -157,6 +157,13 @@ type encState struct {
 	shapeCount    uint32
 	shapeBindings []shapeBinding
 
+	// tokenShapes interns recurring struct shapes for code-generated types,
+	// which have no *typeDesc — keyed on a stable per-type token address the
+	// generated EncodeQDF passes (see Encoder.StructShape). Shares the shapeCount
+	// ID space with shapeBindings / mapShapes so the decoder's single shape table
+	// stays in lockstep.
+	tokenShapes []tokenShape
+
 	// mapShapes interns recurring map key-sets (OptMapShape), parallel to
 	// shapeBindings but keyed on the key-set rather than a *typeDesc. Shares
 	// the shapeCount ID space with struct shapes (shapeDeclareEnc) so the
@@ -250,6 +257,15 @@ type encState struct {
 type shapeBinding struct {
 	td *typeDesc
 	id uint32
+}
+
+// tokenShape is a (per-type token address → wire shape ID) pair, the
+// code-generated analogue of shapeBinding (which keys on *typeDesc). The token
+// is a stable package-level address the generated EncodeQDF passes; a linear
+// scan keeps the hot path map-free and allocation-free under -race.
+type tokenShape struct {
+	token *byte
+	id    uint32
 }
 
 // mapShapeBinding maps a recurring map key-set to a shared shape ID.
@@ -426,6 +442,11 @@ func (e *encState) reset() {
 	}
 	e.lastShapeTd = nil
 	e.lastShapeID = 0
+	if cap(e.tokenShapes) > maxRetainedShapeCap && release {
+		e.tokenShapes = nil
+	} else {
+		e.tokenShapes = e.tokenShapes[:0]
+	}
 	if cap(e.mapShapes) > maxRetainedShapeCap && release {
 		e.mapShapes = nil
 	} else {
@@ -558,6 +579,22 @@ func (e *encState) shapeBindType(t *typeDesc, id uint32) {
 	e.shapeBindings = append(e.shapeBindings, shapeBinding{td: t, id: id})
 	e.lastShapeTd = t
 	e.lastShapeID = id
+}
+
+// shapeForToken returns the wire shape ID bound to a code-generated type's token
+// address in this encoder's state, or 0 if none. Pair with shapeBindToken after
+// a declaration.
+func (e *encState) shapeForToken(token *byte) uint32 {
+	for i := range e.tokenShapes {
+		if e.tokenShapes[i].token == token {
+			return e.tokenShapes[i].id
+		}
+	}
+	return 0
+}
+
+func (e *encState) shapeBindToken(token *byte, id uint32) {
+	e.tokenShapes = append(e.tokenShapes, tokenShape{token: token, id: id})
 }
 
 // shapeDeclareEnc reserves the next sequential wire ID and returns
