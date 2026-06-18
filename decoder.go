@@ -121,6 +121,31 @@ func (d *Decoder) ReadStringBytes() ([]byte, error) { return d.readStringBytes()
 // PeekTag returns the next tag byte without advancing the cursor.
 func (d *Decoder) PeekTag() (byte, error) { return d.peekTag() }
 
+// ReadStructHeader reads a struct/map header for code-generated DecodeQDF,
+// transparently handling both forms a struct takes on the wire:
+//   - a shape-interned header (tagMapShape, see Encoder.StructShape) → returns the
+//     field names in encoded order with shaped=true; the caller reads len(names)
+//     values in that order.
+//   - a plain map header (tagMap8/16/32) → returns the entry count as plainN with
+//     shaped=false; the caller reads plainN (name, value) pairs inline.
+//
+// This lets a generated decoder consume both qdfgen shape output and a plain qdf
+// map (e.g. from a non-shaped encoder, an older generated type, or the reflect
+// path under OptSpeed) without a wire-format negotiation. Exported for
+// cmd/qdfgen-generated code.
+func (d *Decoder) ReadStructHeader() (names []string, plainN int, shaped bool, err error) {
+	tag, err := d.peekTag()
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if tag == tagMapShape {
+		names, err = decodeMapStringShapeHeader(d)
+		return names, 0, true, err
+	}
+	n, err := d.ReadMapHeader()
+	return nil, n, false, err
+}
+
 // DecodeValue decodes the next value as a dynamic any — the schemaless form
 // (string, bool, int64/uint64/float64, []any, map[string]any, …) that decoding
 // into an interface{} produces, mirroring encoding/json. It is the decode

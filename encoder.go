@@ -865,6 +865,39 @@ func (e *Encoder) WriteMapHeader(n int) {
 	}
 }
 
+// StructShape begins a shape-interned struct emission for a code-generated type
+// (the decode-time counterpart is Decoder.ReadStructHeader). token is a stable
+// per-type address — a package-level var the generated EncodeQDF passes;
+// fieldHdrs are the pre-encoded fixstr/strN field-name headers in field order.
+//
+// On the first emit for token on this encoder it DECLARES the shape — tagMapShape,
+// id 0, the field count, then the names — so the decoder registers it; every
+// later emit writes only tagMapShape + the shape ID. The caller then writes the
+// field VALUES in field order (no names). Across a slice of the same struct
+// threaded through one encoder, the field names are written once instead of per
+// record. Reuses the shared shape-ID space, so a generated buffer stays decodable
+// by the reflection path (tagMapShape is standard wire).
+func (e *Encoder) StructShape(token *byte, fieldHdrs [][]byte) {
+	e.writeHeader()
+	if e.state == nil {
+		e.state = newEncState()
+	}
+	st := e.state
+	if id := st.shapeForToken(token); id != 0 {
+		e.buf = append(e.buf, tagMapShape)
+		e.buf = appendUvarint(e.buf, uint64(id))
+		return
+	}
+	id := st.shapeDeclareEnc()
+	st.shapeBindToken(token, id)
+	e.buf = append(e.buf, tagMapShape)
+	e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
+	e.buf = appendUvarint(e.buf, uint64(len(fieldHdrs)))
+	for _, h := range fieldHdrs {
+		e.buf = append(e.buf, h...)
+	}
+}
+
 // WriteTimestamp writes a full-range timestamp as two uvarints:
 // sec (zigzag-encoded signed int64 seconds since Unix epoch) and
 // nsec (unsigned uint32 nanoseconds in [0, 999_999_999]).
