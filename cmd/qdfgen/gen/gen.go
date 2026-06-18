@@ -625,6 +625,7 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 // emitEncodeValue writes statements that encode the value expressed by
 // `expr` (which already evaluates to a value of type t) into the encoder e.
 func (g *gen) emitEncodeValue(w io.Writer, expr string, t types.Type, indent string) error {
+	t = types.Unalias(t) // `any` is an alias for interface{}; resolve it
 	if isTimeTime(t) {
 		fmt.Fprintf(w, "%s{ _t := (%s).UTC(); e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond())) }\n", indent, expr)
 		return nil
@@ -644,7 +645,14 @@ func (g *gen) emitEncodeValue(w io.Writer, expr string, t types.Type, indent str
 	case *types.Map:
 		return g.emitEncodeMap(w, expr, tt, indent)
 	case *types.Interface:
-		return fmt.Errorf("interface fields are not supported by qdfgen")
+		// An empty interface (any) carries fully dynamic data; defer to the
+		// runtime reflect encoder for that one field. A method interface cannot
+		// be reconstructed on decode, so it is still rejected.
+		if tt.NumMethods() == 0 {
+			fmt.Fprintf(w, "%sif err := e.EncodeValue(%s); err != nil {\n%s\treturn err\n%s}\n", indent, expr, indent, indent)
+			return nil
+		}
+		return fmt.Errorf("non-empty interface fields are not supported by qdfgen")
 	default:
 		return fmt.Errorf("unsupported type %s (%T)", t, t)
 	}
@@ -772,6 +780,7 @@ func (g *gen) emitEncodeMap(w io.Writer, expr string, m *types.Map, indent strin
 // Decode side
 
 func (g *gen) emitDecodeValue(w io.Writer, lhs string, t types.Type, indent string) error {
+	t = types.Unalias(t) // `any` is an alias for interface{}; resolve it
 	if isTimeTime(t) {
 		secTmp := g.fresh("sec")
 		nsecTmp := g.fresh("nsec")
@@ -798,7 +807,13 @@ func (g *gen) emitDecodeValue(w io.Writer, lhs string, t types.Type, indent stri
 	case *types.Map:
 		return g.emitDecodeMap(w, lhs, tt, indent)
 	case *types.Interface:
-		return fmt.Errorf("interface fields are not supported by qdfgen")
+		// Empty interface (any): decode the dynamic value via the runtime,
+		// mirroring the e.EncodeValue emitted on the encode side.
+		if tt.NumMethods() == 0 {
+			fmt.Fprintf(w, "%sif err := d.DecodeValue(&%s); err != nil {\n%s\treturn 0, err\n%s}\n", indent, lhs, indent, indent)
+			return nil
+		}
+		return fmt.Errorf("non-empty interface fields are not supported by qdfgen")
 	default:
 		return fmt.Errorf("unsupported type %s (%T)", t, t)
 	}
