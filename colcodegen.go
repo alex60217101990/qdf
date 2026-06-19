@@ -318,7 +318,7 @@ func (d *Decoder) ReadBoolColumn(n int) ([]bool, error) {
 // returned slice is reused scratch on the plain path; scatter before the next
 // column read.
 func (d *Decoder) ReadStringColumn(n int) ([]string, error) {
-	if n > 0 && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
+	if n > 0 && d.i < len(d.buf) && isStringColumnBlockTag(d.buf[d.i]) {
 		s, err := d.readStringColumn(n)
 		if err != nil {
 			return nil, err

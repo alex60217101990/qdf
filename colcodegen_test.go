@@ -235,3 +235,72 @@ func TestStringColumnsBeneficial(t *testing.T) {
 		t.Fatal("high-cardinality string column should stay row-major")
 	}
 }
+
+func TestStringColumn_ConstFallback_Fast(t *testing.T) {
+	// All-identical column under Fast → tagColStrConst: tiny wire, round-trips.
+	e := NewEncoderOnBuf(nil, Fast)
+	e.EnsureHeader()
+	n := 500
+	same := make([]string, n)
+	for i := range same {
+		same[i] = "constant-value"
+	}
+	e.WriteColStructHeader(n, []string{"s"}, []byte{4})
+	e.WriteStringColumn(same)
+	buf := e.Bytes()
+	if !bytes.Contains(buf, []byte{tagColStrConst}) {
+		t.Fatal("all-identical string column should use tagColStrConst under Fast")
+	}
+	if len(buf) > 100 {
+		t.Fatalf("const column wire %d too large (not deduped)", len(buf))
+	}
+	d := NewDecoderOnBuf(buf)
+	if err := d.readHeader(); err != nil {
+		t.Fatal(err)
+	}
+	cn, _, _, err := d.ReadColStructHeader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.ReadStringColumn(cn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != n || got[0] != "constant-value" || got[n-1] != "constant-value" {
+		t.Fatalf("const round-trip wrong: len=%d", len(got))
+	}
+}
+
+func TestStringColumn_RawFallback_Fast(t *testing.T) {
+	// High-cardinality under Fast → tagColStrRaw: one-slab decode, round-trips.
+	e := NewEncoderOnBuf(nil, Fast)
+	e.EnsureHeader()
+	n := 300
+	in := make([]string, n)
+	for i := range in {
+		in[i] = "unique-" + string(rune('a'+i%26)) + string(rune('0'+i%10)) + string(rune('A'+(i*7)%26))
+	}
+	e.WriteColStructHeader(n, []string{"s"}, []byte{4})
+	e.WriteStringColumn(in)
+	buf := e.Bytes()
+	if !bytes.Contains(buf, []byte{tagColStrRaw}) {
+		t.Fatal("high-cardinality string column should use tagColStrRaw under Fast")
+	}
+	d := NewDecoderOnBuf(buf)
+	if err := d.readHeader(); err != nil {
+		t.Fatal(err)
+	}
+	cn, _, _, err := d.ReadColStructHeader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.ReadStringColumn(cn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Fatalf("raw round-trip[%d]=%q want %q", i, got[i], in[i])
+		}
+	}
+}

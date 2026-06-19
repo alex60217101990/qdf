@@ -125,6 +125,9 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 // writeStringColumn: a tagColStrDict dictionary block, a tagColStrFSST block,
 // or n per-value strings.
 func (d *Decoder) readStringColumn(n int) ([]string, error) {
+	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrConst {
+		return d.readStringColumnConst(n)
+	}
 	// FSST allocates its own output slab+slice, so dispatch before the per-value
 	// make to avoid a dead []string allocation on the FSST path.
 	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrFSST {

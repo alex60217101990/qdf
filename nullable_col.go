@@ -33,6 +33,24 @@ func (e *Encoder) writeStringColumn(strs []string) {
 	if e.tryWriteStringColumnRaw(strs) {
 		return
 	}
+	// Without OptDense (the codegen/Fast path) the per-value fallback below does
+	// NOT intern: WriteString emits every occurrence inline, so the dict/raw
+	// never-larger gates — which model the per-value cost as the Dense interned
+	// form (distinct once + 1-byte state refs) — under-estimate it and decline,
+	// leaving the column wire-bloated and decoding to n string allocations.
+	// Mode-aware fallback: a single-distinct column collapses to one value
+	// (tagColStrConst), any other column materializes in ONE slab allocation
+	// (tagColStrRaw, wire-neutral + a tiny header). The reflect path (OptDense)
+	// keeps the interning per-value form, which the gates model correctly — so
+	// its wire is unchanged (const/raw-forced are codegen-only; the decoders
+	// still read them for cross-path interop).
+	if !e.opts.Has(OptDense) {
+		if e.tryWriteStringColumnConst(strs) {
+			return
+		}
+		e.writeStringColumnRawForced(strs)
+		return
+	}
 	for _, v := range strs {
 		e.WriteString(v)
 	}
