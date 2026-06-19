@@ -41,6 +41,7 @@ jobs:
             go.sum
             bench/go.sum
             cmd/qdfgen/go.sum
+            cmd/qdf-bench/go.sum
             internal/codegen_test/go.sum
 
       # Cache the Go build cache separately. setup-go already caches the
@@ -88,6 +89,14 @@ jobs:
         working-directory: cmd/qdfgen
         run: go build ./...
 
+      - name: build qdf-bench
+        working-directory: cmd/qdf-bench
+        run: |
+          # Its own module (msgpack baseline lives here, not in the qdf library).
+          # Build + vet only; the full data-driven matrix runs in qdf-bench-matrix.yml.
+          go build .
+          go vet .
+
       - name: codegen test (two-phase)
         working-directory: internal/codegen_test
         run: |
@@ -113,6 +122,8 @@ jobs:
             working-directory: bench
           - module: qdfgen
             working-directory: cmd/qdfgen
+          - module: qdf-bench
+            working-directory: cmd/qdf-bench
     steps:
       - uses: actions/checkout@v6
 
@@ -124,6 +135,7 @@ jobs:
             go.sum
             bench/go.sum
             cmd/qdfgen/go.sum
+            cmd/qdf-bench/go.sum
             internal/codegen_test/go.sum
 
       - name: golangci-lint (${{ matrix.module }})

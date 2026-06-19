@@ -30,7 +30,10 @@ combos=("" "qdf_reflect2" "qdf_simd" "qdf_reflect2 qdf_simd")
 
 for tags in "${combos[@]}"; do
 	bin="$TMP/qdf-bench"
-	CGO_ENABLED=0 "$GO" build -tags "$tags" -o "$bin" ./cmd/qdf-bench
+	# cmd/qdf-bench is its own module (keeps the msgpack baseline out of the qdf
+	# library's go.mod); build from inside it. The qdf build tags still apply to
+	# the qdf dependency, resolved via the module's replace => ../../ directive.
+	( cd "$REPO_ROOT/cmd/qdf-bench" && CGO_ENABLED=0 "$GO" build -tags "$tags" -o "$bin" . )
 	if [[ -n "$DP" ]]; then
 		"$bin" -datapath "$DP" "$@"
 	else
