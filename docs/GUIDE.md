@@ -198,9 +198,12 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xF4  tagPackALP        (QPack)   ALP decimal-coded []float64 slice
 0xF5  tagColStrDict     (QPack)   dictionary-coded string column (inside columnar)
 0xF6  tagColStrFSST     (QPack)   FSST-coded string column (inside columnar)
+0xF7  tagHybridColStruct (QPack)  hybrid columnar container (mixed []struct)
+0xF8  tagColStrRaw      (QPack)   bulk-slab string column (inside columnar)
+0xF9  tagColStrConst    (QPack)   constant string column (inside columnar)
 ```
 
-Tags 0xF7..0xFF are reserved.
+Tags 0xFA..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
