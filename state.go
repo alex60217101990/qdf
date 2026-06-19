@@ -198,7 +198,8 @@ type encState struct {
 	colScratchU64  []uint64
 	colScratchF64  []float64
 	colScratchBool []bool
-	colScratchStr  []string // gathered string column values
+	colScratchF32  []float32 // codegen columnar float32 gather scratch
+	colScratchStr  []string  // gathered string column values
 	// Canonical map-key sort scratch (OptCanonical), reused across maps; adaptive
 	// retention (dropped when oversized in the encoder pool reset, like
 	// colScratch*). Pointer-free numeric scratch needs no clear; canonKeysStr
@@ -482,6 +483,9 @@ func (e *encState) reset() {
 	// memory. sync.Pool's GC eviction reclaims it when the encoder goes idle.
 	if cap(e.colScratchI64) > maxRetainedColScratch {
 		e.colScratchI64, e.colScratchU64, e.colScratchF64, e.colScratchBool = nil, nil, nil, nil
+	}
+	if cap(e.colScratchF32) > maxRetainedColScratch {
+		e.colScratchF32 = nil
 	}
 	// Column-diff scratch (delta_columnar.go): same row-scaled hard-ceiling
 	// retention as colScratch* (pointer-free, no clear needed).
@@ -991,6 +995,7 @@ type decState struct {
 	colScratchU64  []uint64
 	colScratchF64  []float64
 	colScratchBool []bool
+	colScratchF32  []float32 // codegen columnar float32 scatter scratch
 
 	// deltaColRows is reused storage for a sparse column's decoded ascending row
 	// indices during a tagColSlicePatch apply (delta_columnar.go).
@@ -1086,6 +1091,9 @@ func (d *decState) reset() {
 	// streak), reclaimed when idle by sync.Pool GC.
 	if cap(d.colScratchI64) > maxRetainedColScratch {
 		d.colScratchI64, d.colScratchU64, d.colScratchF64, d.colScratchBool = nil, nil, nil, nil
+	}
+	if cap(d.colScratchF32) > maxRetainedColScratch {
+		d.colScratchF32 = nil
 	}
 	if cap(d.colLenScratch) > maxRetainedColScratch {
 		d.colLenScratch = nil
