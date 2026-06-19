@@ -164,11 +164,43 @@ type Privilege struct {
 // data — proving code generation handles arbitrary values, not only static
 // schema. They are zero-cost conversions of the real types (identical layout).
 //
-//go:generate go run github.com/alex60217101990/qdf/cmd/qdfgen -type GenService,GenTask,GenHost -output types_qdf_gen.go .
+//go:generate go run github.com/alex60217101990/qdf/cmd/qdfgen -type GenService,GenTask,GenHost,GenMetric,GenMetricHost -output types_qdf_gen.go .
 type (
 	GenService Service
 	GenTask    Task
 )
+
+// Metric is an all-scalar telemetry sample. As a plain type (no MarshalQDF) the
+// reflection path columnar-encodes a []Metric; GenMetric (below) is the same
+// layout but carries qdfgen-generated methods so its slice takes the
+// monomorphized columnar transpose path — the numeric lever Phase 2 recovers.
+type Metric struct {
+	TS     int64   `json:"ts"`
+	CPU    float64 `json:"cpu"`
+	Mem    uint64  `json:"mem"`
+	Errors uint32  `json:"errors"`
+	Up     bool    `json:"up"`
+}
+
+// GenMetric is the code-generated twin of Metric (identical layout, zero-cost
+// conversion). Its generated slice encode/decode go through WriteColStructHeader
+// + WriteXColumn (no reflection), matching the reflect columnar wire.
+type GenMetric Metric
+
+// MetricHost is a plain wrapper (no methods): the reflection path columnar-
+// encodes its Metrics field, the baseline GenMetricHost is compared against.
+type MetricHost struct {
+	Host    string   `json:"host"`
+	Metrics []Metric `json:"metrics"`
+}
+
+// GenMetricHost is the code-generated twin of MetricHost. Its Metrics field
+// takes the monomorphized columnar transpose — recovering the columnar win a
+// bare []GenMetric (Marshaler element) loses to the row-major fallback.
+type GenMetricHost struct {
+	Host    string      `json:"host"`
+	Metrics []GenMetric `json:"metrics"`
+}
 
 // GenHost is a code-generated wrapper holding slices of GenService / GenTask, so
 // the bench can exercise the THREADED encode/decode path: host.MarshalQDF()
