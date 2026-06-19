@@ -249,7 +249,19 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 				return err
 			}
 			td.elem = elem
-			if elem.kind == reflect.Struct {
+			// Columnar transposition replays the element's structural field
+			// layout and bypasses td.elem.encode / td.elem.decode. A struct that
+			// implements a custom codec in EITHER direction (the documented
+			// asymmetric single-direction case) keeps its structural fields
+			// populated — so without this guard a []OnlyMarshaler / []OnlyUnmarshaler
+			// would columnar-encode/decode and silently skip MarshalQDF/UnmarshalQDF.
+			// A type implementing BOTH returns early in fillDesc with empty fields,
+			// so buildColumnarPlan already yields nil there; this guard covers the
+			// single-direction case the early return misses.
+			et := t.Elem()
+			if elem.kind == reflect.Struct &&
+				!reflect.PointerTo(et).Implements(marshalerType) &&
+				!reflect.PointerTo(et).Implements(unmarshalerType) {
 				td.colPlan = buildColumnarPlan(elem)
 			}
 			td.encode = encodeSlice(elem, t.Elem().Size(), td.colPlan)
