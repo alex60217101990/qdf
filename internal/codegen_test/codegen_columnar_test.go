@@ -303,3 +303,33 @@ func TestColumnarCodegen_NullableColumns_RoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// Regression: an all-nil *string nullable column has present=0, so its dense
+// string part is empty. The empty column must emit nothing (not a stray raw
+// block) or the decode cursor desyncs. (agent bug-hunt 2026-06-19)
+func TestColumnarCodegen_AllNilNullableString(t *testing.T) {
+	pi := func(v int32) *int32 { return &v }
+	in := GenOptSet{}
+	for i := 0; i < 20; i++ {
+		in.Rows = append(in.Rows, GenOpt{A: pi(int32(i))}) // B (*string), C, D all nil
+	}
+	buf, err := (&in).MarshalQDF(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got GenOptSet
+	if _, err := (&got).UnmarshalQDF(buf); err != nil {
+		t.Fatalf("all-nil nullable string desync: %v", err)
+	}
+	if len(got.Rows) != len(in.Rows) {
+		t.Fatalf("len mismatch %d", len(got.Rows))
+	}
+	for i := range in.Rows {
+		if got.Rows[i].B != nil {
+			t.Fatalf("row[%d].B should be nil, got %q", i, *got.Rows[i].B)
+		}
+		if got.Rows[i].A == nil || *got.Rows[i].A != int32(i) {
+			t.Fatalf("row[%d].A wrong: %v", i, got.Rows[i].A)
+		}
+	}
+}

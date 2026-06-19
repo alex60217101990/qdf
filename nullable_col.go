@@ -44,7 +44,13 @@ func (e *Encoder) writeStringColumn(strs []string) {
 	// keeps the interning per-value form, which the gates model correctly — so
 	// its wire is unchanged (const/raw-forced are codegen-only; the decoders
 	// still read them for cross-path interop).
-	if !e.opts.Has(OptDense) {
+	//
+	// An EMPTY column (len==0, e.g. an all-nil nullable string column's dense
+	// part) must emit NOTHING, exactly as the plain loop below does and as the
+	// reflect/Dense path does: writeStringColumnRawForced would otherwise lay
+	// down a tagColStrRaw block that ReadStringColumn(0) skips (its block-tag
+	// dispatch is guarded by n>0), desyncing the decode cursor.
+	if !e.opts.Has(OptDense) && len(strs) > 0 {
 		if e.tryWriteStringColumnConst(strs) {
 			return
 		}
