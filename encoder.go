@@ -280,6 +280,26 @@ func NewEncoderOnBuf(buf []byte, mode Mode) *Encoder {
 // next caller — apply the desired options explicitly via applyOpts /
 // SetQPack after Reset.
 func (e *Encoder) Reset() {
+	e.resetForReuse()
+	e.opts = OptSpeed
+	e.mode = Fast
+	e.qpack = false
+	e.gorillaFloat = false
+	e.rans = false
+	e.colIndex = false
+	e.fsst = false
+	e.pairPred = false
+	e.mtf = false
+	e.fsstDict = nil
+}
+
+// resetForReuse clears the per-message / per-stream encoder state — the output
+// buffer, frame header flag, dense intern/shape state, and the row-scaled
+// scratch — while KEEPING the configured options/mode/codec flags. Encoder.Reset
+// layers the option reset on top (a pooled encoder is reconfigured per acquire);
+// StreamEncoder.Reset calls this directly so one encoder + its grown intern table
+// is reused across independent streams without a fresh newEncState allocation.
+func (e *Encoder) resetForReuse() {
 	e.buf = e.buf[:0]
 	e.customFramed = false
 	// Row-scaled ALP staging scratch: retain across batches, drop only past the
@@ -301,19 +321,8 @@ func (e *Encoder) Reset() {
 	if e.maxDepth == 0 {
 		e.maxDepth = DefaultMaxDepth
 	}
-	e.opts = OptSpeed
-	e.mode = Fast
-	e.qpack = false
-	e.gorillaFloat = false
-	e.rans = false
-	e.colIndex = false
-	e.fsst = false
-	e.pairPred = false
-	e.mtf = false
-	e.fsstDict = nil
-	// Drop any PreIntern entries — they reference caller-supplied
-	// backing pointers that are not safe to assume valid across a
-	// pool recycle.
+	// Drop any PreIntern entries — they reference caller-supplied backing
+	// pointers that are not safe to assume valid across a pool / stream recycle.
 	if e.preIntern != nil {
 		e.preIntern = e.preIntern[:0]
 	}

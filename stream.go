@@ -145,6 +145,26 @@ func (s *StreamEncoder) Close() error {
 	return nil
 }
 
+// Reset prepares the encoder to write a NEW, independent stream to w, reusing
+// the encoder, its grown intern / shape state, and the scratch buffer instead
+// of allocating a fresh one. The configured Options (Dense, codecs) are kept;
+// the cross-message state is cleared so the new stream's back-references start
+// from scratch and the next Encode re-emits the one-per-stream header. A no-op
+// after Close.
+//
+// This is the streaming counterpart of the encoder pool behind Marshal: rather
+// than construct (and re-allocate the intern table for) a StreamEncoder per
+// independent batch, construct one and Reset it between batches — the heavy
+// newEncState() is paid once.
+func (s *StreamEncoder) Reset(w io.Writer) {
+	if s.enc == nil {
+		return // closed: the buffer was returned to the pool
+	}
+	s.enc.resetForReuse()
+	s.w = w
+	s.broken = false
+}
+
 // StreamDecoder reads a sequence of values from an io.Reader. The intern
 // table is preserved across Decode calls to match StreamEncoder.
 //
@@ -334,6 +354,29 @@ func (s *StreamDecoder) fill(need int, boundary bool) error {
 		}
 	}
 	return nil
+}
+
+// Reset prepares the decoder to read a NEW, independent stream from r, reusing
+// the decoder, its dense state, and the window buffer instead of allocating a
+// fresh one. The noCopy setting is preserved; the cross-message state is cleared
+// so the new stream is decoded from scratch. A no-op after Close.
+func (s *StreamDecoder) Reset(r io.Reader) {
+	if s.dec == nil {
+		return // closed: the buffer was returned to the pool
+	}
+	s.dec.buf = (*s.buf)[:0]
+	s.dec.i = 0
+	s.dec.depth = 0
+	s.dec.headerRead = false
+	s.dec.mode = Fast
+	s.dec.colIndex = false
+	s.dec.colMaxLen = 0
+	clear(s.dec.mapFreeList)
+	if s.dec.state != nil {
+		s.dec.state.reset()
+	}
+	s.r = r
+	s.broken = false
 }
 
 // Close releases the scratch buffer to the pool. The underlying reader
