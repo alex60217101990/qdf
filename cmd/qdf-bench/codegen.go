@@ -98,6 +98,54 @@ func printCodegen(iters int, typed []*Info) {
 			return qdf.Unmarshal(b, &out) == nil && reflect.DeepEqual(host, out)
 		},
 		iters)
+
+	// Numeric metrics: the columnar lever Phase 2 recovers. The columnar path
+	// fires on a []scalar-struct FIELD; a bare []GenMetric (Marshaler element)
+	// would fall back to row-major, so the meaningful comparison is the wrapper
+	// MetricHost (reflect columnar) vs GenMetricHost (codegen columnar). Same
+	// all-scalar layout → wire should match (codegen ≈ reflect columnar) while
+	// codegen spends no reflection on the hot path. Synthetic data — real AD
+	// samples have no numeric metric slice.
+	const nMetric = 2000
+	metrics := make([]Metric, nMetric)
+	genMetrics := make([]GenMetric, nMetric)
+	for i := range metrics {
+		metrics[i] = Metric{
+			TS: int64(1_700_000_000 + i), CPU: float64(i%97) * 0.5,
+			Mem: uint64(i%512) << 20, Errors: uint32(i % 7), Up: i%3 != 0,
+		}
+		genMetrics[i] = GenMetric(metrics[i])
+	}
+	mhost := MetricHost{Host: "host1", Metrics: metrics}
+	genMHost := GenMetricHost{Host: "host1", Metrics: genMetrics}
+	printCodegenRow(w, "MetricHost", "reflect-columnar",
+		func() ([]byte, error) { return qdf.Marshal(mhost, opts) },
+		func(b []byte) error { var out MetricHost; return qdf.Unmarshal(b, &out) },
+		func(b []byte) bool {
+			var out MetricHost
+			return qdf.Unmarshal(b, &out) == nil && reflect.DeepEqual(mhost, out)
+		},
+		iters)
+	printCodegenRow(w, "GenMetricHost", "codegen-columnar",
+		func() ([]byte, error) { return qdf.Marshal(genMHost, opts) },
+		func(b []byte) error { var out GenMetricHost; return qdf.Unmarshal(b, &out) },
+		func(b []byte) bool {
+			var out GenMetricHost
+			return qdf.Unmarshal(b, &out) == nil && reflect.DeepEqual(genMHost, out)
+		},
+		iters)
+	// The loser case, for contrast: a bare []GenMetric falls back to row-major
+	// (Marshaler element disables reflect columnar) — shows why the wrapper win
+	// matters.
+	printCodegenRow(w, "[]GenMetric(bare)", "codegen-rowmajor",
+		func() ([]byte, error) { return qdf.Marshal(genMetrics, opts) },
+		func(b []byte) error { var out []GenMetric; return qdf.Unmarshal(b, &out) },
+		func(b []byte) bool {
+			var out []GenMetric
+			return qdf.Unmarshal(b, &out) == nil && reflect.DeepEqual(genMetrics, out)
+		},
+		iters)
+
 	w.Flush()
 }
 
