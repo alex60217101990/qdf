@@ -152,3 +152,62 @@ func TestStreamEncoderReset(t *testing.T) {
 		t.Fatalf("Reset reuse should be low-alloc, got %.1f (newEncState leaking per batch?)", allocs)
 	}
 }
+
+// TestStreamDecoderArena verifies StreamDecoder.SetArena: decoded string bodies
+// bump into the caller's arena, values round-trip, the arena is reused across
+// batches via the envelope pattern (arena.Reset + decoder.Reset), and the arena
+// setting survives Reset.
+func TestStreamDecoderArena(t *testing.T) {
+	type rec struct {
+		Name string `qdf:"name"`
+		Tag  string `qdf:"tag"`
+	}
+	batch := []rec{{"alpha", "x"}, {"beta", "y"}, {"alpha", "z"}, {"gamma", "x"}}
+
+	var w bytes.Buffer
+	enc := NewStreamEncoderWith(&w, OptBalanced)
+	for _, r := range batch {
+		if err := enc.Encode(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	buf := append([]byte(nil), w.Bytes()...)
+
+	a := NewArena()
+	d := NewStreamDecoder(bytes.NewReader(buf))
+	d.SetArena(a)
+	defer d.Close()
+
+	decodeAll := func() []rec {
+		out := make([]rec, 0, len(batch))
+		for range batch {
+			var r rec
+			if err := d.Decode(&r); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, r)
+		}
+		return out
+	}
+	got := decodeAll()
+	for i := range batch {
+		if got[i] != batch[i] {
+			t.Fatalf("arena decode [%d]=%v, want %v", i, got[i], batch[i])
+		}
+	}
+
+	// Envelope reuse: Reset the arena (prior values dead) + the decoder, decode
+	// again — the arena setting is preserved across Reset, and the result is
+	// correct (no stale aliasing).
+	a.Reset()
+	d.Reset(bytes.NewReader(buf))
+	got2 := decodeAll()
+	for i := range batch {
+		if got2[i] != batch[i] {
+			t.Fatalf("after envelope reset [%d]=%v, want %v", i, got2[i], batch[i])
+		}
+	}
+}

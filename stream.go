@@ -171,7 +171,11 @@ func (s *StreamEncoder) Reset(w io.Writer) {
 // The decoder grows its window buffer as needed. State-table entries
 // alias the buffer, so the window is never compacted during a stream;
 // total memory tracks the stream length. For unbounded streams partition
-// into envelopes and create a fresh StreamDecoder per envelope.
+// into envelopes: decode one envelope, then Reset this decoder for the next
+// (Reset reuses the decoder, its dense state, and the window backing — only the
+// contents are cleared, so the window's high-water memory is reused, not
+// re-grown, and the per-envelope footprint stays bounded). Pair Reset with
+// SetArena to also bound the decoded-value memory across envelopes.
 type StreamDecoder struct {
 	r   io.Reader
 	dec *Decoder
@@ -213,6 +217,40 @@ func NewStreamDecoder(r io.Reader) *StreamDecoder {
 func (s *StreamDecoder) SetNoCopy(v bool) {
 	if s.dec != nil {
 		s.dec.noCopy = v
+	}
+}
+
+// SetArena directs Decode to pack copied string / []byte-as-string bodies into
+// the caller-owned Arena (bump-allocated, amortized to ~zero alloc) instead of
+// one heap allocation per value. It is the streaming counterpart of
+// Unmarshal(..., WithArena(a)).
+//
+// Why both this AND SetNoCopy: they trade off lifetime vs copies.
+//
+//   - SetNoCopy aliases the window: zero copies, but a decoded value lives only
+//     as long as the window — i.e. until Close (or until a Reset for a new
+//     stream). The window only ever grows (it is never compacted mid-stream), so
+//     for a long stream its memory tracks the whole stream length.
+//   - SetArena copies once into the arena: the decoded values then live as long
+//     as the Arena (independent of the window), and you control that — keep the
+//     arena across batches, Reset it once a batch's values are dead to reuse its
+//     blocks for the next batch at zero allocation, or drop it and let the GC
+//     free it. This is the right choice when you process a stream in batches and
+//     want each batch's decoded memory released without holding the growing
+//     window, or when values must outlive a Reset/new stream.
+//
+// SetArena is ignored while SetNoCopy(true) is set (no-copy already avoids the
+// copy the arena would pack). The setting is preserved across Reset; pass nil to
+// clear it. Arena strings ALIAS the arena — see Arena for the use-after-free
+// contract around Arena.Reset. No-op after Close. One Arena per goroutine.
+//
+// Memory note: SetArena bounds the DECODED-VALUE memory (via Arena.Reset), not
+// the read WINDOW. To bound a long stream's total footprint, partition it into
+// envelopes and reuse this decoder across them with Reset (see Reset) — that is
+// what caps the window; the arena caps the values.
+func (s *StreamDecoder) SetArena(a *Arena) {
+	if s.dec != nil {
+		s.dec.arena = a
 	}
 }
 
