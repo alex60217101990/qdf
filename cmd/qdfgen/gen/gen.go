@@ -1194,23 +1194,88 @@ func (g *gen) emitDecodeSlice(w io.Writer, lhs string, s *types.Slice, indent st
 	fmt.Fprintf(w, "%s{\n", indent)
 	fmt.Fprintf(w, "%s\tisNil, err := d.IsNil()\n", indent)
 	fmt.Fprintf(w, "%s\tif err != nil {\n%s\t\treturn err\n%s\t}\n", indent, indent, indent)
-	fmt.Fprintf(w, "%s\tif isNil {\n%s\t\t%s = nil\n%s\t} else {\n", indent, indent, lhs, indent)
+	plan, columnar := g.columnarElemPlan(elem)
+	fmt.Fprintf(w, "%s\tif isNil {\n%s\t\t%s = nil\n", indent, indent, lhs)
+	if columnar {
+		fmt.Fprintf(w, "%s\t} else if d.PeekColStruct() {\n", indent)
+		if err := g.emitDecodeColumnarBody(w, lhs, elem, plan, indent+"\t\t"); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(w, "%s\t} else {\n", indent)
+	if err := g.emitDecodeSliceRowMajorBody(w, lhs, elem, indent+"\t\t"); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s\t}\n", indent)
+	fmt.Fprintf(w, "%s}\n", indent)
+	return nil
+}
+
+// emitDecodeSliceRowMajorBody emits the ReadArrayHeader + make + per-element
+// loop for a non-nil slice (the caller writes the surrounding nil guard).
+func (g *gen) emitDecodeSliceRowMajorBody(w io.Writer, lhs string, elem types.Type, indent string) error {
 	nVar := g.fresh("n")
-	fmt.Fprintf(w, "%s\t\t%s, err := d.ReadArrayHeader()\n", indent, nVar)
-	fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s%s, err := d.ReadArrayHeader()\n", indent, nVar)
+	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
 	// Bound the allocation by remaining input so a hostile length header
 	// can't trigger a multi-GB make before any element is read (matches the
 	// reflect decoder's CheckLength gate).
-	fmt.Fprintf(w, "%s\t\tif err := d.CheckLength(%s, 1); err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, nVar, indent, indent)
-	fmt.Fprintf(w, "%s\t\t%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
+	fmt.Fprintf(w, "%sif err := d.CheckLength(%s, 1); err != nil {\n%s\treturn err\n%s}\n", indent, nVar, indent, indent)
+	fmt.Fprintf(w, "%s%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	loopVar := g.fresh("i")
-	fmt.Fprintf(w, "%s\t\tfor %s := range %s {\n", indent, loopVar, nVar)
-	if err := g.emitDecodeValue(w, lhs+"["+loopVar+"]", elem, indent+"\t\t\t"); err != nil {
+	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, loopVar, nVar)
+	if err := g.emitDecodeValue(w, lhs+"["+loopVar+"]", elem, indent+"\t"); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "%s\t\t}\n", indent)
-	fmt.Fprintf(w, "%s\t}\n", indent)
 	fmt.Fprintf(w, "%s}\n", indent)
+	return nil
+}
+
+// emitDecodeColumnarBody emits decode for the tagColStruct frame: read the
+// header (row count + column shape), allocate the slice, then decode each
+// declared column by name and scatter it into the matching struct field
+// (narrowing per field type). The slice is bounded by maxColumnarElems inside
+// ReadColStructHeader (the reflect path's cap), so columns may be compressed
+// below n bytes without a false length rejection. Unknown columns are not
+// tolerated in v1 (the generated decoder requires its exact declared set).
+func (g *gen) emitDecodeColumnarBody(w io.Writer, lhs string, elem types.Type, plan colElemPlan, indent string) error {
+	nVar := g.fresh("n")
+	namesVar := g.fresh("names")
+	kindsVar := g.fresh("kinds")
+	idxVar := g.fresh("ci")
+	fmt.Fprintf(w, "%s%s, %s, %s, err := d.ReadColStructHeader()\n", indent, nVar, namesVar, kindsVar)
+	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s_ = %s\n", indent, kindsVar)
+	fmt.Fprintf(w, "%s%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
+	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, idxVar, namesVar)
+	fmt.Fprintf(w, "%s\tswitch %s[%s] {\n", indent, namesVar, idxVar)
+	for _, c := range plan.Columns {
+		colv := g.fresh("col")
+		fmt.Fprintf(w, "%s\tcase %s:\n", indent, strconv.Quote(c.WireName))
+		var readFn string
+		switch c.ColAPI {
+		case "Int":
+			readFn = "ReadIntColumn"
+		case "Uint":
+			readFn = "ReadUintColumn"
+		case "Float64":
+			readFn = "ReadFloat64Column"
+		case "Float32":
+			readFn = "ReadFloat32Column"
+		case "Bool":
+			readFn = "ReadBoolColumn"
+		}
+		fmt.Fprintf(w, "%s\t\t%s, err := d.%s(%s)\n", indent, colv, readFn, nVar)
+		fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, indent, indent)
+		if c.ColAPI == "Bool" {
+			fmt.Fprintf(w, "%s\t\tfor i := range %s {\n%s\t\t\t%s[i].%s = %s[i]\n%s\t\t}\n", indent, colv, indent, lhs, c.Access, colv, indent)
+		} else {
+			fmt.Fprintf(w, "%s\t\tfor i := range %s {\n%s\t\t\t%s[i].%s = %s(%s[i])\n%s\t\t}\n", indent, colv, indent, lhs, c.Access, c.GoType, colv, indent)
+		}
+	}
+	fmt.Fprintf(w, "%s\tdefault:\n%s\t\treturn qdf.ErrTypeMismatch\n", indent, indent)
+	fmt.Fprintf(w, "%s\t}\n", indent) // switch
+	fmt.Fprintf(w, "%s}\n", indent)   // for
 	return nil
 }
 
