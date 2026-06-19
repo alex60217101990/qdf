@@ -490,8 +490,13 @@ Each message is length-framed (a `uvarint` byte-count precedes its body;
 the 5-byte header is written once up front), so a message of any size
 round-trips — even across a reader that delivers one byte at a time — and
 `io.EOF` cleanly marks the end. Struct tags and all Dense/codec options
-work exactly as in one-shot `Marshal`, and `dec.SetNoCopy(true)` gives
-zero-copy decode whose aliases stay valid for the stream's lifetime. The
+work exactly as in one-shot `Marshal`. Decode-side allocation has two
+levers: `dec.SetNoCopy(true)` aliases the window (zero copies, values valid
+for the stream's lifetime), and `dec.SetArena(a)` bump-packs string bodies
+into a caller-owned arena (one amortized copy, values valid as long as the
+arena — `Reset` it per batch). To reuse one encoder/decoder across
+independent streams (pay the intern-table construction once), `Reset` them
+between streams; pair with the arena to bound a long stream's memory. The
 encoder reuses one pooled buffer (allocation-free steady state); target a
 `*bytes.Buffer` to collect into a `[]byte`. The three whole-batch
 features — `OptColumnIndex`, `Where`/`Select` pushdown, and `OptRANS` —

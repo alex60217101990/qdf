@@ -156,6 +156,39 @@ d.SetArena(a)
 // ... typed Read* / generated UnmarshalQDFArena ...
 ```
 
+### Pattern 4 — arena over a `StreamDecoder` (bounded long-stream decode)
+
+`StreamDecoder.SetArena` is the streaming twin of `WithArena`: decoded string
+bodies bump into the arena instead of one heap allocation each. It complements
+`SetNoCopy` — `nocopy` aliases the window (zero copies, but a value lives only as
+long as the window, which only grows), while the arena copies once into a
+lifetime you control. The bounded-memory pattern partitions the stream into
+envelopes: reuse the decoder with `Reset` (caps the growing window — its backing
+is reused, not re-grown) and `Reset` the arena per envelope (caps the values):
+
+```go
+a := qdf.NewArena()
+d := qdf.NewStreamDecoder(nil)
+d.SetArena(a)                        // preserved across Reset
+defer d.Close()
+for _, envelope := range envelopes {
+    a.Reset()                        // ⚠ invalidates the previous envelope's values
+    d.Reset(envelope)                // reuse window backing + dense state
+    for {
+        var ev Event
+        if err := d.Decode(&ev); err == io.EOF {
+            break
+        } else if err != nil {
+            return err
+        }
+        process(ev)                  // ev's strings live in `a` until the next a.Reset()
+    }
+}
+```
+
+`SetArena` is ignored while `SetNoCopy(true)` is set (no-copy already avoids the
+copy). The arena bounds the decoded *values*; `Reset` bounds the read *window*.
+
 ---
 
 ## Safety / lifetime contract
