@@ -55,6 +55,30 @@ The generated code uses the public `qdf` API only:
 `Decoder.CheckLength`, pre-encoded field-name headers, etc. There is no
 `reflect.*` on the hot path.
 
+## Columnar `[]struct` fields
+
+A `[]NamedStruct` field whose element is columnar-eligible is emitted as a
+**monomorphized columnar transpose** instead of a row-major per-element loop:
+the struct slice is transposed to per-column arrays at compile-time-known field
+offsets and each column is written through `qdf`'s adaptive codecs (FOR / Delta /
+RLE / dictionary / PFOR for numbers; dict / FSST / raw-slab / constant for
+strings) — zero reflection, recovering the columnar wire win a `Marshaler`
+element otherwise loses (a generated type can't use the reflect columnar path).
+
+- **Eligible columns**: scalar `int*`/`uint*`/`float*`/`bool`, `string`,
+  `time.Time`, `[]byte`, and pointers to scalar/string (`*T` → a **nullable**
+  column with a presence bitmap; `nil` vs empty stays distinct).
+- **Pure** frame (`tagColStruct`, `0xEF`) when every field is eligible;
+  **hybrid** frame (`tagHybridColStruct`, `0xF7`) when some fields (nested
+  struct, map, non-byte slice, `*struct`, interface) stay as a per-row residual
+  tail.
+- **Gated**: fires only at `len >= 16`; shorter/`nil` slices stay row-major. A
+  string-only element runs a cardinality probe so high-cardinality strings stay
+  row-major (columnar would not shrink them).
+- The wire layout is byte-identical to the reflect columnar path, so a generated
+  type cross-decodes with reflect `Unmarshal` (which delegates to the generated
+  method anyway).
+
 ## Supported types
 
 - All primitives (`bool`, every `int*`/`uint*`, `float32`, `float64`,

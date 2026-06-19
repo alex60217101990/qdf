@@ -46,7 +46,7 @@ bit:  7   6   5   4      3            2          1          0
 | Flag | Hex | Meaning |
 |------|-----|---------|
 | `FlagDense` | `0x01` | Body uses Dense intern dialect; state-ref tags (`0xE0`–`0xEA`, `0xEC`) are present |
-| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xF6`); early hint so readers can reject unsupported codecs before parsing |
+| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xF9`); early hint so readers can reject unsupported codecs before parsing |
 | `FlagRANS` | `0x04` | Body is rANS-compressed: `varuint(origLen)` + 256-entry freq table + rANS stream. Decoder decompresses before reading tags. Set only when rANS form is strictly smaller. |
 | `FlagColIndex` | `0x08` | A `tagColStruct` payload carries a fixed-width column-length index (K × `uint32` LE) right after the shape declaration. Backpatched by the encoder; never set on non-columnar payloads. |
 
@@ -98,6 +98,9 @@ bit:  7   6   5   4      3            2          1          0
 | `tagPackALP` | `0xF4` | ALP decimal-coded `[]float64` |
 | `tagColStrDict` | `0xF5` | Dictionary-coded string column (inside `tagColStruct`) |
 | `tagColStrFSST` | `0xF6` | FSST-coded string column (symbol table + per-row code streams), inside `tagColStruct` |
+| `tagHybridColStruct` | `0xF7` | Hybrid columnar container: a `[]struct` with mixed fields — eligible columns transposed, the rest kept as a per-row residual tail. Shape lists every field; residual entries carry kind byte `0xFF`. |
+| `tagColStrRaw` | `0xF8` | Bulk-materialized string column (inside `tagColStruct`): every value laid down once, length-prefixed, so the decoder builds the whole column in ONE slab allocation. High-cardinality counterpart to `tagColStrDict`. |
+| `tagColStrConst` | `0xF9` | Constant (single-distinct) string column (inside `tagColStruct`): one value + the row count, decoded as `n` shares of one owned string. Emitted on the codegen/`Fast` path where the per-value form does not intern repeats. |
 
 **Other**:
 

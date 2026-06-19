@@ -193,11 +193,14 @@ Tag space is msgpack-inspired with a few additions:
 | `0xF4`               | QPack: ALP decimal-coded `[]float64` slice    |
 | `0xF5`               | QPack: dictionary-coded string column          |
 | `0xF6`               | QPack: FSST-coded string column (inside columnar) |
-| `0xF7..0xFF`         | reserved (rANS, n-gram graph, future)         |
+| `0xF7`               | QPack: hybrid columnar container (mixed `[]struct`) |
+| `0xF8`               | QPack: bulk-slab string column (inside columnar) |
+| `0xF9`               | QPack: constant string column (inside columnar) |
+| `0xFA..0xFF`         | reserved (n-gram graph, future)               |
 
 The 5th header byte holds two flag bits: `FlagDense` (`0x01`) for the
 intern dialect, and `FlagQPack` (`0x02`) as an early hint that the body
-may carry codec tags from the QPack codec range (`0xE3..0xEF`, `0xF4..0xF6`). A reader that does
+may carry codec tags from the QPack codec range (`0xE3..0xEF`, `0xF4..0xF9`). A reader that does
 not implement the QPack tags fails with `ErrBadTag` on first contact;
 it never decodes a packed payload as scalar by accident.
 
