@@ -232,7 +232,28 @@ const (
 	// one allocation. A decoder that does not implement it sees an unknown tag →
 	// ErrBadTag.
 	tagColStrRaw = 0xF8
+
+	// tagColStrConst is a single-distinct (constant) string column inside a
+	// tagColStruct payload: every row holds the SAME string. The dict codec
+	// rejects this (it requires count >= 2 for a bounded index body) and the
+	// per-value form stores the value n times (Dense state-repeats it, but the
+	// codegen/Fast path does not), so a constant column is both wire-bloated and
+	// decodes to n allocations there. tagColStrConst stores the value once plus
+	// the row count; the decoder fills n shares of the single owned string (one
+	// allocation). Chosen automatically when every value is identical. Wire:
+	//   0xF9, varuint(len), len bytes, varuint(n)
+	// n is checked against the columnar header's row count, which bounds it; a
+	// decoder that does not implement it sees an unknown tag → ErrBadTag.
+	tagColStrConst = 0xF9
 )
+
+// isStringColumnBlockTag reports whether b begins a self-describing string
+// column block (dict / FSST / raw / const) rather than a per-value plain run.
+// The columnar decoders peek this to choose the block reader (readStringColumn)
+// over a ReadString loop.
+func isStringColumnBlockTag(b byte) bool {
+	return b == tagColStrDict || b == tagColStrFSST || b == tagColStrRaw || b == tagColStrConst
+}
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
 // lengths. The encoder always appends; the decoder returns the consumed
