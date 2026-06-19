@@ -996,6 +996,7 @@ type decState struct {
 	colScratchF64  []float64
 	colScratchBool []bool
 	colScratchF32  []float32 // codegen columnar float32 scatter scratch
+	colScratchStr  []string  // codegen columnar plain string scatter scratch
 
 	// deltaColRows is reused storage for a sparse column's decoded ascending row
 	// indices during a tagColSlicePatch apply (delta_columnar.go).
@@ -1094,6 +1095,9 @@ func (d *decState) reset() {
 	}
 	if cap(d.colScratchF32) > maxRetainedColScratch {
 		d.colScratchF32 = nil
+	}
+	if cap(d.colScratchStr) > maxRetainedColScratch {
+		d.colScratchStr = nil
 	}
 	if cap(d.colLenScratch) > maxRetainedColScratch {
 		d.colLenScratch = nil
