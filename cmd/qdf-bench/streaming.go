@@ -22,6 +22,7 @@ import (
 type streamCase struct {
 	codec       string
 	repr        string
+	dec         string // decode mode label: copy / nocopy / arena (qdf), "-" otherwise
 	n           int
 	encodeBatch func(w io.Writer) error
 	decodeBatch func(r io.Reader) error
@@ -124,81 +125,111 @@ func streamRounds(iters int, fn func(), n int) (nsPerVal int64, bPerVal, allocsP
 	return
 }
 
-// streamCases builds the streaming matrix: qdf (typed + map), encoding/json
-// (typed + map), and msgpack (typed + map). qdf streams with summaryBundle so
-// it is comparable to the headline diff. json and msgpack use their standard
-// streaming encoder/decoder over the same values.
+// streamCases builds the streaming matrix: qdf (typed + map, each in the three
+// decode modes copy / nocopy / arena), encoding/json (typed + map), and msgpack
+// (typed + map). Every codec constructs ONE encoder/decoder and the batch
+// closures Reset it between batches, so the heavy per-stream construction (qdf's
+// intern table) is paid once, outside the timed loop — the figures are the
+// per-message cost, the same basis as msgpack (whose codec also resets over a
+// reused buffer). json's Encoder/Decoder have no Reset but are cheap + stateless,
+// so constructing per batch adds no measurable bias.
+//
+// The qdf decode modes exercise the StreamDecoder allocation levers: copy (one
+// heap string per value), nocopy (SetNoCopy — values alias the window, zero
+// copies), arena (SetArena — string bodies bump into a per-batch-Reset arena).
 func streamCases(typed []*Info, dyn []map[string]any) []streamCase {
 	nt, nm := len(typed), len(dyn)
 	opts := bundleOpts(summaryBundle)
 
-	// qdf: one StreamEncoder/Decoder per case, Reset between batches. The heavy
-	// per-stream construction (intern table) is paid once at NewStream*, outside
-	// the timed loop — so the measured figures are the per-message cost, the same
-	// basis as msgpack (whose encoder/decoder also reset over a reused buffer).
-	qeT := qdf.NewStreamEncoderWith(io.Discard, opts)
-	qdT := qdf.NewStreamDecoder(nil)
-	qeM := qdf.NewStreamEncoderWith(io.Discard, opts)
-	qdM := qdf.NewStreamDecoder(nil)
-	meT := msgpack.NewEncoder(io.Discard)
-	mdT := msgpack.NewDecoder(nil)
-	meM := msgpack.NewEncoder(io.Discard)
-	mdM := msgpack.NewDecoder(nil)
+	// configDec applies a qdf decode mode to a StreamDecoder, returning the arena
+	// (non-nil only for "arena") so the decode loop can Reset it per batch.
+	configDec := func(d *qdf.StreamDecoder, mode string) *qdf.Arena {
+		switch mode {
+		case "nocopy":
+			d.SetNoCopy(true)
+		case "arena":
+			a := qdf.NewArena()
+			d.SetArena(a)
+			return a
+		}
+		return nil
+	}
 
-	return []streamCase{
-		{
-			codec: "qdf", repr: "typed", n: nt,
+	qdfTyped := func(mode string) streamCase {
+		qe := qdf.NewStreamEncoderWith(io.Discard, opts)
+		qd := qdf.NewStreamDecoder(nil)
+		ar := configDec(qd, mode)
+		return streamCase{
+			codec: "qdf", repr: "typed", dec: mode, n: nt,
 			encodeBatch: func(w io.Writer) error {
-				qeT.Reset(w)
+				qe.Reset(w)
 				for _, p := range typed {
-					if err := qeT.Encode(*p); err != nil {
+					if err := qe.Encode(*p); err != nil {
 						return err
 					}
 				}
-				return qeT.Flush()
+				return qe.Flush()
 			},
 			decodeBatch: func(r io.Reader) error {
-				qdT.Reset(r)
+				if ar != nil {
+					ar.Reset() // reuse the arena's blocks for this batch (prior values are dead)
+				}
+				qd.Reset(r)
 				for range nt {
 					var out Info
-					if err := qdT.Decode(&out); err != nil {
+					if err := qd.Decode(&out); err != nil {
 						return err
 					}
 					decInfo = out
 				}
 				return nil
 			},
-			cleanup: func() { qeT.Close(); qdT.Close() },
-		},
-		{
-			codec: "qdf", repr: "map", n: nm,
+			cleanup: func() { qe.Close(); qd.Close() },
+		}
+	}
+	qdfMap := func(mode string) streamCase {
+		qe := qdf.NewStreamEncoderWith(io.Discard, opts)
+		qd := qdf.NewStreamDecoder(nil)
+		ar := configDec(qd, mode)
+		return streamCase{
+			codec: "qdf", repr: "map", dec: mode, n: nm,
 			encodeBatch: func(w io.Writer) error {
-				qeM.Reset(w)
+				qe.Reset(w)
 				for _, v := range dyn {
-					if err := qeM.Encode(v); err != nil {
+					if err := qe.Encode(v); err != nil {
 						return err
 					}
 				}
-				return qeM.Flush()
+				return qe.Flush()
 			},
 			decodeBatch: func(r io.Reader) error {
-				qdM.Reset(r)
+				if ar != nil {
+					ar.Reset()
+				}
+				qd.Reset(r)
 				for range nm {
 					var out map[string]any
-					if err := qdM.Decode(&out); err != nil {
+					if err := qd.Decode(&out); err != nil {
 						return err
 					}
 					decMap = out
 				}
 				return nil
 			},
-			cleanup: func() { qeM.Close(); qdM.Close() },
-		},
+			cleanup: func() { qe.Close(); qd.Close() },
+		}
+	}
+
+	meT := msgpack.NewEncoder(io.Discard)
+	mdT := msgpack.NewDecoder(nil)
+	meM := msgpack.NewEncoder(io.Discard)
+	mdM := msgpack.NewDecoder(nil)
+
+	return []streamCase{
+		qdfTyped("copy"), qdfTyped("nocopy"), qdfTyped("arena"),
+		qdfMap("copy"), qdfMap("nocopy"), qdfMap("arena"),
 		{
-			// json's Encoder/Decoder have no Reset; NewEncoder/NewDecoder are
-			// cheap (no cross-message state), so constructing per batch adds no
-			// measurable bias.
-			codec: "json", repr: "typed", n: nt,
+			codec: "json", repr: "typed", dec: "-", n: nt,
 			encodeBatch: func(w io.Writer) error {
 				e := json.NewEncoder(w)
 				for _, p := range typed {
@@ -221,7 +252,7 @@ func streamCases(typed []*Info, dyn []map[string]any) []streamCase {
 			},
 		},
 		{
-			codec: "json", repr: "map", n: nm,
+			codec: "json", repr: "map", dec: "-", n: nm,
 			encodeBatch: func(w io.Writer) error {
 				e := json.NewEncoder(w)
 				for _, v := range dyn {
@@ -244,7 +275,7 @@ func streamCases(typed []*Info, dyn []map[string]any) []streamCase {
 			},
 		},
 		{
-			codec: "msgpack", repr: "typed", n: nt,
+			codec: "msgpack", repr: "typed", dec: "-", n: nt,
 			encodeBatch: func(w io.Writer) error {
 				meT.Reset(w)
 				for _, p := range typed {
@@ -267,7 +298,7 @@ func streamCases(typed []*Info, dyn []map[string]any) []streamCase {
 			},
 		},
 		{
-			codec: "msgpack", repr: "map", n: nm,
+			codec: "msgpack", repr: "map", dec: "-", n: nm,
 			encodeBatch: func(w io.Writer) error {
 				meM.Reset(w)
 				for _, v := range dyn {
@@ -297,13 +328,15 @@ func streamCases(typed []*Info, dyn []map[string]any) []streamCase {
 func printStreaming(iters int, typed []*Info, dyn []map[string]any) {
 	fmt.Printf("\n=== STREAMING: encode then decode the whole batch through each codec's\n" +
 		"    streaming Encoder/Decoder (qdf StreamEncoder/Decoder, json/msgpack\n" +
-		"    NewEncoder/NewDecoder). Per-value figures. ===\n")
+		"    NewEncoder/NewDecoder). Per-value figures. The 'dec' column is qdf's\n" +
+		"    stream decode mode — copy / nocopy (SetNoCopy) / arena (SetArena, the\n" +
+		"    arena Reset per batch); json/msgpack have one mode ('-'). ===\n")
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "codec\trepr\tser_ns\tser_B\tser_alloc\tdeser_ns\tdeser_B\tdeser_alloc\twire_B")
+	fmt.Fprintln(w, "codec\trepr\tdec\tser_ns\tser_B\tser_alloc\tdeser_ns\tdeser_B\tdeser_alloc\twire_B")
 	for _, sc := range streamCases(typed, dyn) {
 		s := benchStream(iters, sc)
-		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
-			sc.codec, sc.repr,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			sc.codec, sc.repr, sc.dec,
 			s.serNs, s.serB, s.serAllocs,
 			s.deserNs, s.deserB, s.deserAllocs, s.wirePerVal)
 	}
