@@ -286,7 +286,7 @@ func (g *gen) fieldNameVar(name string) string {
 		return v
 	}
 	g.uniqCounter++
-	ident := fmt.Sprintf("qdfFieldHdr_%s_%d", sanitizeIdent(name), g.uniqCounter)
+	ident := "qdfFieldHdr_" + sanitizeIdent(name) + "_" + strconv.Itoa(g.uniqCounter)
 	g.headerNames[name] = ident
 	g.header.WriteString("\t")
 	g.header.WriteString(ident)
@@ -568,14 +568,17 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	// keys the field-name shape on, and the field-name headers in field order.
 	// EncodeQDF declares the shape once per encoder (StructShape) so a slice of
 	// this struct threaded through one encoder writes the names once.
-	shapeTok := fmt.Sprintf("qdfShapeTok_%s", typeName)
-	hdrsVar := fmt.Sprintf("qdfFieldHdrs_%s", typeName)
-	hdrNames := make([]string, len(fields))
-	for i, f := range fields {
-		hdrNames[i] = g.fieldNameVar(f.WireKey)
-	}
+	shapeTok := "qdfShapeTok_" + typeName
+	hdrsVar := "qdfFieldHdrs_" + typeName
 	fmt.Fprintf(w, "var %s byte\n", shapeTok)
-	fmt.Fprintf(w, "var %s = [][]byte{%s}\n\n", hdrsVar, strings.Join(hdrNames, ", "))
+	fmt.Fprintf(w, "var %s = [][]byte{", hdrsVar)
+	for i, f := range fields {
+		if i > 0 {
+			w.WriteString(", ")
+		}
+		w.WriteString(g.fieldNameVar(f.WireKey))
+	}
+	w.WriteString("}\n\n")
 
 	// Encoder-based body — writes v's fields into a shared encoder. A parent
 	// threads one encoder through nested values via qdf.EncodeNested, avoiding
@@ -939,30 +942,54 @@ func basicColKind(k types.BasicKind) (byte, string, bool) {
 	}
 }
 
-// colNamesVar emits (once per ident) a file-level []string and returns its ident.
+// colNamesVar emits (once per ident) a file-level []string and returns its
+// ident. Appends straight to the var buffer (no intermediate parts slice +
+// strings.Join + fmt format-string parse).
 func (g *gen) colNamesVar(ident string, names []string) string {
 	if !g.colVarSeen[ident] {
 		g.colVarSeen[ident] = true
-		parts := make([]string, len(names))
+		b := &g.colVars
+		b.WriteString("var ")
+		b.WriteString(ident)
+		b.WriteString(" = []string{")
 		for i, nm := range names {
-			parts[i] = strconv.Quote(nm)
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(strconv.Quote(nm))
 		}
-		fmt.Fprintf(&g.colVars, "var %s = []string{%s}\n", ident, strings.Join(parts, ", "))
+		b.WriteString("}\n")
 	}
 	return ident
 }
 
 // colKindsVar emits (once per ident) a file-level []byte and returns its ident.
+// Appends each kind as a 0xNN literal directly (no fmt.Sprintf per element).
 func (g *gen) colKindsVar(ident string, kinds []byte) string {
 	if !g.colVarSeen[ident] {
 		g.colVarSeen[ident] = true
-		parts := make([]string, len(kinds))
+		b := &g.colVars
+		b.WriteString("var ")
+		b.WriteString(ident)
+		b.WriteString(" = []byte{")
 		for i, k := range kinds {
-			parts[i] = fmt.Sprintf("0x%02x", k)
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			writeHexByteLiteral(b, k)
 		}
-		fmt.Fprintf(&g.colVars, "var %s = []byte{%s}\n", ident, strings.Join(parts, ", "))
+		b.WriteString("}\n")
 	}
 	return ident
+}
+
+// writeHexByteLiteral appends a Go 0xNN byte literal for k.
+func writeHexByteLiteral(b *bytes.Buffer, k byte) {
+	const hexd = "0123456789abcdef"
+	b.WriteByte('0')
+	b.WriteByte('x')
+	b.WriteByte(hexd[k>>4])
+	b.WriteByte(hexd[k&0xf])
 }
 
 // eligNamesKinds returns the eligible columns' wire names + kind bytes (the
@@ -1707,10 +1734,12 @@ func (g *gen) typeExprFromType(t types.Type) string {
 	return types.TypeString(t, qf)
 }
 
-// fresh returns a unique identifier starting with the given prefix.
+// fresh returns a unique identifier starting with the given prefix. Hot (one
+// call per emitted temporary), so it concatenates directly instead of going
+// through fmt's format-string parsing + reflection.
 func (g *gen) fresh(prefix string) string {
 	g.uniqCounter++
-	return fmt.Sprintf("%s%d", prefix, g.uniqCounter)
+	return prefix + strconv.Itoa(g.uniqCounter)
 }
 
 // isTimeTime reports whether t resolves to the standard library's time.Time.
