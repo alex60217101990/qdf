@@ -1081,9 +1081,17 @@ State (intern table, shape table, predictors) persists across
 event log shares one intern table; the second event onwards trades
 its keys for state-refs.
 
-`StreamDecoder` is symmetric. Reset semantics are unchanged: when
-the stream encoder is returned to its pool (`Close`), the state
-shrinks via the same watermark logic.
+`StreamDecoder` is symmetric.
+
+**Reusing one encoder/decoder across streams.** `StreamEncoder.Reset(w)` /
+`StreamDecoder.Reset(r)` rewind the instance for a NEW, independent stream while
+reusing its grown intern/shape table and window buffer — so the heavy per-stream
+construction (the intern table) is paid once, not per stream. The configured
+`Options` (and `SetNoCopy`/`SetArena`) are preserved; the cross-message state is
+cleared so the new stream starts fresh and stays independent. This is the
+streaming counterpart of the `Marshal` encoder pool: construct one
+`StreamEncoder`/`StreamDecoder`, `Reset` it per batch. (`Close` still returns the
+buffer to the pool and shrinks the state via the watermark logic.)
 
 **Framing.** The 5-byte header is written once, before the first
 message. Each message is then length-delimited: a `uvarint` byte-count
@@ -1099,10 +1107,24 @@ has no per-message length prefix.)
 **What the stream supports vs the one-shot API.** Struct tags
 (`qdf:"..."`) and all Dense/codec features behave identically — pass any
 `Options` to `NewStreamEncoderWith`, and the intern/shape/predictor
-tables span the whole stream. Decode-side **zero-copy** works too:
-`StreamDecoder.SetNoCopy(true)` aliases the input buffer, and because the
-window is never compacted the aliases stay valid for the stream's
-lifetime.
+tables span the whole stream.
+
+Decode-side **alloc reduction** has two levers that trade copies for lifetime:
+
+- `StreamDecoder.SetNoCopy(true)` — decoded strings alias the window buffer
+  (zero copies). Safe for the stream's lifetime because the window is never
+  compacted, but a value lives only as long as the window — i.e. until `Close`
+  (or a `Reset`), and the window only ever grows.
+- `StreamDecoder.SetArena(a)` — string bodies bump into a caller-owned `Arena`
+  (one amortized-to-zero copy). The decoded values then live as long as the
+  `Arena`, independent of the window — `Reset` the arena once a batch's values
+  are dead to reuse its blocks, or drop it.
+
+**Bounding a long stream's memory.** The window grows monotonically, so total
+footprint tracks stream length. To bound it, partition the stream into envelopes
+and reuse the decoder across them with `Reset` (caps the window — its high-water
+backing is reused, not re-grown); pair with `SetArena` to also cap the decoded
+values. See [ARENA.md](ARENA.md).
 
 Three whole-payload features are **not** part of streaming, by design —
 they operate on a single complete message/batch, which is the opposite

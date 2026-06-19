@@ -154,6 +154,20 @@ encoder and decodes it back, per value: qdf `StreamEncoder` / `StreamDecoder`
 vs `encoding/json` and msgpack `NewEncoder` / `NewDecoder`, for both the typed
 and map representations. qdf streams the `summaryBundle` options.
 
+Each codec constructs ONE encoder/decoder and `Reset`s it per batch (so the
+heavy per-stream construction — qdf's intern table — is paid once, outside the
+timed loop, matching real streaming; json builds fresh since its constructor is
+cheap and stateless). A `dec` column reports qdf's stream decode mode:
+
+- `copy` — every string copied to the heap (default).
+- `nocopy` — `StreamDecoder.SetNoCopy`: strings alias the window (zero copies).
+- `arena` — `StreamDecoder.SetArena` with the arena `Reset` per batch: string
+  bodies bump-pack into the arena (fewer alloc events; values' lifetime is the
+  arena, not the window).
+
+`ser_*` and `wire_B` are identical across a repr's three qdf decode rows (same
+encode). json/msgpack have a single mode (`-`).
+
 ## Profiling
 
 ```sh
