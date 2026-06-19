@@ -934,23 +934,23 @@ func (g *gen) emitEncodeColumnarSlice(w io.Writer, expr string, elem types.Type,
 		col := g.fresh("c")
 		switch c.ColAPI {
 		case "Int":
-			fmt.Fprintf(w, "%s\t%s := make([]int64, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\t%s := e.ScratchInt(len(%s))\n", indent, col, s)
 			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = int64(%s[i].%s) }\n", indent, s, col, s, c.Access)
 			fmt.Fprintf(w, "%s\tif err := e.WriteIntColumn(%s); err != nil { return err }\n", indent, col)
 		case "Uint":
-			fmt.Fprintf(w, "%s\t%s := make([]uint64, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\t%s := e.ScratchUint(len(%s))\n", indent, col, s)
 			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = uint64(%s[i].%s) }\n", indent, s, col, s, c.Access)
 			fmt.Fprintf(w, "%s\tif err := e.WriteUintColumn(%s); err != nil { return err }\n", indent, col)
 		case "Float64":
-			fmt.Fprintf(w, "%s\t%s := make([]float64, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\t%s := e.ScratchFloat64(len(%s))\n", indent, col, s)
 			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = float64(%s[i].%s) }\n", indent, s, col, s, c.Access)
 			fmt.Fprintf(w, "%s\tif err := e.WriteFloat64Column(%s); err != nil { return err }\n", indent, col)
 		case "Float32":
-			fmt.Fprintf(w, "%s\t%s := make([]float32, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\t%s := e.ScratchFloat32(len(%s))\n", indent, col, s)
 			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = float32(%s[i].%s) }\n", indent, s, col, s, c.Access)
 			fmt.Fprintf(w, "%s\tif err := e.WriteFloat32Column(%s); err != nil { return err }\n", indent, col)
 		case "Bool":
-			fmt.Fprintf(w, "%s\t%s := make([]bool, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\t%s := e.ScratchBool(len(%s))\n", indent, col, s)
 			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = %s[i].%s }\n", indent, s, col, s, c.Access)
 			fmt.Fprintf(w, "%s\tif err := e.WriteBoolColumn(%s); err != nil { return err }\n", indent, col)
 		}

@@ -405,35 +405,35 @@ func (v *GenMetricBatch) EncodeQDF(e *qdf.Encoder) error {
 	} else if len(v.Metrics) >= 16 { // columnarMinElems
 		col29 := v.Metrics
 		e.WriteColStructHeader(len(col29), qdfColNames_GenMetric, qdfColKinds_GenMetric)
-		c30 := make([]int64, len(col29))
+		c30 := e.ScratchInt(len(col29))
 		for i := range col29 {
 			c30[i] = int64(col29[i].TS)
 		}
 		if err := e.WriteIntColumn(c30); err != nil {
 			return err
 		}
-		c31 := make([]float64, len(col29))
+		c31 := e.ScratchFloat64(len(col29))
 		for i := range col29 {
 			c31[i] = float64(col29[i].Value)
 		}
 		if err := e.WriteFloat64Column(c31); err != nil {
 			return err
 		}
-		c32 := make([]uint64, len(col29))
+		c32 := e.ScratchUint(len(col29))
 		for i := range col29 {
 			c32[i] = uint64(col29[i].Count)
 		}
 		if err := e.WriteUintColumn(c32); err != nil {
 			return err
 		}
-		c33 := make([]bool, len(col29))
+		c33 := e.ScratchBool(len(col29))
 		for i := range col29 {
 			c33[i] = col29[i].OK
 		}
 		if err := e.WriteBoolColumn(c33); err != nil {
 			return err
 		}
-		c34 := make([]float32, len(col29))
+		c34 := e.ScratchFloat32(len(col29))
 		for i := range col29 {
 			c34[i] = float32(col29[i].Ratio)
 		}

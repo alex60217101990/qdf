@@ -42,6 +42,71 @@ func (e *Encoder) WriteColStructHeader(n int, names []string, kinds []byte) {
 	st.colShapeDeclare(names, ck)
 }
 
+// colState lazily initializes and returns the encoder's columnar state, which
+// owns the reusable per-column transpose scratch.
+func (e *Encoder) colState() *encState {
+	if e.state == nil {
+		e.state = newEncState()
+	}
+	return e.state
+}
+
+// The ScratchX getters hand generated code a reusable column buffer of length n,
+// grown from the encoder's pooled columnar scratch (shared with the reflect
+// path, which never runs concurrently on the same encoder). Generated code
+// fills the buffer and passes it straight to the matching WriteXColumn, so a
+// whole columnar []struct encodes with zero per-column allocation.
+
+// ScratchInt returns a reusable []int64 of length n for a signed column.
+func (e *Encoder) ScratchInt(n int) []int64 {
+	st := e.colState()
+	if cap(st.colScratchI64) < n {
+		st.colScratchI64 = make([]int64, n)
+	}
+	st.colScratchI64 = st.colScratchI64[:n]
+	return st.colScratchI64
+}
+
+// ScratchUint returns a reusable []uint64 of length n for an unsigned column.
+func (e *Encoder) ScratchUint(n int) []uint64 {
+	st := e.colState()
+	if cap(st.colScratchU64) < n {
+		st.colScratchU64 = make([]uint64, n)
+	}
+	st.colScratchU64 = st.colScratchU64[:n]
+	return st.colScratchU64
+}
+
+// ScratchFloat64 returns a reusable []float64 of length n for a float64 column.
+func (e *Encoder) ScratchFloat64(n int) []float64 {
+	st := e.colState()
+	if cap(st.colScratchF64) < n {
+		st.colScratchF64 = make([]float64, n)
+	}
+	st.colScratchF64 = st.colScratchF64[:n]
+	return st.colScratchF64
+}
+
+// ScratchFloat32 returns a reusable []float32 of length n for a float32 column.
+func (e *Encoder) ScratchFloat32(n int) []float32 {
+	st := e.colState()
+	if cap(st.colScratchF32) < n {
+		st.colScratchF32 = make([]float32, n)
+	}
+	st.colScratchF32 = st.colScratchF32[:n]
+	return st.colScratchF32
+}
+
+// ScratchBool returns a reusable []bool of length n for a bool column.
+func (e *Encoder) ScratchBool(n int) []bool {
+	st := e.colState()
+	if cap(st.colScratchBool) < n {
+		st.colScratchBool = make([]bool, n)
+	}
+	st.colScratchBool = st.colScratchBool[:n]
+	return st.colScratchBool
+}
+
 // WriteIntColumn encodes a column gathered from a signed-integer field. The
 // adaptive picker chooses raw/FOR/Delta/RLE/Dict/PFOR per value range.
 func (e *Encoder) WriteIntColumn(s []int64) error { return encodeSliceInt64(e, unsafe.Pointer(&s)) }
@@ -56,11 +121,18 @@ func (e *Encoder) WriteFloat64Column(s []float64) error {
 
 // WriteFloat32Column encodes a float32 column as its 32-bit patterns through
 // the unsigned codec, bit-exact and matching the reflect colKindFloat32 path.
+// The bit-conversion temp reuses colScratchU64 (free once any uint column it
+// shares the buffer with has already been encoded), so no allocation.
 func (e *Encoder) WriteFloat32Column(s []float32) error {
-	u := make([]uint64, len(s))
+	st := e.colState()
+	if cap(st.colScratchU64) < len(s) {
+		st.colScratchU64 = make([]uint64, len(s))
+	}
+	u := st.colScratchU64[:len(s)]
 	for i, v := range s {
 		u[i] = uint64(math.Float32bits(v))
 	}
+	st.colScratchU64 = u
 	return encodeSliceUint64(e, unsafe.Pointer(&u))
 }
 
@@ -91,12 +163,30 @@ func (d *Decoder) ReadColStructHeader() (int, []string, []byte, error) {
 	return cs.n, cs.sh.names, kinds, nil
 }
 
+// colStateDec lazily initializes and returns the decoder's columnar state,
+// which owns the reusable per-column scatter scratch. ReadColStructHeader has
+// already created it, but guard anyway for direct callers.
+func (d *Decoder) colStateDec() *decState {
+	if d.state == nil {
+		d.state = newDecState()
+	}
+	return d.state
+}
+
+// The ReadXColumn readers decode one column of n values into the decoder's
+// pooled columnar scratch and return it. Generated decode scatters the values
+// into struct fields immediately, before the next column read reuses the same
+// buffer — so a whole columnar []struct decodes with zero per-column transient
+// allocation beyond the result slice itself.
+
 // ReadIntColumn decodes one signed-integer column of n values.
 func (d *Decoder) ReadIntColumn(n int) ([]int64, error) {
-	var s []int64
+	st := d.colStateDec()
+	s := st.colScratchI64[:0]
 	if err := decodeSliceInt64Into(d, &s); err != nil {
 		return nil, err
 	}
+	st.colScratchI64 = s
 	if len(s) != n {
 		return nil, ErrTypeMismatch
 	}
@@ -105,10 +195,12 @@ func (d *Decoder) ReadIntColumn(n int) ([]int64, error) {
 
 // ReadUintColumn decodes one unsigned-integer column of n values.
 func (d *Decoder) ReadUintColumn(n int) ([]uint64, error) {
-	var s []uint64
+	st := d.colStateDec()
+	s := st.colScratchU64[:0]
 	if err := decodeSliceUint64Into(d, &s); err != nil {
 		return nil, err
 	}
+	st.colScratchU64 = s
 	if len(s) != n {
 		return nil, ErrTypeMismatch
 	}
@@ -117,10 +209,12 @@ func (d *Decoder) ReadUintColumn(n int) ([]uint64, error) {
 
 // ReadFloat64Column decodes one float64 column of n values.
 func (d *Decoder) ReadFloat64Column(n int) ([]float64, error) {
-	var s []float64
+	st := d.colStateDec()
+	s := st.colScratchF64[:0]
 	if err := decodeSliceFloat64Into(d, &s); err != nil {
 		return nil, err
 	}
+	st.colScratchF64 = s
 	if len(s) != n {
 		return nil, ErrTypeMismatch
 	}
@@ -128,28 +222,37 @@ func (d *Decoder) ReadFloat64Column(n int) ([]float64, error) {
 }
 
 // ReadFloat32Column decodes one float32 column (32-bit patterns via the
-// unsigned codec, mirroring WriteFloat32Column).
+// unsigned codec, mirroring WriteFloat32Column). The bits land in colScratchU64
+// and are widened into colScratchF32.
 func (d *Decoder) ReadFloat32Column(n int) ([]float32, error) {
-	var u []uint64
+	st := d.colStateDec()
+	u := st.colScratchU64[:0]
 	if err := decodeSliceUint64Into(d, &u); err != nil {
 		return nil, err
 	}
+	st.colScratchU64 = u
 	if len(u) != n {
 		return nil, ErrTypeMismatch
 	}
-	out := make([]float32, n)
+	if cap(st.colScratchF32) < n {
+		st.colScratchF32 = make([]float32, n)
+	}
+	out := st.colScratchF32[:n]
 	for i, v := range u {
 		out[i] = math.Float32frombits(uint32(v))
 	}
+	st.colScratchF32 = out
 	return out, nil
 }
 
 // ReadBoolColumn decodes one bool column of n values.
 func (d *Decoder) ReadBoolColumn(n int) ([]bool, error) {
-	var s []bool
+	st := d.colStateDec()
+	s := st.colScratchBool[:0]
 	if err := decodeSliceBoolInto(d, &s); err != nil {
 		return nil, err
 	}
+	st.colScratchBool = s
 	if len(s) != n {
 		return nil, ErrTypeMismatch
 	}
