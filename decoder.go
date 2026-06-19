@@ -215,6 +215,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.headerRead = false
 	d.mode = Fast
 	d.colIndex = false
+	d.colMaxLen = 0
 	d.selectFields = nil
 	d.query = nil
 	clear(d.mapFreeList) // drop recycled maps; keep the backing allocated
