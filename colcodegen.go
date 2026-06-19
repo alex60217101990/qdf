@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"math"
+	"math/bits"
 	"unsafe"
 )
 
@@ -138,6 +139,45 @@ func (e *Encoder) WriteFloat32Column(s []float32) error {
 
 // WriteBoolColumn encodes a bool column.
 func (e *Encoder) WriteBoolColumn(s []bool) error { return encodeSliceBool(e, unsafe.Pointer(&s)) }
+
+// ScratchMask returns a zeroed reusable presence bitmap covering n rows
+// ((n+7)/8 bytes). Generated code sets bit i for a present (non-nil) nullable
+// column row, then passes it to WriteColNullMask.
+func (e *Encoder) ScratchMask(n int) []byte {
+	st := e.colState()
+	mb := (n + 7) >> 3
+	if cap(st.colMaskScratch) < mb {
+		st.colMaskScratch = make([]byte, mb)
+	}
+	st.colMaskScratch = st.colMaskScratch[:mb]
+	clear(st.colMaskScratch)
+	return st.colMaskScratch
+}
+
+// WriteColNullMask appends a nullable column's presence bitmap (raw bytes, bit i
+// set ⇒ row i present), written before the dense column of present values.
+// Layout matches encodeNullableColumn so the reflect path can cross-decode.
+func (e *Encoder) WriteColNullMask(mask []byte) { e.buf = append(e.buf, mask...) }
+
+// ReadColNullMask reads a nullable column's presence bitmap for n rows and
+// returns it (aliased into the input buffer, read-only) plus the present
+// (set-bit) count. The dense column that follows has exactly that many values.
+func (d *Decoder) ReadColNullMask(n int) ([]byte, int, error) {
+	mb := (n + 7) >> 3
+	if d.i+mb > len(d.buf) {
+		return nil, 0, ErrShortBuffer
+	}
+	mask := d.buf[d.i : d.i+mb]
+	d.i += mb
+	present := 0
+	for _, b := range mask {
+		present += bits.OnesCount8(b)
+	}
+	if present > n {
+		return nil, 0, ErrInvalidLength
+	}
+	return mask, present, nil
+}
 
 // ScratchString returns a reusable []string of length n for a string column.
 func (e *Encoder) ScratchString(n int) []string {
