@@ -2323,6 +2323,17 @@ func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok b
 		return colKindString, 0, false, true
 	case reflect.Slice:
 		if fd.rType.Elem().Kind() == reflect.Uint8 { // []byte
+			// Known limitation: a []byte column is a plain string column (no
+			// per-row presence bit), kept that way so it stays wire-compatible
+			// with a string column for the string<->[]byte schema interchange
+			// (TestColumnarStringIntoByteField). The consequence is that the
+			// reflect columnar path (n >= columnarMinElems) cannot distinguish a
+			// nil []byte from an empty []byte{} — both decode to nil. The
+			// row-major path (n < columnarMinElems) preserves the distinction.
+			// Same inherent columnar-lossiness class as int->int64 widening and
+			// time monotonic-clock stripping. (The qdfgen codegen path, which has
+			// no string<->[]byte interchange to preserve, routes []byte through a
+			// nullable column and keeps nil vs empty distinct.)
 			return colKindString, 0, true, true
 		}
 		return 0, 0, false, false
