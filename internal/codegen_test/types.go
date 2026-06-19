@@ -45,3 +45,20 @@ type Edge struct {
 	Ptr    *Label        `qdf:"ptr"`
 	Tail   int           `qdf:"tail"`
 }
+
+// GenMetric is an all-scalar struct: the columnar-eligible element shape that
+// triggers the monomorphized transpose path in generated encode/decode.
+type GenMetric struct {
+	TS    int64   `qdf:"ts"`
+	Value float64 `qdf:"value"`
+	Count uint32  `qdf:"count"`
+	OK    bool    `qdf:"ok"`
+	Ratio float32 `qdf:"ratio"`
+}
+
+// GenMetricBatch carries a slice of the scalar element — the field that
+// triggers columnar codegen.
+type GenMetricBatch struct {
+	Name    string      `qdf:"name"`
+	Metrics []GenMetric `qdf:"metrics"`
+}

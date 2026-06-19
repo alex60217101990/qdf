@@ -10,25 +10,36 @@ import (
 // Pre-encoded field-name headers (fixstr / strN). Lets the hot path
 // emit a name with a single append, no per-call sizing.
 var (
-	qdfFieldHdr_base_a_1  = []byte{0x86, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x61}
-	qdfFieldHdr_base_b_2  = []byte{0x86, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x62}
-	qdfFieldHdr_labels_3  = []byte{0x86, 0x6c, 0x61, 0x62, 0x65, 0x6c, 0x73}
-	qdfFieldHdr_ptr_4     = []byte{0x83, 0x70, 0x74, 0x72}
-	qdfFieldHdr_tail_5    = []byte{0x84, 0x74, 0x61, 0x69, 0x6c}
-	qdfFieldHdr_x_17      = []byte{0x81, 0x78}
-	qdfFieldHdr_y_18      = []byte{0x81, 0x79}
-	qdfFieldHdr_name_21   = []byte{0x84, 0x6e, 0x61, 0x6d, 0x65}
-	qdfFieldHdr_age_22    = []byte{0x83, 0x61, 0x67, 0x65}
-	qdfFieldHdr_active_23 = []byte{0x86, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65}
-	qdfFieldHdr_score_24  = []byte{0x85, 0x73, 0x63, 0x6f, 0x72, 0x65}
-	qdfFieldHdr_tags_25   = []byte{0x84, 0x74, 0x61, 0x67, 0x73}
-	qdfFieldHdr_meta_26   = []byte{0x84, 0x6d, 0x65, 0x74, 0x61}
-	qdfFieldHdr_inner_27  = []byte{0x85, 0x69, 0x6e, 0x6e, 0x65, 0x72}
-	qdfFieldHdr_when_28   = []byte{0x84, 0x77, 0x68, 0x65, 0x6e}
-	qdfFieldHdr_buf_29    = []byte{0x83, 0x62, 0x75, 0x66}
-	qdfFieldHdr_opt_30    = []byte{0x83, 0x6f, 0x70, 0x74}
-	qdfFieldHdr_counts_31 = []byte{0x86, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73}
+	qdfFieldHdr_base_a_1   = []byte{0x86, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x61}
+	qdfFieldHdr_base_b_2   = []byte{0x86, 0x62, 0x61, 0x73, 0x65, 0x5f, 0x62}
+	qdfFieldHdr_labels_3   = []byte{0x86, 0x6c, 0x61, 0x62, 0x65, 0x6c, 0x73}
+	qdfFieldHdr_ptr_4      = []byte{0x83, 0x70, 0x74, 0x72}
+	qdfFieldHdr_tail_5     = []byte{0x84, 0x74, 0x61, 0x69, 0x6c}
+	qdfFieldHdr_ts_17      = []byte{0x82, 0x74, 0x73}
+	qdfFieldHdr_value_18   = []byte{0x85, 0x76, 0x61, 0x6c, 0x75, 0x65}
+	qdfFieldHdr_count_19   = []byte{0x85, 0x63, 0x6f, 0x75, 0x6e, 0x74}
+	qdfFieldHdr_ok_20      = []byte{0x82, 0x6f, 0x6b}
+	qdfFieldHdr_ratio_21   = []byte{0x85, 0x72, 0x61, 0x74, 0x69, 0x6f}
+	qdfFieldHdr_name_27    = []byte{0x84, 0x6e, 0x61, 0x6d, 0x65}
+	qdfFieldHdr_metrics_28 = []byte{0x87, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73}
+	qdfFieldHdr_x_39       = []byte{0x81, 0x78}
+	qdfFieldHdr_y_40       = []byte{0x81, 0x79}
+	qdfFieldHdr_age_43     = []byte{0x83, 0x61, 0x67, 0x65}
+	qdfFieldHdr_active_44  = []byte{0x86, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65}
+	qdfFieldHdr_score_45   = []byte{0x85, 0x73, 0x63, 0x6f, 0x72, 0x65}
+	qdfFieldHdr_tags_46    = []byte{0x84, 0x74, 0x61, 0x67, 0x73}
+	qdfFieldHdr_meta_47    = []byte{0x84, 0x6d, 0x65, 0x74, 0x61}
+	qdfFieldHdr_inner_48   = []byte{0x85, 0x69, 0x6e, 0x6e, 0x65, 0x72}
+	qdfFieldHdr_when_49    = []byte{0x84, 0x77, 0x68, 0x65, 0x6e}
+	qdfFieldHdr_buf_50     = []byte{0x83, 0x62, 0x75, 0x66}
+	qdfFieldHdr_opt_51     = []byte{0x83, 0x6f, 0x70, 0x74}
+	qdfFieldHdr_counts_52  = []byte{0x86, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x73}
 )
+
+// Columnar shape descriptors: per element-type column names and kind
+// bytes for the monomorphized tagColStruct transpose path.
+var qdfColNames_GenMetric = []string{"ts", "value", "count", "ok", "ratio"}
+var qdfColKinds_GenMetric = []byte{0x00, 0x02, 0x01, 0x03, 0x06}
 
 // MarshalQDF appends a qdf-encoded representation of v to dst and returns
 // the extended slice.
@@ -225,6 +236,326 @@ func (v *Edge) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, er
 
 // MarshalQDF appends a qdf-encoded representation of v to dst and returns
 // the extended slice.
+func (v *GenMetric) MarshalQDF(dst []byte) ([]byte, error) {
+	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
+	if hadHeader {
+		e.MarkHeaderWritten()
+	} else {
+		e.EnsureHeader()
+	}
+	if err := v.EncodeQDF(e); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
+}
+
+var qdfShapeTok_GenMetric byte
+var qdfFieldHdrs_GenMetric = [][]byte{qdfFieldHdr_ts_17, qdfFieldHdr_value_18, qdfFieldHdr_count_19, qdfFieldHdr_ok_20, qdfFieldHdr_ratio_21}
+
+// EncodeQDF writes v's fields into e. It lets a parent thread one encoder
+// through nested values instead of allocating an encoder per value.
+func (v *GenMetric) EncodeQDF(e *qdf.Encoder) error {
+	e.StructShape(&qdfShapeTok_GenMetric, qdfFieldHdrs_GenMetric)
+	e.WriteInt(int64(v.TS))
+	e.WriteFloat64(float64(v.Value))
+	e.WriteUint(uint64(v.Count))
+	e.WriteBool(bool(v.OK))
+	e.WriteFloat32(float32(v.Ratio))
+	return nil
+}
+
+// DecodeQDF reads v's fields from the shared decoder d, advancing it. It lets
+// a parent thread one decoder through nested values (see qdf.DecodeNested).
+func (v *GenMetric) DecodeQDF(d *qdf.Decoder) error {
+	names, plainN, shaped, err := d.ReadStructHeader()
+	if err != nil {
+		return err
+	}
+	if shaped {
+		for _, name := range names {
+			if err := v.decodeQDFField(d, name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for range plainN {
+		kb, err := d.ReadStringBytes()
+		if err != nil {
+			return err
+		}
+		if err := v.decodeQDFField(d, string(kb)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *GenMetric) decodeQDFField(d *qdf.Decoder, name string) error {
+	switch name {
+	case "ts":
+		{
+			rv22, err := d.ReadInt()
+			if err != nil {
+				return err
+			}
+			v.TS = int64(rv22)
+		}
+	case "value":
+		{
+			rv23, err := d.ReadFloat64()
+			if err != nil {
+				return err
+			}
+			v.Value = rv23
+		}
+	case "count":
+		{
+			rv24, err := d.ReadUint()
+			if err != nil {
+				return err
+			}
+			v.Count = uint32(rv24)
+		}
+	case "ok":
+		{
+			rv25, err := d.ReadBool()
+			if err != nil {
+				return err
+			}
+			v.OK = rv25
+		}
+	case "ratio":
+		{
+			rv26, err := d.ReadFloat32()
+			if err != nil {
+				return err
+			}
+			v.Ratio = rv26
+		}
+	default:
+		if err := d.Skip(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UnmarshalQDF decodes a qdf payload into v and returns the number of
+// bytes consumed.
+func (v *GenMetric) UnmarshalQDF(src []byte) (int, error) {
+	return v.UnmarshalQDFArena(src, false, nil)
+}
+
+// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
+// string and []byte fields alias src instead of copying. The aliases are valid
+// only while src stays alive and is not modified (see qdf.WithNoCopy).
+func (v *GenMetric) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	return v.UnmarshalQDFArena(src, noCopy, nil)
+}
+
+// UnmarshalQDFArena decodes like UnmarshalQDFOpts; when a is non-nil the copied
+// string fields are packed into the arena instead of one allocation each (see
+// qdf.WithArena). The decoded strings then alias the arena's memory.
+func (v *GenMetric) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, error) {
+	d := qdf.NewDecoderOnBuf(src)
+	if noCopy {
+		d.SetNoCopy(true)
+	}
+	if a != nil {
+		d.SetArena(a)
+	}
+	hasHeader := len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2
+	if !hasHeader {
+		d.MarkHeaderRead()
+	}
+	if err := v.DecodeQDF(d); err != nil {
+		return 0, err
+	}
+	return d.Pos(), nil
+}
+
+// MarshalQDF appends a qdf-encoded representation of v to dst and returns
+// the extended slice.
+func (v *GenMetricBatch) MarshalQDF(dst []byte) ([]byte, error) {
+	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
+	if hadHeader {
+		e.MarkHeaderWritten()
+	} else {
+		e.EnsureHeader()
+	}
+	if err := v.EncodeQDF(e); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
+}
+
+var qdfShapeTok_GenMetricBatch byte
+var qdfFieldHdrs_GenMetricBatch = [][]byte{qdfFieldHdr_name_27, qdfFieldHdr_metrics_28}
+
+// EncodeQDF writes v's fields into e. It lets a parent thread one encoder
+// through nested values instead of allocating an encoder per value.
+func (v *GenMetricBatch) EncodeQDF(e *qdf.Encoder) error {
+	e.StructShape(&qdfShapeTok_GenMetricBatch, qdfFieldHdrs_GenMetricBatch)
+	e.WriteString(string(v.Name))
+	if v.Metrics == nil {
+		e.WriteNil()
+	} else if len(v.Metrics) >= 16 { // columnarMinElems
+		col29 := v.Metrics
+		e.WriteColStructHeader(len(col29), qdfColNames_GenMetric, qdfColKinds_GenMetric)
+		c30 := make([]int64, len(col29))
+		for i := range col29 {
+			c30[i] = int64(col29[i].TS)
+		}
+		if err := e.WriteIntColumn(c30); err != nil {
+			return err
+		}
+		c31 := make([]float64, len(col29))
+		for i := range col29 {
+			c31[i] = float64(col29[i].Value)
+		}
+		if err := e.WriteFloat64Column(c31); err != nil {
+			return err
+		}
+		c32 := make([]uint64, len(col29))
+		for i := range col29 {
+			c32[i] = uint64(col29[i].Count)
+		}
+		if err := e.WriteUintColumn(c32); err != nil {
+			return err
+		}
+		c33 := make([]bool, len(col29))
+		for i := range col29 {
+			c33[i] = col29[i].OK
+		}
+		if err := e.WriteBoolColumn(c33); err != nil {
+			return err
+		}
+		c34 := make([]float32, len(col29))
+		for i := range col29 {
+			c34[i] = float32(col29[i].Ratio)
+		}
+		if err := e.WriteFloat32Column(c34); err != nil {
+			return err
+		}
+	} else {
+		e.WriteArrayHeader(len(v.Metrics))
+		for i35 := range v.Metrics {
+			if err := qdf.EncodeNested(e, &v.Metrics[i35]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// DecodeQDF reads v's fields from the shared decoder d, advancing it. It lets
+// a parent thread one decoder through nested values (see qdf.DecodeNested).
+func (v *GenMetricBatch) DecodeQDF(d *qdf.Decoder) error {
+	names, plainN, shaped, err := d.ReadStructHeader()
+	if err != nil {
+		return err
+	}
+	if shaped {
+		for _, name := range names {
+			if err := v.decodeQDFField(d, name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for range plainN {
+		kb, err := d.ReadStringBytes()
+		if err != nil {
+			return err
+		}
+		if err := v.decodeQDFField(d, string(kb)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
+	switch name {
+	case "name":
+		{
+			rv36, err := d.ReadString()
+			if err != nil {
+				return err
+			}
+			v.Name = rv36
+		}
+	case "metrics":
+		{
+			isNil, err := d.IsNil()
+			if err != nil {
+				return err
+			}
+			if isNil {
+				v.Metrics = nil
+			} else {
+				n37, err := d.ReadArrayHeader()
+				if err != nil {
+					return err
+				}
+				if err := d.CheckLength(n37, 1); err != nil {
+					return err
+				}
+				v.Metrics = make([]GenMetric, n37)
+				for i38 := range n37 {
+					if err := qdf.DecodeNested(d, &v.Metrics[i38]); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	default:
+		if err := d.Skip(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UnmarshalQDF decodes a qdf payload into v and returns the number of
+// bytes consumed.
+func (v *GenMetricBatch) UnmarshalQDF(src []byte) (int, error) {
+	return v.UnmarshalQDFArena(src, false, nil)
+}
+
+// UnmarshalQDFOpts decodes like UnmarshalQDF; when noCopy is true the decoded
+// string and []byte fields alias src instead of copying. The aliases are valid
+// only while src stays alive and is not modified (see qdf.WithNoCopy).
+func (v *GenMetricBatch) UnmarshalQDFOpts(src []byte, noCopy bool) (int, error) {
+	return v.UnmarshalQDFArena(src, noCopy, nil)
+}
+
+// UnmarshalQDFArena decodes like UnmarshalQDFOpts; when a is non-nil the copied
+// string fields are packed into the arena instead of one allocation each (see
+// qdf.WithArena). The decoded strings then alias the arena's memory.
+func (v *GenMetricBatch) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, error) {
+	d := qdf.NewDecoderOnBuf(src)
+	if noCopy {
+		d.SetNoCopy(true)
+	}
+	if a != nil {
+		d.SetArena(a)
+	}
+	hasHeader := len(src) >= 5 && src[0] == qdf.Magic0 && src[1] == qdf.Magic1 && src[2] == qdf.Magic2
+	if !hasHeader {
+		d.MarkHeaderRead()
+	}
+	if err := v.DecodeQDF(d); err != nil {
+		return 0, err
+	}
+	return d.Pos(), nil
+}
+
+// MarshalQDF appends a qdf-encoded representation of v to dst and returns
+// the extended slice.
 func (v *Inner) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
@@ -240,7 +571,7 @@ func (v *Inner) MarshalQDF(dst []byte) ([]byte, error) {
 }
 
 var qdfShapeTok_Inner byte
-var qdfFieldHdrs_Inner = [][]byte{qdfFieldHdr_x_17, qdfFieldHdr_y_18}
+var qdfFieldHdrs_Inner = [][]byte{qdfFieldHdr_x_39, qdfFieldHdr_y_40}
 
 // EncodeQDF writes v's fields into e. It lets a parent thread one encoder
 // through nested values instead of allocating an encoder per value.
@@ -282,19 +613,19 @@ func (v *Inner) decodeQDFField(d *qdf.Decoder, name string) error {
 	switch name {
 	case "x":
 		{
-			rv19, err := d.ReadInt()
+			rv41, err := d.ReadInt()
 			if err != nil {
 				return err
 			}
-			v.X = int(rv19)
+			v.X = int(rv41)
 		}
 	case "y":
 		{
-			rv20, err := d.ReadFloat64()
+			rv42, err := d.ReadFloat64()
 			if err != nil {
 				return err
 			}
-			v.Y = rv20
+			v.Y = rv42
 		}
 	default:
 		if err := d.Skip(); err != nil {
@@ -355,7 +686,7 @@ func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 }
 
 var qdfShapeTok_Sample byte
-var qdfFieldHdrs_Sample = [][]byte{qdfFieldHdr_name_21, qdfFieldHdr_age_22, qdfFieldHdr_active_23, qdfFieldHdr_score_24, qdfFieldHdr_tags_25, qdfFieldHdr_meta_26, qdfFieldHdr_inner_27, qdfFieldHdr_when_28, qdfFieldHdr_buf_29, qdfFieldHdr_opt_30, qdfFieldHdr_counts_31}
+var qdfFieldHdrs_Sample = [][]byte{qdfFieldHdr_name_27, qdfFieldHdr_age_43, qdfFieldHdr_active_44, qdfFieldHdr_score_45, qdfFieldHdr_tags_46, qdfFieldHdr_meta_47, qdfFieldHdr_inner_48, qdfFieldHdr_when_49, qdfFieldHdr_buf_50, qdfFieldHdr_opt_51, qdfFieldHdr_counts_52}
 
 // EncodeQDF writes v's fields into e. It lets a parent thread one encoder
 // through nested values instead of allocating an encoder per value.
@@ -369,17 +700,17 @@ func (v *Sample) EncodeQDF(e *qdf.Encoder) error {
 		e.WriteNil()
 	} else {
 		e.WriteArrayHeader(len(v.Tags))
-		for i32 := range v.Tags {
-			e.WriteString(string(v.Tags[i32]))
+		for i53 := range v.Tags {
+			e.WriteString(string(v.Tags[i53]))
 		}
 	}
 	if v.Meta == nil {
 		e.WriteNil()
 	} else {
 		e.WriteMapHeader(len(v.Meta))
-		for k33, vv34 := range v.Meta {
-			e.WriteString(string(k33))
-			e.WriteString(string(vv34))
+		for k54, vv55 := range v.Meta {
+			e.WriteString(string(k54))
+			e.WriteString(string(vv55))
 		}
 	}
 	if err := qdf.EncodeNested(e, &v.Inner); err != nil {
@@ -402,8 +733,8 @@ func (v *Sample) EncodeQDF(e *qdf.Encoder) error {
 		}
 	}
 	e.WriteArrayHeader(3)
-	for i35 := range v.Counts {
-		e.WriteInt(int64(v.Counts[i35]))
+	for i56 := range v.Counts {
+		e.WriteInt(int64(v.Counts[i56]))
 	}
 	return nil
 }
@@ -439,35 +770,35 @@ func (v *Sample) decodeQDFField(d *qdf.Decoder, name string) error {
 	switch name {
 	case "name":
 		{
-			rv36, err := d.ReadString()
+			rv57, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.Name = rv36
+			v.Name = rv57
 		}
 	case "age":
 		{
-			rv37, err := d.ReadInt()
+			rv58, err := d.ReadInt()
 			if err != nil {
 				return err
 			}
-			v.Age = int(rv37)
+			v.Age = int(rv58)
 		}
 	case "active":
 		{
-			rv38, err := d.ReadBool()
+			rv59, err := d.ReadBool()
 			if err != nil {
 				return err
 			}
-			v.Active = rv38
+			v.Active = rv59
 		}
 	case "score":
 		{
-			rv39, err := d.ReadFloat64()
+			rv60, err := d.ReadFloat64()
 			if err != nil {
 				return err
 			}
-			v.Score = rv39
+			v.Score = rv60
 		}
 	case "tags":
 		{
@@ -478,21 +809,21 @@ func (v *Sample) decodeQDFField(d *qdf.Decoder, name string) error {
 			if isNil {
 				v.Tags = nil
 			} else {
-				n40, err := d.ReadArrayHeader()
+				n61, err := d.ReadArrayHeader()
 				if err != nil {
 					return err
 				}
-				if err := d.CheckLength(n40, 1); err != nil {
+				if err := d.CheckLength(n61, 1); err != nil {
 					return err
 				}
-				v.Tags = make([]string, n40)
-				for i41 := range n40 {
+				v.Tags = make([]string, n61)
+				for i62 := range n61 {
 					{
-						rv42, err := d.ReadString()
+						rv63, err := d.ReadString()
 						if err != nil {
 							return err
 						}
-						v.Tags[i41] = rv42
+						v.Tags[i62] = rv63
 					}
 				}
 			}
@@ -506,30 +837,30 @@ func (v *Sample) decodeQDFField(d *qdf.Decoder, name string) error {
 			if isNil {
 				v.Meta = nil
 			} else {
-				n43, err := d.ReadMapHeader()
+				n64, err := d.ReadMapHeader()
 				if err != nil {
 					return err
 				}
-				if err := d.CheckLength(n43, 1); err != nil {
+				if err := d.CheckLength(n64, 1); err != nil {
 					return err
 				}
-				v.Meta = make(map[string]string, n43)
-				for range n43 {
-					var k44 string
-					var vv45 string
-					kb46, err := d.ReadStringBytes()
+				v.Meta = make(map[string]string, n64)
+				for range n64 {
+					var k65 string
+					var vv66 string
+					kb67, err := d.ReadStringBytes()
 					if err != nil {
 						return err
 					}
-					k44 = string(d.InternKey(kb46))
+					k65 = string(d.InternKey(kb67))
 					{
-						rv47, err := d.ReadString()
+						rv68, err := d.ReadString()
 						if err != nil {
 							return err
 						}
-						vv45 = rv47
+						vv66 = rv68
 					}
-					v.Meta[k44] = vv45
+					v.Meta[k65] = vv66
 				}
 			}
 		}
@@ -539,11 +870,11 @@ func (v *Sample) decodeQDFField(d *qdf.Decoder, name string) error {
 		}
 	case "when":
 		{
-			sec48, nsec49, err := d.ReadTimestamp()
+			sec69, nsec70, err := d.ReadTimestamp()
 			if err != nil {
 				return err
 			}
-			v.When = time.Unix(sec48, int64(nsec49)).UTC()
+			v.When = time.Unix(sec69, int64(nsec70)).UTC()
 		}
 	case "buf":
 		{
@@ -578,20 +909,20 @@ func (v *Sample) decodeQDFField(d *qdf.Decoder, name string) error {
 		}
 	case "counts":
 		{
-			n50, err := d.ReadArrayHeader()
+			n71, err := d.ReadArrayHeader()
 			if err != nil {
 				return err
 			}
-			if n50 != 3 {
+			if n71 != 3 {
 				return qdf.ErrTypeMismatch
 			}
-			for i51 := range 3 {
+			for i72 := range 3 {
 				{
-					rv52, err := d.ReadInt()
+					rv73, err := d.ReadInt()
 					if err != nil {
 						return err
 					}
-					v.Counts[i51] = int32(rv52)
+					v.Counts[i72] = int32(rv73)
 				}
 			}
 		}
