@@ -1492,6 +1492,11 @@ func (g *gen) emitDecodeColumnarBody(w io.Writer, lhs string, elem types.Type, p
 	fmt.Fprintf(w, "%s\tdefault:\n%s\t\treturn qdf.ErrTypeMismatch\n", indent, indent)
 	fmt.Fprintf(w, "%s\t}\n", indent) // switch
 	fmt.Fprintf(w, "%s}\n", indent)   // for
+	// Clear the per-column length bound set by ReadColStructHeader so a sibling
+	// slice/map/column decoded afterward on this (shared, threaded) decoder is
+	// not wrongly bounded by n — mirrors decodeColumnar's deferred reset and the
+	// hybrid path's ClearColMaxLen.
+	fmt.Fprintf(w, "%sd.ClearColMaxLen()\n", indent)
 	return nil
 }
 

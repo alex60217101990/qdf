@@ -504,6 +504,7 @@ func (v *GenBlobSet) decodeQDFField(d *qdf.Decoder, name string) error {
 						return qdf.ErrTypeMismatch
 					}
 				}
+				d.ClearColMaxLen()
 			} else {
 				n31, err := d.ReadArrayHeader()
 				if err != nil {
@@ -855,6 +856,7 @@ func (v *GenEventLog) decodeQDFField(d *qdf.Decoder, name string) error {
 						return qdf.ErrTypeMismatch
 					}
 				}
+				d.ClearColMaxLen()
 			} else {
 				n64, err := d.ReadArrayHeader()
 				if err != nil {
@@ -1228,6 +1230,7 @@ func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 						return qdf.ErrTypeMismatch
 					}
 				}
+				d.ClearColMaxLen()
 			} else {
 				n94, err := d.ReadArrayHeader()
 				if err != nil {
@@ -1539,6 +1542,7 @@ func (v *GenNameList) decodeQDFField(d *qdf.Decoder, name string) error {
 						return qdf.ErrTypeMismatch
 					}
 				}
+				d.ClearColMaxLen()
 			} else {
 				n114, err := d.ReadArrayHeader()
 				if err != nil {
@@ -2009,6 +2013,7 @@ func (v *GenOptSet) decodeQDFField(d *qdf.Decoder, name string) error {
 						return qdf.ErrTypeMismatch
 					}
 				}
+				d.ClearColMaxLen()
 			} else {
 				n162, err := d.ReadArrayHeader()
 				if err != nil {

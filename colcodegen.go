@@ -247,11 +247,18 @@ func (d *Decoder) ReadColStructHeader() (int, []string, []byte, error) {
 		return 0, nil, nil, err
 	}
 	d.colMaxLen = cs.n
-	kinds := make([]byte, len(cs.sh.kinds))
-	for i, k := range cs.sh.kinds {
-		kinds[i] = byte(k)
+	return cs.n, cs.sh.names, colKindsAsBytes(cs.sh.kinds), nil
+}
+
+// colKindsAsBytes reinterprets a cached []colKind (a uint8 alias) as []byte with
+// no copy. The result is read-only and transient — valid only until the decoder
+// reuses its shape cache; generated code consumes it immediately (or discards
+// it), avoiding a per-decode allocation of the kinds slice.
+func colKindsAsBytes(kinds []colKind) []byte {
+	if len(kinds) == 0 {
+		return nil
 	}
-	return cs.n, cs.sh.names, kinds, nil
+	return unsafe.Slice((*byte)(unsafe.Pointer(&kinds[0])), len(kinds))
 }
 
 // colStateDec lazily initializes and returns the decoder's columnar state,
@@ -426,11 +433,7 @@ func (d *Decoder) ReadHybridColStructHeader() (int, []string, []byte, error) {
 		return 0, nil, nil, err
 	}
 	d.colMaxLen = n
-	kinds := make([]byte, len(sh.kinds))
-	for i, k := range sh.kinds {
-		kinds[i] = byte(k)
-	}
-	return n, sh.names, kinds, nil
+	return n, sh.names, colKindsAsBytes(sh.kinds), nil
 }
 
 // ClearColMaxLen resets the per-column length bound. Generated hybrid decode
