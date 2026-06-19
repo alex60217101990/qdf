@@ -64,7 +64,7 @@ type preInternEntry struct {
 	ptr unsafe.Pointer
 	n   uintptr
 	id  uint32
-	_   uint32 // pad to 24 B
+	// Naturally 24 B: ptr(8)+n(8)+id(4) rounds up to the 8 B struct alignment.
 }
 
 const preInternUnseen = ^uint32(0)
