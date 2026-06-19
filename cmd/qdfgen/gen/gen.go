@@ -185,6 +185,9 @@ type gen struct {
 
 	headerNames map[string]string // field-name -> generated var ident
 
+	colVars    bytes.Buffer    // var-block of columnar shape (names/kinds) decls
+	colVarSeen map[string]bool // dedupe columnar shape vars by ident
+
 	// uniqCounter ensures generated identifiers stay unique.
 	uniqCounter int
 
@@ -204,6 +207,7 @@ func newGen(pkg *packages.Package) *gen {
 		imports:     map[string]string{"github.com/alex60217101990/qdf": ""},
 		headerNames: map[string]string{},
 		emitted:     map[string]bool{},
+		colVarSeen:  map[string]bool{},
 	}
 }
 
@@ -240,6 +244,15 @@ func (g *gen) bytes() ([]byte, error) {
 		out.WriteString("var (\n")
 		out.Write(g.header.Bytes())
 		out.WriteString(")\n\n")
+	}
+
+	// Emit columnar shape vars (column names + kind bytes) for scalar []struct
+	// fields encoded via the columnar transpose path.
+	if g.colVars.Len() > 0 {
+		out.WriteString("// Columnar shape descriptors: per element-type column names and kind\n")
+		out.WriteString("// bytes for the monomorphized tagColStruct transpose path.\n")
+		out.Write(g.colVars.Bytes())
+		out.WriteString("\n")
 	}
 
 	// Function bodies.
@@ -760,6 +773,117 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 	return nil
 }
 
+// colColumn / colElemPlan describe an all-scalar slice element eligible for
+// monomorphized columnar transpose. Built without reflection from go/types at
+// generate time; the emitted code itself never uses reflection.
+type colColumn struct {
+	WireName string // column name on the wire (field WireKey: qdf>json>name)
+	Access   string // Go field selector from the element, e.g. "TS" or "Base.X"
+	KindByte byte   // colKind wire byte: 0/1/2/3/6
+	GoType   string // rendered field type, e.g. "int32", for scatter narrowing
+	ColAPI   string // "Int"|"Uint"|"Float64"|"Float32"|"Bool"
+}
+
+type colElemPlan struct {
+	ElemType string // rendered element type, e.g. "GenMetric"
+	Columns  []colColumn
+}
+
+// columnarElemPlan returns a plan when elem is a named struct whose every
+// (flattened) field is a scalar basic type — the v1 columnar-eligibility set.
+// Otherwise ok=false and the caller emits the row-major path. Any String,
+// time.Time, nested struct, slice, map, pointer, array, or interface field
+// disqualifies the element (those need string/hybrid columns, out of scope).
+func (g *gen) columnarElemPlan(elem types.Type) (colElemPlan, bool) {
+	named, isNamed := types.Unalias(elem).(*types.Named)
+	if !isNamed {
+		return colElemPlan{}, false
+	}
+	if isTimeTime(elem) {
+		return colElemPlan{}, false
+	}
+	st, isStruct := named.Underlying().(*types.Struct)
+	if !isStruct {
+		return colElemPlan{}, false
+	}
+	// Reuse collectFields so embedded-struct flattening and the qdf>json>name
+	// tag precedence match the reflect columnar path's column names exactly.
+	fields := collectFields(st)
+	if len(fields) == 0 {
+		return colElemPlan{}, false
+	}
+	cols := make([]colColumn, 0, len(fields))
+	for i := range fields {
+		fi := &fields[i]
+		b, isBasic := fi.Field.Type().Underlying().(*types.Basic)
+		if !isBasic {
+			return colElemPlan{}, false
+		}
+		kb, api, ok := basicColKind(b.Kind())
+		if !ok {
+			return colElemPlan{}, false
+		}
+		cols = append(cols, colColumn{
+			WireName: fi.WireKey,
+			Access:   fi.Access,
+			KindByte: kb,
+			GoType:   g.typeExprFromType(fi.Field.Type()),
+			ColAPI:   api,
+		})
+	}
+	return colElemPlan{ElemType: g.typeExprFromType(elem), Columns: cols}, true
+}
+
+// basicColKind maps a basic kind to its colKind wire byte + the WriteX/ReadX
+// API suffix. Must match classifyColKind: int*->0, uint*->1, float64->2,
+// bool->3, float32->6.
+func basicColKind(k types.BasicKind) (byte, string, bool) {
+	switch k {
+	case types.Bool:
+		return 3, "Bool", true
+	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64:
+		return 0, "Int", true
+	case types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr:
+		return 1, "Uint", true
+	case types.Float32:
+		return 6, "Float32", true
+	case types.Float64:
+		return 2, "Float64", true
+	default:
+		return 0, "", false
+	}
+}
+
+// colNamesVar emits (once per element type) a file-level []string of column
+// names and returns its ident.
+func (g *gen) colNamesVar(plan colElemPlan) string {
+	name := "qdfColNames_" + sanitizeIdent(plan.ElemType)
+	if !g.colVarSeen[name] {
+		g.colVarSeen[name] = true
+		parts := make([]string, len(plan.Columns))
+		for i, c := range plan.Columns {
+			parts[i] = strconv.Quote(c.WireName)
+		}
+		fmt.Fprintf(&g.colVars, "var %s = []string{%s}\n", name, strings.Join(parts, ", "))
+	}
+	return name
+}
+
+// colKindsVar emits (once per element type) a file-level []byte of column kind
+// bytes and returns its ident.
+func (g *gen) colKindsVar(plan colElemPlan) string {
+	name := "qdfColKinds_" + sanitizeIdent(plan.ElemType)
+	if !g.colVarSeen[name] {
+		g.colVarSeen[name] = true
+		parts := make([]string, len(plan.Columns))
+		for i, c := range plan.Columns {
+			parts[i] = fmt.Sprintf("0x%02x", c.KindByte)
+		}
+		fmt.Fprintf(&g.colVars, "var %s = []byte{%s}\n", name, strings.Join(parts, ", "))
+	}
+	return name
+}
+
 func (g *gen) emitEncodeSlice(w io.Writer, expr string, s *types.Slice, indent string) error {
 	elem := s.Elem()
 	if b, ok := elem.(*types.Basic); ok && b.Kind() == types.Uint8 {
@@ -768,14 +892,73 @@ func (g *gen) emitEncodeSlice(w io.Writer, expr string, s *types.Slice, indent s
 		fmt.Fprintf(w, "%s}\n", indent)
 		return nil
 	}
+	if plan, ok := g.columnarElemPlan(elem); ok {
+		return g.emitEncodeColumnarSlice(w, expr, elem, plan, indent)
+	}
 	fmt.Fprintf(w, "%sif %s == nil {\n%s\te.WriteNil()\n%s} else {\n", indent, expr, indent, indent)
-	fmt.Fprintf(w, "%s\te.WriteArrayHeader(len(%s))\n", indent, expr)
-	loopVar := g.fresh("i")
-	fmt.Fprintf(w, "%s\tfor %s := range %s {\n", indent, loopVar, expr)
-	if err := g.emitEncodeValue(w, expr+"["+loopVar+"]", elem, indent+"\t\t"); err != nil {
+	if err := g.emitEncodeSliceRowMajorBody(w, expr, elem, indent+"\t"); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "%s\t}\n", indent)
+	fmt.Fprintf(w, "%s}\n", indent)
+	return nil
+}
+
+// emitEncodeSliceRowMajorBody emits the WriteArrayHeader + per-element loop for
+// a non-nil slice (the caller writes the nil guard). Shared by the row-major
+// path and the columnar emitter's short-slice fallback.
+func (g *gen) emitEncodeSliceRowMajorBody(w io.Writer, expr string, elem types.Type, indent string) error {
+	fmt.Fprintf(w, "%se.WriteArrayHeader(len(%s))\n", indent, expr)
+	loopVar := g.fresh("i")
+	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, loopVar, expr)
+	if err := g.emitEncodeValue(w, expr+"["+loopVar+"]", elem, indent+"\t"); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s}\n", indent)
+	return nil
+}
+
+// emitEncodeColumnarSlice emits a compile-time transpose of a scalar []struct
+// into the tagColStruct frame, with a runtime length gate: slices shorter than
+// columnarMinElems (16) stay row-major (frame overhead not worth it), and a nil
+// slice emits WriteNil to preserve the nil/empty distinction.
+func (g *gen) emitEncodeColumnarSlice(w io.Writer, expr string, elem types.Type, plan colElemPlan, indent string) error {
+	namesVar := g.colNamesVar(plan)
+	kindsVar := g.colKindsVar(plan)
+	s := g.fresh("col")
+	fmt.Fprintf(w, "%sif %s == nil {\n", indent, expr)
+	fmt.Fprintf(w, "%s\te.WriteNil()\n", indent)
+	fmt.Fprintf(w, "%s} else if len(%s) >= 16 { // columnarMinElems\n", indent, expr)
+	fmt.Fprintf(w, "%s\t%s := %s\n", indent, s, expr)
+	fmt.Fprintf(w, "%s\te.WriteColStructHeader(len(%s), %s, %s)\n", indent, s, namesVar, kindsVar)
+	for _, c := range plan.Columns {
+		col := g.fresh("c")
+		switch c.ColAPI {
+		case "Int":
+			fmt.Fprintf(w, "%s\t%s := make([]int64, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = int64(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%s\tif err := e.WriteIntColumn(%s); err != nil { return err }\n", indent, col)
+		case "Uint":
+			fmt.Fprintf(w, "%s\t%s := make([]uint64, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = uint64(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%s\tif err := e.WriteUintColumn(%s); err != nil { return err }\n", indent, col)
+		case "Float64":
+			fmt.Fprintf(w, "%s\t%s := make([]float64, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = float64(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%s\tif err := e.WriteFloat64Column(%s); err != nil { return err }\n", indent, col)
+		case "Float32":
+			fmt.Fprintf(w, "%s\t%s := make([]float32, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = float32(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%s\tif err := e.WriteFloat32Column(%s); err != nil { return err }\n", indent, col)
+		case "Bool":
+			fmt.Fprintf(w, "%s\t%s := make([]bool, len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = %s[i].%s }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%s\tif err := e.WriteBoolColumn(%s); err != nil { return err }\n", indent, col)
+		}
+	}
+	fmt.Fprintf(w, "%s} else {\n", indent) // row-major fallback for short slices
+	if err := g.emitEncodeSliceRowMajorBody(w, expr, elem, indent+"\t"); err != nil {
+		return err
+	}
 	fmt.Fprintf(w, "%s}\n", indent)
 	return nil
 }
