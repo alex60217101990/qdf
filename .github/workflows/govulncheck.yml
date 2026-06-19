@@ -33,6 +33,8 @@ jobs:
             working-directory: bench
           - module: qdfgen
             working-directory: cmd/qdfgen
+          - module: qdf-bench
+            working-directory: cmd/qdf-bench
           - module: codegen_test
             working-directory: internal/codegen_test
     steps:
@@ -46,6 +48,7 @@ jobs:
             go.sum
             bench/go.sum
             cmd/qdfgen/go.sum
+            cmd/qdf-bench/go.sum
             internal/codegen_test/go.sum
 
       - name: install govulncheck
