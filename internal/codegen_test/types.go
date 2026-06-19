@@ -62,3 +62,52 @@ type GenMetricBatch struct {
 	Name    string      `qdf:"name"`
 	Metrics []GenMetric `qdf:"metrics"`
 }
+
+// --- Phase 2b columnar codegen fixtures: string / time / hybrid columns ---
+
+// GenEvent mixes a time.Time, string, and numeric column — a pure columnar
+// element (every field eligible; numeric/time present so no probe).
+type GenEvent struct {
+	TS    time.Time `qdf:"ts"`
+	Level string    `qdf:"level"`
+	Code  int32     `qdf:"code"`
+	Msg   string    `qdf:"msg"`
+}
+
+// GenEventLog wraps an event slice (the columnar-eligible field).
+type GenEventLog struct {
+	Source string     `qdf:"source"`
+	Events []GenEvent `qdf:"events"`
+}
+
+// GenRowInner is a nested struct used as a residual (non-columnar) field.
+type GenRowInner struct {
+	X int    `qdf:"x"`
+	Y string `qdf:"y"`
+}
+
+// GenRow exercises the HYBRID frame: scalar + string columns plus a residual
+// nested struct and a residual map.
+type GenRow struct {
+	ID    int64          `qdf:"id"`
+	Name  string         `qdf:"name"`
+	Inner GenRowInner    `qdf:"inner"`
+	Tags  map[string]int `qdf:"tags"`
+}
+
+// GenRowSet wraps a hybrid-element slice.
+type GenRowSet struct {
+	Rows []GenRow `qdf:"rows"`
+}
+
+// GenName is a string-only element: the cardinality probe decides columnar vs
+// row-major at encode time.
+type GenName struct {
+	First string `qdf:"first"`
+	Last  string `qdf:"last"`
+}
+
+// GenNameList wraps a string-only-element slice.
+type GenNameList struct {
+	Names []GenName `qdf:"names"`
+}
