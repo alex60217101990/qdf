@@ -18,6 +18,10 @@ import (
 // path. kinds[i] is the colKind byte for column i (see classifyColKind:
 // int*->0, uint*->1, float64->2, bool->3, float32->6); it must match what the
 // reflect encoder would emit for the same field so cross-decoding works.
+//
+// names and kinds back the encoder's shape-id cache by reference on the
+// declaring call; the caller must NOT mutate or recycle them for a different
+// shape afterward (generated code passes immutable package-level vars).
 func (e *Encoder) WriteColStructHeader(n int, names []string, kinds []byte) {
 	if e.state == nil {
 		e.state = newEncState()

@@ -333,3 +333,64 @@ func TestColumnarCodegen_AllNilNullableString(t *testing.T) {
 		}
 	}
 }
+
+// Regression (agent round 2): a nil []byte must decode back to nil (not a
+// non-nil empty slice), and []byte{} must stay non-nil — preserved by routing
+// []byte through the nullable column (presence bit = field != nil).
+func TestColumnarCodegen_NilEmptyByteColumn(t *testing.T) {
+	in := GenBlobSet{}
+	for i := 0; i < 32; i++ {
+		var d []byte
+		switch i % 3 {
+		case 0:
+			d = []byte{byte(i), byte(i + 1)}
+		case 1:
+			d = []byte{} // empty, non-nil
+		default:
+			d = nil // nil
+		}
+		in.Rows = append(in.Rows, GenBlobRow{ID: int64(i), Data: d})
+	}
+	buf, err := (&in).MarshalQDF(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got GenBlobSet
+	if _, err := (&got).UnmarshalQDF(buf); err != nil {
+		t.Fatal(err)
+	}
+	for i := range in.Rows {
+		gn, wn := got.Rows[i].Data == nil, in.Rows[i].Data == nil
+		if gn != wn {
+			t.Fatalf("row[%d] nil-ness: got nil=%v want nil=%v", i, gn, wn)
+		}
+		if !bytes.Equal(got.Rows[i].Data, in.Rows[i].Data) {
+			t.Fatalf("row[%d] data: got %v want %v", i, got.Rows[i].Data, in.Rows[i].Data)
+		}
+	}
+}
+
+// Regression (agent round 2 coverage gap): fields AFTER the columnar []struct
+// field must decode correctly on the shared decoder (colMaxLen reset).
+func TestColumnarCodegen_FieldsAfterColumnar(t *testing.T) {
+	in := GenTrailed{Note: "trailing note", Tail: []int64{7, 8, 9, 10, 11}}
+	for i := 0; i < 40; i++ {
+		in.Rows = append(in.Rows, GenMetric{TS: int64(i), Value: float64(i), Count: uint32(i), OK: i%2 == 0, Ratio: float32(i)})
+	}
+	buf, err := (&in).MarshalQDF(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got GenTrailed
+	if _, err := (&got).UnmarshalQDF(buf); err != nil {
+		t.Fatal(err)
+	}
+	if got.Note != in.Note || len(got.Rows) != len(in.Rows) || len(got.Tail) != len(in.Tail) {
+		t.Fatalf("shape: note=%q rows=%d tail=%v", got.Note, len(got.Rows), got.Tail)
+	}
+	for i := range in.Tail {
+		if got.Tail[i] != in.Tail[i] {
+			t.Fatalf("tail[%d]=%d want %d", i, got.Tail[i], in.Tail[i])
+		}
+	}
+}

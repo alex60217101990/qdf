@@ -137,3 +137,12 @@ type GenOpt struct {
 type GenOptSet struct {
 	Rows []GenOpt `qdf:"rows"`
 }
+
+// GenTrailed places fields AFTER the columnar []struct field, exercising the
+// colMaxLen reset (a sibling decoded on the shared decoder must not inherit the
+// columnar length bound).
+type GenTrailed struct {
+	Rows []GenMetric `qdf:"rows"`
+	Note string      `qdf:"note"`
+	Tail []int64     `qdf:"tail"`
+}

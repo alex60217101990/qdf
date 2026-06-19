@@ -872,10 +872,13 @@ func (g *gen) classifyColField(wireName, access string, ft types.Type) (colColum
 	if isTimeTime(ft) {
 		return colColumn{WireName: wireName, Access: access, KindByte: 5, GoType: "time.Time", ColAPI: "Time"}, true
 	}
-	// []byte (slice of uint8) → string column over an unsafe byte view.
+	// []byte (slice of uint8) → a NULLABLE string column over an unsafe byte
+	// view: nil is a distinct state from empty for a []byte, so it travels as
+	// the presence bit (nil → absent, empty/non-nil → present "") to preserve
+	// the nil-vs-empty distinction (a plain string column would collapse them).
 	if sl, ok := ft.Underlying().(*types.Slice); ok {
 		if eb, ok := sl.Elem().Underlying().(*types.Basic); ok && eb.Kind() == types.Uint8 {
-			return colColumn{WireName: wireName, Access: access, KindByte: 4, GoType: g.typeExprFromType(ft), ColAPI: "Bytes"}, true
+			return colColumn{WireName: wireName, Access: access, KindByte: 4 | 0x80, GoType: g.typeExprFromType(ft), ColAPI: "Bytes", Nullable: true}, true
 		}
 		return colColumn{}, false
 	}
@@ -1147,14 +1150,6 @@ func (g *gen) emitEncodeColumnGathers(w io.Writer, s string, plan colElemPlan, i
 			fmt.Fprintf(w, "%s%s := e.ScratchString(len(%s))\n", indent, col, s)
 			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = string(%s[i].%s) }\n", indent, s, col, s, c.Access)
 			fmt.Fprintf(w, "%se.WriteStringColumn(%s)\n", indent, col)
-		case "Bytes":
-			// []byte → string column over a zero-copy byte view (valid for the
-			// duration of the column write; the codec copies what it keeps).
-			g.imports["unsafe"] = ""
-			fmt.Fprintf(w, "%s%s := e.ScratchString(len(%s))\n", indent, col, s)
-			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = unsafe.String(unsafe.SliceData(%s[i].%s), len(%s[i].%s)) }\n",
-				indent, s, col, s, c.Access, s, c.Access)
-			fmt.Fprintf(w, "%se.WriteStringColumn(%s)\n", indent, col)
 		case "Time":
 			sec := g.fresh("sec")
 			ns := g.fresh("ns")
@@ -1213,6 +1208,21 @@ func (g *gen) emitEncodeNullableColumn(w io.Writer, s string, c colColumn, inden
 		fmt.Fprintf(w, "%s\tif %s[i].%s != nil {\n", indent, s, c.Access)
 		fmt.Fprintf(w, "%s\t\t%s[i>>3] |= 1 << uint(i&7)\n", indent, mask)
 		fmt.Fprintf(w, "%s\t\t%s[%s] = string(*%s[i].%s)\n", indent, col, di, s, c.Access)
+		fmt.Fprintf(w, "%s\t\t%s++\n%s\t}\n%s}\n", indent, di, indent, indent)
+		fmt.Fprintf(w, "%se.WriteColNullMask(%s)\n", indent, mask)
+		fmt.Fprintf(w, "%se.WriteStringColumn(%s[:%s])\n", indent, col, di)
+	case "Bytes":
+		// []byte presence = (field != nil); present values travel as a string
+		// column over a zero-copy byte view. nil stays absent (decodes to nil),
+		// empty []byte{} is present (decodes to a non-nil empty slice).
+		g.imports["unsafe"] = ""
+		col := g.fresh("c")
+		fmt.Fprintf(w, "%s%s := e.ScratchString(len(%s))\n", indent, col, s)
+		fmt.Fprintf(w, "%s%s := 0\n", indent, di)
+		fmt.Fprintf(w, "%sfor i := range %s {\n", indent, s)
+		fmt.Fprintf(w, "%s\tif %s[i].%s != nil {\n", indent, s, c.Access)
+		fmt.Fprintf(w, "%s\t\t%s[i>>3] |= 1 << uint(i&7)\n", indent, mask)
+		fmt.Fprintf(w, "%s\t\t%s[%s] = unsafe.String(unsafe.SliceData(%s[i].%s), len(%s[i].%s))\n", indent, col, di, s, c.Access, s, c.Access)
 		fmt.Fprintf(w, "%s\t\t%s++\n%s\t}\n%s}\n", indent, di, indent, indent)
 		fmt.Fprintf(w, "%se.WriteColNullMask(%s)\n", indent, mask)
 		fmt.Fprintf(w, "%se.WriteStringColumn(%s[:%s])\n", indent, col, di)
@@ -1588,18 +1598,24 @@ func (g *gen) emitDecodeNullableColumn(w io.Writer, lhs, nVar string, c colColum
 	readFn := map[string]string{
 		"Int": "ReadIntColumn", "Uint": "ReadUintColumn", "Float64": "ReadFloat64Column",
 		"Float32": "ReadFloat32Column", "Bool": "ReadBoolColumn", "String": "ReadStringColumn",
+		"Bytes": "ReadStringColumn",
 	}[c.ColAPI]
 	fmt.Fprintf(w, "%s%s, err := d.%s(%s)\n", indent, colv, readFn, present)
 	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
 	fmt.Fprintf(w, "%s%s := 0\n", indent, di)
 	fmt.Fprintf(w, "%sfor i := range %s {\n", indent, lhs)
 	fmt.Fprintf(w, "%s\tif %s[i>>3]&(1<<uint(i&7)) != 0 {\n", indent, mask)
-	if c.ColAPI == "Bool" {
+	switch c.ColAPI {
+	case "Bytes":
+		// present []byte: a fresh owned copy (incl. a non-nil empty slice for "").
+		fmt.Fprintf(w, "%s\t\t%s[i].%s = %s([]byte(%s[%s]))\n", indent, lhs, c.Access, c.GoType, colv, di)
+	case "Bool":
 		fmt.Fprintf(w, "%s\t\t%s := %s[%s]\n", indent, v, colv, di)
-	} else {
+		fmt.Fprintf(w, "%s\t\t%s[i].%s = &%s\n", indent, lhs, c.Access, v)
+	default:
 		fmt.Fprintf(w, "%s\t\t%s := %s(%s[%s])\n", indent, v, c.GoType, colv, di)
+		fmt.Fprintf(w, "%s\t\t%s[i].%s = &%s\n", indent, lhs, c.Access, v)
 	}
-	fmt.Fprintf(w, "%s\t\t%s[i].%s = &%s\n", indent, lhs, c.Access, v)
 	fmt.Fprintf(w, "%s\t\t%s++\n", indent, di)
 	fmt.Fprintf(w, "%s\t} else {\n%s\t\t%s[i].%s = nil\n%s\t}\n%s}\n", indent, indent, lhs, c.Access, indent, indent)
 }
