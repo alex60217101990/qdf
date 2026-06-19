@@ -229,3 +229,77 @@ func BenchmarkColumnarCodegen_EventLog_Decode(b *testing.B) {
 		}
 	}
 }
+
+func TestColumnarCodegen_BlobColumn_RoundTrip(t *testing.T) {
+	in := GenBlobSet{}
+	for i := 0; i < 40; i++ {
+		in.Rows = append(in.Rows, GenBlobRow{ID: int64(i), Data: []byte{byte(i), byte(i + 1), byte(i * 2)}})
+	}
+	buf, err := (&in).MarshalQDF(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf, []byte{0xEF}) {
+		t.Fatal("expected columnar frame for []byte column")
+	}
+	var got GenBlobSet
+	if _, err := (&got).UnmarshalQDF(buf); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rows) != len(in.Rows) {
+		t.Fatalf("len mismatch %d", len(got.Rows))
+	}
+	for i := range in.Rows {
+		if got.Rows[i].ID != in.Rows[i].ID || !bytes.Equal(got.Rows[i].Data, in.Rows[i].Data) {
+			t.Fatalf("row[%d]=%+v want %+v", i, got.Rows[i], in.Rows[i])
+		}
+	}
+}
+
+func TestColumnarCodegen_NullableColumns_RoundTrip(t *testing.T) {
+	pi := func(v int32) *int32 { return &v }
+	ps := func(v string) *string { return &v }
+	pb := func(v bool) *bool { return &v }
+	pf := func(v float64) *float64 { return &v }
+	in := GenOptSet{}
+	for i := 0; i < 40; i++ {
+		var r GenOpt
+		if i%2 == 0 {
+			r.A = pi(int32(i))
+		}
+		if i%3 == 0 {
+			r.B = ps([]string{"x", "y"}[i%2])
+		}
+		if i%5 == 0 {
+			r.C = pb(i%10 == 0)
+		}
+		if i%4 == 0 {
+			r.D = pf(float64(i) * 1.25)
+		}
+		in.Rows = append(in.Rows, r)
+	}
+	buf, err := (&in).MarshalQDF(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf, []byte{0xEF}) {
+		t.Fatal("expected columnar frame for nullable columns")
+	}
+	var got GenOptSet
+	if _, err := (&got).UnmarshalQDF(buf); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rows) != len(in.Rows) {
+		t.Fatalf("len mismatch %d", len(got.Rows))
+	}
+	eqI := func(a, b *int32) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+	eqS := func(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+	eqB := func(a, b *bool) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+	eqF := func(a, b *float64) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+	for i := range in.Rows {
+		g, w := got.Rows[i], in.Rows[i]
+		if !eqI(g.A, w.A) || !eqS(g.B, w.B) || !eqB(g.C, w.C) || !eqF(g.D, w.D) {
+			t.Fatalf("row[%d] mismatch: got %+v want %+v", i, g, w)
+		}
+	}
+}

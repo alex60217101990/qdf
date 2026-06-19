@@ -779,9 +779,10 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 type colColumn struct {
 	WireName string // column name on the wire (field WireKey: qdf>json>name)
 	Access   string // Go field selector from the element, e.g. "TS" or "Base.X"
-	KindByte byte   // colKind wire byte: int0 uint1 f64 2 bool3 str4 time5 f32 6
-	GoType   string // rendered field type, e.g. "int32", for scatter narrowing
-	ColAPI   string // "Int"|"Uint"|"Float64"|"Float32"|"Bool"|"String"|"Time"
+	KindByte byte   // colKind wire byte: int0 uint1 f64 2 bool3 str4 time5 f32 6; |0x80 nullable
+	GoType   string // rendered field type for scatter narrowing (non-nullable: the field; nullable: the pointed-to elem)
+	ColAPI   string // "Int"|"Uint"|"Float64"|"Float32"|"Bool"|"String"|"Time"|"Bytes"
+	Nullable bool   // *T field: presence bitmap + dense column of present values
 }
 
 type colResidual struct {
@@ -838,7 +839,10 @@ func (g *gen) columnarElemPlan(elem types.Type) (colElemPlan, bool) {
 			plan.Columns = append(plan.Columns, col)
 			plan.HybridNames = append(plan.HybridNames, fi.WireKey)
 			plan.HybridKinds = append(plan.HybridKinds, col.KindByte)
-			if col.ColAPI == "String" {
+			// A plain (non-nullable) string column is the only kind whose
+			// columnar benefit is data-dependent → gates the string-only probe.
+			// []byte (raw-slab decode win) and nullable columns always benefit.
+			if col.ColAPI == "String" && !col.Nullable {
 				plan.HasString = true
 			} else {
 				plan.HasNumericOrTime = true
@@ -856,12 +860,28 @@ func (g *gen) columnarElemPlan(elem types.Type) (colElemPlan, bool) {
 }
 
 // classifyColField maps a struct field to its columnar column descriptor, or
-// returns ok=false for a residual (non-columnar) field. time.Time and string
-// are eligible (matching classifyColKind: str->4, time->5); []byte, nested
-// structs, maps, slices, pointers, arrays, interfaces are residual.
+// returns ok=false for a residual (non-columnar) field. Eligible: scalar basics,
+// string, time.Time, []byte (str column via the byte view), and pointers to any
+// of the scalar/string kinds (nullable column: presence bitmap + dense values).
+// Residual: *time.Time, *struct, nested struct, map, non-byte slice, array,
+// interface.
 func (g *gen) classifyColField(wireName, access string, ft types.Type) (colColumn, bool) {
 	if isTimeTime(ft) {
 		return colColumn{WireName: wireName, Access: access, KindByte: 5, GoType: "time.Time", ColAPI: "Time"}, true
+	}
+	// []byte (slice of uint8) → string column over an unsafe byte view.
+	if sl, ok := ft.Underlying().(*types.Slice); ok {
+		if eb, ok := sl.Elem().Underlying().(*types.Basic); ok && eb.Kind() == types.Uint8 {
+			return colColumn{WireName: wireName, Access: access, KindByte: 4, GoType: g.typeExprFromType(ft), ColAPI: "Bytes"}, true
+		}
+		return colColumn{}, false
+	}
+	// Pointer to a scalar/string → nullable column.
+	if ptr, ok := ft.Underlying().(*types.Pointer); ok {
+		if c, isCol := g.classifyNullableElem(wireName, access, ptr.Elem()); isCol {
+			return c, true
+		}
+		return colColumn{}, false
 	}
 	b, ok := ft.Underlying().(*types.Basic)
 	if !ok {
@@ -875,6 +895,28 @@ func (g *gen) classifyColField(wireName, access string, ft types.Type) (colColum
 		return colColumn{}, false
 	}
 	return colColumn{WireName: wireName, Access: access, KindByte: kb, GoType: g.typeExprFromType(ft), ColAPI: api}, true
+}
+
+// classifyNullableElem maps the pointed-to type of a *T field to a nullable
+// column (KindByte | 0x80 = colKindNullable). Eligible elem kinds: scalar
+// basics and string. *time.Time / *struct / others stay residual. GoType is the
+// element type (the value the scatter allocates and points at).
+func (g *gen) classifyNullableElem(wireName, access string, elem types.Type) (colColumn, bool) {
+	if isTimeTime(elem) {
+		return colColumn{}, false // *time.Time → residual (scope)
+	}
+	b, ok := elem.Underlying().(*types.Basic)
+	if !ok {
+		return colColumn{}, false
+	}
+	if b.Kind() == types.String {
+		return colColumn{WireName: wireName, Access: access, KindByte: 4 | 0x80, GoType: g.typeExprFromType(elem), ColAPI: "String", Nullable: true}, true
+	}
+	kb, api, ok := basicColKind(b.Kind())
+	if !ok {
+		return colColumn{}, false
+	}
+	return colColumn{WireName: wireName, Access: access, KindByte: kb | 0x80, GoType: g.typeExprFromType(elem), ColAPI: api, Nullable: true}, true
 }
 
 // basicColKind maps a numeric/bool basic kind to its colKind wire byte + the
@@ -1048,6 +1090,10 @@ func (g *gen) emitEncodeColumnarFrame(w io.Writer, s string, plan colElemPlan, i
 // hybrid frames.
 func (g *gen) emitEncodeColumnGathers(w io.Writer, s string, plan colElemPlan, indent string) error {
 	for _, c := range plan.Columns {
+		if c.Nullable {
+			g.emitEncodeNullableColumn(w, s, c, indent)
+			continue
+		}
 		col := g.fresh("c")
 		switch c.ColAPI {
 		case "Int":
@@ -1074,6 +1120,14 @@ func (g *gen) emitEncodeColumnGathers(w io.Writer, s string, plan colElemPlan, i
 			fmt.Fprintf(w, "%s%s := e.ScratchString(len(%s))\n", indent, col, s)
 			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = string(%s[i].%s) }\n", indent, s, col, s, c.Access)
 			fmt.Fprintf(w, "%se.WriteStringColumn(%s)\n", indent, col)
+		case "Bytes":
+			// []byte → string column over a zero-copy byte view (valid for the
+			// duration of the column write; the codec copies what it keeps).
+			g.imports["unsafe"] = ""
+			fmt.Fprintf(w, "%s%s := e.ScratchString(len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = unsafe.String(unsafe.SliceData(%s[i].%s), len(%s[i].%s)) }\n",
+				indent, s, col, s, c.Access, s, c.Access)
+			fmt.Fprintf(w, "%se.WriteStringColumn(%s)\n", indent, col)
 		case "Time":
 			sec := g.fresh("sec")
 			ns := g.fresh("ns")
@@ -1086,6 +1140,56 @@ func (g *gen) emitEncodeColumnGathers(w io.Writer, s string, plan colElemPlan, i
 		}
 	}
 	return nil
+}
+
+// emitEncodeNullableColumn emits a *T field's nullable column: a presence
+// bitmap followed by the dense column of present (non-nil) values, matching
+// encodeNullableColumn's wire layout (KindByte carries the 0x80 nullable bit).
+func (g *gen) emitEncodeNullableColumn(w io.Writer, s string, c colColumn, indent string) {
+	mask := g.fresh("mask")
+	di := g.fresh("di")
+	fmt.Fprintf(w, "%s%s := e.ScratchMask(len(%s))\n", indent, mask, s)
+	switch c.ColAPI {
+	case "Int", "Uint", "Float64", "Float32", "Bool":
+		col := g.fresh("c")
+		var scratchFn, conv string
+		switch c.ColAPI {
+		case "Int":
+			scratchFn, conv = "ScratchInt", "int64"
+		case "Uint":
+			scratchFn, conv = "ScratchUint", "uint64"
+		case "Float64":
+			scratchFn, conv = "ScratchFloat64", "float64"
+		case "Float32":
+			scratchFn, conv = "ScratchFloat32", "float32"
+		case "Bool":
+			scratchFn, conv = "ScratchBool", ""
+		}
+		fmt.Fprintf(w, "%s%s := e.%s(len(%s))\n", indent, col, scratchFn, s)
+		fmt.Fprintf(w, "%s%s := 0\n", indent, di)
+		fmt.Fprintf(w, "%sfor i := range %s {\n", indent, s)
+		fmt.Fprintf(w, "%s\tif %s[i].%s != nil {\n", indent, s, c.Access)
+		fmt.Fprintf(w, "%s\t\t%s[i>>3] |= 1 << uint(i&7)\n", indent, mask)
+		if conv == "" {
+			fmt.Fprintf(w, "%s\t\t%s[%s] = *%s[i].%s\n", indent, col, di, s, c.Access)
+		} else {
+			fmt.Fprintf(w, "%s\t\t%s[%s] = %s(*%s[i].%s)\n", indent, col, di, conv, s, c.Access)
+		}
+		fmt.Fprintf(w, "%s\t\t%s++\n%s\t}\n%s}\n", indent, di, indent, indent)
+		fmt.Fprintf(w, "%se.WriteColNullMask(%s)\n", indent, mask)
+		fmt.Fprintf(w, "%sif err := e.Write%sColumn(%s[:%s]); err != nil { return err }\n", indent, c.ColAPI, col, di)
+	case "String":
+		col := g.fresh("c")
+		fmt.Fprintf(w, "%s%s := e.ScratchString(len(%s))\n", indent, col, s)
+		fmt.Fprintf(w, "%s%s := 0\n", indent, di)
+		fmt.Fprintf(w, "%sfor i := range %s {\n", indent, s)
+		fmt.Fprintf(w, "%s\tif %s[i].%s != nil {\n", indent, s, c.Access)
+		fmt.Fprintf(w, "%s\t\t%s[i>>3] |= 1 << uint(i&7)\n", indent, mask)
+		fmt.Fprintf(w, "%s\t\t%s[%s] = string(*%s[i].%s)\n", indent, col, di, s, c.Access)
+		fmt.Fprintf(w, "%s\t\t%s++\n%s\t}\n%s}\n", indent, di, indent, indent)
+		fmt.Fprintf(w, "%se.WriteColNullMask(%s)\n", indent, mask)
+		fmt.Fprintf(w, "%se.WriteStringColumn(%s[:%s])\n", indent, col, di)
+	}
 }
 
 func (g *gen) emitEncodeArray(w io.Writer, expr string, a *types.Array, indent string) error {
@@ -1395,12 +1499,20 @@ func (g *gen) emitDecodeColumnarBody(w io.Writer, lhs string, elem types.Type, p
 // Used by the pure name-switch decode (inside a case) and the hybrid positional
 // decode. lhs is the output slice; nVar the row count local.
 func (g *gen) emitDecodeColumnScatter(w io.Writer, lhs, nVar string, c colColumn, indent string) {
+	if c.Nullable {
+		g.emitDecodeNullableColumn(w, lhs, nVar, c, indent)
+		return
+	}
 	colv := g.fresh("col")
 	switch c.ColAPI {
 	case "String":
 		fmt.Fprintf(w, "%s%s, err := d.ReadStringColumn(%s)\n", indent, colv, nVar)
 		fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%sfor i := range %s { %s[i].%s = %s(%s[i]) }\n", indent, colv, lhs, c.Access, c.GoType, colv)
+	case "Bytes":
+		fmt.Fprintf(w, "%s%s, err := d.ReadStringColumn(%s)\n", indent, colv, nVar)
+		fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%sfor i := range %s { %s[i].%s = %s([]byte(%s[i])) }\n", indent, colv, lhs, c.Access, c.GoType, colv)
 	case "Time":
 		g.imports["time"] = ""
 		secv := g.fresh("sec")
@@ -1428,6 +1540,36 @@ func (g *gen) emitDecodeColumnScatter(w io.Writer, lhs, nVar string, c colColumn
 		fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
 		fmt.Fprintf(w, "%sfor i := range %s { %s[i].%s = %s(%s[i]) }\n", indent, colv, lhs, c.Access, c.GoType, colv)
 	}
+}
+
+// emitDecodeNullableColumn emits decode for a *T nullable column: read the
+// presence bitmap + dense column of present values, then scatter — a set bit
+// allocates a fresh element and points the field at it, a clear bit leaves nil.
+func (g *gen) emitDecodeNullableColumn(w io.Writer, lhs, nVar string, c colColumn, indent string) {
+	mask := g.fresh("mask")
+	present := g.fresh("present")
+	colv := g.fresh("col")
+	di := g.fresh("di")
+	v := g.fresh("v")
+	fmt.Fprintf(w, "%s%s, %s, err := d.ReadColNullMask(%s)\n", indent, mask, present, nVar)
+	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+	readFn := map[string]string{
+		"Int": "ReadIntColumn", "Uint": "ReadUintColumn", "Float64": "ReadFloat64Column",
+		"Float32": "ReadFloat32Column", "Bool": "ReadBoolColumn", "String": "ReadStringColumn",
+	}[c.ColAPI]
+	fmt.Fprintf(w, "%s%s, err := d.%s(%s)\n", indent, colv, readFn, present)
+	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s%s := 0\n", indent, di)
+	fmt.Fprintf(w, "%sfor i := range %s {\n", indent, lhs)
+	fmt.Fprintf(w, "%s\tif %s[i>>3]&(1<<uint(i&7)) != 0 {\n", indent, mask)
+	if c.ColAPI == "Bool" {
+		fmt.Fprintf(w, "%s\t\t%s := %s[%s]\n", indent, v, colv, di)
+	} else {
+		fmt.Fprintf(w, "%s\t\t%s := %s(%s[%s])\n", indent, v, c.GoType, colv, di)
+	}
+	fmt.Fprintf(w, "%s\t\t%s[i].%s = &%s\n", indent, lhs, c.Access, v)
+	fmt.Fprintf(w, "%s\t\t%s++\n", indent, di)
+	fmt.Fprintf(w, "%s\t} else {\n%s\t\t%s[i].%s = nil\n%s\t}\n%s}\n", indent, indent, lhs, c.Access, indent, indent)
 }
 
 // emitDecodeHybridBody emits decode for the tagHybridColStruct frame: read the

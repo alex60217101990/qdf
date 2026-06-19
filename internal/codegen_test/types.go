@@ -111,3 +111,29 @@ type GenName struct {
 type GenNameList struct {
 	Names []GenName `qdf:"names"`
 }
+
+// --- Phase 2d fixtures: []byte columns + nullable (*T) columns ---
+
+// GenBlobRow exercises a []byte column (routed through the string column codec).
+type GenBlobRow struct {
+	ID   int64  `qdf:"id"`
+	Data []byte `qdf:"data"`
+}
+
+// GenBlobSet wraps a []byte-column-bearing slice.
+type GenBlobSet struct {
+	Rows []GenBlobRow `qdf:"rows"`
+}
+
+// GenOpt exercises nullable scalar/string columns (presence bitmap + dense).
+type GenOpt struct {
+	A *int32   `qdf:"a"`
+	B *string  `qdf:"b"`
+	C *bool    `qdf:"c"`
+	D *float64 `qdf:"d"`
+}
+
+// GenOptSet wraps a nullable-column slice.
+type GenOptSet struct {
+	Rows []GenOpt `qdf:"rows"`
+}
