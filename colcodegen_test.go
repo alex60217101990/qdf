@@ -133,3 +133,105 @@ func TestWriteColumns_RoundTripViaReadColShape(t *testing.T) {
 		t.Fatal("no colStruct frame emitted")
 	}
 }
+
+func TestStringColumn_RoundTrip(t *testing.T) {
+	e := NewEncoderOnBuf(nil, Fast)
+	e.EnsureHeader()
+	e.WriteColStructHeader(5, []string{"name"}, []byte{4}) // colKindString
+	in := []string{"alpha", "beta", "alpha", "gamma", "beta"}
+	e.WriteStringColumn(in)
+	d := NewDecoderOnBuf(e.Bytes())
+	if err := d.readHeader(); err != nil {
+		t.Fatal(err)
+	}
+	if !d.PeekColStruct() {
+		t.Fatal("want colStruct frame")
+	}
+	n, names, kinds, err := d.ReadColStructHeader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 5 || names[0] != "name" || kinds[0] != 4 {
+		t.Fatalf("header: n=%d names=%v kinds=%v", n, names, kinds)
+	}
+	got, err := d.ReadStringColumn(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range in {
+		if got[i] != in[i] {
+			t.Fatalf("string[%d]=%q want %q", i, got[i], in[i])
+		}
+	}
+}
+
+func TestTimeColumn_RoundTrip(t *testing.T) {
+	e := NewEncoderOnBuf(nil, Fast)
+	e.EnsureHeader()
+	base := int64(1_700_000_000)
+	secs := []int64{base, base + 1, base + 2, base + 60}
+	nsec := []uint64{0, 500, 999_999_999, 12345}
+	e.WriteColStructHeader(4, []string{"ts"}, []byte{5}) // colKindTime
+	if err := e.WriteTimeColumn(secs, nsec); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDecoderOnBuf(e.Bytes())
+	if err := d.readHeader(); err != nil {
+		t.Fatal(err)
+	}
+	n, _, kinds, err := d.ReadColStructHeader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kinds[0] != 5 {
+		t.Fatalf("kind=%d want 5", kinds[0])
+	}
+	gs, gn, err := d.ReadTimeColumn(n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range secs {
+		if gs[i] != secs[i] || gn[i] != nsec[i] {
+			t.Fatalf("time[%d]=(%d,%d) want (%d,%d)", i, gs[i], gn[i], secs[i], nsec[i])
+		}
+	}
+}
+
+func TestHybridColStructHeader_RoundTrip(t *testing.T) {
+	e := NewEncoderOnBuf(nil, Fast)
+	e.EnsureHeader()
+	names := []string{"ts", "nested", "v"}
+	kinds := []byte{0, 0xFF, 2} // int, residual, float64
+	e.WriteHybridColStructHeader(7, names, kinds)
+	d := NewDecoderOnBuf(e.Bytes())
+	if err := d.readHeader(); err != nil {
+		t.Fatal(err)
+	}
+	if !d.PeekHybridColStruct() {
+		t.Fatal("want hybrid frame")
+	}
+	n, gn, gk, err := d.ReadHybridColStructHeader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 7 || len(gn) != 3 || gn[1] != "nested" || gk[1] != 0xFF || gk[0] != 0 || gk[2] != 2 {
+		t.Fatalf("hybrid header: n=%d names=%v kinds=%v", n, gn, gk)
+	}
+}
+
+func TestStringColumnsBeneficial(t *testing.T) {
+	lowCard := make([]string, 64)
+	for i := range lowCard {
+		lowCard[i] = []string{"GET", "POST", "PUT"}[i%3]
+	}
+	if !stringColumnsBeneficial(lowCard) {
+		t.Fatal("low-cardinality string column should be columnar-beneficial")
+	}
+	highCard := make([]string, 64)
+	for i := range highCard {
+		highCard[i] = "unique-value-" + string(rune('a'+i%26)) + string(rune('0'+i%10)) + string(rune('A'+(i*7)%26))
+	}
+	if stringColumnsBeneficial(highCard) {
+		t.Fatal("high-cardinality string column should stay row-major")
+	}
+}

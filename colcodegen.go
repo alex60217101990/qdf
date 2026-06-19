@@ -139,6 +139,57 @@ func (e *Encoder) WriteFloat32Column(s []float32) error {
 // WriteBoolColumn encodes a bool column.
 func (e *Encoder) WriteBoolColumn(s []bool) error { return encodeSliceBool(e, unsafe.Pointer(&s)) }
 
+// ScratchString returns a reusable []string of length n for a string column.
+func (e *Encoder) ScratchString(n int) []string {
+	st := e.colState()
+	if cap(st.colScratchStr) < n {
+		st.colScratchStr = make([]string, n)
+	}
+	st.colScratchStr = st.colScratchStr[:n]
+	return st.colScratchStr
+}
+
+// WriteStringColumn encodes a string column, reusing the Balanced string-column
+// picker (dictionary / FSST / raw-slab / plain), which is never larger than the
+// per-value row-major encoding. Same wire as the reflect colKindString path.
+func (e *Encoder) WriteStringColumn(s []string) { e.writeStringColumn(s) }
+
+// WriteTimeColumn encodes a time.Time column as two sub-columns — sec ([]int64,
+// Delta+FOR compresses monotonic series) then nsec ([]uint64) — matching the
+// reflect colKindTime path. The caller gathers secs/nsec from the time fields
+// (t.UTC().Unix() / t.Nanosecond()); reuse ScratchInt/ScratchUint for them.
+func (e *Encoder) WriteTimeColumn(secs []int64, nsec []uint64) error {
+	if err := encodeSliceInt64(e, unsafe.Pointer(&secs)); err != nil {
+		return err
+	}
+	return encodeSliceUint64(e, unsafe.Pointer(&nsec))
+}
+
+// WriteHybridColStructHeader writes the hybrid columnar container header
+// (tagHybridColStruct, row count, shape). The shape lists EVERY field in
+// declaration order; residual (non-columnar) fields carry kind byte 0xFF
+// (residualKind). Shares the hybrid shape-id space with the reflect path.
+func (e *Encoder) WriteHybridColStructHeader(n int, names []string, kinds []byte) {
+	st := e.colState()
+	e.buf = append(e.buf, tagHybridColStruct)
+	e.buf = appendUvarint(e.buf, uint64(n))
+	var ck []colKind
+	if len(kinds) > 0 {
+		ck = unsafe.Slice((*colKind)(unsafe.Pointer(&kinds[0])), len(kinds))
+	}
+	if id := st.hybridShapeFor(names, ck); id != 0 {
+		e.buf = appendUvarint(e.buf, uint64(id))
+		return
+	}
+	e.buf = appendUvarint(e.buf, 0)
+	e.buf = appendUvarint(e.buf, uint64(len(names)))
+	for i := range names {
+		e.WriteString(names[i])
+		e.buf = append(e.buf, kinds[i])
+	}
+	st.hybridShapeDeclare(names, ck)
+}
+
 // PeekColStruct reports whether the next byte is a columnar container frame,
 // without consuming it. Generated decode uses this to pick the columnar path
 // vs the row-major fallback (a tiny slice the encoder kept row-major, or a
@@ -258,3 +309,147 @@ func (d *Decoder) ReadBoolColumn(n int) ([]bool, error) {
 	}
 	return s, nil
 }
+
+// ReadStringColumn decodes one string column of n values, mirroring the reflect
+// colKindString decode: a dictionary / FSST / raw-slab block (tag present) goes
+// through the shared block reader; otherwise the plain per-value path reads via
+// ReadString so state-ref / MTF / repeat encodings written by the picker's
+// plain fallback resolve correctly (and share the decode intern cache). The
+// returned slice is reused scratch on the plain path; scatter before the next
+// column read.
+func (d *Decoder) ReadStringColumn(n int) ([]string, error) {
+	if n > 0 && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrFSST || d.buf[d.i] == tagColStrRaw) {
+		s, err := d.readStringColumn(n)
+		if err != nil {
+			return nil, err
+		}
+		if len(s) != n {
+			return nil, ErrTypeMismatch
+		}
+		return s, nil
+	}
+	st := d.colStateDec()
+	if cap(st.colScratchStr) < n {
+		st.colScratchStr = make([]string, n)
+	}
+	out := st.colScratchStr[:n]
+	for i := range n {
+		s, err := d.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		out[i] = s
+	}
+	st.colScratchStr = out
+	return out, nil
+}
+
+// ReadTimeColumn decodes a time.Time column's two sub-columns and returns the
+// sec / nsec slices; the caller reconstructs each value as
+// time.Unix(sec[i], int64(nsec[i])).UTC(). nsec is validated in range.
+func (d *Decoder) ReadTimeColumn(n int) ([]int64, []uint64, error) {
+	st := d.colStateDec()
+	sec := st.colScratchI64[:0]
+	if err := decodeSliceInt64Into(d, &sec); err != nil {
+		return nil, nil, err
+	}
+	st.colScratchI64 = sec
+	if len(sec) != n {
+		return nil, nil, ErrTypeMismatch
+	}
+	nsec := st.colScratchU64[:0]
+	if err := decodeSliceUint64Into(d, &nsec); err != nil {
+		return nil, nil, err
+	}
+	st.colScratchU64 = nsec
+	if len(nsec) != n {
+		return nil, nil, ErrTypeMismatch
+	}
+	if err := checkNsecColumn(nsec); err != nil {
+		return nil, nil, err
+	}
+	return sec, nsec, nil
+}
+
+// PeekHybridColStruct reports whether the next byte is a hybrid columnar frame
+// (some fields columnar, some residual row-major), without consuming it.
+func (d *Decoder) PeekHybridColStruct() bool {
+	return d.i < len(d.buf) && d.buf[d.i] == tagHybridColStruct
+}
+
+// ReadHybridColStructHeader consumes the hybrid columnar header and returns the
+// row count and full shape (every field in declaration order; residual fields
+// carry kind byte 0xFF). n is bounded by maxColumnarElems.
+func (d *Decoder) ReadHybridColStructHeader() (int, []string, []byte, error) {
+	n, sh, err := d.readHybridColShape(maxColumnarElems)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	d.colMaxLen = n
+	kinds := make([]byte, len(sh.kinds))
+	for i, k := range sh.kinds {
+		kinds[i] = byte(k)
+	}
+	return n, sh.names, kinds, nil
+}
+
+// ClearColMaxLen resets the per-column length bound. Generated hybrid decode
+// calls it between the eligible columns (bounded to n) and the residual block
+// (whose nested slices/maps may legitimately exceed n), mirroring
+// decodeHybridColumnar.
+func (d *Decoder) ClearColMaxLen() { d.colMaxLen = 0 }
+
+// stringColumnsBeneficial samples the given string columns and reports whether a
+// dictionary string column would beat plain per-value row-major encoding by the
+// columnar min-gain threshold. Reflection-free; reuses bitsForDistinct and the
+// same estimate the reflect columnarProbe uses for colKindString. Generated
+// code calls this only for string-ONLY elements (any numeric/time column makes
+// columnar unconditionally beneficial), so a high-cardinality string struct
+// (e.g. unique names) stays row-major exactly as the reflect probe decides.
+func stringColumnsBeneficial(cols ...[]string) bool {
+	if len(cols) == 0 || len(cols[0]) == 0 {
+		return false
+	}
+	sample := min(len(cols[0]), columnarProbeSample)
+	var colBytes, rowBytes int
+	for _, strs := range cols {
+		var seen [columnarProbeSample]string
+		nseen := 0
+		var tableBytes, perValue int
+		prev := ""
+		first := true
+		for i := range sample {
+			s := strs[i]
+			fresh := true
+			for j := 0; j < nseen; j++ {
+				if seen[j] == s {
+					fresh = false
+					break
+				}
+			}
+			if fresh && nseen < len(seen) {
+				seen[nseen] = s
+				nseen++
+				tableBytes += 2 + len(s)
+			}
+			if !first && s == prev {
+				perValue++
+			} else {
+				perValue += 2 + len(s)
+			}
+			rowBytes += 2 + len(s)
+			prev = s
+			first = false
+		}
+		dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
+		colBytes += min(perValue, dictBytes)
+	}
+	if rowBytes == 0 {
+		return false
+	}
+	return colBytes*100 <= rowBytes*(100-columnarMinGainPct)
+}
+
+// StringColumnsBeneficial is the exported entry generated code calls to gate a
+// string-only element's columnar encode (see stringColumnsBeneficial).
+func StringColumnsBeneficial(cols ...[]string) bool { return stringColumnsBeneficial(cols...) }
