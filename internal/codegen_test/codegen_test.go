@@ -17,7 +17,7 @@ const generatedFile = "sample_qdf.go"
 func TestGenerate(t *testing.T) {
 	dir, _ := filepath.Abs(".")
 	err := qdfgen.Generate([]string{"./..."}, qdfgen.Options{
-		Types:   []string{"Sample", "Inner", "Edge", "GenMetric", "GenMetricBatch", "GenEvent", "GenEventLog", "GenRowInner", "GenRow", "GenRowSet", "GenName", "GenNameList", "GenBlobRow", "GenBlobSet", "GenOpt", "GenOptSet"},
+		Types:   []string{"Sample", "Inner", "Edge", "GenMetric", "GenMetricBatch", "GenEvent", "GenEventLog", "GenRowInner", "GenRow", "GenRowSet", "GenName", "GenNameList", "GenBlobRow", "GenBlobSet", "GenOpt", "GenOptSet", "GenTrailed"},
 		OutFile: filepath.Join(dir, generatedFile),
 		Verbose: testing.Verbose(),
 	})
