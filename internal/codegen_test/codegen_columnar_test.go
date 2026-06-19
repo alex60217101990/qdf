@@ -193,3 +193,39 @@ func TestColumnarCodegen_NameList_StringOnlyProbe(t *testing.T) {
 		}
 	}
 }
+
+func benchEventLog() GenEventLog {
+	in := GenEventLog{Source: "svc"}
+	msgs := []string{"connection established", "request handled", "cache miss", "retry scheduled", "auth ok"}
+	for i := 0; i < 2000; i++ {
+		in.Events = append(in.Events, GenEvent{
+			TS:    time.Unix(int64(1_700_000_000+i), int64(i*1000)).UTC(),
+			Level: []string{"INFO", "WARN", "ERROR"}[i%3],
+			Code:  int32(i % 13),
+			Msg:   msgs[i%len(msgs)], // low-cardinality → dict-coded column
+		})
+	}
+	return in
+}
+
+func BenchmarkColumnarCodegen_EventLog_Encode(b *testing.B) {
+	in := benchEventLog()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := (&in).MarshalQDF(nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkColumnarCodegen_EventLog_Decode(b *testing.B) {
+	in := benchEventLog()
+	buf, _ := (&in).MarshalQDF(nil)
+	b.ReportAllocs()
+	for b.Loop() {
+		var out GenEventLog
+		if _, err := (&out).UnmarshalQDF(buf); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
