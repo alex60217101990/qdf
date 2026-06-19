@@ -779,21 +779,40 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 type colColumn struct {
 	WireName string // column name on the wire (field WireKey: qdf>json>name)
 	Access   string // Go field selector from the element, e.g. "TS" or "Base.X"
-	KindByte byte   // colKind wire byte: 0/1/2/3/6
+	KindByte byte   // colKind wire byte: int0 uint1 f64 2 bool3 str4 time5 f32 6
 	GoType   string // rendered field type, e.g. "int32", for scatter narrowing
-	ColAPI   string // "Int"|"Uint"|"Float64"|"Float32"|"Bool"
+	ColAPI   string // "Int"|"Uint"|"Float64"|"Float32"|"Bool"|"String"|"Time"
+}
+
+type colResidual struct {
+	Access string     // Go field selector from the element
+	Type   types.Type // field type, for the row-major encode/decode emitters
 }
 
 type colElemPlan struct {
-	ElemType string // rendered element type, e.g. "GenMetric"
-	Columns  []colColumn
+	ElemType         string // rendered element type, e.g. "GenMetric"
+	Columns          []colColumn
+	Residual         []colResidual // non-columnar fields, declaration order
+	HybridNames      []string      // ALL fields, declaration order (hybrid shape)
+	HybridKinds      []byte        // colKind per field; 0xFF (residualKind) for residual
+	HasNumericOrTime bool          // int/uint/float/bool/time column present
+	HasString        bool          // string column present
 }
 
-// columnarElemPlan returns a plan when elem is a named struct whose every
-// (flattened) field is a scalar basic type — the v1 columnar-eligibility set.
-// Otherwise ok=false and the caller emits the row-major path. Any String,
-// time.Time, nested struct, slice, map, pointer, array, or interface field
-// disqualifies the element (those need string/hybrid columns, out of scope).
+// hybrid reports whether the element has non-columnar (residual) fields, so it
+// encodes as a tagHybridColStruct frame rather than a pure tagColStruct.
+func (p *colElemPlan) hybrid() bool { return len(p.Residual) > 0 }
+
+// stringOnly reports whether the only columnar benefit is from string columns,
+// so the encoder must run a cardinality probe (numeric/time columns always make
+// columnar worthwhile, strings only when low-cardinality).
+func (p *colElemPlan) stringOnly() bool { return p.HasString && !p.HasNumericOrTime }
+
+// columnarElemPlan returns a plan when elem is a named struct with at least one
+// columnar-eligible field (scalar int/uint/float/bool, string, or time.Time).
+// Non-eligible fields (nested struct, map, slice, []byte, pointer, array,
+// interface) become residual fields carried row-major in a hybrid frame. ok is
+// false (→ full row-major) only when no field is eligible.
 func (g *gen) columnarElemPlan(elem types.Type) (colElemPlan, bool) {
 	named, isNamed := types.Unalias(elem).(*types.Named)
 	if !isNamed {
@@ -812,31 +831,55 @@ func (g *gen) columnarElemPlan(elem types.Type) (colElemPlan, bool) {
 	if len(fields) == 0 {
 		return colElemPlan{}, false
 	}
-	cols := make([]colColumn, 0, len(fields))
+	plan := colElemPlan{ElemType: g.typeExprFromType(elem)}
 	for i := range fields {
 		fi := &fields[i]
-		b, isBasic := fi.Field.Type().Underlying().(*types.Basic)
-		if !isBasic {
-			return colElemPlan{}, false
+		if col, isCol := g.classifyColField(fi.WireKey, fi.Access, fi.Field.Type()); isCol {
+			plan.Columns = append(plan.Columns, col)
+			plan.HybridNames = append(plan.HybridNames, fi.WireKey)
+			plan.HybridKinds = append(plan.HybridKinds, col.KindByte)
+			if col.ColAPI == "String" {
+				plan.HasString = true
+			} else {
+				plan.HasNumericOrTime = true
+			}
+			continue
 		}
-		kb, api, ok := basicColKind(b.Kind())
-		if !ok {
-			return colElemPlan{}, false
-		}
-		cols = append(cols, colColumn{
-			WireName: fi.WireKey,
-			Access:   fi.Access,
-			KindByte: kb,
-			GoType:   g.typeExprFromType(fi.Field.Type()),
-			ColAPI:   api,
-		})
+		plan.Residual = append(plan.Residual, colResidual{Access: fi.Access, Type: fi.Field.Type()})
+		plan.HybridNames = append(plan.HybridNames, fi.WireKey)
+		plan.HybridKinds = append(plan.HybridKinds, 0xFF) // residualKind
 	}
-	return colElemPlan{ElemType: g.typeExprFromType(elem), Columns: cols}, true
+	if len(plan.Columns) == 0 {
+		return colElemPlan{}, false // no columnar benefit — full row-major
+	}
+	return plan, true
 }
 
-// basicColKind maps a basic kind to its colKind wire byte + the WriteX/ReadX
-// API suffix. Must match classifyColKind: int*->0, uint*->1, float64->2,
-// bool->3, float32->6.
+// classifyColField maps a struct field to its columnar column descriptor, or
+// returns ok=false for a residual (non-columnar) field. time.Time and string
+// are eligible (matching classifyColKind: str->4, time->5); []byte, nested
+// structs, maps, slices, pointers, arrays, interfaces are residual.
+func (g *gen) classifyColField(wireName, access string, ft types.Type) (colColumn, bool) {
+	if isTimeTime(ft) {
+		return colColumn{WireName: wireName, Access: access, KindByte: 5, GoType: "time.Time", ColAPI: "Time"}, true
+	}
+	b, ok := ft.Underlying().(*types.Basic)
+	if !ok {
+		return colColumn{}, false
+	}
+	if b.Kind() == types.String {
+		return colColumn{WireName: wireName, Access: access, KindByte: 4, GoType: g.typeExprFromType(ft), ColAPI: "String"}, true
+	}
+	kb, api, ok := basicColKind(b.Kind())
+	if !ok {
+		return colColumn{}, false
+	}
+	return colColumn{WireName: wireName, Access: access, KindByte: kb, GoType: g.typeExprFromType(ft), ColAPI: api}, true
+}
+
+// basicColKind maps a numeric/bool basic kind to its colKind wire byte + the
+// WriteX/ReadX API suffix. Must match classifyColKind: int*->0, uint*->1,
+// float64->2, bool->3, float32->6. (String/time handled in classifyColField.)
 func basicColKind(k types.BasicKind) (byte, string, bool) {
 	switch k {
 	case types.Bool:
@@ -854,34 +897,42 @@ func basicColKind(k types.BasicKind) (byte, string, bool) {
 	}
 }
 
-// colNamesVar emits (once per element type) a file-level []string of column
-// names and returns its ident.
-func (g *gen) colNamesVar(plan colElemPlan) string {
-	name := "qdfColNames_" + sanitizeIdent(plan.ElemType)
-	if !g.colVarSeen[name] {
-		g.colVarSeen[name] = true
-		parts := make([]string, len(plan.Columns))
-		for i, c := range plan.Columns {
-			parts[i] = strconv.Quote(c.WireName)
+// colNamesVar emits (once per ident) a file-level []string and returns its ident.
+func (g *gen) colNamesVar(ident string, names []string) string {
+	if !g.colVarSeen[ident] {
+		g.colVarSeen[ident] = true
+		parts := make([]string, len(names))
+		for i, nm := range names {
+			parts[i] = strconv.Quote(nm)
 		}
-		fmt.Fprintf(&g.colVars, "var %s = []string{%s}\n", name, strings.Join(parts, ", "))
+		fmt.Fprintf(&g.colVars, "var %s = []string{%s}\n", ident, strings.Join(parts, ", "))
 	}
-	return name
+	return ident
 }
 
-// colKindsVar emits (once per element type) a file-level []byte of column kind
-// bytes and returns its ident.
-func (g *gen) colKindsVar(plan colElemPlan) string {
-	name := "qdfColKinds_" + sanitizeIdent(plan.ElemType)
-	if !g.colVarSeen[name] {
-		g.colVarSeen[name] = true
-		parts := make([]string, len(plan.Columns))
-		for i, c := range plan.Columns {
-			parts[i] = fmt.Sprintf("0x%02x", c.KindByte)
+// colKindsVar emits (once per ident) a file-level []byte and returns its ident.
+func (g *gen) colKindsVar(ident string, kinds []byte) string {
+	if !g.colVarSeen[ident] {
+		g.colVarSeen[ident] = true
+		parts := make([]string, len(kinds))
+		for i, k := range kinds {
+			parts[i] = fmt.Sprintf("0x%02x", k)
 		}
-		fmt.Fprintf(&g.colVars, "var %s = []byte{%s}\n", name, strings.Join(parts, ", "))
+		fmt.Fprintf(&g.colVars, "var %s = []byte{%s}\n", ident, strings.Join(parts, ", "))
 	}
-	return name
+	return ident
+}
+
+// eligNamesKinds returns the eligible columns' wire names + kind bytes (the
+// pure tagColStruct shape).
+func (p *colElemPlan) eligNamesKinds() ([]string, []byte) {
+	names := make([]string, len(p.Columns))
+	kinds := make([]byte, len(p.Columns))
+	for i, c := range p.Columns {
+		names[i] = c.WireName
+		kinds[i] = c.KindByte
+	}
+	return names, kinds
 }
 
 func (g *gen) emitEncodeSlice(w io.Writer, expr string, s *types.Slice, indent string) error {
@@ -917,42 +968,41 @@ func (g *gen) emitEncodeSliceRowMajorBody(w io.Writer, expr string, elem types.T
 	return nil
 }
 
-// emitEncodeColumnarSlice emits a compile-time transpose of a scalar []struct
-// into the tagColStruct frame, with a runtime length gate: slices shorter than
-// columnarMinElems (16) stay row-major (frame overhead not worth it), and a nil
-// slice emits WriteNil to preserve the nil/empty distinction.
+// emitEncodeColumnarSlice emits a compile-time transpose of a []struct into the
+// columnar frame (pure tagColStruct, or tagHybridColStruct when residual fields
+// are present), with a runtime length gate (>= columnarMinElems). A nil slice
+// emits WriteNil; short slices fall back to row-major. A string-only element
+// runs a cardinality probe so high-cardinality strings stay row-major (matching
+// the reflect columnarProbe), while any numeric/time column makes columnar
+// unconditional.
 func (g *gen) emitEncodeColumnarSlice(w io.Writer, expr string, elem types.Type, plan colElemPlan, indent string) error {
-	namesVar := g.colNamesVar(plan)
-	kindsVar := g.colKindsVar(plan)
 	s := g.fresh("col")
 	fmt.Fprintf(w, "%sif %s == nil {\n", indent, expr)
 	fmt.Fprintf(w, "%s\te.WriteNil()\n", indent)
 	fmt.Fprintf(w, "%s} else if len(%s) >= 16 { // columnarMinElems\n", indent, expr)
 	fmt.Fprintf(w, "%s\t%s := %s\n", indent, s, expr)
-	fmt.Fprintf(w, "%s\te.WriteColStructHeader(len(%s), %s, %s)\n", indent, s, namesVar, kindsVar)
-	for _, c := range plan.Columns {
-		col := g.fresh("c")
-		switch c.ColAPI {
-		case "Int":
-			fmt.Fprintf(w, "%s\t%s := e.ScratchInt(len(%s))\n", indent, col, s)
-			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = int64(%s[i].%s) }\n", indent, s, col, s, c.Access)
-			fmt.Fprintf(w, "%s\tif err := e.WriteIntColumn(%s); err != nil { return err }\n", indent, col)
-		case "Uint":
-			fmt.Fprintf(w, "%s\t%s := e.ScratchUint(len(%s))\n", indent, col, s)
-			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = uint64(%s[i].%s) }\n", indent, s, col, s, c.Access)
-			fmt.Fprintf(w, "%s\tif err := e.WriteUintColumn(%s); err != nil { return err }\n", indent, col)
-		case "Float64":
-			fmt.Fprintf(w, "%s\t%s := e.ScratchFloat64(len(%s))\n", indent, col, s)
-			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = float64(%s[i].%s) }\n", indent, s, col, s, c.Access)
-			fmt.Fprintf(w, "%s\tif err := e.WriteFloat64Column(%s); err != nil { return err }\n", indent, col)
-		case "Float32":
-			fmt.Fprintf(w, "%s\t%s := e.ScratchFloat32(len(%s))\n", indent, col, s)
-			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = float32(%s[i].%s) }\n", indent, s, col, s, c.Access)
-			fmt.Fprintf(w, "%s\tif err := e.WriteFloat32Column(%s); err != nil { return err }\n", indent, col)
-		case "Bool":
-			fmt.Fprintf(w, "%s\t%s := e.ScratchBool(len(%s))\n", indent, col, s)
-			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = %s[i].%s }\n", indent, s, col, s, c.Access)
-			fmt.Fprintf(w, "%s\tif err := e.WriteBoolColumn(%s); err != nil { return err }\n", indent, col)
+	if plan.stringOnly() {
+		// Probe a sample of each string column; columnar only if low-cardinality.
+		ben := g.fresh("ben")
+		pb := g.fresh("pb")
+		fmt.Fprintf(w, "%s\t%s := false\n", indent, ben)
+		fmt.Fprintf(w, "%s\t%s := e.ScratchString(min(len(%s), 32))\n", indent, pb, s)
+		for _, c := range plan.Columns {
+			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = string(%s[i].%s) }\n", indent, pb, pb, s, c.Access)
+			fmt.Fprintf(w, "%s\tif qdf.StringColumnsBeneficial(%s) { %s = true }\n", indent, pb, ben)
+		}
+		fmt.Fprintf(w, "%s\tif %s {\n", indent, ben)
+		if err := g.emitEncodeColumnarFrame(w, s, plan, indent+"\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t} else {\n", indent)
+		if err := g.emitEncodeSliceRowMajorBody(w, s, elem, indent+"\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t}\n", indent)
+	} else {
+		if err := g.emitEncodeColumnarFrame(w, s, plan, indent+"\t"); err != nil {
+			return err
 		}
 	}
 	fmt.Fprintf(w, "%s} else {\n", indent) // row-major fallback for short slices
@@ -960,6 +1010,81 @@ func (g *gen) emitEncodeColumnarSlice(w io.Writer, expr string, elem types.Type,
 		return err
 	}
 	fmt.Fprintf(w, "%s}\n", indent)
+	return nil
+}
+
+// emitEncodeColumnarFrame emits the header + eligible-column transpose (+ the
+// hybrid residual block). s is a non-nil slice local of length >= 16.
+func (g *gen) emitEncodeColumnarFrame(w io.Writer, s string, plan colElemPlan, indent string) error {
+	id := sanitizeIdent(plan.ElemType)
+	if plan.hybrid() {
+		nv := g.colNamesVar("qdfHybNames_"+id, plan.HybridNames)
+		kv := g.colKindsVar("qdfHybKinds_"+id, plan.HybridKinds)
+		fmt.Fprintf(w, "%se.WriteHybridColStructHeader(len(%s), %s, %s)\n", indent, s, nv, kv)
+	} else {
+		names, kinds := plan.eligNamesKinds()
+		nv := g.colNamesVar("qdfColNames_"+id, names)
+		kv := g.colKindsVar("qdfColKinds_"+id, kinds)
+		fmt.Fprintf(w, "%se.WriteColStructHeader(len(%s), %s, %s)\n", indent, s, nv, kv)
+	}
+	if err := g.emitEncodeColumnGathers(w, s, plan, indent); err != nil {
+		return err
+	}
+	if plan.hybrid() {
+		ri := g.fresh("i")
+		fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, ri, s)
+		for _, rf := range plan.Residual {
+			if err := g.emitEncodeValue(w, s+"["+ri+"]."+rf.Access, rf.Type, indent+"\t"); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintf(w, "%s}\n", indent)
+	}
+	return nil
+}
+
+// emitEncodeColumnGathers emits the per-eligible-column gather-into-scratch +
+// WriteXColumn for each column in declaration order. Shared by the pure and
+// hybrid frames.
+func (g *gen) emitEncodeColumnGathers(w io.Writer, s string, plan colElemPlan, indent string) error {
+	for _, c := range plan.Columns {
+		col := g.fresh("c")
+		switch c.ColAPI {
+		case "Int":
+			fmt.Fprintf(w, "%s%s := e.ScratchInt(len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = int64(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%sif err := e.WriteIntColumn(%s); err != nil { return err }\n", indent, col)
+		case "Uint":
+			fmt.Fprintf(w, "%s%s := e.ScratchUint(len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = uint64(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%sif err := e.WriteUintColumn(%s); err != nil { return err }\n", indent, col)
+		case "Float64":
+			fmt.Fprintf(w, "%s%s := e.ScratchFloat64(len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = float64(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%sif err := e.WriteFloat64Column(%s); err != nil { return err }\n", indent, col)
+		case "Float32":
+			fmt.Fprintf(w, "%s%s := e.ScratchFloat32(len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = float32(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%sif err := e.WriteFloat32Column(%s); err != nil { return err }\n", indent, col)
+		case "Bool":
+			fmt.Fprintf(w, "%s%s := e.ScratchBool(len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = %s[i].%s }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%sif err := e.WriteBoolColumn(%s); err != nil { return err }\n", indent, col)
+		case "String":
+			fmt.Fprintf(w, "%s%s := e.ScratchString(len(%s))\n", indent, col, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s[i] = string(%s[i].%s) }\n", indent, s, col, s, c.Access)
+			fmt.Fprintf(w, "%se.WriteStringColumn(%s)\n", indent, col)
+		case "Time":
+			sec := g.fresh("sec")
+			ns := g.fresh("ns")
+			tv := g.fresh("t")
+			fmt.Fprintf(w, "%s%s := e.ScratchInt(len(%s))\n", indent, sec, s)
+			fmt.Fprintf(w, "%s%s := e.ScratchUint(len(%s))\n", indent, ns, s)
+			fmt.Fprintf(w, "%sfor i := range %s { %s := %s[i].%s.UTC(); %s[i] = %s.Unix(); %s[i] = uint64(%s.Nanosecond()) }\n",
+				indent, s, tv, s, c.Access, sec, tv, ns, tv)
+			fmt.Fprintf(w, "%sif err := e.WriteTimeColumn(%s, %s); err != nil { return err }\n", indent, sec, ns)
+		}
+	}
 	return nil
 }
 
@@ -1197,9 +1322,16 @@ func (g *gen) emitDecodeSlice(w io.Writer, lhs string, s *types.Slice, indent st
 	plan, columnar := g.columnarElemPlan(elem)
 	fmt.Fprintf(w, "%s\tif isNil {\n%s\t\t%s = nil\n", indent, indent, lhs)
 	if columnar {
-		fmt.Fprintf(w, "%s\t} else if d.PeekColStruct() {\n", indent)
-		if err := g.emitDecodeColumnarBody(w, lhs, elem, plan, indent+"\t\t"); err != nil {
-			return err
+		if plan.hybrid() {
+			fmt.Fprintf(w, "%s\t} else if d.PeekHybridColStruct() {\n", indent)
+			if err := g.emitDecodeHybridBody(w, lhs, elem, plan, indent+"\t\t"); err != nil {
+				return err
+			}
+		} else {
+			fmt.Fprintf(w, "%s\t} else if d.PeekColStruct() {\n", indent)
+			if err := g.emitDecodeColumnarBody(w, lhs, elem, plan, indent+"\t\t"); err != nil {
+				return err
+			}
 		}
 	}
 	fmt.Fprintf(w, "%s\t} else {\n", indent)
@@ -1250,8 +1382,37 @@ func (g *gen) emitDecodeColumnarBody(w io.Writer, lhs string, elem types.Type, p
 	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, idxVar, namesVar)
 	fmt.Fprintf(w, "%s\tswitch %s[%s] {\n", indent, namesVar, idxVar)
 	for _, c := range plan.Columns {
-		colv := g.fresh("col")
 		fmt.Fprintf(w, "%s\tcase %s:\n", indent, strconv.Quote(c.WireName))
+		g.emitDecodeColumnScatter(w, lhs, nVar, c, indent+"\t\t")
+	}
+	fmt.Fprintf(w, "%s\tdefault:\n%s\t\treturn qdf.ErrTypeMismatch\n", indent, indent)
+	fmt.Fprintf(w, "%s\t}\n", indent) // switch
+	fmt.Fprintf(w, "%s}\n", indent)   // for
+	return nil
+}
+
+// emitDecodeColumnScatter emits a single column's read + scatter into lhs[i].
+// Used by the pure name-switch decode (inside a case) and the hybrid positional
+// decode. lhs is the output slice; nVar the row count local.
+func (g *gen) emitDecodeColumnScatter(w io.Writer, lhs, nVar string, c colColumn, indent string) {
+	colv := g.fresh("col")
+	switch c.ColAPI {
+	case "String":
+		fmt.Fprintf(w, "%s%s, err := d.ReadStringColumn(%s)\n", indent, colv, nVar)
+		fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%sfor i := range %s { %s[i].%s = %s(%s[i]) }\n", indent, colv, lhs, c.Access, c.GoType, colv)
+	case "Time":
+		g.imports["time"] = ""
+		secv := g.fresh("sec")
+		nsv := g.fresh("ns")
+		fmt.Fprintf(w, "%s%s, %s, err := d.ReadTimeColumn(%s)\n", indent, secv, nsv, nVar)
+		fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%sfor i := range %s { %s[i].%s = time.Unix(%s[i], int64(%s[i])).UTC() }\n", indent, secv, lhs, c.Access, secv, nsv)
+	case "Bool":
+		fmt.Fprintf(w, "%s%s, err := d.ReadBoolColumn(%s)\n", indent, colv, nVar)
+		fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%sfor i := range %s { %s[i].%s = %s[i] }\n", indent, colv, lhs, c.Access, colv)
+	default:
 		var readFn string
 		switch c.ColAPI {
 		case "Int":
@@ -1262,20 +1423,39 @@ func (g *gen) emitDecodeColumnarBody(w io.Writer, lhs string, elem types.Type, p
 			readFn = "ReadFloat64Column"
 		case "Float32":
 			readFn = "ReadFloat32Column"
-		case "Bool":
-			readFn = "ReadBoolColumn"
 		}
-		fmt.Fprintf(w, "%s\t\t%s, err := d.%s(%s)\n", indent, colv, readFn, nVar)
-		fmt.Fprintf(w, "%s\t\tif err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, indent, indent)
-		if c.ColAPI == "Bool" {
-			fmt.Fprintf(w, "%s\t\tfor i := range %s {\n%s\t\t\t%s[i].%s = %s[i]\n%s\t\t}\n", indent, colv, indent, lhs, c.Access, colv, indent)
-		} else {
-			fmt.Fprintf(w, "%s\t\tfor i := range %s {\n%s\t\t\t%s[i].%s = %s(%s[i])\n%s\t\t}\n", indent, colv, indent, lhs, c.Access, c.GoType, colv, indent)
+		fmt.Fprintf(w, "%s%s, err := d.%s(%s)\n", indent, colv, readFn, nVar)
+		fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+		fmt.Fprintf(w, "%sfor i := range %s { %s[i].%s = %s(%s[i]) }\n", indent, colv, lhs, c.Access, c.GoType, colv)
+	}
+}
+
+// emitDecodeHybridBody emits decode for the tagHybridColStruct frame: read the
+// header, allocate the slice, decode the eligible columns positionally (wire
+// order == declaration order == plan.Columns order), then the residual block
+// row-major per element. Mirrors decodeHybridColumnar.
+func (g *gen) emitDecodeHybridBody(w io.Writer, lhs string, elem types.Type, plan colElemPlan, indent string) error {
+	nVar := g.fresh("n")
+	namesVar := g.fresh("names")
+	kindsVar := g.fresh("kinds")
+	fmt.Fprintf(w, "%s%s, %s, %s, err := d.ReadHybridColStructHeader()\n", indent, nVar, namesVar, kindsVar)
+	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+	fmt.Fprintf(w, "%s_ = %s\n%s_ = %s\n", indent, namesVar, indent, kindsVar)
+	fmt.Fprintf(w, "%s%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
+	for _, c := range plan.Columns {
+		g.emitDecodeColumnScatter(w, lhs, nVar, c, indent)
+	}
+	// Residual block: clear the per-column length bound, then row-major decode
+	// each residual field per element.
+	fmt.Fprintf(w, "%sd.ClearColMaxLen()\n", indent)
+	ri := g.fresh("i")
+	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, ri, lhs)
+	for _, rf := range plan.Residual {
+		if err := g.emitDecodeValue(w, lhs+"["+ri+"]."+rf.Access, rf.Type, indent+"\t"); err != nil {
+			return err
 		}
 	}
-	fmt.Fprintf(w, "%s\tdefault:\n%s\t\treturn qdf.ErrTypeMismatch\n", indent, indent)
-	fmt.Fprintf(w, "%s\t}\n", indent) // switch
-	fmt.Fprintf(w, "%s}\n", indent)   // for
+	fmt.Fprintf(w, "%s}\n", indent)
 	return nil
 }
 
