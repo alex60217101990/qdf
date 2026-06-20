@@ -36,9 +36,11 @@ type Bump struct {
 func New() Bump { return Bump{next: firstBlock} }
 
 // AppendStr copies b (which must be non-empty) into the arena and returns a
-// string aliasing the copy. Successive calls pack contiguously. The hot path —
-// the value fits the current block — is tiny so it inlines into the caller's
-// wrapper; the rare block allocation is split into appendStrGrow.
+// string aliasing the copy. Successive calls pack contiguously. The rare block
+// allocation is split into the //go:noinline appendStrGrow so the hot path
+// stays small; AppendStr itself does not currently fit the inline budget (the
+// call node for the grow branch keeps it over), but the fast path is a bounds
+// check plus a copy — cheap relative to the per-decode allocation it avoids.
 func (a *Bump) AppendStr(b []byte) string {
 	n := len(b)
 	off := a.off
