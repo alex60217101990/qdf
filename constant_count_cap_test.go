@@ -119,3 +119,58 @@ func TestOOM_ConstantCountCapTightened(t *testing.T) {
 		}
 	})
 }
+
+// TestOOM_Const32BitSliceNeverLargerThanNative pins that a constant []int32 /
+// []uint32 over qpackMaxStandaloneCount does not inflate to the int64/uint64-raw
+// 8 B/elem fallback inside emitQPack*: above the cap a constant-body codec is
+// rejected, and for a 32-bit slice the native 4 B/elem raw is the real
+// never-larger floor. Regression for the constant-over-cap widened-path size
+// blow-up (twice 4 B/elem before the fix).
+func TestOOM_Const32BitSliceNeverLargerThanNative(t *testing.T) {
+	if testing.Short() {
+		t.Skip("allocates a >64 MiB slice; skipped under -short")
+	}
+	n := qpackMaxStandaloneCount + 1000 // over cap → constant codec must redirect
+
+	t.Run("int32", func(t *testing.T) {
+		s := make([]int32, n)
+		for i := range s {
+			s[i] = 7
+		}
+		buf, err := Marshal(s, OptBalanced)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if len(buf) > 5*n { // native floor ~4n; reject the 8n int64-raw blow-up
+			t.Fatalf("never-larger violated: %d bytes for %d int32 (native ~%d)", len(buf), n, 4*n)
+		}
+		var out []int32
+		if err := Unmarshal(buf, &out); err != nil {
+			t.Fatalf("round-trip: %v", err)
+		}
+		if len(out) != n || out[0] != 7 || out[n-1] != 7 {
+			t.Fatalf("decoded wrong len=%d", len(out))
+		}
+	})
+
+	t.Run("uint32", func(t *testing.T) {
+		s := make([]uint32, n)
+		for i := range s {
+			s[i] = 9
+		}
+		buf, err := Marshal(s, OptBalanced)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if len(buf) > 5*n {
+			t.Fatalf("never-larger violated: %d bytes for %d uint32 (native ~%d)", len(buf), n, 4*n)
+		}
+		var out []uint32
+		if err := Unmarshal(buf, &out); err != nil {
+			t.Fatalf("round-trip: %v", err)
+		}
+		if len(out) != n || out[0] != 9 || out[n-1] != 9 {
+			t.Fatalf("decoded wrong len=%d", len(out))
+		}
+	})
+}
