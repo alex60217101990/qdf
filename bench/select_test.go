@@ -64,9 +64,8 @@ func BenchmarkSelect_FullVsSubset(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.SetBytes(int64(len(enc)))
-
 	b.Run("full", func(b *testing.B) {
+		b.SetBytes(int64(len(enc))) // SetBytes does not propagate from the parent
 		b.ReportAllocs()
 		for b.Loop() {
 			var out []wide
@@ -76,6 +75,7 @@ func BenchmarkSelect_FullVsSubset(b *testing.B) {
 		}
 	})
 	b.Run("subset", func(b *testing.B) {
+		b.SetBytes(int64(len(enc)))
 		b.ReportAllocs()
 		for b.Loop() {
 			var out []narrow
