@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"errors"
 	"math/rand"
 	"testing"
 )
@@ -125,4 +126,21 @@ func TestNullable_SmallerThanRowMajor(t *testing.T) {
 	}
 	t.Logf("n=%d  columnar=%d  row-major(OptSpeed)=%d  (%.1f%% smaller)",
 		len(rows), len(col), len(row), 100*(1-float64(len(col))/float64(len(row))))
+}
+
+// TestReadNullableMask_RejectsPaddingOverflow guards the hostile-input case
+// where a mangled presence bitmap sets padding bits beyond index n in the
+// last mask byte. present must never exceed n; without the guard the string
+// column path would over-read dense values and desync the cursor for the
+// next frame. Mirrors the codegen sibling ReadColNullMask.
+func TestReadNullableMask_RejectsPaddingOverflow(t *testing.T) {
+	d := &Decoder{buf: []byte{0xFF}} // 8 bits set, n=4 → present=8 > n
+	if _, _, err := d.readNullableMask(4); !errors.Is(err, ErrInvalidLength) {
+		t.Fatalf("want ErrInvalidLength for padding overflow, got %v", err)
+	}
+	// Sanity: a well-formed mask (present <= n) is still accepted.
+	d = &Decoder{buf: []byte{0x0F}} // 4 bits set, n=4
+	if _, present, err := d.readNullableMask(4); err != nil || present != 4 {
+		t.Fatalf("valid mask rejected: present=%d err=%v", present, err)
+	}
 }
