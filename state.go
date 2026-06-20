@@ -516,7 +516,11 @@ func (e *encState) reset() {
 	if cap(e.colScratchStr) > maxRetainedColScratch {
 		e.colScratchStr = nil
 	} else {
-		clear(e.colScratchStr)
+		// Clear across the FULL backing, not just len: the gather reslices via
+		// [:0] per column, so a column with fewer rows than an earlier one leaves
+		// a high-water tail of headers aliasing the caller's (now possibly dead)
+		// struct strings, pinning them from GC across the pool recycle.
+		clear(e.colScratchStr[:cap(e.colScratchStr)])
 		e.colScratchStr = e.colScratchStr[:0]
 	}
 	// Canonical map-key sort scratch (OptCanonical): numeric scratch is
@@ -1098,6 +1102,14 @@ func (d *decState) reset() {
 	}
 	if cap(d.colScratchStr) > maxRetainedColScratch {
 		d.colScratchStr = nil
+	} else {
+		// Drop retained string headers across the FULL backing, not just len:
+		// colScratchStr is resliced via [:n] (ReadStringColumn) / [:0] (gather),
+		// so nested columnar structs of differing row counts leave a high-water
+		// tail of live headers that would pin prior-message decoded strings from
+		// GC for the pooled decoder's lifetime. Sibling to d.stringValues' clear.
+		clear(d.colScratchStr[:cap(d.colScratchStr)])
+		d.colScratchStr = d.colScratchStr[:0]
 	}
 	if cap(d.colLenScratch) > maxRetainedColScratch {
 		d.colLenScratch = nil

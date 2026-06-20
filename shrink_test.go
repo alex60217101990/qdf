@@ -256,3 +256,35 @@ func internarenaRetainBytes() int { return internarenaDefaultRetainBytes }
 // Keep this in sync with internarena.DefaultRetainBytes; copied here
 // so the shrink test can compare without re-exporting the const.
 const internarenaDefaultRetainBytes = 256 * 1024
+
+// TestColScratchStrClearedOnReset pins that the columnar string scratch is
+// cleared across its FULL backing on a (retained) pool reset, not just up to
+// len. colScratchStr is resliced via [:n] / [:0], so a column with fewer rows
+// than an earlier one leaves a high-water tail of live string headers; without
+// a full clear those pin the prior message's strings (or the caller's struct
+// strings on the encoder) from GC for the pooled state's lifetime.
+func TestColScratchStrClearedOnReset(t *testing.T) {
+	live := []string{"alpha", "bravo", "charlie", "delta", "echo"}
+
+	t.Run("decoder", func(t *testing.T) {
+		d := &decState{}
+		d.colScratchStr = live[:2:5] // len 2, cap 5: tail [2:5] holds live headers
+		d.reset()
+		for i, s := range d.colScratchStr[:cap(d.colScratchStr)] {
+			if s != "" {
+				t.Fatalf("decState retained string header at [%d]=%q after reset", i, s)
+			}
+		}
+	})
+
+	t.Run("encoder", func(t *testing.T) {
+		e := &encState{}
+		e.colScratchStr = live[:2:5]
+		e.reset()
+		for i, s := range e.colScratchStr[:cap(e.colScratchStr)] {
+			if s != "" {
+				t.Fatalf("encState retained string header at [%d]=%q after reset", i, s)
+			}
+		}
+	})
+}
