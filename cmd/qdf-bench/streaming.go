@@ -330,7 +330,15 @@ func printStreaming(iters int, typed []*Info, dyn []map[string]any) {
 		"    streaming Encoder/Decoder (qdf StreamEncoder/Decoder, json/msgpack\n" +
 		"    NewEncoder/NewDecoder). Per-value figures. The 'dec' column is qdf's\n" +
 		"    stream decode mode — copy / nocopy (SetNoCopy) / arena (SetArena, the\n" +
-		"    arena Reset per batch); json/msgpack have one mode ('-'). ===\n")
+		"    arena Reset per batch); json/msgpack have one mode ('-').\n" +
+		"    NOTE on ser_B: read it WITH the wire_B column. qdf (Dense/Balanced)\n" +
+		"    interns every distinct string into a per-batch arena — transient\n" +
+		"    encode memory freed each batch — which is why its ser_B is high on\n" +
+		"    high-cardinality data; in return its wire_B is ~2-2.6x smaller.\n" +
+		"    msgpack writes strings inline (no interning) so its ser_B is near\n" +
+		"    zero but its wire is larger. It is a CPU/memory-for-wire trade, not\n" +
+		"    a free win; OptSpeed (no interning) is the low-ser_B / larger-wire\n" +
+		"    qdf alternative. ===\n")
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "codec\trepr\tdec\tser_ns\tser_B\tser_alloc\tdeser_ns\tdeser_B\tdeser_alloc\twire_B")
 	for _, sc := range streamCases(typed, dyn) {
