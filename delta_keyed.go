@@ -67,7 +67,8 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 	oldKeyAt := func(i int) string { return keyToken(elem, unsafe.Add(oh.Data, uintptr(i)*stride)) }
 	newKeyAt := func(i int) string { return keyToken(elem, unsafe.Add(nh.Data, uintptr(i)*stride)) }
 
-	lookup, dup := buildKeyLookup(&enc.keyIdx, oldKeyAt, oh.Len)
+	lookup, dup, release := buildKeyLookup(&enc.keyIdx, &enc.keyIdxBusy, oldKeyAt, oh.Len)
+	defer release()
 	if dup || hasDupNewKeys(newKeyAt, nh.Len) {
 		// Ambiguous identity → positional fallback. diffValue already wrote opMerge;
 		// diffSlice writes its own tagSlicePatch body, so apply dispatches correctly.
@@ -105,7 +106,7 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 	nOps := 0
 	for i := range nh.Len {
 		nP := unsafe.Add(nh.Data, uintptr(i)*stride)
-		oi, ok := lookupGet(lookup, &enc.keyIdx, oldKeyAt, oh.Len, newKeyAt(i))
+		oi, ok := lookupGet(lookup, oldKeyAt, oh.Len, newKeyAt(i))
 		if ok && equalValue(elem, unsafe.Add(oh.Data, uintptr(oi)*stride), nP, depth) {
 			continue
 		}
@@ -115,7 +116,7 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 	for i := range nh.Len {
 		nP := unsafe.Add(nh.Data, uintptr(i)*stride)
 		k := newKeyAt(i)
-		oi, ok := lookupGet(lookup, &enc.keyIdx, oldKeyAt, oh.Len, k)
+		oi, ok := lookupGet(lookup, oldKeyAt, oh.Len, k)
 		if ok {
 			oP := unsafe.Add(oh.Data, uintptr(oi)*stride)
 			if equalValue(elem, oP, nP, depth) {
@@ -171,7 +172,8 @@ func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int
 
 	if flags&flagKeyedOrderChanged == 0 {
 		// Value-only updates on the same key sequence; apply each op in place.
-		lookup, _ := buildKeyLookup(&dec.keyIdx, baseKeyAt, bh.Len)
+		lookup, _, release := buildKeyLookup(&dec.keyIdx, &dec.keyIdxBusy, baseKeyAt, bh.Len)
+		defer release()
 		nOps, k := readUvarint(dec.buf[dec.i:])
 		if k <= 0 || nOps > uint64(len(dec.buf)-dec.i) {
 			return ErrInvalidPatch
@@ -183,7 +185,7 @@ func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int
 				return err
 			}
 			tok := keyTokenAt(elem.keyDesc, keyHold.Addr().UnsafePointer())
-			oi, ok := lookupGet(lookup, &dec.keyIdx, baseKeyAt, bh.Len, tok)
+			oi, ok := lookupGet(lookup, baseKeyAt, bh.Len, tok)
 			if !ok {
 				return ErrInvalidPatch // op for a key not in base (divergent base)
 			}
@@ -219,18 +221,25 @@ func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int
 		order[i] = keyTokenAt(elem.keyDesc, kp) // aliases keysV (stable) — no copy
 	}
 
-	lookup, _ := buildKeyLookup(&dec.keyIdx, baseKeyAt, bh.Len)
+	lookup, _, release := buildKeyLookup(&dec.keyIdx, &dec.keyIdxBusy, baseKeyAt, bh.Len)
+	defer release()
 
 	nv := reflect.MakeSlice(td.rType, newLen, newLen)
 	nb := nv.UnsafePointer()
 	orderIdx := make(map[string]int, newLen)
 	for i, tok := range order {
+		if _, dup := orderIdx[tok]; dup {
+			// Duplicate identity in the decoded order is ambiguous; the diff side
+			// never emits one (hasDupNewKeys routes to positional), so reject a
+			// hostile/divergent patch rather than silently mis-assigning slots.
+			return ErrInvalidPatch
+		}
 		orderIdx[tok] = i
 	}
 	filled := make([]bool, newLen)
 	// Copy unchanged base elements into their new slots (GC-safe typed Set).
 	for i := range newLen {
-		oi, ok := lookupGet(lookup, &dec.keyIdx, baseKeyAt, bh.Len, order[i])
+		oi, ok := lookupGet(lookup, baseKeyAt, bh.Len, order[i])
 		if ok {
 			dst := reflect.NewAt(elemType, unsafe.Add(nb, uintptr(i)*stride)).Elem()
 			src := reflect.NewAt(elemType, unsafe.Add(bh.Data, uintptr(oi)*stride)).Elem()
@@ -269,39 +278,59 @@ func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int
 	return nil
 }
 
-// keyLookup chooses linear (small n, no map) vs a reused cleared map.
-type keyLookup struct{ useMap bool }
+// keyLookup chooses linear (small n, no map) vs a built key→index map. When a
+// map is used it is carried in m so lookupGet reads the exact map this build
+// produced, immune to a nested keyed-slice frame reusing the shared scratch.
+type keyLookup struct {
+	useMap bool
+	m      map[string]int
+}
 
-func buildKeyLookup(m *map[string]int, keyAt func(int) string, n int) (keyLookup, bool) {
+// buildKeyLookup builds an old/base key→index lookup. For n > keyedLinearMax it
+// borrows the caller's reusable scratch map (enc.keyIdx / dec.keyIdx) when it is
+// free; if a parent keyed-slice frame already holds it (re-entrancy via a nested
+// keyed slice), it allocates a fresh local map so the parent's lookup is never
+// clobbered. release() returns the borrow (no-op for the linear / nested cases).
+func buildKeyLookup(m *map[string]int, busy *bool, keyAt func(int) string, n int) (lk keyLookup, dup bool, release func()) {
+	noop := func() {}
 	if n <= keyedLinearMax {
 		for i := range n {
 			ki := keyAt(i)
 			for j := range i {
 				if keyAt(j) == ki {
-					return keyLookup{}, true
+					return keyLookup{}, true, noop
 				}
 			}
 		}
-		return keyLookup{useMap: false}, false
+		return keyLookup{useMap: false}, false, noop
 	}
-	if *m == nil {
-		*m = make(map[string]int, n)
+	var lm map[string]int
+	release = noop
+	if !*busy {
+		*busy = true
+		if *m == nil {
+			*m = make(map[string]int, n)
+		} else {
+			clear(*m)
+		}
+		lm = *m
+		release = func() { *busy = false }
 	} else {
-		clear(*m)
+		lm = make(map[string]int, n)
 	}
 	for i := range n {
 		ki := keyAt(i)
-		if _, exists := (*m)[ki]; exists {
-			return keyLookup{useMap: true}, true
+		if _, exists := lm[ki]; exists {
+			return keyLookup{useMap: true, m: lm}, true, release
 		}
-		(*m)[ki] = i
+		lm[ki] = i
 	}
-	return keyLookup{useMap: true}, false
+	return keyLookup{useMap: true, m: lm}, false, release
 }
 
-func lookupGet(l keyLookup, m *map[string]int, keyAt func(int) string, n int, key string) (int, bool) {
+func lookupGet(l keyLookup, keyAt func(int) string, n int, key string) (int, bool) {
 	if l.useMap {
-		i, ok := (*m)[key]
+		i, ok := l.m[key]
 		return i, ok
 	}
 	for i := range n {

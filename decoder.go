@@ -82,6 +82,9 @@ type Decoder struct {
 	// backing is dropped on the apply reset path so a one-off huge slice never
 	// pins a large map across pooled reuse.
 	keyIdx map[string]int
+	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice apply so a
+	// nested keyed slice routes to a fresh local map instead of clobbering it.
+	keyIdxBusy bool
 
 	// deltaScratch is a reused unpack buffer for the Delta+FOR readers: the
 	// bit-unpacked deltas are a transient intermediate (the prefix sum writes

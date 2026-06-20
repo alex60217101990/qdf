@@ -179,6 +179,9 @@ type Encoder struct {
 	// diff. Lives on the Encoder so a many-element keyed slice builds its match
 	// table once per pool acquire; dropped past a spike cap in Reset().
 	keyIdx map[string]int
+	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
+	// nested keyed slice routes to a fresh local map instead of clobbering it.
+	keyIdxBusy bool
 }
 
 // applyOpts mirrors the options bitmask onto the cached mode / qpack
@@ -313,6 +316,7 @@ func (e *Encoder) resetForReuse() {
 	if len(e.keyIdx) > 1<<16 {
 		e.keyIdx = nil
 	}
+	e.keyIdxBusy = false
 	e.headerOut = false
 	if e.state != nil {
 		e.state.reset()
