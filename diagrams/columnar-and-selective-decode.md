@@ -18,7 +18,10 @@ filters rows inside the decoder.
 ```mermaid
 flowchart TD
     Input["[]MyStruct{row0, row1, ..., rowM-1}\n(M ≥ 16, flat fields, under OptBalanced)"]
-    Input --> Probe["columnarProbe:\nsample ≤32 rows\nestimate col vs row wire size\n(string dict + FOR for int cols)"]
+    Input --> Elig{"element eligible?\nflat fields, NO custom\nMarshalQDF/UnmarshalQDF"}
+    Elig -->|"custom codec → honor it"| RowMajor
+    Elig -->|"plain / generated struct"| Probe
+    Probe["columnarProbe:\nsample ≤32 rows\nestimate col vs row wire size\n(string dict + FOR for int cols)"]
     Probe -->|"columnar wins"| Trans["transpose: gather each field\nacross all rows into a typed slice"]
     Probe -->|"row wins or uncertain"| RowMajor["row-major encode\n(tagMapShape stream)"]
 
