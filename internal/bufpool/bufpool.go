@@ -65,6 +65,14 @@ func Get(hint int) *[]byte {
 		return &b
 	}
 	b := p.(*[]byte)
+	// Put files by cap, so a class pool may hold a buffer whose cap is below
+	// this class's hint ceiling (e.g. a caller returned a sub-512 B slice into
+	// the small pool). Honor the documented "cap >= hint" contract: if the
+	// pooled buffer is too small, drop it and allocate a right-sized one.
+	if cap(*b) < hint {
+		nb := make([]byte, 0, hint)
+		return &nb
+	}
 	*b = (*b)[:0]
 	return b
 }
