@@ -74,7 +74,24 @@ const maxChunkBytes = 1 << 30 // 1 GiB
 
 // Arena holds a chain of byte slabs and hands out ids that resolve
 // to slices into the active slab.
+//
+// The two pointer-bearing slices (chunks, locs) lead so the GC pointer-scan
+// range stays tight (32 bytes vs 56 for a cursor-first layout); the
+// non-pointer bump cursor (off/end/cur) trails.
 type Arena struct {
+	// chunks owns every slab the arena ever allocated. Each entry
+	// is a []byte whose underlying array stays GC-rooted via the
+	// slice header. The slice grows by append; doubling.
+	chunks [][]byte
+
+	// locs[id] packs (chunk_idx<<48) | (offset<<16) | length so a
+	// single uint64 carries every position a caller needs. 16 bits
+	// of chunk_idx handles 65 535 slabs (way past practical limits),
+	// 32 bits of offset handles 4 GiB chunks, 16 bits of length
+	// covers strings up to 65 535 bytes — anything longer falls back
+	// to a per-string allocation in the caller.
+	locs []uint64
+
 	// off / end are the bump-pointer cursor — but expressed as a
 	// byte offset into chunks[cur] (not a raw machine address)
 	// so we never round-trip through unsafe.Pointer(uintptr). The
@@ -88,19 +105,6 @@ type Arena struct {
 	// cur is the index of the chunk the cursor lives in. Reset()
 	// rolls this back to 0.
 	cur int
-
-	// chunks owns every slab the arena ever allocated. Each entry
-	// is a []byte whose underlying array stays GC-rooted via the
-	// slice header. The slice grows by append; doubling.
-	chunks [][]byte
-
-	// locs[id] packs (chunk_idx<<48) | (offset<<16) | length so a
-	// single uint64 carries every position a caller needs. 16 bits
-	// of chunk_idx handles 65 535 slabs (way past practical limits),
-	// 32 bits of offset handles 4 GiB chunks, 16 bits of length
-	// covers strings up to 65 535 bytes — anything longer falls back
-	// to a per-string allocation in the caller.
-	locs []uint64
 }
 
 // MaxStringLen is the largest single payload the arena can store.

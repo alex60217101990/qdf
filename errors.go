@@ -29,11 +29,11 @@ var (
 // ErrTypeMismatch, or ErrFieldNotFound, so callers can categorise the failure
 // with errors.Is and read the specifics with errors.As.
 type QueryError struct {
+	Err   error   // wrapped sentinel
 	Op    string  // e.g. "predicate pushdown"
 	Field string  // filter/projection field involved, if any
 	Want  colKind // kind implied by the predicate's T (kind mismatches)
 	Got   colKind // kind found on the wire (kind mismatches)
-	Err   error   // wrapped sentinel
 }
 
 func (e *QueryError) Error() string {

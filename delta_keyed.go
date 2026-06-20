@@ -282,8 +282,8 @@ func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int
 // map is used it is carried in m so lookupGet reads the exact map this build
 // produced, immune to a nested keyed-slice frame reusing the shared scratch.
 type keyLookup struct {
-	useMap bool
 	m      map[string]int
+	useMap bool
 }
 
 // buildKeyLookup builds an old/base key→index lookup. For n > keyedLinearMax it

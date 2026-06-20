@@ -1120,12 +1120,12 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 	// Build a name → field-index lookup so decode order doesn't have to
 	// match encode order. Sorted lookup keeps it cache-friendly.
 	type idx struct {
-		name string
 		f    *fieldDesc
+		name string
 	}
 	indexed := make([]idx, len(td.fields))
 	for i := range td.fields {
-		indexed[i] = idx{td.fields[i].name, &td.fields[i]}
+		indexed[i] = idx{f: &td.fields[i], name: td.fields[i].name}
 	}
 	// Linear scan is fine for ≤16 fields; for wide structs (rare), we use a
 	// small map.

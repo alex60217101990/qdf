@@ -19,12 +19,12 @@ type Queryable interface {
 // want is non-nil). Native predicates take the decoder's wide scratch type so
 // evaluation is a direct typed call with zero per-value interface boxing.
 type predTerm struct {
-	field string
 	pI64  func(int64) bool
 	pU64  func(uint64) bool
 	pF64  func(float64) bool
 	pStr  func(string) bool
 	pBool func(bool) bool
+	field string
 	want  colKind // 1-byte tail: kept last to avoid padding before the func pointers
 }
 
@@ -33,9 +33,9 @@ type predTerm struct {
 // selectFields is set.
 type QueryOption struct {
 	node         *condNode
+	arena        *Arena
 	selectFields []string
 	noCopy       bool
-	arena        *Arena
 }
 
 // WithArena makes the decode pack copied inline string values into a, instead
@@ -61,8 +61,8 @@ const (
 // buildQueryPlan time.
 type condNode struct {
 	term *predTerm
-	kids []*condNode
 	err  error
+	kids []*condNode
 	op   condOp // 1-byte tail: kept last to avoid padding before the pointer fields
 }
 
@@ -188,9 +188,9 @@ func Not(opt QueryOption) QueryOption {
 // tree (root, nil = no filter) and an optional projection.
 type queryPlan struct {
 	root         *condNode
+	arena        *Arena
 	selectFields []string
 	noCopy       bool
-	arena        *Arena
 }
 
 // firstCondErr returns the first construction error in the tree, or nil.
@@ -392,9 +392,9 @@ func matchedIndices(b []uint64, n int, dst []int) []int {
 // map[*condNode]… would cost on a small tree.
 type cnode struct {
 	term *predTerm // leaf only
+	cv   *colVals  // leaf only: decoded column values (nil until bound)
 	kids []int     // child ids (And/Or: n; Not: 1)
 	col  int       // leaf only: resolved wire column index (-1 until resolved)
-	cv   *colVals  // leaf only: decoded column values (nil until bound)
 	op   condOp    // 1-byte tails kept last to avoid padding before the pointers above
 	unk  bool      // subtree can produce SQL UNKNOWN (contains a nullable leaf)
 }

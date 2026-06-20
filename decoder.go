@@ -11,16 +11,12 @@ import (
 // Decoder reads QDF wire data from a single input buffer. Call SetInput
 // to bind a buffer and the typed Read* methods to walk it. Behaviour is
 // undefined if the input is mutated while the decoder holds it.
+// Field order groups the pointer-bearing and 8-byte fields first, then the
+// int counters, then the 1-byte flags last so the interspersed bools do not
+// each force their own padding word (176 bytes vs 208 for the source order).
 type Decoder struct {
 	buf   []byte
-	i     int
-	mode  Mode
 	state *decState
-
-	// noCopy returns aliased string / []byte values instead of copies.
-	// Faster, but the caller may not retain the result past the input's
-	// lifetime.
-	noCopy bool
 
 	// arena, when non-nil, receives copied inline string bodies (bump-packed)
 	// instead of one heap allocation per string. Caller-owned (see Arena); the
@@ -29,33 +25,9 @@ type Decoder struct {
 	// noCopy is set (aliasing already avoids the copy).
 	arena *Arena
 
-	// depth / maxDepth bound recursive decode nesting. The wire dictates
-	// nesting for `any`, recursive pointer/slice/map types, so without a
-	// guard a crafted deeply-nested payload overflows the goroutine stack —
-	// an UNRECOVERABLE fatal error, i.e. a remote DoS. descend/ascend
-	// (defer-balanced) cap it at maxDepth (lazily DefaultMaxDepth), returning
-	// ErrCycleDetected, symmetric to the encoder's pointer-cycle guard.
-	depth    int
-	maxDepth int
-
 	// keyCache dedupes map keys and other short repeated strings across
 	// Unmarshal calls on the same pooled decoder.
 	keyCache intern.Cache
-
-	headerRead bool
-
-	// colMaxLen bounds a slice codec's claimed element count while decoding
-	// a columnar column, where every column must hold exactly the struct
-	// count M. 0 means unbounded (standalone slice decode). It blocks a
-	// hostile column whose constant/zero-width codec claims a huge n from a
-	// tiny body before the per-element allocation.
-	colMaxLen int
-
-	// colIndex records whether the header set FlagColIndex. When true a
-	// columnar (tagColStruct) payload carries a column-length index right
-	// after the shape declaration; decodeColumnar / decodeColumnarAny consume
-	// and validate it. Set fresh by readHeader on every decode.
-	colIndex bool
 
 	// selectFields, when non-nil, restricts the columnar map (any) decode to
 	// the named columns: unrequested columns are skipped via the column-length
@@ -82,15 +54,49 @@ type Decoder struct {
 	// backing is dropped on the apply reset path so a one-off huge slice never
 	// pins a large map across pooled reuse.
 	keyIdx map[string]int
-	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice apply so a
-	// nested keyed slice routes to a fresh local map instead of clobbering it.
-	keyIdxBusy bool
 
 	// deltaScratch is a reused unpack buffer for the Delta+FOR readers: the
 	// bit-unpacked deltas are a transient intermediate (the prefix sum writes
 	// the retained out slice), so a per-call make is pure garbage. Grows to the
 	// largest column seen; bounded on return to pool.
 	deltaScratch []uint64
+
+	i int
+
+	// depth / maxDepth bound recursive decode nesting. The wire dictates
+	// nesting for `any`, recursive pointer/slice/map types, so without a
+	// guard a crafted deeply-nested payload overflows the goroutine stack —
+	// an UNRECOVERABLE fatal error, i.e. a remote DoS. descend/ascend
+	// (defer-balanced) cap it at maxDepth (lazily DefaultMaxDepth), returning
+	// ErrCycleDetected, symmetric to the encoder's pointer-cycle guard.
+	depth    int
+	maxDepth int
+
+	// colMaxLen bounds a slice codec's claimed element count while decoding
+	// a columnar column, where every column must hold exactly the struct
+	// count M. 0 means unbounded (standalone slice decode). It blocks a
+	// hostile column whose constant/zero-width codec claims a huge n from a
+	// tiny body before the per-element allocation.
+	colMaxLen int
+
+	mode Mode
+
+	// noCopy returns aliased string / []byte values instead of copies.
+	// Faster, but the caller may not retain the result past the input's
+	// lifetime.
+	noCopy bool
+
+	headerRead bool
+
+	// colIndex records whether the header set FlagColIndex. When true a
+	// columnar (tagColStruct) payload carries a column-length index right
+	// after the shape declaration; decodeColumnar / decodeColumnarAny consume
+	// and validate it. Set fresh by readHeader on every decode.
+	colIndex bool
+
+	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice apply so a
+	// nested keyed slice routes to a fresh local map instead of clobbering it.
+	keyIdxBusy bool
 }
 
 // colLenOK reports whether a slice length is acceptable in the current
