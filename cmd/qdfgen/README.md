@@ -74,7 +74,14 @@ element otherwise loses (a generated type can't use the reflect columnar path).
   tail.
 - **Gated**: fires only at `len >= 16`; shorter/`nil` slices stay row-major. A
   string-only element runs a cardinality probe so high-cardinality strings stay
-  row-major (columnar would not shrink them).
+  row-major (columnar would not shrink them). The probe scores all string
+  columns together (one aggregate decision), matching the reflect `columnarProbe`.
+- **Custom codecs stay row-major**: an element type with a hand-written
+  `MarshalQDF`/`UnmarshalQDF` is *never* columnar-transposed — the transpose
+  would replay the struct fields and bypass the custom codec. It is emitted
+  row-major through that codec, matching the reflect path. Only plain structs and
+  types `qdfgen` itself generates (whose emitted codec *is* the columnar layout)
+  are transposed.
 - The wire layout is byte-identical to the reflect columnar path, so a generated
   type cross-decodes with reflect `Unmarshal` (which delegates to the generated
   method anyway).
