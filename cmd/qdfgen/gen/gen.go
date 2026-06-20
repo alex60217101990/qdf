@@ -1086,15 +1086,20 @@ func (g *gen) emitEncodeColumnarSlice(w io.Writer, expr string, elem types.Type,
 	fmt.Fprintf(w, "%s} else if len(%s) >= 16 { // columnarMinElems\n", indent, expr)
 	fmt.Fprintf(w, "%s\t%s := %s\n", indent, s, expr)
 	if plan.stringOnly() {
-		// Probe a sample of each string column; columnar only if low-cardinality.
+		// Probe a sample of ALL string columns and let StringColumnsBeneficial make
+		// ONE aggregate decision (sum of colBytes vs rowBytes), matching the reflect
+		// columnarProbe. A per-column OR would over-trigger columnar (any one column
+		// beneficial) and diverge from reflect. Each column gets its own small probe
+		// buffer (<=32 strings) so they can be passed together.
 		ben := g.fresh("ben")
-		pb := g.fresh("pb")
-		fmt.Fprintf(w, "%s\t%s := false\n", indent, ben)
-		fmt.Fprintf(w, "%s\t%s := e.ScratchString(min(len(%s), 32))\n", indent, pb, s)
-		for _, c := range plan.Columns {
+		pbs := make([]string, len(plan.Columns))
+		for ci, c := range plan.Columns {
+			pb := g.fresh("pb")
+			pbs[ci] = pb
+			fmt.Fprintf(w, "%s\t%s := make([]string, min(len(%s), 32))\n", indent, pb, s)
 			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = string(%s[i].%s) }\n", indent, pb, pb, s, c.Access)
-			fmt.Fprintf(w, "%s\tif qdf.StringColumnsBeneficial(%s) { %s = true }\n", indent, pb, ben)
 		}
+		fmt.Fprintf(w, "%s\t%s := qdf.StringColumnsBeneficial(%s)\n", indent, ben, strings.Join(pbs, ", "))
 		fmt.Fprintf(w, "%s\tif %s {\n", indent, ben)
 		if err := g.emitEncodeColumnarFrame(w, s, plan, indent+"\t\t"); err != nil {
 			return err
