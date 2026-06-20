@@ -199,6 +199,7 @@ func applyImpl[T any](base *T, patch []byte, arena *Arena) error {
 	if len(dec.keyIdx) > 1<<16 {
 		dec.keyIdx = nil
 	}
+	dec.keyIdxBusy = false
 	decPool.Put(dec)
 	return err
 }

@@ -219,3 +219,55 @@ func FuzzApplyKeyedHostile(f *testing.F) {
 		_ = Apply(&base, patch) // error or nil, never panic/OOM
 	})
 }
+
+// TestKeyedNestedReentrancyDoesNotClobberMap guards a re-entrancy bug: a keyed
+// slice whose elements themselves contain a keyed slice, both with > keyedLinearMax
+// elements so both use the shared enc.keyIdx / dec.keyIdx scratch map. A nested
+// keyed-slice diff/apply must route to its own map instead of clearing the
+// parent frame's lookup mid-iteration (which corrupted the patch on encode and
+// returned spurious ErrInvalidPatch on apply).
+func TestKeyedNestedReentrancyDoesNotClobberMap(t *testing.T) {
+	type Inner struct {
+		K string `qdf:"k,key"`
+		V int64
+	}
+	type Outer struct {
+		OK    string `qdf:"ok,key"`
+		Inner []Inner
+	}
+	const N = 40 // > keyedLinearMax (32) at both levels → both use the map
+	mk := func() []Outer {
+		out := make([]Outer, N)
+		for i := range N {
+			inn := make([]Inner, N)
+			for j := range N {
+				inn[j] = Inner{
+					K: string(rune('A'+j%26)) + string(rune('0'+j/26)) + "_" + string(rune('a'+i%26)),
+					V: int64(i*1000 + j),
+				}
+			}
+			out[i] = Outer{OK: "outer_" + string(rune('A'+i%26)) + string(rune('0'+i/26)), Inner: inn}
+		}
+		return out
+	}
+	old := mk()
+	neu := mk()
+	// Change inner values in two different outer elements, identical order at both
+	// levels (value-only path) so recursion happens between two parent-frame ops.
+	neu[2].Inner[10].V = 999999
+	neu[5].Inner[20].V = 888888
+
+	for _, opts := range []Options{OptBalanced, OptCompression, OptSpeed} {
+		patch, err := Diff(old, neu, opts)
+		if err != nil {
+			t.Fatalf("opts=%v Diff: %v", opts, err)
+		}
+		base := mk()
+		if err := Apply(&base, patch); err != nil {
+			t.Fatalf("opts=%v Apply: %v", opts, err)
+		}
+		if !reflect.DeepEqual(base, neu) {
+			t.Fatalf("opts=%v: nested keyed re-entrancy corrupted round-trip", opts)
+		}
+	}
+}
