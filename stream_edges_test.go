@@ -456,3 +456,95 @@ func TestStream_TruncatedMessage(t *testing.T) {
 	}
 	t.Logf("OBSERVED truncation contract: a partial message returns ErrShortBuffer; truncation exactly at the header boundary returns io.EOF (empty stream)")
 }
+
+// streamWriteRec is a local record type for the Flush short-write tests.
+type streamWriteRec struct {
+	A int64
+	B string
+}
+
+// onceErrWriter writes at most `limit` bytes on its first call and returns a
+// non-nil error (a conforming partial write); afterwards it accepts everything.
+type onceErrWriter struct {
+	buf     bytes.Buffer
+	limit   int
+	tripped bool
+}
+
+func (p *onceErrWriter) Write(b []byte) (int, error) {
+	if !p.tripped {
+		p.tripped = true
+		n := min(p.limit, len(b))
+		p.buf.Write(b[:n])
+		return n, errors.New("transient short write")
+	}
+	return p.buf.Write(b)
+}
+
+// dribbleWriter writes at most `chunk` bytes per call with a NIL error (a
+// misbehaving io.Writer that violates the n==len-or-error contract). Flush's
+// write loop must absorb this without truncating or duplicating.
+type dribbleWriter struct {
+	buf   bytes.Buffer
+	chunk int
+}
+
+func (p *dribbleWriter) Write(b []byte) (int, error) {
+	n := min(p.chunk, len(b))
+	return p.buf.Write(b[:n])
+}
+
+// TestStreamFlushShortWriteResumesNoDuplication pins that Flush honors the
+// number of bytes the writer accepted: a partial write that errors must resume
+// from the unwritten tail on retry (not re-send the already-written prefix),
+// and a dribbling writer that returns short with a nil error must be looped to
+// completion. Regression for the single-Write-ignoring-n framing corruption.
+func TestStreamFlushShortWriteResumesNoDuplication(t *testing.T) {
+	want := []streamWriteRec{{1, "alpha"}, {2, "bravo"}, {3, "charlie"}}
+
+	decodeAll := func(t *testing.T, data []byte) {
+		t.Helper()
+		sd := NewStreamDecoder(bytes.NewReader(data))
+		for i := range want {
+			var got streamWriteRec
+			if err := sd.Decode(&got); err != nil {
+				t.Fatalf("Decode %d: %v (stream corrupt)", i, err)
+			}
+			if got != want[i] {
+				t.Fatalf("Decode %d: got %+v want %+v", i, got, want[i])
+			}
+		}
+	}
+
+	t.Run("partial_write_with_error_resumes", func(t *testing.T) {
+		w := &onceErrWriter{limit: 4}
+		se := NewStreamEncoderWith(w, OptBalanced)
+		for _, r := range want {
+			if err := se.Encode(r); err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+		}
+		_ = se.Flush() // may error on the first (partial) write
+		if err := se.Flush(); err != nil {
+			t.Fatalf("retry Flush: %v", err)
+		}
+		if err := se.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		decodeAll(t, w.buf.Bytes())
+	})
+
+	t.Run("dribble_writer_nil_error_loops", func(t *testing.T) {
+		w := &dribbleWriter{chunk: 3}
+		se := NewStreamEncoderWith(w, OptBalanced)
+		for _, r := range want {
+			if err := se.Encode(r); err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+		}
+		if err := se.Close(); err != nil { // Close flushes; loop must drain fully
+			t.Fatalf("Close: %v", err)
+		}
+		decodeAll(t, w.buf.Bytes())
+	})
+}
