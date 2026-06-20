@@ -121,8 +121,24 @@ func (s *StreamEncoder) Flush() error {
 	if len(s.enc.buf) == 0 {
 		return nil
 	}
-	if _, err := s.w.Write(s.enc.buf); err != nil {
-		return err
+	// Write the whole framed buffer, honoring short writes. An io.Writer may
+	// stop early (n < len with a non-nil error) or, misbehaving, return n < len
+	// with a nil error; a single Write that discards n would either silently
+	// truncate the stream or, on a retry, re-send the already-written prefix and
+	// duplicate it. Loop on the remainder and, on error, compact the unwritten
+	// tail to the front so the next Flush resumes exactly where this one stopped.
+	buf := s.enc.buf
+	for len(buf) > 0 {
+		n, err := s.w.Write(buf)
+		buf = buf[n:]
+		if err != nil {
+			s.enc.buf = s.enc.buf[:copy(s.enc.buf, buf)]
+			return err
+		}
+		if n == 0 {
+			s.enc.buf = s.enc.buf[:copy(s.enc.buf, buf)]
+			return io.ErrShortWrite
+		}
 	}
 	s.enc.buf = s.enc.buf[:0]
 	return nil
