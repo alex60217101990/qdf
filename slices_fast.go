@@ -387,6 +387,13 @@ func encodeSliceInt32(e *Encoder, p unsafe.Pointer) error {
 			e.writePackedInt32Slice(s)
 			return nil
 		}
+		// A constant/empty-body codec over the standalone cap makes emitQPackInt64
+		// fall back to int64-raw (8 B/elem); for a 32-bit slice native int32-raw
+		// (4 B/elem) is the real never-larger floor, so redirect here instead.
+		if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
+			e.writePackedInt32Slice(s)
+			return nil
+		}
 		e.emitQPackInt64(w, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
 		return nil
 	}
@@ -594,6 +601,13 @@ func encodeSliceUint32(e *Encoder, p unsafe.Pointer) error {
 		// the widened codec only when its cost beats native uint32-raw; otherwise
 		// fall back to native raw so incompressible 32-bit data is never inflated.
 		if bestCost >= 2+uvarintLen(uint64(len(s)))+4*len(s) {
+			e.writePackedUint32Slice(s)
+			return nil
+		}
+		// A constant/empty-body codec over the standalone cap makes emitQPackUint64
+		// fall back to uint64-raw (8 B/elem); for a 32-bit slice native uint32-raw
+		// (4 B/elem) is the real never-larger floor, so redirect here instead.
+		if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
 			e.writePackedUint32Slice(s)
 			return nil
 		}
