@@ -103,6 +103,7 @@ func Generate(pkgPatterns []string, opts Options) error {
 		})
 
 		g := newGen(pkg)
+		g.targets = want
 		for _, n := range found {
 			if err := g.emitType(n); err != nil {
 				return err
@@ -197,6 +198,13 @@ type gen struct {
 	// path tracks the chain of types currently being expanded; used to
 	// detect cycles through value (non-pointer) fields.
 	path []string
+
+	// targets is the set of type names qdfgen is generating in this run. A
+	// []struct field whose element type is a target gets a faithful generated
+	// structural codec, so columnar transposition is safe; an element with a
+	// codec NOT in this set is hand-written (or a stale prior generation) and
+	// must keep its custom codec (see columnarElemPlan's guard).
+	targets map[string]bool
 }
 
 const maxNestingDepth = 64
@@ -378,7 +386,6 @@ type fieldInfo struct {
 	Access  string // Go access path from the receiver, e.g. "X" or "Base.X"
 	WireKey string // string used as the map key on the wire
 	Field   *types.Var
-	Tag     string // raw struct tag, for diagnostics
 }
 
 func collectFields(s *types.Struct) []fieldInfo {
@@ -420,7 +427,6 @@ func appendFields(out []fieldInfo, s *types.Struct, prefix string) []fieldInfo {
 			Access:  prefix + f.Name(),
 			WireKey: key,
 			Field:   f,
-			Tag:     tag,
 		})
 	}
 	return out
@@ -829,6 +835,17 @@ func (g *gen) columnarElemPlan(elem types.Type) (colElemPlan, bool) {
 	if !isStruct {
 		return colElemPlan{}, false
 	}
+	// A custom-codec element must NOT be columnar-transposed: the transpose
+	// replays the struct's field layout and bypasses MarshalQDF/UnmarshalQDF,
+	// diverging from the reflect path (which routes through the codec) and
+	// corrupting any element whose codec is non-structural. Mirrors the reflect
+	// guard (commit 9c6f524). A type qdfgen is generating in THIS run keeps
+	// columnar (its emitted structural codec faithfully matches the transpose),
+	// so the guard fires only for hand-written codecs (or a stale prior
+	// generation no longer in -type), matching reflect's Marshaler skip.
+	if !g.targets[named.Obj().Name()] && hasQDFCodecMethod(elem) {
+		return colElemPlan{}, false
+	}
 	// Reuse collectFields so embedded-struct flattening and the qdf>json>name
 	// tag precedence match the reflect columnar path's column names exactly.
 	fields := collectFields(st)
@@ -860,6 +877,21 @@ func (g *gen) columnarElemPlan(elem types.Type) (colElemPlan, bool) {
 		return colElemPlan{}, false // no columnar benefit — full row-major
 	}
 	return plan, true
+}
+
+// hasQDFCodecMethod reports whether t (or *t) declares a MarshalQDF or
+// UnmarshalQDF method in its source method set. A type qdfgen is about to
+// generate does not yet have these methods in its loaded source, so a positive
+// result identifies a hand-written custom codec (or a stale prior generation).
+func hasQDFCodecMethod(t types.Type) bool {
+	ms := types.NewMethodSet(types.NewPointer(t))
+	for method := range ms.Methods() {
+		switch method.Obj().Name() {
+		case "MarshalQDF", "UnmarshalQDF":
+			return true
+		}
+	}
+	return false
 }
 
 // classifyColField maps a struct field to its columnar column descriptor, or
