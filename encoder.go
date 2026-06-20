@@ -72,27 +72,52 @@ const preInternUnseen = ^uint32(0)
 // Encoder writes a single QDF value into a growing internal buffer. Reset
 // drops the buffer contents and (in Dense mode) the intern table so the
 // encoder can be reused.
+// Field order groups the pointer-bearing / slice / map fields and the
+// 8-byte counters first, then the 1-byte flags (mode + the many bools) last
+// so the interspersed bools do not each force a padding word (200 bytes vs
+// 232 for the source order).
 type Encoder struct {
-	buf       []byte
-	mode      Mode
-	state     *encState
-	headerOut bool
-	// customFramed is set when a top-level Marshaler emitted the body and forced
-	// a Fast (flag 0) header. maybeApplyRANS must then leave the wire alone — a
-	// Marshaler's bytes are opts-invariant by contract, so the entropy pass must
-	// not reframe them with FlagRANS (see TestMarshaler_AlwaysFastFraming).
-	customFramed bool
+	state *encState
+
+	// fsstDict, when non-nil, is a pre-trained FSST symbol table supplied via
+	// FSSTDict.Marshal. The encoder uses it instead of training a table per
+	// string column (the dominant FSST encode cost), so train-once-reuse-many
+	// collapses per-batch encode to compression only. The table is bounded and
+	// immutable; it is never mutated by the encoder.
+	fsstDict *fsst.SymbolTable
+
+	// keyIdx is a reused (clear-not-realloc) old-key→index map for keyed slice
+	// diff. Lives on the Encoder so a many-element keyed slice builds its match
+	// table once per pool acquire; dropped past a spike cap in Reset(). Single
+	// pointer word — grouped with state/fsstDict ahead of the slices so the GC
+	// pointer-scan range stays tight (the slices' len/cap words trail).
+	keyIdx map[string]int
+
+	buf []byte
 
 	// alpScratch is a reused FOR-mantissa staging buffer for the ALP float
 	// writer (mirrors the decoder's deltaScratch). Lives on the Encoder, not
 	// encState, so the row-major float path reuses it without needing a state.
 	alpScratch []uint64
 
-	// opts is the bit-mask of feature toggles. mode and qpack are
-	// derived from it at configure time so the hot path can stay on
-	// fast bool / Mode compares; the rest of the codecs (MTF, Pair,
-	// ShapeIntern) check the corresponding bit directly via opts.
-	opts Options
+	// preIntern is an opt-in identity cache populated by PreIntern.
+	// When non-empty WriteString does a linear scan against it
+	// before falling to the intern table — a pointer-and-length
+	// match means we already know the intern id and can skip the
+	// hash + slot probe. The slice is empty (and the check is a
+	// single branch-predicted compare) when no caller has opted
+	// in, so it does not regress the default Marshal path.
+	preIntern []preInternEntry
+
+	// wideI64 / wideU64 are reused widening scratch for the QPack slice
+	// encoders: []int32 / []uint32 must be promoted to []int64 / []uint64 so
+	// the int64/uint64 codec pickers can score them. The widen → pick → emit
+	// sequence is atomic (no nested slice encode runs between fill and the last
+	// read), so a single scratch per element type is safely reused across every
+	// narrow-int slice field in a message — turning one make per field into
+	// zero. Bounded on return to the encoder pool (putEnc).
+	wideI64 []int64
+	wideU64 []uint64
 
 	// minIntern is the minimum string length eligible for interning;
 	// shorter values go in line.
@@ -101,6 +126,34 @@ type Encoder struct {
 	// maxStateEntries caps the intern table. Past the cap, new strings go
 	// in line; existing IDs still resolve.
 	maxStateEntries int
+
+	// headerFlagAt is the byte offset of the header flag byte in e.buf,
+	// recorded by writeHeader so encodeColumnar can backpatch FlagColIndex
+	// only when it actually emits a column index.
+	headerFlagAt int
+
+	// depth tracks nested pointer/struct traversal. Pointer cycles do
+	// not crash the process; encodePtr increments depth on entry and
+	// returns ErrCycleDetected when it exceeds maxDepth. Lightweight
+	// alternative to a per-pointer set (no allocation per call).
+	depth    int
+	maxDepth int
+
+	// opts is the bit-mask of feature toggles. mode and qpack are
+	// derived from it at configure time so the hot path can stay on
+	// fast bool / Mode compares; the rest of the codecs (MTF, Pair,
+	// ShapeIntern) check the corresponding bit directly via opts. Placed
+	// next to the 1-byte flags so the uint32 packs without a padding gap.
+	opts Options
+
+	mode Mode
+
+	headerOut bool
+	// customFramed is set when a top-level Marshaler emitted the body and forced
+	// a Fast (flag 0) header. maybeApplyRANS must then leave the wire alone — a
+	// Marshaler's bytes are opts-invariant by contract, so the entropy pass must
+	// not reframe them with FlagRANS (see TestMarshaler_AlwaysFastFraming).
+	customFramed bool
 
 	// qpack switches the slice fast paths to QPack codecs (bitpack, FOR,
 	// Gorilla, raw-LE bulk). When set, the header's FlagQPack bit is
@@ -124,13 +177,6 @@ type Encoder struct {
 	// Implies qpack (columnar path requires OptQPack).
 	fsst bool
 
-	// fsstDict, when non-nil, is a pre-trained FSST symbol table supplied via
-	// FSSTDict.Marshal. The encoder uses it instead of training a table per
-	// string column (the dominant FSST encode cost), so train-once-reuse-many
-	// collapses per-batch encode to compression only. The table is bounded and
-	// immutable; it is never mutated by the encoder.
-	fsstDict *fsst.SymbolTable
-
 	// colIndex makes encodeColumnar emit a fixed-width uint32 column-length
 	// table after the shape declaration and before the column bodies, and
 	// backpatch FlagColIndex onto the header. Set from OptColumnIndex. Lets a
@@ -144,41 +190,6 @@ type Encoder struct {
 	pairPred bool
 	mtf      bool
 
-	// headerFlagAt is the byte offset of the header flag byte in e.buf,
-	// recorded by writeHeader so encodeColumnar can backpatch FlagColIndex
-	// only when it actually emits a column index.
-	headerFlagAt int
-
-	// depth tracks nested pointer/struct traversal. Pointer cycles do
-	// not crash the process; encodePtr increments depth on entry and
-	// returns ErrCycleDetected when it exceeds maxDepth. Lightweight
-	// alternative to a per-pointer set (no allocation per call).
-	depth    int
-	maxDepth int
-
-	// preIntern is an opt-in identity cache populated by PreIntern.
-	// When non-empty WriteString does a linear scan against it
-	// before falling to the intern table — a pointer-and-length
-	// match means we already know the intern id and can skip the
-	// hash + slot probe. The slice is empty (and the check is a
-	// single branch-predicted compare) when no caller has opted
-	// in, so it does not regress the default Marshal path.
-	preIntern []preInternEntry
-
-	// wideI64 / wideU64 are reused widening scratch for the QPack slice
-	// encoders: []int32 / []uint32 must be promoted to []int64 / []uint64 so
-	// the int64/uint64 codec pickers can score them. The widen → pick → emit
-	// sequence is atomic (no nested slice encode runs between fill and the last
-	// read), so a single scratch per element type is safely reused across every
-	// narrow-int slice field in a message — turning one make per field into
-	// zero. Bounded on return to the encoder pool (putEnc).
-	wideI64 []int64
-	wideU64 []uint64
-
-	// keyIdx is a reused (clear-not-realloc) old-key→index map for keyed slice
-	// diff. Lives on the Encoder so a many-element keyed slice builds its match
-	// table once per pool acquire; dropped past a spike cap in Reset().
-	keyIdx map[string]int
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
 	keyIdxBusy bool

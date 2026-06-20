@@ -76,14 +76,15 @@ func (k colKind) String() string {
 
 // colColumn is one field's columnar descriptor: where it lives in each struct
 // element and how to (de)serialize the column.
-// Fields are ordered largest-alignment-first to pack without padding (56 B on
-// 64-bit vs 64 B for a source-order layout); one colColumn per field is built
-// once per columnar struct type and scanned per batch in encodeColumnar.
+// Fields are ordered to pack without padding AND to keep the GC pointer-scan
+// range tight: the interface (elemType, two pointer words) leads, then the
+// string, then the non-pointer scalars/flags trail; one colColumn per field is
+// built once per columnar struct type and scanned per batch in encodeColumnar.
 type colColumn struct {
-	name string
 	// elemType is the pointed-to type for a nullable (*T) column, used to
 	// allocate the present values on decode. nil for non-nullable columns.
 	elemType reflect.Type
+	name     string
 	offset   uintptr
 	width    uintptr // element width in bytes for the scalar load/store
 	kind     colKind // base kind, OR'd with colKindNullable for *T columns
@@ -96,9 +97,9 @@ type colColumn struct {
 // per row via the field's existing typeDesc codecs — instead of disqualifying
 // the whole struct from columnar transposition.
 type residualField struct {
+	desc   *typeDesc // the field's encode/decode closures (row-major path)
 	name   string
 	offset uintptr
-	desc   *typeDesc // the field's encode/decode closures (row-major path)
 }
 
 // residualKind is a shape-byte sentinel marking a residual field in a hybrid
@@ -114,8 +115,7 @@ const residualKind colKind = 0xFF
 //   - residual != nil          : hybrid (some fields eligible, some residual) — tagHybridColStruct
 //   - (buildColumnarPlan nil)  : no eligible field at all — full row-major
 type columnarPlan struct {
-	cols   []colColumn
-	stride uintptr // struct size, for base + i*stride addressing
+	cols []colColumn
 	// colNames / colKinds mirror cols[].name / cols[].kind as standalone slices,
 	// precomputed once at build so encodeColumnar hands them to the shape
 	// lookup/declare without rebuilding a transient pair every batch. The plan is
@@ -131,6 +131,8 @@ type columnarPlan struct {
 	residual    []residualField
 	hybridNames []string
 	hybridKinds []colKind
+
+	stride uintptr // struct size, for base + i*stride addressing
 }
 
 // columnarMinElems is the smallest slice length worth transposing; below it
@@ -790,8 +792,8 @@ func estimateFSSTColumnBytes(base unsafe.Pointer, stride uintptr, col *colColumn
 // path (typed struct, dynamic map, and predicate query).
 type colShapeRead struct {
 	sh      *decColShape
-	n       int
 	colLens []uint32 // nil when d.colIndex is false
+	n       int
 }
 
 // readColShape consumes the tagColStruct tag, the row count, the shape

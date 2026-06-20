@@ -36,10 +36,13 @@ func internKeyHash(s string) uint64 {
 // hash == 0 reserves the "empty slot" sentinel; computed hashes
 // that fall on 0 are bumped to 1 before storage.
 //
-//	hash 8 B  +  key 16 B  +  id 4 B  +  pad 4 B  =  32 B  →  2 slots / cache line
+// The key (a pointer-bearing string) leads so the GC pointer-scan range is
+// 8 B instead of 16 B for a hash-first layout; the total stays 32 B:
+//
+//	key 16 B  +  hash 8 B  +  id 4 B  +  pad 4 B  =  32 B  →  2 slots / cache line
 type internSlot struct {
-	hash uint64
 	key  string
+	hash uint64
 	id   uint32
 	_    uint32
 }
@@ -207,12 +210,6 @@ type encState struct {
 	canonKeysStr []string
 	canonKeysI64 []int64
 	canonKeysU64 []uint64
-	// canonKeysBusy guards the pooled canonKeys* scratch against re-entrancy: a
-	// map whose values contain maps recurses into the gather mid-iteration and
-	// would clobber the outer map's sorted-key slice. When busy, the gather falls
-	// back to a fresh local slice (like mapHolderCache.busy). Flat maps — the
-	// common case — keep the zero-alloc pooled path.
-	canonKeysBusy bool
 	// Canonical sorted map-key holders for the delta map-patch emit
 	// (delta_diff.go canonSortedMapKeys). Holds reflect.Value key holders in
 	// sorted order; cleared on reset to drop references to caller map keys (the
@@ -245,6 +242,15 @@ type encState struct {
 	// while the string-dict codec decides/encodes. Reused (cleared) per
 	// column to avoid a per-column map allocation.
 	strDictMap map[string]uint32
+
+	// canonKeysBusy guards the pooled canonKeys* scratch against re-entrancy: a
+	// map whose values contain maps recurses into the gather mid-iteration and
+	// would clobber the outer map's sorted-key slice. When busy, the gather falls
+	// back to a fresh local slice (like mapHolderCache.busy). Flat maps — the
+	// common case — keep the zero-alloc pooled path. Packed next to retainStreak
+	// (both cold 1-byte flags) so the two share one word instead of each
+	// stranding a 7-byte pad before the following 8-byte field.
+	canonKeysBusy bool
 
 	// retainStreak counts consecutive small (sub-cap) messages for the
 	// adaptive-retention policy in reset(). Cold — touched once per reset.
@@ -280,9 +286,9 @@ type tokenShape struct {
 // is drawn from the same sequential space as struct shapeBindings
 // (shapeDeclareEnc).
 type mapShapeBinding struct {
+	keys    []string
 	setHash uint64
 	n       int
-	keys    []string
 	id      uint32
 }
 
@@ -295,8 +301,8 @@ type mapShapeBinding struct {
 // acquire while the cache is already in use, falls back to a fresh local pair.
 type mapHolderCache struct {
 	kt, vt reflect.Type
-	kh, vh reflect.Value
 	vp     unsafe.Pointer
+	kh, vh reflect.Value
 	busy   bool
 }
 
@@ -943,24 +949,13 @@ type decColShape struct {
 	kinds []colKind
 }
 
+// Field order: every pointer-bearing field (the slices and mapDec, which
+// holds reflect handles) is grouped FIRST so the GC pointer-scan range stays
+// tight (440 pointer bytes vs 720 for a hot-scalars-first layout); the
+// non-pointer hot scalars + mruRing + retainStreak trail at the end. The
+// scalars stay packed together (lastID/lruHead/mruHead/mruRing) so the
+// per-emit MTF update still touches one contiguous span.
 type decState struct {
-	// Hot scalars first — touched on every tagState* read. Packing
-	// them with the mruRing/head update keeps the per-emit footprint
-	// in the first cache line.
-	lastID  uint32
-	lruHead uint32
-	mruHead uint32
-	_       uint32 // align mruRing on 8-byte boundary
-
-	// mruRing mirrors the encoder's side-cache: the last mruRingSize
-	// state-ref ids in emission order, stored as uint16 (the id
-	// space is < 2^14 by encoder cap). For tagStateMTF the wire
-	// carries rank — direct index into the ring resolves the id in
-	// O(1) (mruRing[(mruHead-1-rank)&mask]) instead of walking the
-	// LRU chain. Pure decoder-side optimization; the wire format is
-	// unchanged.
-	mruRing [mruRingSize]uint16
-
 	// values holds the decoded byte slices indexed by intern id —
 	// each entry aliases the wire buffer (zero-copy).
 	values [][]byte
@@ -1013,6 +1008,22 @@ type decState struct {
 	// mapDec pools reflect holders for the generic (reflect) string-keyed map
 	// decode path so it does not reflect.New per map entry (OptMapShape).
 	mapDec mapHolderCache
+
+	// Hot scalars — touched on every tagState* read. Packing them with the
+	// mruRing/head update keeps the per-emit footprint contiguous.
+	lastID  uint32
+	lruHead uint32
+	mruHead uint32
+	_       uint32 // align mruRing on 8-byte boundary
+
+	// mruRing mirrors the encoder's side-cache: the last mruRingSize
+	// state-ref ids in emission order, stored as uint16 (the id
+	// space is < 2^14 by encoder cap). For tagStateMTF the wire
+	// carries rank — direct index into the ring resolves the id in
+	// O(1) (mruRing[(mruHead-1-rank)&mask]) instead of walking the
+	// LRU chain. Pure decoder-side optimization; the wire format is
+	// unchanged.
+	mruRing [mruRingSize]uint16
 
 	// retainStreak counts consecutive small (sub-cap) messages for the
 	// adaptive-retention policy in reset(). Cold — touched once per reset.

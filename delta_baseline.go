@@ -30,9 +30,9 @@ var (
 //
 // A BaselineRegistry is safe for concurrent use.
 type BaselineRegistry[T any] struct {
-	mu sync.Mutex
 	m  map[uint64]weak.Pointer[T]
 	td *typeDesc
+	mu sync.Mutex
 }
 
 // NewBaselineRegistry returns an empty registry for baselines of type T.

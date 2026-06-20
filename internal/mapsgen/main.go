@@ -23,13 +23,11 @@ import (
 
 // kind captures everything the generator needs to emit a write / read
 // block for a single Go type.
+//
+// The three func fields (single pointer words) lead and the two strings
+// (each a pointer word + a non-pointer length word) trail, keeping the GC
+// pointer-scan range tight (48 bytes vs 56 for the source order).
 type kind struct {
-	// suffix is the camel-case identifier used in the generated
-	// function names and dispatch table entries.
-	suffix string
-	// goType is the in-memory Go type. Always a single token so it
-	// fits into `map[K]V` without parentheses.
-	goType string
 	// writeBlock returns a Go statement that emits the value bound
 	// to `varName`. Multi-line is fine; the generator wraps each
 	// statement inside the map loop body.
@@ -42,6 +40,12 @@ type kind struct {
 	// String kinds dedupe via d.keyCache.Make so high-cardinality
 	// repeats stay zero-alloc; other kinds delegate to readBlock.
 	readKeyBlock func(varName string) string
+	// suffix is the camel-case identifier used in the generated
+	// function names and dispatch table entries.
+	suffix string
+	// goType is the in-memory Go type. Always a single token so it
+	// fits into `map[K]V` without parentheses.
+	goType string
 }
 
 func mkReadValue(call, goType string) func(string) string {

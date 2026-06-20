@@ -30,10 +30,11 @@ type Options struct {
 	// OutDir overrides the package directory when OutFile has no
 	// directory component.
 	OutDir string
-	// Verbose logs progress to LogTo.
-	Verbose bool
 	// LogTo defaults to os.Stderr when nil.
 	LogTo io.Writer
+	// Verbose logs progress to LogTo. (1-byte tail, last to avoid padding
+	// before the string/interface fields above.)
+	Verbose bool
 }
 
 // Generate loads pkgPatterns, walks each requested type, and writes one
@@ -189,9 +190,6 @@ type gen struct {
 	colVars    bytes.Buffer    // var-block of columnar shape (names/kinds) decls
 	colVarSeen map[string]bool // dedupe columnar shape vars by ident
 
-	// uniqCounter ensures generated identifiers stay unique.
-	uniqCounter int
-
 	// emitted tracks struct types already emitted in this file.
 	emitted map[string]bool
 
@@ -205,6 +203,10 @@ type gen struct {
 	// codec NOT in this set is hand-written (or a stale prior generation) and
 	// must keep its custom codec (see columnarElemPlan's guard).
 	targets map[string]bool
+
+	// uniqCounter ensures generated identifiers stay unique. (Pointer-free, kept
+	// last so the GC pointer-scan range covers only the fields above.)
+	uniqCounter int
 }
 
 const maxNestingDepth = 64
@@ -382,10 +384,10 @@ func precomputeFixstrHeader(name string) []byte {
 
 // fieldInfo is the per-emitted-field summary.
 type fieldInfo struct {
-	GoName  string // exported Go field name (for diagnostics)
-	Access  string // Go access path from the receiver, e.g. "X" or "Base.X"
-	WireKey string // string used as the map key on the wire
-	Field   *types.Var
+	Field   *types.Var // single pointer word first to tighten the GC scan range
+	GoName  string     // exported Go field name (for diagnostics)
+	Access  string     // Go access path from the receiver, e.g. "X" or "Base.X"
+	WireKey string     // string used as the map key on the wire
 }
 
 func collectFields(s *types.Struct) []fieldInfo {
@@ -788,15 +790,16 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 type colColumn struct {
 	WireName string // column name on the wire (field WireKey: qdf>json>name)
 	Access   string // Go field selector from the element, e.g. "TS" or "Base.X"
-	KindByte byte   // colKind wire byte: int0 uint1 f64 2 bool3 str4 time5 f32 6; |0x80 nullable
 	GoType   string // rendered field type for scatter narrowing (non-nullable: the field; nullable: the pointed-to elem)
 	ColAPI   string // "Int"|"Uint"|"Float64"|"Float32"|"Bool"|"String"|"Time"|"Bytes"
-	Nullable bool   // *T field: presence bitmap + dense column of present values
+	// 1-byte tails last so they don't force a padding word between the strings.
+	KindByte byte // colKind wire byte: int0 uint1 f64 2 bool3 str4 time5 f32 6; |0x80 nullable
+	Nullable bool // *T field: presence bitmap + dense column of present values
 }
 
 type colResidual struct {
-	Access string     // Go field selector from the element
 	Type   types.Type // field type, for the row-major encode/decode emitters
+	Access string     // Go field selector from the element
 }
 
 type colElemPlan struct {

@@ -10,9 +10,12 @@ import (
 
 // typeDesc is the compiled descriptor for a reflect.Type. Looked up via the
 // typeCache map keyed by the Type's runtime pointer (cheap and stable).
+// Field order keeps the GC pointer-scan range tight (64 bytes vs 96 for the
+// source order): the single-word pointer fields lead, the multi-word `fields`
+// slice (whose len/cap words are non-pointer) follows, and the non-pointer
+// scalars (schemaFP/keyOff) plus the 1-byte tails trail.
 type typeDesc struct {
 	rType   reflect.Type
-	fields  []fieldDesc   // structs only
 	elem    *typeDesc     // slice/array/map-value/ptr
 	colPlan *columnarPlan // non-nil on a []struct whose element is columnar-eligible
 
@@ -22,6 +25,13 @@ type typeDesc struct {
 	encode func(e *Encoder, p unsafe.Pointer) error
 	decode func(d *Decoder, p unsafe.Pointer) error
 
+	// keyDesc describes the key field's type for a struct element's identity key
+	// (the field tagged `qdf:"...,key"`), used by keyed slice diff. nil for types
+	// without a key tag. See keyOff / keyed below. Set once at build.
+	keyDesc *typeDesc // descriptor of the key field's type
+
+	fields []fieldDesc // structs only
+
 	// schemaFP is the structural fingerprint of this descriptor's full subtree
 	// (kind + field names + recursive field/element kinds). Computed once at build
 	// time (descBuild) so the delta Diff/Apply path reads it with zero runtime
@@ -30,11 +40,9 @@ type typeDesc struct {
 	// typeCache via LoadOrStore (same happens-before as encode/decode).
 	schemaFP uint64
 
-	// keyed/keyOff/keyDesc describe a struct element's identity key (the field
-	// tagged `qdf:"...,key"`), used by keyed slice diff. keyed is false for
-	// types without a key tag. Set once at build.
-	keyOff  uintptr   // byte offset of the key field within the struct
-	keyDesc *typeDesc // descriptor of the key field's type
+	// keyOff is the byte offset of the ,key-tagged field within the struct (see
+	// keyDesc above). keyed reports its presence. Set once at build.
+	keyOff uintptr // byte offset of the key field within the struct
 
 	// kind / marshalerKind / pod are 1-byte (or kind-sized) tails kept last so
 	// they share one word instead of forcing padding ahead of the 8-byte fields
@@ -60,9 +68,8 @@ type typeDesc struct {
 }
 
 type fieldDesc struct {
-	name   string
-	offset uintptr
-	desc   *typeDesc
+	name string
+	desc *typeDesc
 	// preFast holds the pre-encoded fixstr/strN header for the field name in
 	// Fast mode. Cheaper than emitting per-encode.
 	preFast []byte
@@ -71,6 +78,7 @@ type fieldDesc struct {
 	// the first time (intern record) and rely on the encoder's state table
 	// to switch to refs on subsequent encodes.
 	preInternStr []byte
+	offset       uintptr
 	isKey        bool // this field carried the ,key tag option
 }
 
