@@ -269,11 +269,15 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		if d.i+4 > len(d.buf) {
 			return nil, ErrShortBuffer
 		}
-		n := int(readU32(d.buf[d.i:]))
+		n64 := uint64(readU32(d.buf[d.i:]))
 		d.i += 4
-		if d.i+n > len(d.buf) {
+		// Compare in uint64 before narrowing: on a 32-bit int a length near
+		// 2^32 would become negative and slip past a `d.i+n > len` check, then
+		// panic the slice with high < low. Mirrors the tagInternStr guard below.
+		if n64 > uint64(len(d.buf)-d.i) {
 			return nil, ErrShortBuffer
 		}
+		n := int(n64)
 		out := d.buf[d.i : d.i+n]
 		d.i += n
 		if invalidateLast {
