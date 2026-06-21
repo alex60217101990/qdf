@@ -184,12 +184,15 @@ func (d *Decoder) Skip() error {
 		if d.i+4 > len(d.buf) {
 			return ErrShortBuffer
 		}
-		n := int(readU32(d.buf[d.i:]))
+		n64 := uint64(readU32(d.buf[d.i:]))
 		d.i += 4
-		if d.i+n > len(d.buf) {
+		// Compare in uint64 before narrowing: on a 32-bit int a length near 2^32
+		// becomes negative, slips past `d.i+n > len`, and `d.i += n` rewinds the
+		// cursor (parse desync). Mirrors the read-path tagStr32/tagBin32 guard.
+		if n64 > uint64(len(d.buf)-d.i) {
 			return ErrShortBuffer
 		}
-		d.i += n
+		d.i += int(n64)
 		return nil
 	case tagInternStr, tagInternBin:
 		// Read+register; Skip semantics still need the state table to stay
