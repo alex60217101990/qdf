@@ -134,6 +134,21 @@ func (a *Arena) BytesUsed() int {
 	return total
 }
 
+// ResidentBytes is the total capacity the arena currently keeps resident
+// across every slab it holds — independent of the bump cursor, so it counts
+// memory retained past a Reset() (the spike chunks an adaptive caller chooses
+// to keep warm). Distinct from BytesUsed, which reports only the volume handed
+// out below the live cursor. Used for retention tuning and tests.
+//
+//go:nosplit
+func (a *Arena) ResidentBytes() int {
+	total := 0
+	for _, c := range a.chunks {
+		total += cap(c)
+	}
+	return total
+}
+
 // Put copies s into the arena and returns the assigned id. Caller
 // guarantees len(s) <= MaxStringLen; longer payloads must take the
 // fallback path.

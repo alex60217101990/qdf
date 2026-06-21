@@ -256,6 +256,15 @@ type encState struct {
 	// adaptive-retention policy in reset(). Cold — touched once per reset.
 	retainStreak uint8
 
+	// arenaSmallStreak is the arena's own analogue of retainStreak, driven by
+	// the byte volume interned per message (internarena.DefaultRetainBytes)
+	// rather than the intern-id count (maxRetainedIDs). The two signals diverge:
+	// a batch can intern < maxRetainedIDs distinct keys yet still push the arena
+	// past its byte cap (long keys), so reusing retainStreak would shed the
+	// arena's spike slabs every steady batch in that band. Cold — touched once
+	// per reset. Packs into the same word as the two flags above (no size cost).
+	arenaSmallStreak uint8
+
 	// arena owns the byte storage that backs every intern key the
 	// encoder allocates — accessed only on intern miss, kept at the
 	// end so the hot fields above share earlier cache lines.
@@ -427,7 +436,37 @@ func (e *encState) reset() {
 		clear(e.internTable)
 	}
 	e.internLoad = 0
-	e.arena.Reset() // Arena has its own watermark, see internarena.
+	// Adaptive arena retention. The default Reset() soft cap (256 KiB) drops the
+	// spike slabs a high-cardinality AD/log batch just grew, forcing a full arena
+	// regrow every batch — the dominant streaming-encode allocation (~181 KB/value
+	// measured on high-card AD data, where each per-batch StreamEncoder.Reset
+	// sheds and the next batch rebuilds the slabs). While a steady large-volume
+	// workload keeps filling the arena past the cap, retain every slab —
+	// ResetWithLimit(0) rolls the cursor back to chunks[0] and keeps the spike
+	// chunks so the next same-shaped batch reuses them in place. Resident memory
+	// stays bounded by the single-batch peak (the cursor resets each batch and
+	// grow() walks the existing slabs before allocating).
+	//
+	// The trigger is the arena's OWN per-message byte demand (BytesUsed, the
+	// volume interned THIS batch, measured before the cursor rolls back), not the
+	// intern-id streak above: a batch can intern fewer than maxRetainedIDs keys
+	// yet still exceed the byte cap with long keys, so the id-based `release`
+	// would shed the arena's slabs every steady batch in that band. Only after
+	// retainReleaseStreak consecutive sub-cap batches (burst genuinely subsided)
+	// do we fall back to the default cap and shed the spike memory, so a
+	// one-shot/bursty pool encoder still bounds its resident set. The intern
+	// table was already cleared above, dropping every aliased slot.key, so
+	// rolling the cursor back is safe at any retain limit.
+	if e.arena.BytesUsed() > internarena.DefaultRetainBytes {
+		e.arenaSmallStreak = 0
+	} else if e.arenaSmallStreak < retainReleaseStreak {
+		e.arenaSmallStreak++
+	}
+	if e.arenaSmallStreak >= retainReleaseStreak {
+		e.arena.Reset() // default 256 KiB soft cap — burst subsided, shrink.
+	} else {
+		e.arena.ResetWithLimit(0) // large-volume streak: keep slabs warm.
+	}
 
 	e.lastID = lruInvalidID
 	e.lruHead = lruInvalidID
