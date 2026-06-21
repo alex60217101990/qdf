@@ -105,6 +105,14 @@ type Arena struct {
 	// cur is the index of the chunk the cursor lives in. Reset()
 	// rolls this back to 0.
 	cur int
+
+	// putBytes accumulates the payload bytes stored via Put since the last
+	// Reset — an O(1) running counter so callers can read the current cycle's
+	// intern volume without the O(chunks) BytesUsed walk (which also over-counts
+	// the full capacity of any chunk grow() skipped because a payload did not
+	// fit). The adaptive-retention trigger in encState.reset reads this once per
+	// message; ResetWithLimit zeroes it.
+	putBytes int
 }
 
 // MaxStringLen is the largest single payload the arena can store.
@@ -172,11 +180,21 @@ func (a *Arena) Put(s string) uint32 {
 		copy(full[a.off:a.off+n], s)
 	}
 	a.off += n
+	a.putBytes += int(n)
 
 	id := uint32(len(a.locs))
 	a.locs = append(a.locs, pack(uint16(a.cur), offset, uint16(n)))
 	return id
 }
+
+// BytesPut is the payload volume stored via Put since the last Reset, in O(1)
+// (a running counter, no chunk walk). This is the exact per-cycle intern demand
+// — unlike BytesUsed it never counts a skipped chunk's capacity — so it is the
+// signal the adaptive-retention policy uses to decide whether to keep the grown
+// slabs warm across a Reset.
+//
+//go:nosplit
+func (a *Arena) BytesPut() int { return a.putBytes }
 
 // Get returns the bytes for id. The slice aliases the chunk the
 // payload lives in — caller MUST NOT retain it across a Reset() or
@@ -212,6 +230,7 @@ func (a *Arena) Reset() { a.ResetWithLimit(DefaultRetainBytes) }
 // call.
 func (a *Arena) ResetWithLimit(retainBytes int) {
 	a.locs = a.locs[:0]
+	a.putBytes = 0
 	if len(a.chunks) == 0 {
 		a.off = 0
 		a.end = 0

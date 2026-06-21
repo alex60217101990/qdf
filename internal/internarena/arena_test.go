@@ -160,6 +160,43 @@ func TestArena_BytesUsedAccounting(t *testing.T) {
 	}
 }
 
+// BytesPut is an O(1) running counter of payload bytes stored since the last
+// Reset, used as the adaptive-retention trigger. It must equal the exact sum of
+// Put lengths, zero after Reset, and — unlike BytesUsed — must NOT count the
+// capacity of a chunk that grow() skipped because a payload did not fit.
+func TestArena_BytesPut(t *testing.T) {
+	a := &Arena{}
+	total := 0
+	for i := range 200 {
+		s := fmt.Sprintf("entry-%05d", i)
+		a.Put(s)
+		total += len(s)
+	}
+	if got := a.BytesPut(); got != total {
+		t.Fatalf("BytesPut=%d want=%d", got, total)
+	}
+	a.Reset()
+	if got := a.BytesPut(); got != 0 {
+		t.Fatalf("BytesPut after Reset=%d want=0", got)
+	}
+
+	// Skipped-chunk case: a fresh arena's chunk[0] is 4 KiB; a single payload
+	// larger than that forces grow() to walk past (skip) chunk[0] and allocate a
+	// big chunk. BytesPut must report ONLY the real payload, while BytesUsed
+	// over-counts the skipped chunk[0]'s full capacity.
+	a2 := &Arena{}
+	a2.Put("warm") // lands in chunk[0] (4 KiB)
+	a2.Reset()     // retains chunk[0]; cursor back to 0
+	big := make([]byte, 10*1024)
+	a2.Put(string(big)) // 10 KiB: skips 4 KiB chunk[0], allocates a bigger one
+	if got := a2.BytesPut(); got != len(big) {
+		t.Fatalf("BytesPut with skipped chunk=%d want=%d (must not count skipped capacity)", got, len(big))
+	}
+	if a2.BytesUsed() <= a2.BytesPut() {
+		t.Fatalf("expected BytesUsed (%d) to over-count vs BytesPut (%d) when a chunk was skipped", a2.BytesUsed(), a2.BytesPut())
+	}
+}
+
 // Randomised round-trip: fuzz-style coverage that mixed lengths /
 // orderings cannot corrupt loc indexing across chunk growth.
 func TestArena_RandomRoundTrip(t *testing.T) {
