@@ -316,8 +316,11 @@ func (d *Decoder) readHeaderSlow() error {
 		}
 		// Bound the allocation: reject a hostile origLen that dwarfs the
 		// input. rANS shrinks at best modestly, so a real origLen stays
-		// within a small factor of the compressed size.
-		if origLen > uint64(len(d.buf))*64+(1<<20) {
+		// within a small factor of the compressed size. The second clause
+		// rejects anything past the int range so the int(origLen) narrowing
+		// below cannot truncate a multi-GiB length on a 32-bit build and decode
+		// a silently short/wrong body.
+		if origLen > uint64(len(d.buf))*64+(1<<20) || origLen > uint64(int(^uint(0)>>1)) {
 			return ErrInvalidLength
 		}
 		body, err := rans.Decode(rest[k:], int(origLen))
