@@ -353,7 +353,12 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 		fmt.Fprintf(buf, "\t\tfor k := range m {\n\t\t\tkeys = append(keys, k)\n\t\t}\n")
 	}
 	fmt.Fprintf(buf, "\t\tslices.Sort(keys)\n")
-	fmt.Fprintf(buf, "\t\tif canonPooled {\n\t\t\te.state.%s = keys\n\t\t\te.state.canonKeysBusy = true\n\t\t}\n", scratchField)
+	// Release the re-entrancy latch via defer so it clears on EVERY exit —
+	// including a mid-loop `return err` from a value write (the *Any pairs).
+	// An inline post-loop release leaks busy=true on the error path, pinning a
+	// pooled encoder to the fresh-allocation fallback forever. Mirrors the
+	// reflect path's `defer e.canonKeysRelease(pooled)`.
+	fmt.Fprintf(buf, "\t\tif canonPooled {\n\t\t\te.state.%s = keys\n\t\t\te.state.canonKeysBusy = true\n\t\t\tdefer func() { e.state.canonKeysBusy = false }()\n\t\t}\n", scratchField)
 	fmt.Fprintf(buf, "\t\tfor _, sk := range keys {\n")
 	if needCast {
 		fmt.Fprintf(buf, "\t\t\tk := %s(sk)\n", p.K.goType)
@@ -364,7 +369,6 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.K.writeBlock("k"))))
 	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.V.writeBlock("v"))))
 	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\tif canonPooled {\n\t\t\te.state.canonKeysBusy = false\n\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn nil\n\t}\n")
 }
 

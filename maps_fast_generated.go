@@ -41,15 +41,13 @@ func encodeMapStringString(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteString(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -142,15 +140,13 @@ func encodeMapStringBool(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteBool(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -243,15 +239,13 @@ func encodeMapStringInt8(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -346,15 +340,13 @@ func encodeMapStringInt16(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -449,15 +441,13 @@ func encodeMapStringInt32(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -552,15 +542,13 @@ func encodeMapStringInt(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -655,15 +643,13 @@ func encodeMapStringInt64(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -756,15 +742,13 @@ func encodeMapStringUint8(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteUint(uint64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -859,15 +843,13 @@ func encodeMapStringUint16(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteUint(uint64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -962,15 +944,13 @@ func encodeMapStringUint32(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteUint(uint64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1065,15 +1045,13 @@ func encodeMapStringUint(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteUint(uint64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1168,15 +1146,13 @@ func encodeMapStringUint64(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteUint(uint64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1269,15 +1245,13 @@ func encodeMapStringFloat32(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteFloat32(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1370,15 +1344,13 @@ func encodeMapStringFloat64(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteFloat64(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1471,15 +1443,13 @@ func encodeMapStringBytes(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
 			e.WriteBytes(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1575,6 +1545,7 @@ func encodeMapStringStringSlice(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
@@ -1584,9 +1555,6 @@ func encodeMapStringStringSlice(e *Encoder, p unsafe.Pointer) error {
 			for _, sv := range v {
 				e.WriteString(sv)
 			}
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1706,6 +1674,7 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysStr = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
@@ -1714,9 +1683,6 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 			if err := encodeReflect(e, v); err != nil {
 				return err
 			}
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1804,15 +1770,13 @@ func encodeMapIntString(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysI64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := int(sk)
 			v := m[k]
 			e.WriteInt(int64(k))
 			e.WriteString(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1882,15 +1846,13 @@ func encodeMapIntInt(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysI64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := int(sk)
 			v := m[k]
 			e.WriteInt(int64(k))
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -1961,15 +1923,13 @@ func encodeMapIntInt64(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysI64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := int(sk)
 			v := m[k]
 			e.WriteInt(int64(k))
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -2039,6 +1999,7 @@ func encodeMapIntAny(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysI64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := int(sk)
@@ -2047,9 +2008,6 @@ func encodeMapIntAny(e *Encoder, p unsafe.Pointer) error {
 			if err := encodeReflect(e, v); err != nil {
 				return err
 			}
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -2121,15 +2079,13 @@ func encodeMapInt64String(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysI64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteInt(int64(k))
 			e.WriteString(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -2198,15 +2154,13 @@ func encodeMapInt64Int64(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysI64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteInt(int64(k))
 			e.WriteInt(int64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -2275,6 +2229,7 @@ func encodeMapInt64Any(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysI64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
@@ -2283,9 +2238,6 @@ func encodeMapInt64Any(e *Encoder, p unsafe.Pointer) error {
 			if err := encodeReflect(e, v); err != nil {
 				return err
 			}
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -2356,15 +2308,13 @@ func encodeMapUint64String(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysU64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteUint(uint64(k))
 			e.WriteString(v)
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -2433,15 +2383,13 @@ func encodeMapUint64Uint64(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysU64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
 			v := m[k]
 			e.WriteUint(uint64(k))
 			e.WriteUint(uint64(v))
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
@@ -2510,6 +2458,7 @@ func encodeMapUint64Any(e *Encoder, p unsafe.Pointer) error {
 		if canonPooled {
 			e.state.canonKeysU64 = keys
 			e.state.canonKeysBusy = true
+			defer func() { e.state.canonKeysBusy = false }()
 		}
 		for _, sk := range keys {
 			k := sk
@@ -2518,9 +2467,6 @@ func encodeMapUint64Any(e *Encoder, p unsafe.Pointer) error {
 			if err := encodeReflect(e, v); err != nil {
 				return err
 			}
-		}
-		if canonPooled {
-			e.state.canonKeysBusy = false
 		}
 		return nil
 	}
