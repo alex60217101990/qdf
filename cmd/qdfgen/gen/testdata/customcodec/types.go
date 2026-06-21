@@ -37,3 +37,21 @@ type PlainElem struct {
 type PlainHolder struct {
 	Items []PlainElem
 }
+
+// NamedByte is a defined byte element type. A slice of it ([]NamedByte) must NOT
+// be columnar-transposed as a Bytes column — that emit assumes a literal []byte
+// and would generate non-compiling code (unsafe.SliceData → *NamedByte, and an
+// illegal []NamedByte([]byte(...)) conversion). It must fall through to the
+// generic row-major per-element encoder instead.
+type NamedByte byte
+
+// NamedByteElem mixes a scalar column with a defined-byte-element slice.
+type NamedByteElem struct {
+	ID   int64
+	Data []NamedByte
+}
+
+// NamedByteHolder slices the element with the defined-byte-element field.
+type NamedByteHolder struct {
+	Rows []NamedByteElem
+}

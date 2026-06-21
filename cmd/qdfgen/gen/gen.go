@@ -912,7 +912,15 @@ func (g *gen) classifyColField(wireName, access string, ft types.Type) (colColum
 	// the presence bit (nil → absent, empty/non-nil → present "") to preserve
 	// the nil-vs-empty distinction (a plain string column would collapse them).
 	if sl, ok := ft.Underlying().(*types.Slice); ok {
-		if eb, ok := sl.Elem().Underlying().(*types.Basic); ok && eb.Kind() == types.Uint8 {
+		// Require the element to be *exactly* byte/uint8 — match elem directly,
+		// not its Underlying. A defined byte-element slice (`type B byte; []B`)
+		// cannot be expressed as []byte: the columnar Bytes emit would generate
+		// `unsafe.SliceData([]B)` (*B, not *byte) and `[]B([]byte(...))` (an
+		// illegal slice conversion), neither of which compiles. The row-major
+		// path (emitEncodeSlice) already gates on `elem.(*types.Basic)` for the
+		// same reason and falls through to the generic per-element encoder, which
+		// handles defined byte elements correctly; mirror that here.
+		if eb, ok := sl.Elem().(*types.Basic); ok && eb.Kind() == types.Uint8 {
 			return colColumn{WireName: wireName, Access: access, KindByte: 4 | 0x80, GoType: g.typeExprFromType(ft), ColAPI: "Bytes", Nullable: true}, true
 		}
 		return colColumn{}, false
