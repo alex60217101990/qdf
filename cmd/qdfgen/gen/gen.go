@@ -1566,12 +1566,17 @@ func (g *gen) emitDecodeColumnarBody(w io.Writer, lhs string, elem types.Type, p
 	idxVar := g.fresh("ci")
 	fmt.Fprintf(w, "%s%s, %s, %s, err := d.ReadColStructHeader()\n", indent, nVar, namesVar, kindsVar)
 	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
-	fmt.Fprintf(w, "%s_ = %s\n", indent, kindsVar)
 	fmt.Fprintf(w, "%s%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, idxVar, namesVar)
 	fmt.Fprintf(w, "%s\tswitch %s[%s] {\n", indent, namesVar, idxVar)
 	for _, c := range plan.Columns {
 		fmt.Fprintf(w, "%s\tcase %s:\n", indent, strconv.Quote(c.WireName))
+		// Reject a wire column whose name matches but whose kind differs from the
+		// generated field's — mirrors decodeColumnar's `sh.kinds[c] != col.kind`
+		// guard so a mismatched/corrupt frame fails cleanly instead of decoding
+		// the wrong column reader over the body.
+		fmt.Fprintf(w, "%s\t\tif %s[%s] != 0x%02x {\n%s\t\t\treturn qdf.ErrTypeMismatch\n%s\t\t}\n",
+			indent, kindsVar, idxVar, c.KindByte, indent, indent)
 		g.emitDecodeColumnScatter(w, lhs, nVar, c, indent+"\t\t")
 	}
 	fmt.Fprintf(w, "%s\tdefault:\n%s\t\treturn qdf.ErrTypeMismatch\n", indent, indent)
@@ -1678,7 +1683,18 @@ func (g *gen) emitDecodeHybridBody(w io.Writer, lhs string, elem types.Type, pla
 	kindsVar := g.fresh("kinds")
 	fmt.Fprintf(w, "%s%s, %s, %s, err := d.ReadHybridColStructHeader()\n", indent, nVar, namesVar, kindsVar)
 	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
-	fmt.Fprintf(w, "%s_ = %s\n%s_ = %s\n", indent, namesVar, indent, kindsVar)
+	// The hybrid body is decoded POSITIONALLY (wire order == declaration order),
+	// so validate the wire shape matches this type's generated layout exactly
+	// before scattering. A frame from a different/evolved schema (added, removed,
+	// reordered, or kind-changed columns) fails cleanly with ErrTypeMismatch
+	// instead of mis-scattering silently. Schema evolution is the reflect path's
+	// job; the generated decoder requires the exact schema it was generated for.
+	id := sanitizeIdent(plan.ElemType)
+	nv := g.colNamesVar("qdfHybNames_"+id, plan.HybridNames)
+	kv := g.colKindsVar("qdfHybKinds_"+id, plan.HybridKinds)
+	g.imports["slices"] = ""
+	fmt.Fprintf(w, "%sif !slices.Equal(%s, %s) || !slices.Equal(%s, %s) {\n%s\treturn qdf.ErrTypeMismatch\n%s}\n",
+		indent, namesVar, nv, kindsVar, kv, indent, indent)
 	fmt.Fprintf(w, "%s%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	for _, c := range plan.Columns {
 		g.emitDecodeColumnScatter(w, lhs, nVar, c, indent)
