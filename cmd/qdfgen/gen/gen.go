@@ -742,6 +742,16 @@ func (g *gen) emitEncodeBasic(w io.Writer, expr string, b *types.Basic, indent s
 }
 
 func (g *gen) emitEncodeNamed(w io.Writer, expr string, n *types.Named, indent string) error {
+	// A named type with its own MarshalQDF (hand-written codec) must route through
+	// it, not be descended structurally — mirrors reflect fillDesc, which checks
+	// Marshaler before the Kind switch. Target struct types have no method yet at
+	// generate time, so they fall through to the *types.Struct case (also
+	// EncodeNested); this catches the named non-struct codec types the Kind switch
+	// would otherwise emit as a bare scalar/slice/map.
+	if hasMethod(n, "MarshalQDF") {
+		fmt.Fprintf(w, "%sif err := qdf.EncodeNested(e, &%s); err != nil {\n%s\treturn err\n%s}\n", indent, expr, indent, indent)
+		return nil
+	}
 	switch ut := n.Underlying().(type) {
 	case *types.Basic:
 		return g.emitEncodeBasic(w, expr, ut, indent)
@@ -897,6 +907,22 @@ func hasQDFCodecMethod(t types.Type) bool {
 	return false
 }
 
+// hasMethod reports whether *t's method set contains name. Used to route a field
+// whose named type carries its OWN hand-written codec through qdf.EncodeNested /
+// DecodeNested instead of descending it structurally (which would bypass the
+// codec). Direction-specific (MarshalQDF vs UnmarshalQDF) so the asymmetric case
+// — a type implementing only one side — encodes/decodes structurally on the other,
+// mirroring the reflect fillDesc behaviour.
+func hasMethod(t types.Type, name string) bool {
+	ms := types.NewMethodSet(types.NewPointer(t))
+	for method := range ms.Methods() {
+		if method.Obj().Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
 // classifyColField maps a struct field to its columnar column descriptor, or
 // returns ok=false for a residual (non-columnar) field. Eligible: scalar basics,
 // string, time.Time, []byte (str column via the byte view), and pointers to any
@@ -904,6 +930,13 @@ func hasQDFCodecMethod(t types.Type) bool {
 // Residual: *time.Time, *struct, nested struct, map, non-byte slice, array,
 // interface.
 func (g *gen) classifyColField(wireName, access string, ft types.Type) (colColumn, bool) {
+	// A field whose named type carries its own codec must stay residual (row-major)
+	// so emitEncode/DecodeValue routes it through qdf.EncodeNested/DecodeNested —
+	// a columnar string/scalar column would bypass the codec. Mirrors reflect
+	// classifyColKind, which rejects marshalerKind != 0 before the kind switch.
+	if hasQDFCodecMethod(ft) {
+		return colColumn{}, false
+	}
 	if isTimeTime(ft) {
 		return colColumn{WireName: wireName, Access: access, KindByte: 5, GoType: "time.Time", ColAPI: "Time"}, true
 	}
@@ -1415,6 +1448,12 @@ func (g *gen) emitDecodeIntoUint(w io.Writer, lhs, target, indent, tmp string) {
 }
 
 func (g *gen) emitDecodeNamed(w io.Writer, lhs string, n *types.Named, indent string) error {
+	// Symmetric to emitEncodeNamed: a named type with its own UnmarshalQDF routes
+	// through DecodeNested instead of a structural read that bypasses the codec.
+	if hasMethod(n, "UnmarshalQDF") {
+		fmt.Fprintf(w, "%sif err := qdf.DecodeNested(d, &%s); err != nil {\n%s\treturn err\n%s}\n", indent, lhs, indent, indent)
+		return nil
+	}
 	switch ut := n.Underlying().(type) {
 	case *types.Basic:
 		tmp := g.fresh("nv")

@@ -3,7 +3,12 @@
 // TestGenerate test which invokes the in-process Generate() entry point.
 package cgsample
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var qdfErrShort = errors.New("cgsample: short tag")
 
 type Inner struct {
 	X int     `qdf:"x"`
@@ -145,4 +150,35 @@ type GenTrailed struct {
 	Rows []GenMetric `qdf:"rows"`
 	Note string      `qdf:"note"`
 	Tail []int64     `qdf:"tail"`
+}
+
+// GenTag is a defined STRING type with a hand-written codec — a field of it must
+// route through MarshalQDF/UnmarshalQDF in the generated code, not be emitted as
+// a bare string (which bypasses the codec and diverges from the reflect path).
+type GenTag string
+
+// Self-delimiting codec: a 'T' marker byte, a 1-byte length, then the raw bytes.
+// (EncodeNested/DecodeNested do not length-frame the body, so the codec must
+// report exactly how many bytes it consumed.)
+func (t GenTag) MarshalQDF(dst []byte) ([]byte, error) {
+	dst = append(dst, 'T', byte(len(t)))
+	return append(dst, t...), nil
+}
+
+func (t *GenTag) UnmarshalQDF(src []byte) (int, error) {
+	if len(src) < 2 || src[0] != 'T' {
+		return 0, qdfErrShort
+	}
+	n := int(src[1])
+	if len(src) < 2+n {
+		return 0, qdfErrShort
+	}
+	*t = GenTag(src[2 : 2+n])
+	return 2 + n, nil
+}
+
+// GenNamedCodec uses the named-non-struct codec type as a field.
+type GenNamedCodec struct {
+	Label GenTag `qdf:"label"`
+	N     int64  `qdf:"n"`
 }

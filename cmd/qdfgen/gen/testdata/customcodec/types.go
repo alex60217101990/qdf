@@ -55,3 +55,22 @@ type NamedByteElem struct {
 type NamedByteHolder struct {
 	Rows []NamedByteElem
 }
+
+// Tag is a defined STRING type with a hand-written codec (not a struct). A field
+// of this type must route through its MarshalQDF/UnmarshalQDF, NOT be emitted
+// structurally as a bare string (which bypasses the codec).
+type Tag string
+
+func (t Tag) MarshalQDF(dst []byte) ([]byte, error) {
+	return append(dst, "T:"+string(t)...), nil
+}
+
+func (t *Tag) UnmarshalQDF(src []byte) (int, error) {
+	*t = Tag(string(src)[2:]) // strip "T:"
+	return len(src), nil
+}
+
+// NamedCodecHolder uses the named-non-struct codec type as a field.
+type NamedCodecHolder struct {
+	Label Tag `qdf:"label"`
+}
