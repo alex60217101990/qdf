@@ -447,17 +447,20 @@ func (e *encState) reset() {
 	// stays bounded by the single-batch peak (the cursor resets each batch and
 	// grow() walks the existing slabs before allocating).
 	//
-	// The trigger is the arena's OWN per-message byte demand (BytesUsed, the
-	// volume interned THIS batch, measured before the cursor rolls back), not the
-	// intern-id streak above: a batch can intern fewer than maxRetainedIDs keys
-	// yet still exceed the byte cap with long keys, so the id-based `release`
-	// would shed the arena's slabs every steady batch in that band. Only after
-	// retainReleaseStreak consecutive sub-cap batches (burst genuinely subsided)
-	// do we fall back to the default cap and shed the spike memory, so a
-	// one-shot/bursty pool encoder still bounds its resident set. The intern
-	// table was already cleared above, dropping every aliased slot.key, so
-	// rolling the cursor back is safe at any retain limit.
-	if e.arena.BytesUsed() > internarena.DefaultRetainBytes {
+	// The trigger is the arena's OWN per-message byte demand (BytesPut, the
+	// payload volume interned THIS batch — an O(1) counter, read before the
+	// cursor rolls back), not the intern-id streak above: a batch can intern
+	// fewer than maxRetainedIDs keys yet still exceed the byte cap with long
+	// keys, so the id-based `release` would shed the arena's slabs every steady
+	// batch in that band. Only after retainReleaseStreak consecutive sub-cap
+	// batches (burst genuinely subsided) do we fall back to the default cap and
+	// shed the spike memory, so a one-shot/bursty pool encoder still bounds its
+	// resident set. Under a sustained streak the resident set is bounded by the
+	// streak-window peak (plus doubling slack), reclaimed by the sub-cap shed and
+	// sync.Pool's GC eviction. The intern table was already cleared above,
+	// dropping every aliased slot.key, so rolling the cursor back is safe at any
+	// retain limit.
+	if e.arena.BytesPut() > internarena.DefaultRetainBytes {
 		e.arenaSmallStreak = 0
 	} else if e.arenaSmallStreak < retainReleaseStreak {
 		e.arenaSmallStreak++
