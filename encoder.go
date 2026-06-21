@@ -322,10 +322,16 @@ func (e *Encoder) resetForReuse() {
 	if cap(e.alpScratch) > maxRetainedColScratch {
 		e.alpScratch = nil
 	}
-	// Drop a spike-sized keyed-diff match map before reuse; clearing happens
-	// lazily at build time (mirror the alpScratch cap-drop above).
+	// Keyed-diff match map: drop a spike-sized backing, else clear() it in place.
+	// The keys are unsafe.String / string-header aliases into the caller's prior
+	// key strings or []struct element backing (keyTokenAt), so leaving them
+	// populated across a pool recycle GC-pins that caller data until the next
+	// keyed build — mirror the clear-on-reset policy already applied to the other
+	// aliasing string-keyed pooled state (colScratchStr, d.values, strDictMap).
 	if len(e.keyIdx) > 1<<16 {
 		e.keyIdx = nil
+	} else {
+		clear(e.keyIdx)
 	}
 	e.keyIdxBusy = false
 	e.headerOut = false
