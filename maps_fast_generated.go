@@ -1422,7 +1422,11 @@ func encodeMapStringBytes(e *Encoder, p unsafe.Pointer) error {
 	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
-			e.WriteBytes(v)
+			if v == nil {
+				e.WriteNil()
+			} else {
+				e.WriteBytes(v)
+			}
 		}
 		return nil
 	}
@@ -1449,13 +1453,21 @@ func encodeMapStringBytes(e *Encoder, p unsafe.Pointer) error {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
-			e.WriteBytes(v)
+			if v == nil {
+				e.WriteNil()
+			} else {
+				e.WriteBytes(v)
+			}
 		}
 		return nil
 	}
 	for k, v := range m {
 		e.WriteString(k)
-		e.WriteBytes(v)
+		if v == nil {
+			e.WriteNil()
+		} else {
+			e.WriteBytes(v)
+		}
 	}
 	return nil
 }
@@ -1477,9 +1489,18 @@ func decodeMapStringBytes(d *Decoder, p unsafe.Pointer) error {
 		}
 		m := reuseOrMakeMap[string, []byte](d, p, len(names))
 		for _, k := range names {
-			v, err := d.ReadBytes()
+			var v []byte
+			vTag, err := d.peekTag()
 			if err != nil {
 				return err
+			}
+			if vTag != tagNil {
+				v, err = d.ReadBytes()
+				if err != nil {
+					return err
+				}
+			} else {
+				d.i++
 			}
 			m[k] = v
 		}
@@ -1500,9 +1521,18 @@ func decodeMapStringBytes(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		k := d.keyCache.Make(kb)
-		v, err := d.ReadBytes()
+		var v []byte
+		vTag, err := d.peekTag()
 		if err != nil {
 			return err
+		}
+		if vTag != tagNil {
+			v, err = d.ReadBytes()
+			if err != nil {
+				return err
+			}
+		} else {
+			d.i++
 		}
 		m[k] = v
 	}
@@ -1521,9 +1551,13 @@ func encodeMapStringStringSlice(e *Encoder, p unsafe.Pointer) error {
 	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
-			e.WriteArrayHeader(len(v))
-			for _, sv := range v {
-				e.WriteString(sv)
+			if v == nil {
+				e.WriteNil()
+			} else {
+				e.WriteArrayHeader(len(v))
+				for _, sv := range v {
+					e.WriteString(sv)
+				}
 			}
 		}
 		return nil
@@ -1551,18 +1585,26 @@ func encodeMapStringStringSlice(e *Encoder, p unsafe.Pointer) error {
 			k := sk
 			v := m[k]
 			e.WriteString(k)
-			e.WriteArrayHeader(len(v))
-			for _, sv := range v {
-				e.WriteString(sv)
+			if v == nil {
+				e.WriteNil()
+			} else {
+				e.WriteArrayHeader(len(v))
+				for _, sv := range v {
+					e.WriteString(sv)
+				}
 			}
 		}
 		return nil
 	}
 	for k, v := range m {
 		e.WriteString(k)
-		e.WriteArrayHeader(len(v))
-		for _, sv := range v {
-			e.WriteString(sv)
+		if v == nil {
+			e.WriteNil()
+		} else {
+			e.WriteArrayHeader(len(v))
+			for _, sv := range v {
+				e.WriteString(sv)
+			}
 		}
 	}
 	return nil
@@ -1585,20 +1627,29 @@ func decodeMapStringStringSlice(d *Decoder, p unsafe.Pointer) error {
 		}
 		m := reuseOrMakeMap[string, []string](d, p, len(names))
 		for _, k := range names {
-			hdrN, err := d.ReadArrayHeader()
+			var v []string
+			vTag, err := d.peekTag()
 			if err != nil {
 				return err
 			}
-			if err := d.CheckLength(hdrN, 1); err != nil {
-				return err
-			}
-			v := make([]string, hdrN)
-			for i := range hdrN {
-				sv, err := d.ReadString()
+			if vTag != tagNil {
+				hdrN, err := d.ReadArrayHeader()
 				if err != nil {
 					return err
 				}
-				v[i] = sv
+				if err := d.CheckLength(hdrN, 1); err != nil {
+					return err
+				}
+				v = make([]string, hdrN)
+				for i := range hdrN {
+					sv, err := d.ReadString()
+					if err != nil {
+						return err
+					}
+					v[i] = sv
+				}
+			} else {
+				d.i++
 			}
 			m[k] = v
 		}
@@ -1619,20 +1670,29 @@ func decodeMapStringStringSlice(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		k := d.keyCache.Make(kb)
-		hdrN, err := d.ReadArrayHeader()
+		var v []string
+		vTag, err := d.peekTag()
 		if err != nil {
 			return err
 		}
-		if err := d.CheckLength(hdrN, 1); err != nil {
-			return err
-		}
-		v := make([]string, hdrN)
-		for i := range hdrN {
-			sv, err := d.ReadString()
+		if vTag != tagNil {
+			hdrN, err := d.ReadArrayHeader()
 			if err != nil {
 				return err
 			}
-			v[i] = sv
+			if err := d.CheckLength(hdrN, 1); err != nil {
+				return err
+			}
+			v = make([]string, hdrN)
+			for i := range hdrN {
+				sv, err := d.ReadString()
+				if err != nil {
+					return err
+				}
+				v[i] = sv
+			}
+		} else {
+			d.i++
 		}
 		m[k] = v
 	}

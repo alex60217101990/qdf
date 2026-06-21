@@ -97,10 +97,32 @@ var kindBool = kind{
 }
 
 var kindBytes = kind{
-	suffix:     "Bytes",
-	goType:     "[]byte",
-	writeBlock: func(v string) string { return fmt.Sprintf("e.WriteBytes(%s)", v) },
-	readBlock:  mkReadValue("d.ReadBytes()", "[]byte"),
+	suffix: "Bytes",
+	goType: "[]byte",
+	// A nil []byte value travels as tagNil, distinct from an empty []byte —
+	// matching the reflect encoder so the nil-vs-empty distinction round-trips.
+	writeBlock: func(v string) string {
+		return fmt.Sprintf(`if %[1]s == nil {
+e.WriteNil()
+} else {
+e.WriteBytes(%[1]s)
+}`, v)
+	},
+	readBlock: func(v string) string {
+		return fmt.Sprintf(`var %[1]s []byte
+%[1]sTag, err := d.peekTag()
+if err != nil {
+return err
+}
+if %[1]sTag != tagNil {
+%[1]s, err = d.ReadBytes()
+if err != nil {
+return err
+}
+} else {
+d.i++
+}`, v)
+	},
 }
 
 var kindFloat32 = kind{
@@ -156,27 +178,44 @@ var kindStringSlice = kind{
 	suffix: "StringSlice",
 	goType: "[]string",
 	writeBlock: func(v string) string {
-		return fmt.Sprintf(`e.WriteArrayHeader(len(%s))
-for _, sv := range %s {
+		// A nil slice value travels as tagNil (WriteNil), distinct from an empty
+		// slice (header 0) — matching the reflect encoder's encodeNilSlice so the
+		// fast path and reflect path emit identical wire and the nil-vs-empty
+		// distinction survives the round-trip.
+		return fmt.Sprintf(`if %[1]s == nil {
+e.WriteNil()
+} else {
+e.WriteArrayHeader(len(%[1]s))
+for _, sv := range %[1]s {
 e.WriteString(sv)
-}`, v, v)
+}
+}`, v)
 	},
 	readBlock: func(v string) string {
-		return fmt.Sprintf(`hdrN, err := d.ReadArrayHeader()
+		return fmt.Sprintf(`var %[1]s []string
+%[1]sTag, err := d.peekTag()
+if err != nil {
+return err
+}
+if %[1]sTag != tagNil {
+hdrN, err := d.ReadArrayHeader()
 if err != nil {
 return err
 }
 if err := d.CheckLength(hdrN, 1); err != nil {
 return err
 }
-%s := make([]string, hdrN)
+%[1]s = make([]string, hdrN)
 for i := range hdrN {
 sv, err := d.ReadString()
 if err != nil {
 return err
 }
-%s[i] = sv
-}`, v, v)
+%[1]s[i] = sv
+}
+} else {
+d.i++
+}`, v)
 	},
 }
 
