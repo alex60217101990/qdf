@@ -4,6 +4,7 @@ package cgsample
 
 import (
 	"github.com/alex60217101990/qdf"
+	"slices"
 	"time"
 	"unsafe"
 )
@@ -488,11 +489,13 @@ func (v *GenBlobSet) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = kinds29
 				v.Rows = make([]GenBlobRow, n27)
 				for ci30 := range names28 {
 					switch names28[ci30] {
 					case "id":
+						if kinds29[ci30] != 0x00 {
+							return qdf.ErrTypeMismatch
+						}
 						col31, err := d.ReadIntColumn(n27)
 						if err != nil {
 							return err
@@ -501,6 +504,9 @@ func (v *GenBlobSet) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Rows[i].ID = int64(col31[i])
 						}
 					case "data":
+						if kinds29[ci30] != 0x84 {
+							return qdf.ErrTypeMismatch
+						}
 						mask32, present33, err := d.ReadColNullMask(n27)
 						if err != nil {
 							return err
@@ -834,11 +840,13 @@ func (v *GenEventLog) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = kinds62
 				v.Events = make([]GenEvent, n60)
 				for ci63 := range names61 {
 					switch names61[ci63] {
 					case "ts":
+						if kinds62[ci63] != 0x05 {
+							return qdf.ErrTypeMismatch
+						}
 						sec65, ns66, err := d.ReadTimeColumn(n60)
 						if err != nil {
 							return err
@@ -847,6 +855,9 @@ func (v *GenEventLog) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Events[i].TS = time.Unix(sec65[i], int64(ns66[i])).UTC()
 						}
 					case "level":
+						if kinds62[ci63] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
 						col67, err := d.ReadStringColumn(n60)
 						if err != nil {
 							return err
@@ -855,6 +866,9 @@ func (v *GenEventLog) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Events[i].Level = string(col67[i])
 						}
 					case "code":
+						if kinds62[ci63] != 0x00 {
+							return qdf.ErrTypeMismatch
+						}
 						col68, err := d.ReadIntColumn(n60)
 						if err != nil {
 							return err
@@ -863,6 +877,9 @@ func (v *GenEventLog) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Events[i].Code = int32(col68[i])
 						}
 					case "msg":
+						if kinds62[ci63] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
 						col69, err := d.ReadStringColumn(n60)
 						if err != nil {
 							return err
@@ -1200,11 +1217,13 @@ func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = kinds93
 				v.Metrics = make([]GenMetric, n91)
 				for ci94 := range names92 {
 					switch names92[ci94] {
 					case "ts":
+						if kinds93[ci94] != 0x00 {
+							return qdf.ErrTypeMismatch
+						}
 						col95, err := d.ReadIntColumn(n91)
 						if err != nil {
 							return err
@@ -1213,6 +1232,9 @@ func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].TS = int64(col95[i])
 						}
 					case "value":
+						if kinds93[ci94] != 0x02 {
+							return qdf.ErrTypeMismatch
+						}
 						col96, err := d.ReadFloat64Column(n91)
 						if err != nil {
 							return err
@@ -1221,6 +1243,9 @@ func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].Value = float64(col96[i])
 						}
 					case "count":
+						if kinds93[ci94] != 0x01 {
+							return qdf.ErrTypeMismatch
+						}
 						col97, err := d.ReadUintColumn(n91)
 						if err != nil {
 							return err
@@ -1229,6 +1254,9 @@ func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].Count = uint32(col97[i])
 						}
 					case "ok":
+						if kinds93[ci94] != 0x03 {
+							return qdf.ErrTypeMismatch
+						}
 						col98, err := d.ReadBoolColumn(n91)
 						if err != nil {
 							return err
@@ -1237,6 +1265,9 @@ func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].OK = col98[i]
 						}
 					case "ratio":
+						if kinds93[ci94] != 0x06 {
+							return qdf.ErrTypeMismatch
+						}
 						col99, err := d.ReadFloat32Column(n91)
 						if err != nil {
 							return err
@@ -1531,11 +1562,13 @@ func (v *GenNameList) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = kinds117
 				v.Names = make([]GenName, n115)
 				for ci118 := range names116 {
 					switch names116[ci118] {
 					case "first":
+						if kinds117[ci118] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
 						col119, err := d.ReadStringColumn(n115)
 						if err != nil {
 							return err
@@ -1544,6 +1577,9 @@ func (v *GenNameList) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Names[i].First = string(col119[i])
 						}
 					case "last":
+						if kinds117[ci118] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
 						col120, err := d.ReadStringColumn(n115)
 						if err != nil {
 							return err
@@ -1942,11 +1978,13 @@ func (v *GenOptSet) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = kinds147
 				v.Rows = make([]GenOpt, n145)
 				for ci148 := range names146 {
 					switch names146[ci148] {
 					case "a":
+						if kinds147[ci148] != 0x80 {
+							return qdf.ErrTypeMismatch
+						}
 						mask149, present150, err := d.ReadColNullMask(n145)
 						if err != nil {
 							return err
@@ -1966,6 +2004,9 @@ func (v *GenOptSet) decodeQDFField(d *qdf.Decoder, name string) error {
 							}
 						}
 					case "b":
+						if kinds147[ci148] != 0x84 {
+							return qdf.ErrTypeMismatch
+						}
 						mask154, present155, err := d.ReadColNullMask(n145)
 						if err != nil {
 							return err
@@ -1985,6 +2026,9 @@ func (v *GenOptSet) decodeQDFField(d *qdf.Decoder, name string) error {
 							}
 						}
 					case "c":
+						if kinds147[ci148] != 0x83 {
+							return qdf.ErrTypeMismatch
+						}
 						mask159, present160, err := d.ReadColNullMask(n145)
 						if err != nil {
 							return err
@@ -2004,6 +2048,9 @@ func (v *GenOptSet) decodeQDFField(d *qdf.Decoder, name string) error {
 							}
 						}
 					case "d":
+						if kinds147[ci148] != 0x82 {
+							return qdf.ErrTypeMismatch
+						}
 						mask164, present165, err := d.ReadColNullMask(n145)
 						if err != nil {
 							return err
@@ -2474,8 +2521,9 @@ func (v *GenRowSet) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = names194
-				_ = kinds195
+				if !slices.Equal(names194, qdfHybNames_GenRow) || !slices.Equal(kinds195, qdfHybKinds_GenRow) {
+					return qdf.ErrTypeMismatch
+				}
 				v.Rows = make([]GenRow, n193)
 				col196, err := d.ReadIntColumn(n193)
 				if err != nil {
@@ -2715,11 +2763,13 @@ func (v *GenTrailed) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = kinds217
 				v.Rows = make([]GenMetric, n215)
 				for ci218 := range names216 {
 					switch names216[ci218] {
 					case "ts":
+						if kinds217[ci218] != 0x00 {
+							return qdf.ErrTypeMismatch
+						}
 						col219, err := d.ReadIntColumn(n215)
 						if err != nil {
 							return err
@@ -2728,6 +2778,9 @@ func (v *GenTrailed) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Rows[i].TS = int64(col219[i])
 						}
 					case "value":
+						if kinds217[ci218] != 0x02 {
+							return qdf.ErrTypeMismatch
+						}
 						col220, err := d.ReadFloat64Column(n215)
 						if err != nil {
 							return err
@@ -2736,6 +2789,9 @@ func (v *GenTrailed) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Rows[i].Value = float64(col220[i])
 						}
 					case "count":
+						if kinds217[ci218] != 0x01 {
+							return qdf.ErrTypeMismatch
+						}
 						col221, err := d.ReadUintColumn(n215)
 						if err != nil {
 							return err
@@ -2744,6 +2800,9 @@ func (v *GenTrailed) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Rows[i].Count = uint32(col221[i])
 						}
 					case "ok":
+						if kinds217[ci218] != 0x03 {
+							return qdf.ErrTypeMismatch
+						}
 						col222, err := d.ReadBoolColumn(n215)
 						if err != nil {
 							return err
@@ -2752,6 +2811,9 @@ func (v *GenTrailed) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Rows[i].OK = col222[i]
 						}
 					case "ratio":
+						if kinds217[ci218] != 0x06 {
+							return qdf.ErrTypeMismatch
+						}
 						col223, err := d.ReadFloat32Column(n215)
 						if err != nil {
 							return err

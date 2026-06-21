@@ -4,6 +4,7 @@ package main
 
 import (
 	"github.com/alex60217101990/qdf"
+	"slices"
 )
 
 // Pre-encoded field-name headers (fixstr / strN). Lets the hot path
@@ -269,8 +270,9 @@ func (v *GenHost) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = names32
-				_ = kinds33
+				if !slices.Equal(names32, qdfHybNames_GenService) || !slices.Equal(kinds33, qdfHybKinds_GenService) {
+					return qdf.ErrTypeMismatch
+				}
 				v.Services = make([]GenService, n31)
 				col34, err := d.ReadStringColumn(n31)
 				if err != nil {
@@ -415,8 +417,9 @@ func (v *GenHost) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = names53
-				_ = kinds54
+				if !slices.Equal(names53, qdfHybNames_GenTask) || !slices.Equal(kinds54, qdfHybKinds_GenTask) {
+					return qdf.ErrTypeMismatch
+				}
 				v.Tasks = make([]GenTask, n52)
 				col55, err := d.ReadStringColumn(n52)
 				if err != nil {
@@ -826,11 +829,13 @@ func (v *GenMetricHost) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
-				_ = kinds91
 				v.Metrics = make([]GenMetric, n89)
 				for ci92 := range names90 {
 					switch names90[ci92] {
 					case "ts":
+						if kinds91[ci92] != 0x00 {
+							return qdf.ErrTypeMismatch
+						}
 						col93, err := d.ReadIntColumn(n89)
 						if err != nil {
 							return err
@@ -839,6 +844,9 @@ func (v *GenMetricHost) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].TS = int64(col93[i])
 						}
 					case "cpu":
+						if kinds91[ci92] != 0x02 {
+							return qdf.ErrTypeMismatch
+						}
 						col94, err := d.ReadFloat64Column(n89)
 						if err != nil {
 							return err
@@ -847,6 +855,9 @@ func (v *GenMetricHost) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].CPU = float64(col94[i])
 						}
 					case "mem":
+						if kinds91[ci92] != 0x01 {
+							return qdf.ErrTypeMismatch
+						}
 						col95, err := d.ReadUintColumn(n89)
 						if err != nil {
 							return err
@@ -855,6 +866,9 @@ func (v *GenMetricHost) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].Mem = uint64(col95[i])
 						}
 					case "errors":
+						if kinds91[ci92] != 0x01 {
+							return qdf.ErrTypeMismatch
+						}
 						col96, err := d.ReadUintColumn(n89)
 						if err != nil {
 							return err
@@ -863,6 +877,9 @@ func (v *GenMetricHost) decodeQDFField(d *qdf.Decoder, name string) error {
 							v.Metrics[i].Errors = uint32(col96[i])
 						}
 					case "up":
+						if kinds91[ci92] != 0x03 {
+							return qdf.ErrTypeMismatch
+						}
 						col97, err := d.ReadBoolColumn(n89)
 						if err != nil {
 							return err
@@ -874,6 +891,7 @@ func (v *GenMetricHost) decodeQDFField(d *qdf.Decoder, name string) error {
 						return qdf.ErrTypeMismatch
 					}
 				}
+				d.ClearColMaxLen()
 			} else {
 				n98, err := d.ReadArrayHeader()
 				if err != nil {
