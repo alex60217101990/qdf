@@ -177,6 +177,13 @@ func (d *Decoder) ReadColNullMask(n int) ([]byte, int, error) {
 	for _, b := range mask {
 		present += bits.OnesCount8(b)
 	}
+	// Reject set padding bits (positions [n%8, 8) of the last byte): a hostile
+	// mask can set one while under-filling in-range bits, keeping present<=n yet
+	// silently dropping trailing dense values in the scatter loop. Mirrors the
+	// reflect sibling readNullableMask.
+	if n&7 != 0 && mask[mb-1]>>uint(n&7) != 0 {
+		return nil, 0, ErrInvalidLength
+	}
 	if present > n {
 		return nil, 0, ErrInvalidLength
 	}

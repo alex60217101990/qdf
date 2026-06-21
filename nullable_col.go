@@ -260,12 +260,16 @@ func (d *Decoder) readNullableMask(n int) (mask []byte, present int, err error) 
 	for _, b := range mask {
 		present += bits.OnesCount8(b)
 	}
-	// Reject a mangled bitmap whose padding bits (indices >= n in the last
-	// byte) are set: present must never exceed n. A valid encoder only sets
-	// bits for present rows in [0,n), so this never triggers on good input.
-	// Mirrors the codegen sibling ReadColNullMask; without it the string
-	// path would read `present` dense values but the scatter loop consumes
-	// only the in-range set bits, desyncing the cursor for the next frame.
+	// Reject a mangled bitmap. A valid encoder only sets bits for present rows
+	// in [0,n), so the last byte's padding bits (positions [n%8, 8)) are always
+	// zero. A hostile mask can set a padding bit while under-filling the in-range
+	// bits, keeping the popcount <= n (so the present>n check alone passes) yet
+	// making the scatter loop — which consumes only in-range set bits — drop the
+	// trailing dense value(s) silently. Reject any set padding bit so the frame
+	// errors instead. Mirrors the codegen sibling ReadColNullMask.
+	if n&7 != 0 && mask[maskBytes-1]>>uint(n&7) != 0 {
+		return nil, 0, ErrInvalidLength
+	}
 	if present > n {
 		return nil, 0, ErrInvalidLength
 	}
