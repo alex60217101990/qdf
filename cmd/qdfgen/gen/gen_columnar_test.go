@@ -46,4 +46,21 @@ func TestColumnarSkipsCustomCodecElem(t *testing.T) {
 			t.Fatalf("PlainHolder should columnar-transpose its plain all-scalar element:\n%s", src)
 		}
 	})
+
+	// A []struct element with a defined-byte-element slice field (`type B byte;
+	// []B`) must NOT classify that field as a columnar Bytes column: the Bytes
+	// emit assumes a literal []byte and would generate `unsafe.SliceData([]B)`
+	// (*B, not *byte) and `[]B([]byte(...))` (an illegal conversion) — neither
+	// compiles. It must fall through to the generic per-element encoder.
+	t.Run("defined_byte_elem_slice_not_bytes_column", func(t *testing.T) {
+		src := gen(t, "NamedByteHolder")
+		// The broken Bytes-column emit dereferences the field via unsafe.SliceData;
+		// the generic row-major path uses WriteArrayHeader instead.
+		if strings.Contains(src, "unsafe.SliceData(") && strings.Contains(src, ".Data") {
+			t.Fatalf("[]NamedByte field was emitted as a Bytes column (non-compiling):\n%s", src)
+		}
+		if !strings.Contains(src, "WriteArrayHeader") {
+			t.Fatalf("[]NamedByte field should encode via the generic per-element path (WriteArrayHeader):\n%s", src)
+		}
+	})
 }
