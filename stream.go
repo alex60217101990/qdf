@@ -426,6 +426,9 @@ func (s *StreamDecoder) Reset(r io.Reader) {
 	s.dec.colIndex = false
 	s.dec.colMaxLen = 0
 	clear(s.dec.mapFreeList)
+	// keyIdx keys alias the prior stream's base data (keyTokenAt); clear so a
+	// reused StreamDecoder does not GC-pin it across Reset (mirrors mapFreeList).
+	clear(s.dec.keyIdx)
 	if s.dec.state != nil {
 		s.dec.state.reset()
 	}

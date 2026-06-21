@@ -196,8 +196,13 @@ func applyImpl[T any](base *T, patch []byte, arena *Arena) error {
 	if cap(dec.deltaScratch) > maxRetainedDeltaScratch {
 		dec.deltaScratch = nil
 	}
+	// keyIdx keys alias the caller's base key strings / []struct backing
+	// (keyTokenAt); clear() on the small-map branch so a pooled decoder does not
+	// GC-pin that data across reuse (mirrors d.values / colScratchStr policy).
 	if len(dec.keyIdx) > 1<<16 {
 		dec.keyIdx = nil
+	} else {
+		clear(dec.keyIdx)
 	}
 	dec.keyIdxBusy = false
 	decPool.Put(dec)
