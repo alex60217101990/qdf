@@ -506,6 +506,11 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.mode = Fast
 	// colIndex is set fresh by readHeader; reset defensively so a pooled decoder never carries a stale flag.
 	dec.colIndex = false
+	// colMaxLen is normally cleared by the reflect columnar defer / generated
+	// ClearColMaxLen, but a generated DecodeQDF that errors between
+	// ReadColStructHeader and ClearColMaxLen returns the decoder with a stale
+	// bound; reset so it can't spuriously clamp the next pooled decode's lengths.
+	dec.colMaxLen = 0
 	dec.selectFields = qp.selectFields
 	dec.query = qp
 	dec.noCopy = qp.noCopy
@@ -538,6 +543,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool, arena *Arena)
 	dec.headerRead = false
 	dec.mode = Fast
 	dec.colIndex = false
+	dec.colMaxLen = 0 // see unmarshalQuery: a generated DecodeQDF can leak a stale bound on error
 	dec.noCopy = noCopy
 	dec.arena = arena
 	dec.selectFields = fields
