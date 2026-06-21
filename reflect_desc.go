@@ -381,7 +381,18 @@ func appendStructFields(out []fieldDesc, t reflect.Type, base uintptr, ctx *buil
 		// such a field loses data on round-trip. Pointer-typed
 		// embedded fields fall through to the regular field path so
 		// they encode as a pointer-to-struct value.
-		if sf.Anonymous && sf.Type.Kind() == reflect.Struct {
+		//
+		// EXCEPT a type that carries its own value codec — time.Time or
+		// any Marshaler/Unmarshaler — must NOT be flattened: its fields
+		// are unexported (time.Time) or its wire form is opaque, so
+		// flattening yields zero fields and drops the value on round-trip.
+		// Fall through to the regular field path so fillDesc applies the
+		// type's own codec as one named field (matches encoding/json,
+		// which never flattens an embedded time.Time / Marshaler).
+		if sf.Anonymous && sf.Type.Kind() == reflect.Struct &&
+			sf.Type != reflect.TypeFor[time.Time]() &&
+			!reflect.PointerTo(sf.Type).Implements(reflect.TypeFor[Marshaler]()) &&
+			!reflect.PointerTo(sf.Type).Implements(reflect.TypeFor[Unmarshaler]()) {
 			// Tag "-" on the embedded field itself opts the whole
 			// nested layout out — matches encoding/json.
 			if tag, ok := sf.Tag.Lookup("qdf"); ok && tag == "-" {
