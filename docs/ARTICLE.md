@@ -127,11 +127,11 @@ cheapest of four back-references:
 ```mermaid
 stateDiagram-v2
     [*] --> Inline: never seen
-    Inline --> Interned: 0xE0 declare (assign id N)
-    Interned --> Repeat: value == last  →  0xE8 (1 byte)
-    Interned --> Pair: "follows last"   →  0xEA rank (Markov-1)
-    Interned --> MTF: recent            →  0xE9 rank
-    Interned --> ById: fallback         →  0xE1 id
+    Inline --> Interned: 0xE0 declare, assign id N
+    Interned --> Repeat: value == last, 0xE8 (1 byte)
+    Interned --> Pair: follows last, 0xEA rank (Markov-1)
+    Interned --> MTF: recent, 0xE9 rank
+    Interned --> ById: fallback, 0xE1 id
 ```
 
 Encoder and decoder keep mirrored state: an id table, an LRU chain (move-to-front), and
@@ -153,9 +153,7 @@ Field names written once across a `[]Service`, no schema declared.
 
 ```mermaid
 flowchart TD
-    S["[]int64 / []uint64 / []float64"] --> P{probe once:
-min/max, deltas,
-runs, distinct, outliers}
+    S["[]int64 / []uint64 / []float64"] --> P{"probe once: min/max,<br/>deltas, runs, distinct, outliers"}
     P -->|tight range| FOR[Frame-of-Reference]
     P -->|monotonic| DFOR[Delta + FOR]
     P -->|few runs| RLE[Run-Length]
@@ -163,7 +161,7 @@ runs, distinct, outliers}
     P -->|tight + outliers| PFOR[Patched FOR]
     P -->|smooth floats| GOR[Gorilla XOR]
     P -->|decimal floats| ALP[ALP]
-    FOR & DFOR & RLE & DICT & PFOR & GOR & ALP --> K{< raw-LE?}
+    FOR & DFOR & RLE & DICT & PFOR & GOR & ALP --> K{"smaller than raw-LE?"}
     K -->|yes| W[write codec frame]
     K -->|no| R[write raw]
 ```
@@ -409,15 +407,10 @@ but not perfect.
 
 ```mermaid
 flowchart TD
-    Q1{Wire size matters?} -->|no, latency is king| SPEED[OptSpeed]
-    Q1 -->|yes| Q2{Can you spend
-encode CPU for
-smaller wire?}
-    Q2 -->|no — default| BAL[OptBalanced]
-    Q2 -->|yes — archive/cold| COMP[OptCompression]
-    SPEED -.tiny RPC, hot loop.-> SPEED
-    BAL -.telemetry, logs, APIs.-> BAL
-    COMP -.cold storage, egress.-> COMP
+    Q1{"Wire size matters?"} -->|no, latency is king| SPEED["OptSpeed<br/>(tiny RPC, hot loop)"]
+    Q1 -->|yes| Q2{"Can you spend encode CPU<br/>for smaller wire?"}
+    Q2 -->|no, default| BAL["OptBalanced<br/>(telemetry, logs, APIs)"]
+    Q2 -->|yes, archive/cold| COMP["OptCompression<br/>(cold storage, egress)"]
 ```
 
 - **`OptSpeed`** (= `0`, "Fast"): no codecs, no interning. Largest wire, lowest CPU,
@@ -469,18 +462,10 @@ string/`[]byte` copies handed back to you. qdf gives you four strategies:
 
 ```mermaid
 flowchart TD
-    D{Does the decoded value
-outlive the input buffer?} -->|no, and buffer is stable| NC[WithNoCopy
-zero copies, alias buffer]
-    D -->|yes| C{Many small strings
-per message?}
-    C -->|yes| AR[WithArena
-one slab per epoch]
+    D{"Decoded value outlives<br/>the input buffer?"} -->|no, buffer is stable| NC["WithNoCopy<br/>(zero copies, alias buffer)"]
+    D -->|yes| C{"Many small strings<br/>per message?"}
+    C -->|yes| AR["WithArena<br/>(one slab per epoch)"]
     C -->|no| CP[default copy]
-    NC -.request handler,
-buffer not recycled.-> NC
-    AR -.batch decode,
-request-scoped.-> AR
 ```
 
 - **default (copy)** — each string/`[]byte` is its own allocation. Safe, simplest, but
