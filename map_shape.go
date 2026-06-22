@@ -29,6 +29,30 @@ func mapStringShapeOrder[V any](e *Encoder, m map[string]V) []string {
 	n := len(m)
 	st := e.state
 
+	if e.stateSuspended {
+		// Inside a never-larger trial (diffKeyedSlice / diffColumnar): emit a
+		// self-contained id-0 declaration every time and never bind/reuse a
+		// map-shape id — a bound id whose declaration is thrown away with the
+		// losing candidate would dangle (ErrUnknownStateID), the same leak the
+		// trial suspends interning to avoid. Mirrors Encoder.StructShape under
+		// suspension: advance shapeCount (the decoder registers a shape per
+		// declaration it reads; the trial re-bases the counter for the discarded
+		// candidate) but touch no mapShapes / lastMapShapeID binding.
+		keys := make([]string, 0, n)
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		st.shapeDeclareEnc()
+		e.buf = append(e.buf, tagMapShape)
+		e.buf = appendUvarint(e.buf, 0)
+		e.buf = appendUvarint(e.buf, uint64(n))
+		for _, k := range keys {
+			e.WriteString(k)
+		}
+		return keys
+	}
+
 	// Fast path: a run of homogeneous rows reuses the previous shape. Verify
 	// membership directly (len + every bound key present) — no set-hash, no
 	// registry scan. Exact, so collision-proof.

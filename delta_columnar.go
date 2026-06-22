@@ -114,6 +114,13 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	enc.stateSuspended = true
 	defer func() { enc.stateSuspended = prevSuspended }()
 
+	// preTrialLastID is the intern lastID the decoder reaches when the column
+	// body wins: that body is wire-stateless (no inline strings, no state-refs),
+	// so a decoder reading it never touches lastID and stays at its pre-slice
+	// value. The encoder must end there too, or the two diverge and a later
+	// pair/repeat state-ref desyncs (the keyed picker keeps the same invariant).
+	preTrialLastID := st.lastID
+
 	// Build the positional body into enc.buf first (the comparison baseline).
 	posStart := len(enc.buf)
 	if err := diffElemsPositional(enc, elem, stride, oldData, n, newData, n, depth); err != nil {
@@ -192,7 +199,12 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	if len(body) < posLen {
 		enc.buf = enc.buf[:posStart]
 		enc.buf = append(enc.buf, body...)
-		// Column body wins; st.lastID already reflects the column build.
+		// Column body wins. It is wire-stateless, so a decoder leaves lastID at
+		// its pre-slice value — restore the encoder to match (the positional
+		// build may have moved lastID, e.g. to lruInvalidID on a changed string
+		// column). Without this the encoder/decoder lastID + pair predictor
+		// diverge after the slice.
+		st.lastID = preTrialLastID
 	} else {
 		// Positional wins; restore lastID to its post-positional value so it
 		// tracks the bytes the decoder will actually read.
