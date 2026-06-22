@@ -163,6 +163,31 @@ func checkColumnarN(n int) error {
 	return nil
 }
 
+// maxColumnarBytes caps the OUTPUT allocation of a columnar struct decode. The
+// element-count ceiling (maxColumnarElems) does NOT bound the n*elemSize output
+// slice: a constant / RLE / zero-width column compresses many rows into a few
+// wire bytes, so a hostile header can claim maxColumnarElems rows of a wide
+// struct and amplify a ~1 KB input into a multi-GB allocation. This byte ceiling
+// caps that amplification before the slice is made; callers with larger batches
+// shard or stream.
+const maxColumnarBytes = 256 << 20
+
+// checkColumnarBytes rejects a columnar output whose total size (n elements of
+// elemSize bytes) exceeds maxColumnarBytes — the byte-bounded companion to
+// checkColumnarN's element-count ceiling. n must already be >= 0 (checkColumnarN).
+func checkColumnarBytes(n int, elemSize uintptr) error {
+	if uint64(n)*uint64(elemSize) > maxColumnarBytes {
+		return ErrInvalidLength
+	}
+	return nil
+}
+
+// CheckColumnarBytes is the exported guard cmd/qdfgen-generated columnar
+// decoders call after ReadColStructHeader / ReadHybridColStructHeader, before
+// allocating the row slice, to reject the same memory-amplification a hostile
+// row count would cause on the reflect path. elemSize is unsafe.Sizeof(row).
+func CheckColumnarBytes(n int, elemSize uintptr) error { return checkColumnarBytes(n, elemSize) }
+
 // buildColumnarPlan classifies a struct's fields into columnar-eligible columns
 // and (hybrid) residual fields. Called once at fillDesc time; the result is
 // cached so the hot path never reflects.
@@ -1314,6 +1339,11 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 		return err
 	}
 	n, sh, colLens := cs.n, cs.sh, cs.colLens
+	// Bound by bytes before runQueryColumns materialises n-element column
+	// scratch (memory amplification from a compressed column count).
+	if err := checkColumnarBytes(n, t.Elem().Size()); err != nil {
+		return err
+	}
 	d.colMaxLen = n
 	defer func() { d.colMaxLen = 0 }()
 
@@ -1429,6 +1459,12 @@ func decodeColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Poi
 	// claimed length so a constant/zero-width codec cannot allocate past n.
 	d.colMaxLen = n
 	defer func() { d.colMaxLen = 0 }()
+
+	// Bound the output by bytes, not just element count: a compressed column
+	// can claim maxColumnarElems rows from a tiny input (memory amplification).
+	if err := checkColumnarBytes(n, t.Elem().Size()); err != nil {
+		return err
+	}
 
 	// Reuse the caller's backing when the row struct is pointer-free and the
 	// pre-sized slice has cap >= n (decode into a pooled slice), else fresh.
@@ -1557,6 +1593,11 @@ func decodeHybridColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsa
 	// Bound every eligible column codec's claimed length to n.
 	d.colMaxLen = n
 	defer func() { d.colMaxLen = 0 }()
+
+	// Bound the output by bytes, not just element count (memory amplification).
+	if err := checkColumnarBytes(n, t.Elem().Size()); err != nil {
+		return err
+	}
 
 	base := reuseOrMakeSlice(t, n, p, t.Elem().Size(), noPointers(t.Elem()))
 

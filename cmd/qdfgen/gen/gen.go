@@ -1640,6 +1640,9 @@ func (g *gen) emitDecodeColumnarBody(w io.Writer, lhs string, elem types.Type, p
 	idxVar := g.fresh("ci")
 	fmt.Fprintf(w, "%s%s, %s, %s, err := d.ReadColStructHeader()\n", indent, nVar, namesVar, kindsVar)
 	fmt.Fprintf(w, "%sif err != nil {\n%s\treturn err\n%s}\n", indent, indent, indent)
+	g.imports["unsafe"] = ""
+	fmt.Fprintf(w, "%sif err := qdf.CheckColumnarBytes(%s, unsafe.Sizeof(*new(%s))); err != nil {\n%s\treturn err\n%s}\n",
+		indent, nVar, g.typeExprFromType(elem), indent, indent)
 	fmt.Fprintf(w, "%s%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, idxVar, namesVar)
 	fmt.Fprintf(w, "%s\tswitch %s[%s] {\n", indent, namesVar, idxVar)
@@ -1769,6 +1772,9 @@ func (g *gen) emitDecodeHybridBody(w io.Writer, lhs string, elem types.Type, pla
 	g.imports["slices"] = ""
 	fmt.Fprintf(w, "%sif !slices.Equal(%s, %s) || !slices.Equal(%s, %s) {\n%s\treturn qdf.ErrTypeMismatch\n%s}\n",
 		indent, namesVar, nv, kindsVar, kv, indent, indent)
+	g.imports["unsafe"] = ""
+	fmt.Fprintf(w, "%sif err := qdf.CheckColumnarBytes(%s, unsafe.Sizeof(*new(%s))); err != nil {\n%s\treturn err\n%s}\n",
+		indent, nVar, g.typeExprFromType(elem), indent, indent)
 	fmt.Fprintf(w, "%s%s = make([]%s, %s)\n", indent, lhs, g.typeExprFromType(elem), nVar)
 	for _, c := range plan.Columns {
 		g.emitDecodeColumnScatter(w, lhs, nVar, c, indent)

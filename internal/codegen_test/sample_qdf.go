@@ -491,6 +491,9 @@ func (v *GenBlobSet) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
+				if err := qdf.CheckColumnarBytes(n27, unsafe.Sizeof(*new(GenBlobRow))); err != nil {
+					return err
+				}
 				v.Rows = make([]GenBlobRow, n27)
 				for ci30 := range names28 {
 					switch names28[ci30] {
@@ -840,6 +843,9 @@ func (v *GenEventLog) decodeQDFField(d *qdf.Decoder, name string) error {
 			} else if d.PeekColStruct() {
 				n60, names61, kinds62, err := d.ReadColStructHeader()
 				if err != nil {
+					return err
+				}
+				if err := qdf.CheckColumnarBytes(n60, unsafe.Sizeof(*new(GenEvent))); err != nil {
 					return err
 				}
 				v.Events = make([]GenEvent, n60)
@@ -1219,6 +1225,9 @@ func (v *GenMetricBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 				if err != nil {
 					return err
 				}
+				if err := qdf.CheckColumnarBytes(n91, unsafe.Sizeof(*new(GenMetric))); err != nil {
+					return err
+				}
 				v.Metrics = make([]GenMetric, n91)
 				for ci94 := range names92 {
 					switch names92[ci94] {
@@ -1562,6 +1571,9 @@ func (v *GenNameList) decodeQDFField(d *qdf.Decoder, name string) error {
 			} else if d.PeekColStruct() {
 				n115, names116, kinds117, err := d.ReadColStructHeader()
 				if err != nil {
+					return err
+				}
+				if err := qdf.CheckColumnarBytes(n115, unsafe.Sizeof(*new(GenName))); err != nil {
 					return err
 				}
 				v.Names = make([]GenName, n115)
@@ -2091,6 +2103,9 @@ func (v *GenOptSet) decodeQDFField(d *qdf.Decoder, name string) error {
 			} else if d.PeekColStruct() {
 				n148, names149, kinds150, err := d.ReadColStructHeader()
 				if err != nil {
+					return err
+				}
+				if err := qdf.CheckColumnarBytes(n148, unsafe.Sizeof(*new(GenOpt))); err != nil {
 					return err
 				}
 				v.Rows = make([]GenOpt, n148)
@@ -2639,6 +2654,9 @@ func (v *GenRowSet) decodeQDFField(d *qdf.Decoder, name string) error {
 				if !slices.Equal(names197, qdfHybNames_GenRow) || !slices.Equal(kinds198, qdfHybKinds_GenRow) {
 					return qdf.ErrTypeMismatch
 				}
+				if err := qdf.CheckColumnarBytes(n196, unsafe.Sizeof(*new(GenRow))); err != nil {
+					return err
+				}
 				v.Rows = make([]GenRow, n196)
 				col199, err := d.ReadIntColumn(n196)
 				if err != nil {
@@ -2876,6 +2894,9 @@ func (v *GenTrailed) decodeQDFField(d *qdf.Decoder, name string) error {
 			} else if d.PeekColStruct() {
 				n218, names219, kinds220, err := d.ReadColStructHeader()
 				if err != nil {
+					return err
+				}
+				if err := qdf.CheckColumnarBytes(n218, unsafe.Sizeof(*new(GenMetric))); err != nil {
 					return err
 				}
 				v.Rows = make([]GenMetric, n218)
