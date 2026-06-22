@@ -30,9 +30,9 @@ jobs:
         # but this is the canonical Linux arm64 runner).
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         id: setup-go
         with:
           go-version-file: go.mod
@@ -48,7 +48,7 @@ jobs:
       # module download cache (~/go/pkg/mod), but the build cache makes
       # the biggest difference on incremental runs.
       - name: Restore build cache
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: |
             ~/.cache/go-build
@@ -70,7 +70,7 @@ jobs:
 
       - name: upload coverage
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: ./coverage.out
           flags: unittests-${{ matrix.os }}
@@ -125,9 +125,9 @@ jobs:
           - module: qdf-bench
             working-directory: cmd/qdf-bench
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -139,7 +139,7 @@ jobs:
             internal/codegen_test/go.sum
 
       - name: golangci-lint (${{ matrix.module }})
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
         with:
           version: latest
           working-directory: ${{ matrix.working-directory }}
@@ -150,9 +150,9 @@ jobs:
     name: fuzz (30s smoke)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         id: setup-go
         with:
           go-version-file: go.mod
@@ -160,7 +160,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Restore build cache
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cache/go-build
           key: gocache-fuzz-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum', '**/*.go') }}
@@ -170,7 +170,7 @@ jobs:
       # Persist the fuzz corpus between runs so newly discovered inputs
       # accumulate across CI builds. Restore is best-effort.
       - name: Restore fuzz corpus
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: testdata/fuzz
           key: fuzz-corpus-${{ github.sha }}
@@ -203,9 +203,9 @@ jobs:
     name: codegen drift (protobuf/flatbuffers)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -213,7 +213,7 @@ jobs:
 
       - name: Cache protoc + flatc binaries
         id: codegen-tools
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.codegen-tools/bin
           key: codegen-tools-protoc34.1-flatc25.12.19
