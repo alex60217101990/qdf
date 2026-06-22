@@ -67,26 +67,23 @@
   mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default',
                        securityLevel: 'strict' });
 
-  // Emit mermaid fences as <pre class="mermaid"> with RAW (un-escaped) text so
-  // mermaid can read them; everything else uses marked's default rendering.
-  marked.use({
-    renderer: {
-      code(token) {
-        if (token.lang === 'mermaid') {
-          return '<pre class="mermaid">' + token.text + '</pre>';
-        }
-        return false; // default renderer
-      },
-    },
-  });
-
   const el = document.getElementById('content');
   try {
     const res = await fetch('ARTICLE.md', { cache: 'no-cache' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const md = await res.text();
-    el.innerHTML = marked.parse(md);
-    await mermaid.run({ querySelector: 'pre.mermaid' });
+    el.innerHTML = marked.parse(await res.text());
+
+    // Promote ```mermaid fenced blocks (rendered by marked as
+    // <pre><code class="language-mermaid">) into <pre class="mermaid"> holding
+    // the RAW (un-escaped, via textContent) diagram source, then let mermaid
+    // render them. Robust across marked renderer-API versions.
+    el.querySelectorAll('code.language-mermaid').forEach((c) => {
+      const pre = document.createElement('pre');
+      pre.className = 'mermaid';
+      pre.textContent = c.textContent;
+      (c.closest('pre') || c).replaceWith(pre);
+    });
+    await mermaid.run({ querySelector: 'pre.mermaid', suppressErrors: true });
     document.title = (el.querySelector('h1')?.textContent || document.title).trim();
   } catch (e) {
     el.innerHTML = '<p>Could not render the article (' + e.message +
