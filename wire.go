@@ -245,14 +245,31 @@ const (
 	// n is checked against the columnar header's row count, which bounds it; a
 	// decoder that does not implement it sees an unknown tag → ErrBadTag.
 	tagColStrConst = 0xF9
+
+	// tagColStrDictFC is a front-coded variant of tagColStrDict: the distinct
+	// table is SORTED and incrementally (front-) coded — each entry stores the
+	// length of the prefix it shares with the previous entry plus only its
+	// suffix. The table order is the encoder's free choice (the per-row indices
+	// point into it), so this needs no sorted input and is never larger: the
+	// encoder emits it only when the front-coded table is strictly smaller than
+	// the plain table (the index body is byte-identical between the two forms).
+	// Big on prefix-shared medium-cardinality columns (SIDs, DNs, paths, URLs).
+	// Wire (indices identical to tagColStrDict):
+	//   0xFA, varuint(d),
+	//        d×(varuint(sharedPrefixLen), varuint(suffixLen), suffix bytes),  // sorted
+	//        varuint(n),
+	//        ⌈n·ceil(log2 d)/8⌉ LSB-first bitpacked indices into the sorted table
+	// sharedPrefixLen <= len(previous entry); entry 0 has prefixLen 0.
+	tagColStrDictFC = 0xFA
 )
 
 // isStringColumnBlockTag reports whether b begins a self-describing string
-// column block (dict / FSST / raw / const) rather than a per-value plain run.
+// column block (dict / dictFC / FSST / raw / const) rather than a per-value run.
 // The columnar decoders peek this to choose the block reader (readStringColumn)
 // over a ReadString loop.
 func isStringColumnBlockTag(b byte) bool {
-	return b == tagColStrDict || b == tagColStrFSST || b == tagColStrRaw || b == tagColStrConst
+	return b == tagColStrDict || b == tagColStrDictFC || b == tagColStrFSST ||
+		b == tagColStrRaw || b == tagColStrConst
 }
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload

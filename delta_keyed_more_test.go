@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"fmt"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -118,9 +119,15 @@ func TestKeyedReorderBeatsPositional(t *testing.T) {
 		Big string
 	}
 	n := 200
+	// Big values are high-entropy and unique per element: a full re-encode must
+	// ship all n of them, while a pure reorder reuses them by key. (Cheap,
+	// low-cardinality, prefix-shared values would make a full re-encode tiny —
+	// the front-coded dict compresses them — so the reorder benefit would vanish;
+	// that case is genuinely better served by a full re-encode.)
+	rng := rand.New(rand.NewSource(42))
 	old := make([]E, n)
 	for i := range old {
-		old[i] = E{ID: int64(i), Big: "payload-" + string(rune('a'+i%26))}
+		old[i] = E{ID: int64(i), Big: fmt.Sprintf("%016x-%016x-payload-row", rng.Uint64(), rng.Uint64())}
 	}
 	neu := make([]E, n)
 	for i := range neu {

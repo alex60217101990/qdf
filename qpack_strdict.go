@@ -1,6 +1,12 @@
 package qdf
 
-import "github.com/alex60217101990/qdf/internal/bitpack"
+import (
+	"cmp"
+	"slices"
+
+	"github.com/alex60217101990/qdf/internal/bitpack"
+	"github.com/alex60217101990/qdf/internal/unsafestr"
+)
 
 // Dictionary-coded string columns for the columnar container. A string
 // column whose values are drawn from a small set (enum-like dimensions —
@@ -98,13 +104,55 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 		return false
 	}
 
+	// Choose the table representation: plain (first-seen order) vs front-coded
+	// (sorted, each entry stored as shared-prefix-len + suffix). The per-row
+	// index body is byte-identical between the two forms (same d, same bits), so
+	// compare only the table bytes and emit the front-coded form ONLY when it is
+	// strictly smaller — never larger. The table order is the encoder's free
+	// choice; the indices are remapped to point into the sorted table.
+	plainTbl := 0
+	for _, s := range table {
+		plainTbl += uvarintLen(uint64(len(s))) + len(s)
+	}
+	var order, inv [qpackStrDictMaxDistinct]uint16
+	for k := range d {
+		order[k] = uint16(k)
+	}
+	slices.SortFunc(order[:d], func(a, b uint16) int { return cmp.Compare(table[a], table[b]) })
+	fcTbl := 0
+	prevS := ""
+	for k := range d {
+		s := table[order[k]]
+		pfx := commonPrefixLen(prevS, s)
+		fcTbl += uvarintLen(uint64(pfx)) + uvarintLen(uint64(len(s)-pfx)) + (len(s) - pfx)
+		inv[order[k]] = uint16(k)
+		prevS = s
+	}
+
 	e.writeHeader()
 	out := e.buf
-	out = append(out, tagColStrDict)
-	out = appendUvarint(out, uint64(d))
-	for _, s := range table {
-		out = appendUvarint(out, uint64(len(s)))
-		out = append(out, s...)
+	if fcTbl < plainTbl {
+		out = append(out, tagColStrDictFC)
+		out = appendUvarint(out, uint64(d))
+		prevS = ""
+		for k := range d {
+			s := table[order[k]]
+			pfx := commonPrefixLen(prevS, s)
+			out = appendUvarint(out, uint64(pfx))
+			out = appendUvarint(out, uint64(len(s)-pfx))
+			out = append(out, s[pfx:]...)
+			prevS = s
+		}
+		for i := range idx { // remap row indices into the sorted table
+			idx[i] = uint64(inv[idx[i]])
+		}
+	} else {
+		out = append(out, tagColStrDict)
+		out = appendUvarint(out, uint64(d))
+		for _, s := range table {
+			out = appendUvarint(out, uint64(len(s)))
+			out = append(out, s...)
+		}
 	}
 	out = appendUvarint(out, uint64(n))
 	if bits > 0 {
@@ -119,6 +167,17 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	}
 	e.buf = out
 	return true
+}
+
+// commonPrefixLen returns the length of the longest byte prefix shared by a and
+// b. Used by the front-coded string-dictionary codec.
+func commonPrefixLen(a, b string) int {
+	n := min(len(a), len(b))
+	i := 0
+	for i < n && a[i] == b[i] {
+		i++
+	}
+	return i
 }
 
 // readStringColumn decodes a string column of n values written by
@@ -137,8 +196,17 @@ func (d *Decoder) readStringColumn(n int) ([]string, error) {
 		return d.readStringColumnRaw(n)
 	}
 	out := make([]string, n)
-	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrDict {
-		table, idx, err := d.readStringColumnDict(n)
+	if n > 0 && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrDictFC) {
+		var (
+			table []string
+			idx   []uint32
+			err   error
+		)
+		if d.buf[d.i] == tagColStrDictFC {
+			table, idx, err = d.readStringColumnDictFC(n)
+		} else {
+			table, idx, err = d.readStringColumnDict(n)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -218,6 +286,92 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 	// Unpack below before any read, and only mapped into idx — never aliased
 	// into the returned slices. count >= 2 ⇒ bits >= 1 (checked above), so
 	// Unpack always writes all n slots; no stale-tail under-fill is possible.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	tmp := d.deltaScratch[:n]
+	bitpack.Unpack(tmp, body, bits)
+	for i, v := range tmp {
+		if v >= c64 {
+			return nil, nil, ErrBadTag
+		}
+		idx[i] = uint32(v)
+	}
+	return table, idx, nil
+}
+
+// readStringColumnDictFC decodes a tagColStrDictFC block (tag at d.i): a sorted,
+// front-coded distinct table plus a per-row index slice of length n. Each table
+// entry is reconstructed as prev[:sharedPrefixLen] + suffix; all distinct strings
+// are materialised into ONE slab (a single allocation for the whole table) and
+// returned as views into it. Bounds mirror readStringColumnDict.
+func (d *Decoder) readStringColumnDictFC(n int) (table []string, idx []uint32, err error) {
+	d.i++ // consume tagColStrDictFC
+	c64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return nil, nil, ErrInvalidLength
+	}
+	d.i += nr
+	if c64 < 2 || c64 > qpackStrDictMaxDistinct {
+		// count >= 2 keeps bits >= 1 (non-empty index body) so n is buffer-bounded.
+		return nil, nil, ErrBadTag
+	}
+	count := int(c64)
+
+	// Reconstruct the sorted front-coded table into one growing slab: entry k is
+	// prev[:prefixLen] + suffix. starts/lens record each entry's region in the
+	// FINAL slab (offsets are stable across the appends' reallocations).
+	var starts, lens [qpackStrDictMaxDistinct]int
+	slab := make([]byte, 0, 64)
+	prevStart, prevLen := 0, 0
+	for i := range count {
+		p64, k := readUvarint(d.buf[d.i:])
+		if k <= 0 {
+			return nil, nil, ErrInvalidLength
+		}
+		d.i += k
+		s64, k := readUvarint(d.buf[d.i:])
+		if k <= 0 {
+			return nil, nil, ErrInvalidLength
+		}
+		d.i += k
+		// The shared prefix cannot exceed the previous entry's length (entry 0
+		// has prevLen 0 → prefix 0); the suffix is bounded by the remaining buffer.
+		if p64 > uint64(prevLen) || s64 > uint64(len(d.buf)-d.i) {
+			return nil, nil, ErrBadTag
+		}
+		p, s := int(p64), int(s64)
+		start := len(slab)
+		slab = append(slab, slab[prevStart:prevStart+p]...) // shared prefix from prev
+		slab = append(slab, d.buf[d.i:d.i+s]...)            // suffix from wire
+		d.i += s
+		starts[i], lens[i] = start, p+s
+		prevStart, prevLen = start, p+s
+	}
+	table = make([]string, count)
+	for i := range count {
+		table[i] = unsafestr.String(slab[starts[i] : starts[i]+lens[i]]) // view into the owned slab
+	}
+
+	// Index body: identical layout to tagColStrDict. Bound n by the remaining
+	// buffer (bits >= 1 since count >= 2) BEFORE the n-sized allocations.
+	n64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return nil, nil, ErrInvalidLength
+	}
+	d.i += nr
+	if int(n64) != n {
+		return nil, nil, ErrTypeMismatch
+	}
+	bits := bitsForDistinct(count)
+	rem := uint64(len(d.buf) - d.i)
+	if n64 > rem*8/uint64(bits) {
+		return nil, nil, ErrShortBuffer
+	}
+	bodyBytes := (n*bits + 7) >> 3
+	body := d.buf[d.i : d.i+bodyBytes]
+	d.i += bodyBytes
+	idx = make([]uint32, n)
 	if cap(d.deltaScratch) < n {
 		d.deltaScratch = make([]uint64, n)
 	}
