@@ -39,6 +39,8 @@ diagrams/render-png.sh
 medium-series
 scripts/arm64-test.sh
 *.html
+# published deep-dive article shell (tracked on purpose)
+!docs/article.html
 golangnews-submission.md
 dev-to-qdf.md
 PR_DESCRIPTION.md

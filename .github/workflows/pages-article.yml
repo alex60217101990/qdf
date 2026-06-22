@@ -1,0 +1,51 @@
+# Renders the qdf deep-dive article to GitHub Pages, triggered ONLY when the
+# article content changes — not on every push. docs/ARTICLE.md is the source of
+# truth; docs/article.html is a static shell that fetches and renders it
+# (Markdown via marked, diagrams via mermaid), so a content edit needs no
+# re-render step — this workflow just republishes the two files.
+#
+# The site already serves the bench-trend dashboard + coverage from the gh-pages
+# branch (see docs/PAGES-SETUP.md); keep_files: true preserves them. bench-trend
+# runs ~15 min and publishes at the end, while this job publishes in ~30 s, so
+# their gh-pages pushes do not overlap; the concurrency group below additionally
+# serializes two article edits landing in quick succession.
+name: pages-article
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/ARTICLE.md
+      - docs/article.html
+      - .github/workflows/pages-article.yml
+
+# Least-privilege default; the publish job elevates contents to write.
+permissions:
+  contents: read
+
+concurrency:
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: render + publish article
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the rendered article to the gh-pages branch
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: stage article into ./public
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          cp docs/article.html public/article.html
+          cp docs/ARTICLE.md public/ARTICLE.md
+
+      - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./public
+          keep_files: true
