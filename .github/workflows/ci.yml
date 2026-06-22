@@ -70,7 +70,7 @@ jobs:
 
       - name: upload coverage
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.out
           flags: unittests-${{ matrix.os }}
