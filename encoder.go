@@ -193,6 +193,20 @@ type Encoder struct {
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
 	keyIdxBusy bool
+
+	// stateSuspended turns off every wire-stateful encoding — string/[]byte
+	// interning, struct-shape interning, map-shape interning — for the duration
+	// of a keyed-slice delta's never-larger trial (delta_keyed.go). A keyed patch
+	// is compared against the positional alternative by building both bodies and
+	// keeping the smaller; a stateful DISCARDED body leaks shared-state ids whose
+	// wire definitions are thrown away, so a later reference into the kept wire
+	// dangles (ErrUnknownStateID). Suspending makes both candidate bodies — and
+	// the emitted winner — wire-stateless, so the trial is pollution-free, the
+	// size comparison is exact, and the kept body is self-consistent. The only
+	// substate a suspended body mutates is lastID (the inline-string reset, which
+	// the decoder mirrors). Saved/restored across nested keyed slices so
+	// re-entrancy keeps the outer suspension.
+	stateSuspended bool
 }
 
 // applyOpts mirrors the options bitmask onto the cached mode / qpack
@@ -584,7 +598,7 @@ func (e *Encoder) WriteString(s string) {
 	e.writeHeader()
 	st := e.state
 	dense := e.opts.Has(OptDense)
-	if dense && st != nil && len(s) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
+	if dense && !e.stateSuspended && st != nil && len(s) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 		// PreIntern identity fast path: if the caller registered
 		// this exact backing pointer + length via Encoder.PreIntern,
 		// the cached id (after first sight on the wire) lets us
@@ -812,7 +826,7 @@ func (e *Encoder) WriteBytes(b []byte) {
 	e.writeHeader()
 	st := e.state
 	dense := e.opts.Has(OptDense)
-	if dense && st != nil && len(b) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
+	if dense && !e.stateSuspended && st != nil && len(b) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
 		key := unsafestr.String(b)
 		id, ok := st.lookupOrAssign(key)
 		if ok {

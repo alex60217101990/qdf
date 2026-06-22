@@ -113,11 +113,18 @@ func TestKeyedPatchUsesKeyedTag(t *testing.T) {
 		ID  string `qdf:"id,key"`
 		Val int
 	}
-	old := []E{{"a", 1}}
-	neu := []E{{"a", 2}}
+	// A pure reorder is the case the keyed differ wins decisively: preserved
+	// elements cost nothing, so the keyed patch (a new-order key list) beats the
+	// positional alternative (which re-replaces every shifted element). The
+	// never-larger picker must therefore keep the tagKeyedSlicePatch body here.
+	// (On a one-element value change the positional body is smaller — an index
+	// beats a key — so the picker correctly declines the keyed tag; that path is
+	// exercised by the round-trip matrix elsewhere.)
+	old := []E{{"a", 1}, {"b", 2}, {"c", 3}, {"d", 4}}
+	neu := []E{{"d", 4}, {"c", 3}, {"b", 2}, {"a", 1}}
 	patch, _ := Diff(old, neu, OptBalanced)
 	if !containsByte(patch, tagKeyedSlicePatch) {
-		t.Fatal("keyed type must emit tagKeyedSlicePatch")
+		t.Fatal("a reorder must keep the tagKeyedSlicePatch body (keyed beats positional)")
 	}
 }
 
