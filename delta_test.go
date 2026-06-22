@@ -175,18 +175,24 @@ func TestDiffApplyFlatStruct(t *testing.T) {
 }
 
 func TestApplyArena(t *testing.T) {
+	// Tags ([]string) keeps the element row-major (a slice field disqualifies the
+	// columnar transpose), so the string fields decode through the per-field
+	// (row-major) path — the path the decode arena batches. An all-scalar element
+	// would transpose to columnar and decode its string column as one bulk blob,
+	// which is already few-alloc and bypasses the arena.
 	type Row struct {
 		ID    int
 		Name  string
 		Email string
 		Note  string
+		Tags  []string
 	}
 	const n = 500
 	old := make([]Row, n)
 	neu := make([]Row, n)
 	for i := range n {
-		old[i] = Row{ID: i, Name: "old-name-padding", Email: "old@example.invalid", Note: "old note body text here"}
-		neu[i] = Row{ID: i, Name: "new-name-padding-changed", Email: "new@example.invalid", Note: "new note body text here changed"}
+		old[i] = Row{ID: i, Name: "old-name-padding", Email: "old@example.invalid", Note: "old note body text here", Tags: []string{"t"}}
+		neu[i] = Row{ID: i, Name: "new-name-padding-changed", Email: "new@example.invalid", Note: "new note body text here changed", Tags: []string{"t"}}
 	}
 	patch, err := Diff(old, neu, OptBalanced)
 	if err != nil {

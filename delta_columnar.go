@@ -100,12 +100,27 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	st.deltaColBitmap = newChangedBitmap(st.deltaColBitmap, n)
 	markChangedRows(st.deltaColBitmap, plan, stride, oldData, newData, n, elem.pod)
 
+	// Never-larger trial: build a positional baseline (the size-comparison
+	// alternative) and the column body, keep the smaller. Suspend interning for
+	// the whole trial so the DISCARDED candidate cannot leak intern ids whose
+	// wire definitions are thrown away with it — a later state-ref to such an id
+	// dangles (ErrUnknownStateID). This is the same trap diffKeyedSlice guards
+	// against; the column string body is already wire-stateless
+	// (writeStringColumnStateless), but the positional baseline interned
+	// normally and, when the column body won, left orphaned ids in enc.state.
+	// Under suspension the only intern substate a body mutates is lastID, which
+	// is captured after the positional build and restored if positional wins.
+	prevSuspended := enc.stateSuspended
+	enc.stateSuspended = true
+	defer func() { enc.stateSuspended = prevSuspended }()
+
 	// Build the positional body into enc.buf first (the comparison baseline).
 	posStart := len(enc.buf)
 	if err := diffElemsPositional(enc, elem, stride, oldData, n, newData, n, depth); err != nil {
 		return false, err
 	}
 	posLen := len(enc.buf) - posStart
+	posEndLastID := st.lastID
 
 	body := st.deltaColBuf[:0]
 	body = append(body, tagColSlicePatch)
@@ -128,6 +143,7 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 			// positional body already in enc.buf handles the whole slice.
 			enc.buf = savedBuf
 			st.deltaColBuf = body[:0]
+			st.lastID = posEndLastID // positional wins; track its kept bytes
 			return true, nil
 		}
 		nChanged++
@@ -176,9 +192,13 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	if len(body) < posLen {
 		enc.buf = enc.buf[:posStart]
 		enc.buf = append(enc.buf, body...)
+		// Column body wins; st.lastID already reflects the column build.
+	} else {
+		// Positional wins; restore lastID to its post-positional value so it
+		// tracks the bytes the decoder will actually read.
+		st.lastID = posEndLastID
 	}
-	// Otherwise the positional body already sits in enc.buf and wins. Either
-	// way exactly one body remains and the slice is handled.
+	// Either way exactly one body remains and the slice is handled.
 	return true, nil
 }
 
