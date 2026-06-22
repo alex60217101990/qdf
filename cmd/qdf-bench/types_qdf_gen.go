@@ -5,6 +5,7 @@ package main
 import (
 	"github.com/alex60217101990/qdf"
 	"slices"
+	"unsafe"
 )
 
 // Pre-encoded field-name headers (fixstr / strN). Lets the hot path
@@ -273,6 +274,9 @@ func (v *GenHost) decodeQDFField(d *qdf.Decoder, name string) error {
 				if !slices.Equal(names32, qdfHybNames_GenService) || !slices.Equal(kinds33, qdfHybKinds_GenService) {
 					return qdf.ErrTypeMismatch
 				}
+				if err := qdf.CheckColumnarBytes(n31, unsafe.Sizeof(*new(GenService))); err != nil {
+					return err
+				}
 				v.Services = make([]GenService, n31)
 				col34, err := d.ReadStringColumn(n31)
 				if err != nil {
@@ -419,6 +423,9 @@ func (v *GenHost) decodeQDFField(d *qdf.Decoder, name string) error {
 				}
 				if !slices.Equal(names53, qdfHybNames_GenTask) || !slices.Equal(kinds54, qdfHybKinds_GenTask) {
 					return qdf.ErrTypeMismatch
+				}
+				if err := qdf.CheckColumnarBytes(n52, unsafe.Sizeof(*new(GenTask))); err != nil {
+					return err
 				}
 				v.Tasks = make([]GenTask, n52)
 				col55, err := d.ReadStringColumn(n52)
@@ -827,6 +834,9 @@ func (v *GenMetricHost) decodeQDFField(d *qdf.Decoder, name string) error {
 			} else if d.PeekColStruct() {
 				n89, names90, kinds91, err := d.ReadColStructHeader()
 				if err != nil {
+					return err
+				}
+				if err := qdf.CheckColumnarBytes(n89, unsafe.Sizeof(*new(GenMetric))); err != nil {
 					return err
 				}
 				v.Metrics = make([]GenMetric, n89)
