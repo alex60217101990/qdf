@@ -93,14 +93,24 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 	enc.stateSuspended = true
 	defer func() { enc.stateSuspended = prevSuspended }()
 
+	// shapeStart anchors the shape-id counter: a suspended StructShape (a
+	// qdfgen EncoderMarshaler element field) emits a fresh declaration and
+	// advances shapeCount per emit, so the discarded candidate's declarations
+	// must be re-based off the counter or a later shape ref desyncs.
+	shapeStart := uint32(0)
+	if enc.state != nil {
+		shapeStart = enc.state.shapeCount
+	}
+
 	posStart := len(enc.buf)
 	if err := diffSlice(enc, td, oldP, newP, depth); err != nil {
 		return err
 	}
 	posLen := len(enc.buf) - posStart
-	posEndLastID, haveLast := uint32(0), enc.state != nil
+	posEndLastID, shapeAfterPos, haveLast := uint32(0), shapeStart, enc.state != nil
 	if haveLast {
 		posEndLastID = enc.state.lastID
+		shapeAfterPos = enc.state.shapeCount
 	}
 
 	// Build the keyed body APPENDED after the positional one, using enc.buf
@@ -116,12 +126,19 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 		// reflects the keyed build (emitted last), matching the kept body.
 		copy(enc.buf[posStart:], enc.buf[keyedStart:])
 		enc.buf = enc.buf[:posStart+keyedLen]
+		// Keyed wins: only its declarations reach the decoder, so drop the
+		// discarded positional candidate's from the shape counter.
+		if haveLast {
+			enc.state.shapeCount = shapeStart + (enc.state.shapeCount - shapeAfterPos)
+		}
 	} else {
-		// Positional wins; drop the trailing keyed body and restore lastID to
-		// its post-positional value so it tracks the bytes the decoder will read.
+		// Positional wins; drop the trailing keyed body and restore lastID and
+		// the shape counter to their post-positional values so they track the
+		// bytes the decoder will read.
 		enc.buf = enc.buf[:keyedStart]
 		if haveLast {
 			enc.state.lastID = posEndLastID
+			enc.state.shapeCount = shapeAfterPos
 		}
 	}
 	return nil
