@@ -35,6 +35,19 @@ the end you should know exactly how to wire qdf into your service and what it bu
 
 ---
 
+## Install & runnable docs
+
+```bash
+go get github.com/alex60217101990/qdf
+```
+
+Every headline feature has a **runnable example** on pkg.go.dev — open the
+[examples section](https://pkg.go.dev/github.com/alex60217101990/qdf#pkg-examples)
+and hit *Run* in the playground: `ExampleDiff`, `ExampleDiff_keyedSlice`,
+`ExampleUnmarshal_predicatePushdown`, `ExampleUnmarshalColumns`, `ExampleWithNoCopy`,
+`ExampleArena`, `ExampleStreamEncoder`, `ExampleOptions_canonical`, and more. Full API
+reference: [pkg.go.dev/github.com/alex60217101990/qdf](https://pkg.go.dev/github.com/alex60217101990/qdf).
+
 ## Why another format?
 
 | | schemaless | dense | query the bytes | structural diff |
@@ -238,7 +251,9 @@ err := qdf.Unmarshal(buf, &hits,
 ## Feature deep-dives
 
 Each headline feature, three ways: **how it works**, **why it's fast**, **how to use
-it**.
+it**. The snippets are illustrative; each has a corresponding **runnable** `Example` on
+[pkg.go.dev](https://pkg.go.dev/github.com/alex60217101990/qdf#pkg-examples) you can edit
+and run in the playground.
 
 ### `Marshal` / `Unmarshal` — the base
 
@@ -777,7 +792,8 @@ JSON ergonomics, better-than-protobuf density on structured data, a query layer,
 diff nobody else in the space ships — and you dial the CPU/size/safety trade with four
 orthogonal knobs.
 
-Code, docs, benchmarks: **https://github.com/alex60217101990/qdf**
+Code & benchmarks: **https://github.com/alex60217101990/qdf** ·
+API reference + runnable examples: **https://pkg.go.dev/github.com/alex60217101990/qdf**
 
 *Feedback, numbers from your own data, and especially "here's where it loses" reports
 are all welcome.*
