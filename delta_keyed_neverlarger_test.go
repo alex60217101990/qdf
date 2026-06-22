@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"testing"
 )
@@ -160,9 +161,7 @@ func TestKeyedNeverLargerNoInternLeak(t *testing.T) {
 		base.Items = append([]Item(nil), old.Items...)
 		base.Tags = append([]string(nil), old.Tags...)
 		base.Meta = map[string]string{}
-		for k, v := range old.Meta {
-			base.Meta[k] = v
-		}
+		maps.Copy(base.Meta, old.Meta)
 		if err := Apply(&base, patch); err != nil {
 			t.Fatalf("opts=%d Apply: %v", opts, err)
 		}
