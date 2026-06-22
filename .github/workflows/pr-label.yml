@@ -16,9 +16,9 @@ on:
   pull_request_target:
     types: [opened, edited, reopened]
 
+# Least-privilege default; the label job elevates the writes it needs.
 permissions:
-  pull-requests: write
-  issues: write
+  contents: read
 
 concurrency:
   group: pr-label-${{ github.event.pull_request.number }}
@@ -28,8 +28,11 @@ jobs:
   label:
     name: label from title
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
     steps:
-      - uses: actions/github-script@v9
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             // Conventional Commit type -> label name, color (6-hex, no '#'),

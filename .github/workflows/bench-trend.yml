@@ -7,9 +7,10 @@ on:
     branches: [main]
 
 # contents:write — push history to gh-pages. pull-requests:write — post the alert comment.
+# Least-privilege default; the bench job elevates the writes it needs
+# (contents: push history to gh-pages; pull-requests: post the alert comment).
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: bench-trend-${{ github.workflow }}-${{ github.ref }}
@@ -19,10 +20,13 @@ jobs:
   bench:
     name: bench-trend
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -31,7 +35,7 @@ jobs:
             bench/go.sum
 
       - name: Restore build cache
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cache/go-build
           key: gocache-benchtrend-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/*.go') }}
@@ -74,7 +78,7 @@ jobs:
       # --- main: append to history + publish the trend dashboard ---
       - name: store benchmark result (push to gh-pages)
         if: github.event_name == 'push'
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1
         with:
           name: qdf Go Benchmarks
           tool: go
@@ -106,7 +110,7 @@ jobs:
       # --- PR: comment-only regression alert, never push, never fail ---
       - name: compare benchmark result (PR alert)
         if: github.event_name == 'pull_request' && steps.ghpages.outputs.exists == 'true'
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1
         with:
           name: qdf Go Benchmarks
           tool: go
@@ -136,7 +140,7 @@ jobs:
       # sequenced. keep_files:true preserves dev/bench/ that the action wrote.
       - name: publish landing + coverage to gh-pages
         if: github.event_name == 'push'
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
