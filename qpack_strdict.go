@@ -55,6 +55,13 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	idx := e.state.colScratchU64[:0]
 	runs := 0
 	prev := ^uint32(0)
+	// gp tracks the longest byte prefix shared by EVERY distinct value, computed
+	// for free as the table is built (no sort, no extra pass). It is a sort-free
+	// signal for the front-coded table form: gp >= 2 guarantees the front-coded
+	// table is strictly smaller than the plain one (it saves >= (d-1)*(gp-1)
+	// bytes), so the encoder pays the sort ONLY when front-coding is sure to win
+	// — a non-prefix-shared column skips it entirely (no CPU regression).
+	gp := 0
 	for i, s := range strs {
 		id, ok := m[s]
 		if !ok {
@@ -66,6 +73,11 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 			id = uint32(len(m))
 			m[s] = id
 			table = append(table, s)
+			if len(table) == 1 {
+				gp = len(s)
+			} else {
+				gp = commonPrefixLen(table[0][:gp], s)
+			}
 		}
 		idx = append(idx, uint64(id))
 		if id != prev {
@@ -104,49 +116,53 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 		return false
 	}
 
-	// Choose the table representation: plain (first-seen order) vs front-coded
-	// (sorted, each entry stored as shared-prefix-len + suffix). The per-row
-	// index body is byte-identical between the two forms (same d, same bits), so
-	// compare only the table bytes and emit the front-coded form ONLY when it is
-	// strictly smaller — never larger. The table order is the encoder's free
-	// choice; the indices are remapped to point into the sorted table.
-	plainTbl := 0
-	for _, s := range table {
-		plainTbl += uvarintLen(uint64(len(s))) + len(s)
-	}
-	var order, inv [qpackStrDictMaxDistinct]uint16
-	for k := range d {
-		order[k] = uint16(k)
-	}
-	slices.SortFunc(order[:d], func(a, b uint16) int { return cmp.Compare(table[a], table[b]) })
-	fcTbl := 0
-	prevS := ""
-	for k := range d {
-		s := table[order[k]]
-		pfx := commonPrefixLen(prevS, s)
-		fcTbl += uvarintLen(uint64(pfx)) + uvarintLen(uint64(len(s)-pfx)) + (len(s) - pfx)
-		inv[order[k]] = uint16(k)
-		prevS = s
-	}
-
+	// Table representation: plain (first-seen) vs front-coded (sorted, each entry
+	// stored as shared-prefix-len + suffix). The per-row index body is
+	// byte-identical between the two forms, so only the table bytes differ. The
+	// front-coded form is attempted ONLY when the sort-free global-prefix signal
+	// (gp) guarantees it wins: gp >= 2 ⇒ (d-1)*(gp-1) >= d-1 bytes saved, so the
+	// encoder never sorts a column front-coding cannot help — no CPU regression
+	// on non-prefix-shared data (which keeps the plain dictionary unchanged).
 	e.writeHeader()
 	out := e.buf
-	if fcTbl < plainTbl {
-		out = append(out, tagColStrDictFC)
-		out = appendUvarint(out, uint64(d))
-		prevS = ""
+	useFC := false
+	if gp >= 2 {
+		plainTbl := 0
+		for _, s := range table {
+			plainTbl += uvarintLen(uint64(len(s))) + len(s)
+		}
+		var order, inv [qpackStrDictMaxDistinct]uint16
+		for k := range d {
+			order[k] = uint16(k)
+		}
+		slices.SortFunc(order[:d], func(a, b uint16) int { return cmp.Compare(table[a], table[b]) })
+		fcTbl, prevS := 0, ""
 		for k := range d {
 			s := table[order[k]]
 			pfx := commonPrefixLen(prevS, s)
-			out = appendUvarint(out, uint64(pfx))
-			out = appendUvarint(out, uint64(len(s)-pfx))
-			out = append(out, s[pfx:]...)
+			fcTbl += uvarintLen(uint64(pfx)) + uvarintLen(uint64(len(s)-pfx)) + (len(s) - pfx)
+			inv[order[k]] = uint16(k)
 			prevS = s
 		}
-		for i := range idx { // remap row indices into the sorted table
-			idx[i] = uint64(inv[idx[i]])
+		if fcTbl < plainTbl { // guaranteed by gp >= 2; the explicit never-larger gate
+			useFC = true
+			out = append(out, tagColStrDictFC)
+			out = appendUvarint(out, uint64(d))
+			prevS = ""
+			for k := range d {
+				s := table[order[k]]
+				pfx := commonPrefixLen(prevS, s)
+				out = appendUvarint(out, uint64(pfx))
+				out = appendUvarint(out, uint64(len(s)-pfx))
+				out = append(out, s[pfx:]...)
+				prevS = s
+			}
+			for i := range idx { // remap row indices into the sorted table
+				idx[i] = uint64(inv[idx[i]])
+			}
 		}
-	} else {
+	}
+	if !useFC {
 		out = append(out, tagColStrDict)
 		out = appendUvarint(out, uint64(d))
 		for _, s := range table {
