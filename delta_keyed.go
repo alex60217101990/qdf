@@ -75,6 +75,63 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 		return diffSlice(enc, td, oldP, newP, depth)
 	}
 
+	// Never-larger picker (docs/DELTA.md:86). The keyed patch wins big on a
+	// reorder (preserved elements cost nothing) but LOSES on high key turnover:
+	// the new-order key list plus the full per-op replaces expand past — and on
+	// full rotation even past a full re-encode — the positional alternative. So
+	// build both bodies and keep the smaller, mirroring diffColumnar.
+	//
+	// Building a discarded candidate would normally leak intern definitions
+	// (ids whose wire defs are thrown away → a later state-ref dangles), the
+	// trap diffColumnar dodges via a wire-stateless string column. A keyed
+	// element diff recurses through arbitrary value codecs, so that trick does
+	// not generalise; instead suspend interning for the whole trial. Both
+	// candidates and the kept winner are then wire-stateless, the size compare
+	// is exact, and the only intern substate a suspended body mutates is lastID
+	// (captured after the positional build, restored if positional wins).
+	prevSuspended := enc.stateSuspended
+	enc.stateSuspended = true
+	defer func() { enc.stateSuspended = prevSuspended }()
+
+	posStart := len(enc.buf)
+	if err := diffSlice(enc, td, oldP, newP, depth); err != nil {
+		return err
+	}
+	posLen := len(enc.buf) - posStart
+	posEndLastID, haveLast := uint32(0), enc.state != nil
+	if haveLast {
+		posEndLastID = enc.state.lastID
+	}
+
+	// Build the keyed body APPENDED after the positional one, using enc.buf
+	// itself as scratch (no extra allocation): keep whichever is smaller.
+	keyedStart := len(enc.buf)
+	if err := encodeKeyedSlicePatch(enc, elem, oh, nh, stride, lookup, oldKeyAt, newKeyAt, depth); err != nil {
+		return err
+	}
+	keyedLen := len(enc.buf) - keyedStart
+
+	if keyedLen < posLen {
+		// Shift the keyed body down over the positional one. lastID already
+		// reflects the keyed build (emitted last), matching the kept body.
+		copy(enc.buf[posStart:], enc.buf[keyedStart:])
+		enc.buf = enc.buf[:posStart+keyedLen]
+	} else {
+		// Positional wins; drop the trailing keyed body and restore lastID to
+		// its post-positional value so it tracks the bytes the decoder will read.
+		enc.buf = enc.buf[:keyedStart]
+		if haveLast {
+			enc.state.lastID = posEndLastID
+		}
+	}
+	return nil
+}
+
+// encodeKeyedSlicePatch writes a tagKeyedSlicePatch body: an optional new-order
+// key list (when the key sequence changed) followed by the per-key ops. Factored
+// out of diffKeyedSlice so the never-larger picker can build it as one candidate.
+func encodeKeyedSlicePatch(enc *Encoder, elem *typeDesc, oh, nh *sliceHeader, stride uintptr,
+	lookup keyLookup, oldKeyAt, newKeyAt func(int) string, depth int) error {
 	orderChanged := oh.Len != nh.Len
 	if !orderChanged {
 		for i := range nh.Len {

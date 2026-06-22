@@ -222,7 +222,7 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// OptCompression). Without FSST a hybrid plan falls through to row-major,
 		// byte-identical to today (no regression). Intern-aware Balanced hybrid is
 		// a follow-up.
-		if colPlan != nil && n >= columnarMinElems && e.state != nil &&
+		if colPlan != nil && n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
 			pure := colPlan.residual == nil
 			if (pure || e.fsst) && columnarProbe(colPlan, hdr.Data, n, e.fsst, e.fsstDict) {
@@ -474,7 +474,7 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		if n > 0 && e.opts.Has(OptCanonical) {
 			return e.encodeMapCanonical(rv, keyType, valType, k, v)
 		}
-		if stringKey && n > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+		if stringKey && n > 0 && e.state != nil && !e.stateSuspended && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 			return e.encodeStringMapShaped(rv, keyType, valType, v)
 		}
 		e.WriteMapHeader(n)
@@ -1013,7 +1013,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 		// falls back to the tagMap8/16/32 encoding so the rest of the
 		// state stack (intern + Markov / MTF / Pair) still applies
 		// per-field.
-		if e.opts.Has(OptDense) && e.state != nil && e.opts.Has(OptShapeIntern) {
+		if e.opts.Has(OptDense) && e.state != nil && !e.stateSuspended && e.opts.Has(OptShapeIntern) {
 			if id := e.state.shapeForType(td); id != 0 {
 				e.buf = append(e.buf, tagMapShape)
 				e.buf = appendUvarint(e.buf, uint64(id))
@@ -1075,7 +1075,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			pairOn := e.pairPred
 			for i := range fields {
 				f := &fields[i]
-				if len(f.name) >= e.minIntern && int(st.internLoad) < e.maxStateEntries {
+				if len(f.name) >= e.minIntern && !e.stateSuspended && int(st.internLoad) < e.maxStateEntries {
 					if id, ok := st.lookupOrAssign(f.name); ok {
 						if st.lastID == id {
 							e.buf = append(e.buf, tagStateRepeat)
