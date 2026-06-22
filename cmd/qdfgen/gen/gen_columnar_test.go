@@ -13,15 +13,15 @@ import (
 // diverging from the reflect path (mirrors reflect commit 9c6f524). A plain
 // all-scalar element must still be columnar-transposed (guard must not over-fire).
 func TestColumnarSkipsCustomCodecElem(t *testing.T) {
-	gen := func(t *testing.T, typeName string) string {
+	gen := func(t *testing.T, types ...string) string {
 		t.Helper()
 		out := filepath.Join(t.TempDir(), "out.go")
 		err := Generate([]string{"./testdata/customcodec"}, Options{
-			Types:   []string{typeName},
+			Types:   types,
 			OutFile: out,
 		})
 		if err != nil {
-			t.Fatalf("Generate(%s): %v", typeName, err)
+			t.Fatalf("Generate(%v): %v", types, err)
 		}
 		b, err := os.ReadFile(out)
 		if err != nil {
@@ -41,7 +41,9 @@ func TestColumnarSkipsCustomCodecElem(t *testing.T) {
 	})
 
 	t.Run("plain_elem_is_columnar", func(t *testing.T) {
-		src := gen(t, "PlainHolder")
+		// PlainElem must also be a target: the columnar field's row-major fallback
+		// (len < columnarMinElems) encodes each element via EncodeNested.
+		src := gen(t, "PlainHolder", "PlainElem")
 		if !strings.Contains(src, "WriteColStructHeader") {
 			t.Fatalf("PlainHolder should columnar-transpose its plain all-scalar element:\n%s", src)
 		}
@@ -53,7 +55,10 @@ func TestColumnarSkipsCustomCodecElem(t *testing.T) {
 	// (*B, not *byte) and `[]B([]byte(...))` (an illegal conversion) — neither
 	// compiles. It must fall through to the generic per-element encoder.
 	t.Run("defined_byte_elem_slice_not_bytes_column", func(t *testing.T) {
-		src := gen(t, "NamedByteHolder")
+		// NamedByteElem is a nested struct, so it must itself be a target (else
+		// qdfgen now rejects the row-major EncodeNested against a non-generated
+		// type — see TestNestedNonTargetStructErrors).
+		src := gen(t, "NamedByteHolder", "NamedByteElem")
 		// The broken Bytes-column emit dereferences the field via unsafe.SliceData;
 		// the generic row-major path uses WriteArrayHeader instead.
 		if strings.Contains(src, "unsafe.SliceData(") && strings.Contains(src, ".Data") {
