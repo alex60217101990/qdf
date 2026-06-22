@@ -18,8 +18,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Least-privilege default; the release job elevates contents to write.
 permissions:
-  contents: write # create the GitHub release and (on dispatch) push the tag
+  contents: read
 
 env:
   GOEXPERIMENT: simd
@@ -28,12 +29,14 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and (on dispatch) push the tag
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0 # full history + tags for --generate-notes
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true

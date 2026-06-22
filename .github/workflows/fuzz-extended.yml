@@ -23,16 +23,16 @@ jobs:
       matrix:
         target: [FuzzDecoder_NeverPanics, FuzzRoundTrip_StringSlice]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
           cache-dependency-path: go.sum
 
       - name: Restore build cache
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cache/go-build
           key: gocache-fuzz-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/*.go') }}
@@ -40,7 +40,7 @@ jobs:
             gocache-fuzz-${{ runner.os }}-
 
       - name: Restore fuzz corpus
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: testdata/fuzz/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
@@ -59,7 +59,7 @@ jobs:
 
       - name: Upload new corpus on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           path: testdata/fuzz/${{ matrix.target }}
