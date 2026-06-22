@@ -185,6 +185,9 @@ func TestRegisterIdMatchesDiffBaseFP(t *testing.T) {
 	if got := r.Len(); got != 1 {
 		t.Fatalf("Len() = %d, want 1", got)
 	}
+	// The registry holds v only through a weak.Pointer; keep it reachable
+	// across Len() or -race GC may reclaim it and Len() prunes to 0.
+	runtime.KeepAlive(v)
 }
 
 func TestBaselineApplyHappyPath(t *testing.T) {
