@@ -327,6 +327,13 @@ paths, stack traces. The whole-string dictionary codec (`tagColStrDict`)
 can't help here (too many distinct values to win), but the values are not
 random either — they share common prefixes, hostnames, method names, etc.
 
+> For columns that *do* fit the dictionary (≤ 256 distinct) **and** share
+> prefixes — SID / path / DN / URL enums — the front-coded dictionary
+> (`tagColStrDictFC`, `0xFA`) fires automatically under `OptBalanced`+,
+> sorting the table and storing `sharedPrefixLen + suffix` per entry. It is
+> never-larger and needs no flag; FSST below targets the *high*-cardinality
+> case the dictionary can't reach.
+
 **Reach for `OptCompression`** (bundles `OptFSST` together with
 Gorilla/ALP/rANS):
 

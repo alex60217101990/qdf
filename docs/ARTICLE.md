@@ -125,7 +125,7 @@ state and codecs:
 0xE0‥0xEA   intern + state-refs        ← Dense mode
 0xE3‥0xEF   QPack numeric codecs       ← per-slice
 0xEF / 0xF7 columnar struct (pure / hybrid)
-0xF4‥0xF9   ALP floats, string columns, timestamp
+0xF4‥0xFA   ALP floats, string columns (dict / FSST / raw / const / front-coded), timestamp
 ```
 
 `"hi"` is `0x82 'h' 'i'` — three bytes, no quotes, no separate length.
@@ -207,8 +207,11 @@ row-major (per record)            columnar (per column)
 └────┴──────┴────────┘            ↑ one codec per column, not per row
 ```
 
-String columns pick their own form: **dictionary** (low cardinality), **constant** (all
-rows equal), **FSST** (substring-sharing text), or a bulk raw blob decoded in one alloc.
+String columns pick their own form: **dictionary** (low cardinality), **front-coded
+dictionary** (`0xFA`, prefix-shared distinct values — SID / path / DN / URL columns —
+sorted with `sharedPrefixLen + suffix` per entry; −36.5 % on real AD tables, up to
+−92.6 % on SID columns), **constant** (all rows equal), **FSST** (substring-sharing
+text), or a bulk raw blob decoded in one alloc.
 A *hybrid* frame (`0xF7`) keeps eligible fields columnar and leaves residual fields
 (nested structs, maps) row-major in the same frame.
 

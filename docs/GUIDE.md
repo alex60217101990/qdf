@@ -201,6 +201,7 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xF7  tagHybridColStruct (QPack)  hybrid columnar container (mixed []struct)
 0xF8  tagColStrRaw      (QPack)   bulk-slab string column (inside columnar)
 0xF9  tagColStrConst    (QPack)   constant string column (inside columnar)
+0xFA  tagColStrDictFC   (QPack)   front-coded dictionary string column (inside columnar)
 ```
 
 Tags 0xFA..0xFF are reserved.
@@ -567,6 +568,7 @@ slice; the decoder reads the picked tag.
 0xED  tagPackDict      []intN       Dictionary-coded; ≤64 distinct values
 0xEE  tagPackPFor      []intN       Patched FOR: narrow body + outlier exceptions
 0xF5  tagColStrDict    []string col Dictionary-coded string column (distinct table + bit-packed index/row)
+0xFA  tagColStrDictFC  []string col Front-coded dictionary string column (sorted table, sharedPrefixLen + suffix per entry)
 ```
 
 Selection logic:
@@ -691,6 +693,15 @@ the encoder transposes the slice:
   enum-like columns (log level, service, region, status) win while
   run-heavy or high-cardinality columns keep the per-value path. `[]byte`
   columns are always emitted as M consecutive inline values.
+- When the dictionary's distinct values share prefixes (SID / path / DN /
+  URL columns), the table is sorted and **front-coded** (`tagColStrDictFC`,
+  0xFA): each entry stores `sharedPrefixLen + suffix` instead of the full
+  string. The index body is byte-identical to `tagColStrDict`, so it is
+  emitted only when the front-coded table is strictly smaller — never a
+  regression. The decision is gated on a free global-common-prefix signal,
+  so non-prefix columns skip the sort entirely (no CPU cost). The decoder
+  rebuilds the whole table into one slab allocation. Measured −36.5% on
+  real AD dictionary tables (Windows-SID −92.6%, paths/DNs 50–66%).
 - The remaining string/`[]byte` per-value emissions go through the
   normal intern path; repeated values collapse to state-refs.
 - An optional (`*T`) field whose `T` is a scalar (`int*`/`uint*`/
