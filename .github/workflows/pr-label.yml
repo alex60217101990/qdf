@@ -1,0 +1,104 @@
+# Labels a PR from its Conventional Commit title prefix.
+#
+# The type token in front of the title — `feat`, `fix`, `perf`, ... in
+# `type(scope)!: subject` — is mapped to a colored label. The label is
+# created (or its color/description refreshed) on demand, applied to the PR,
+# and any previously-applied type label is removed so editing the title from
+# `fix:` to `perf:` swaps the label instead of stacking both.
+#
+# Security: pull_request_target gives the write token needed to manage labels
+# (a fork PR's pull_request token is read-only). The only PR-authored input is
+# the title, which is matched against a fixed type→label map and never executed
+# or interpolated into a shell — an unknown prefix is a no-op.
+name: pr-label
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: pr-label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: label from title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            // Conventional Commit type -> label name, color (6-hex, no '#'),
+            // and description. This is the single source of truth for the
+            // managed type labels; edit the colors here.
+            const LABELS = {
+              feat:     { color: '0E8A16', description: 'New feature' },
+              fix:      { color: 'D93F0B', description: 'Bug fix' },
+              perf:     { color: 'C5DEF5', description: 'Performance improvement' },
+              refactor: { color: '5319E7', description: 'Code refactor (no behavior change)' },
+              docs:     { color: '0075CA', description: 'Documentation only' },
+              test:     { color: 'FBCA04', description: 'Tests only' },
+              build:    { color: '1D76DB', description: 'Build system / dependencies' },
+              ci:       { color: 'BFD4F2', description: 'CI configuration' },
+              chore:    { color: 'CFD3D7', description: 'Chore / maintenance' },
+              style:    { color: 'F9D0C4', description: 'Formatting / style only' },
+              revert:   { color: 'B60205', description: 'Reverts a previous change' },
+            };
+
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const title = pr.title || '';
+
+            // Parse `type` from `type(optional-scope)!: subject`.
+            const m = title.match(/^([a-zA-Z]+)(\([^)]*\))?!?:/);
+            const type = m ? m[1].toLowerCase() : null;
+            if (!type || !LABELS[type]) {
+              core.info(`No managed type prefix in title: ${JSON.stringify(title)} — nothing to do.`);
+              return;
+            }
+
+            const spec = LABELS[type];
+            const managed = new Set(Object.keys(LABELS));
+
+            // Ensure the label exists with the desired color/description.
+            try {
+              const { data: existing } = await github.rest.issues.getLabel({ owner, repo, name: type });
+              if (existing.color !== spec.color || (existing.description || '') !== spec.description) {
+                await github.rest.issues.updateLabel({
+                  owner, repo, name: type, color: spec.color, description: spec.description,
+                });
+                core.info(`Updated label '${type}' (color/description).`);
+              }
+            } catch (e) {
+              if (e.status === 404) {
+                await github.rest.issues.createLabel({
+                  owner, repo, name: type, color: spec.color, description: spec.description,
+                });
+                core.info(`Created label '${type}'.`);
+              } else {
+                throw e;
+              }
+            }
+
+            // Remove stale managed type labels (so the title swap swaps the label).
+            const current = (pr.labels || []).map(l => l.name);
+            for (const name of current) {
+              if (name !== type && managed.has(name)) {
+                await github.rest.issues.removeLabel({
+                  owner, repo, issue_number: pr.number, name,
+                }).catch(() => {}); // tolerate a concurrent removal
+                core.info(`Removed stale label '${name}'.`);
+              }
+            }
+
+            // Apply the type label (idempotent).
+            if (!current.includes(type)) {
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number: pr.number, labels: [type],
+              });
+              core.info(`Applied label '${type}'.`);
+            }
