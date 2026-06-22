@@ -927,6 +927,23 @@ func (e *Encoder) StructShape(token *byte, fieldHdrs [][]byte) {
 		e.state = newEncState()
 	}
 	st := e.state
+	if e.stateSuspended {
+		// Inside a never-larger trial (diffKeyedSlice / diffColumnar): emit a
+		// self-contained declaration every time and never bind or reference a
+		// token. A bound id whose declaration is thrown away with the losing
+		// candidate would dangle (ErrUnknownStateID) — the same leak the trial
+		// suspends interning to avoid. Still advance the shape counter so it
+		// tracks the decoder (which registers a shape per declaration it reads);
+		// the trial re-bases the counter for the discarded candidate.
+		st.shapeDeclareEnc()
+		e.buf = append(e.buf, tagMapShape)
+		e.buf = appendUvarint(e.buf, 0) // 0 ⇒ declaration follows
+		e.buf = appendUvarint(e.buf, uint64(len(fieldHdrs)))
+		for _, h := range fieldHdrs {
+			e.buf = append(e.buf, h...)
+		}
+		return
+	}
 	if id := st.shapeForToken(token); id != 0 {
 		e.buf = append(e.buf, tagMapShape)
 		e.buf = appendUvarint(e.buf, uint64(id))
