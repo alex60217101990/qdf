@@ -128,3 +128,76 @@ func TestFrontCodedDictEdge(t *testing.T) {
 	b := fcMarshalRows(t, vals)
 	fcRoundTrip(t, vals, b) // FC may or may not fire; either way must round-trip
 }
+
+// TestFrontCodedRoundTripOracle is a randomized round-trip oracle for the string
+// dictionary: many column shapes exercise the front-coded path (prefix-shared)
+// and the plain path (random), plus edges — empty strings, an entry that is a
+// prefix of another, duplicates, and cardinality straddling the dict cap.
+func TestFrontCodedRoundTripOracle(t *testing.T) {
+	rng := func(seed uint64) func(int) int {
+		s := seed
+		return func(n int) int {
+			s = s*6364136223846793005 + 1
+			if n <= 0 {
+				return 0
+			}
+			return int((s >> 33) % uint64(n))
+		}
+	}
+	prefixes := []string{"S-1-5-21-dom-", `C:\Win\Sys32\`, "/api/v1/svc/", "CN=u,OU=E,DC=c,", "", "x"}
+	for seed := uint64(1); seed <= 4000; seed++ {
+		r := rng(seed)
+		pfx := prefixes[r(len(prefixes))]
+		card := 1 + r(260)
+		pool := make([]string, card)
+		for i := range pool {
+			suf := ""
+			for j := 0; j < r(6); j++ {
+				suf += string(rune('a' + r(26)))
+			}
+			pool[i] = pfx + suf
+			switch {
+			case r(20) == 0:
+				pool[i] = pfx // prefix-of-another / dup
+			case r(30) == 0:
+				pool[i] = "" // empty
+			}
+		}
+		nrows := r(300)
+		rows := make([]fcRow, nrows)
+		for i := range rows {
+			rows[i] = fcRow{int64(i), pool[r(len(pool))]}
+		}
+		b, err := Marshal(rows, OptBalanced)
+		if err != nil {
+			t.Fatalf("seed %d: Marshal: %v", seed, err)
+		}
+		var got []fcRow
+		if err := Unmarshal(b, &got); err != nil {
+			t.Fatalf("seed %d: Unmarshal: %v", seed, err)
+		}
+		if !reflect.DeepEqual(got, rows) {
+			t.Fatalf("seed %d: round-trip mismatch (pfx=%q card=%d nrows=%d)", seed, pfx, card, nrows)
+		}
+	}
+}
+
+// FuzzFrontCodedHostile feeds mutated bytes into a columnar decode seeded with a
+// front-coded string column: a hostile tagColStrDictFC frame must never panic or
+// OOM, only error.
+func FuzzFrontCodedHostile(f *testing.F) {
+	pool := make([]string, 50)
+	for i := range pool {
+		pool[i] = "shared-prefix-value-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+	}
+	rows := make([]fcRow, 100)
+	for i := range rows {
+		rows[i] = fcRow{int64(i), pool[i%50]}
+	}
+	seed, _ := Marshal(rows, OptBalanced)
+	f.Add(seed)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		var out []fcRow
+		_ = Unmarshal(b, &out) // must not panic / OOM
+	})
+}
