@@ -760,6 +760,9 @@ func (g *gen) emitEncodeNamed(w io.Writer, expr string, n *types.Named, indent s
 		// encoder allocated). expr is always addressable (a struct field,
 		// slice/array element, map range var, or pointer deref), so take its
 		// address directly — EncodeQDF only reads the receiver.
+		if !g.canEncodeNested(n) {
+			return g.nestedStructErr(n, "encode")
+		}
 		fmt.Fprintf(w, "%sif err := qdf.EncodeNested(e, &%s); err != nil {\n%s\treturn err\n%s}\n", indent, expr, indent, indent)
 		return nil
 	case *types.Slice, *types.Array, *types.Map, *types.Pointer:
@@ -779,6 +782,9 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 		fmt.Fprintf(w, "%s\t{ _t := (*%s).UTC(); e.WriteTimestamp(_t.Unix(), uint32(_t.Nanosecond())) }\n", indent, expr)
 	} else if named, ok := elem.(*types.Named); ok {
 		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
+			if !g.canEncodeNested(named) {
+				return g.nestedStructErr(named, "encode")
+			}
 			fmt.Fprintf(w, "%s\tif err := qdf.EncodeNested(e, %s); err != nil {\n%s\t\treturn err\n%s\t}\n", indent, expr, indent, indent)
 		} else {
 			if err := g.emitEncodeValue(w, "(*"+expr+")", named.Underlying(), indent+"\t"); err != nil {
@@ -921,6 +927,29 @@ func hasMethod(t types.Type, name string) bool {
 		}
 	}
 	return false
+}
+
+// nestedStructErr reports a nested struct that qdfgen would emit a
+// qdf.EncodeNested/DecodeNested call against but that implements neither codec
+// side: it is not a -type target (so no codec is generated for it) and carries
+// no hand-written MarshalQDF/UnmarshalQDF. Without this check the generated file
+// fails to compile with an opaque "does not implement qdf.Marshaler" error far
+// from its cause; here we name the missing -type entry instead.
+func (g *gen) nestedStructErr(n *types.Named, dir string) error {
+	return fmt.Errorf("%s: nested struct type %q is neither a -type target nor a type with a hand-written %s codec; add %q to the -type list (or give it a codec)",
+		dir, n.Obj().Name(), map[string]string{"encode": "MarshalQDF", "decode": "UnmarshalQDF"}[dir], n.Obj().Name())
+}
+
+// canEncodeNested reports whether a nested named struct will satisfy qdf.Marshaler
+// in the generated code — either qdfgen generates its codec (it is a target) or it
+// already has a hand-written one.
+func (g *gen) canEncodeNested(n *types.Named) bool {
+	return g.targets[n.Obj().Name()] || hasMethod(n, "MarshalQDF")
+}
+
+// canDecodeNested is canEncodeNested's decode-side mirror (qdf.Unmarshaler).
+func (g *gen) canDecodeNested(n *types.Named) bool {
+	return g.targets[n.Obj().Name()] || hasMethod(n, "UnmarshalQDF")
 }
 
 // classifyColField maps a struct field to its columnar column descriptor, or
@@ -1481,6 +1510,9 @@ func (g *gen) emitDecodeNamed(w io.Writer, lhs string, n *types.Named, indent st
 	case *types.Struct:
 		// Nested struct: thread the shared decoder (no new decoder; the nested
 		// DecodeQDF inherits d's noCopy / arena).
+		if !g.canDecodeNested(n) {
+			return g.nestedStructErr(n, "decode")
+		}
 		fmt.Fprintf(w, "%sif err := qdf.DecodeNested(d, &%s); err != nil {\n%s\treturn err\n%s}\n", indent, lhs, indent, indent)
 		return nil
 	case *types.Slice, *types.Array, *types.Map, *types.Pointer:
@@ -1507,6 +1539,9 @@ func (g *gen) emitDecodePointer(w io.Writer, lhs string, p *types.Pointer, inden
 		fmt.Fprintf(w, "%s\t\t%s = &t\n", indent, lhs)
 	} else if named, ok := elem.(*types.Named); ok {
 		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
+			if !g.canDecodeNested(named) {
+				return g.nestedStructErr(named, "decode")
+			}
 			fmt.Fprintf(w, "%s\t\t%s = new(%s)\n", indent, lhs, g.typeRef(named))
 			fmt.Fprintf(w, "%s\t\tif err := qdf.DecodeNested(d, %s); err != nil {\n%s\t\t\treturn err\n%s\t\t}\n", indent, lhs, indent, indent)
 		} else {
