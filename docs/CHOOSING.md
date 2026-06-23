@@ -334,6 +334,16 @@ random either — they share common prefixes, hostnames, method names, etc.
 > never-larger and needs no flag; FSST below targets the *high*-cardinality
 > case the dictionary can't reach.
 
+> For high-cardinality columns whose values are drawn from a **small
+> alphabet** — hex / base32 / base64 / decimal IDs (trace, span, request IDs,
+> hashes, GUIDs) — the alphabet-packed codec (`tagColStrAlpha`, `0xFB`) fires
+> automatically under `OptBalanced`+, storing each character in
+> `ceil(log2 |A|)` bits instead of 8 (hex halves the column). This is the one
+> class the dictionary (too many distinct), front-coding (no shared prefix)
+> and FSST (random hex has few shared substrings) all miss — and it needs no
+> `OptCompression`/rANS, so it wins on the Balanced tier at no CPU cost.
+> Never-larger, no flag.
+
 **Reach for `OptCompression`** (bundles `OptFSST` together with
 Gorilla/ALP/rANS):
 
