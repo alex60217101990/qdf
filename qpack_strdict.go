@@ -16,10 +16,13 @@ import (
 // ceil(log2 distinct) bits. Wire format documented at tagColStrDict.
 //
 // The codec is gated so it never grows the wire: it is chosen only when the
-// bitpacked index body is smaller than the per-value run cost (one byte per
-// run boundary is the floor for the interned/repeat path). Run-heavy
-// (clustered) columns keep the per-value path, which repeat-codes runs more
-// cheaply than a flat index.
+// bitpacked index body is smaller than the per-value floor of n bytes (the
+// gathered-column fallback emits at least a 1-byte string/intern-ref tag per
+// row and does NOT run-length-collapse consecutive identical rows). Because the
+// distinct count is capped at 256, the index spends at most 8 bits/row, so a
+// bitpacked index beats per-value refs for every column the high-cardinality
+// probe does not already reject — including skewed (clustered) low-card columns,
+// which an earlier run-count floor wrongly sent to the per-value path.
 
 const (
 	// qpackStrDictMaxDistinct caps the distinct count. 256 keeps the index
@@ -36,7 +39,7 @@ const (
 
 // tryWriteStringColumnDict attempts to emit strs as a tagColStrDict block.
 // It returns true when the dictionary form was written (and is strictly
-// smaller than the per-value run floor), false when the caller should fall
+// smaller than the per-value n-byte floor), false when the caller should fall
 // back to per-value WriteString. Encode-side scratch is reused across
 // columns to avoid per-column allocation.
 func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
@@ -53,8 +56,6 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	}
 	table := e.state.colDictTable[:0]
 	idx := e.state.colScratchU64[:0]
-	runs := 0
-	prev := ^uint32(0)
 	// gp tracks the longest byte prefix shared by EVERY distinct value, computed
 	// for free as the table is built (no sort, no extra pass). It is a sort-free
 	// signal for the front-coded table form: gp >= 2 guarantees the front-coded
@@ -80,10 +81,6 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 			}
 		}
 		idx = append(idx, uint64(id))
-		if id != prev {
-			runs++
-		}
-		prev = id
 		// High-cardinality bail: after the sample, if the column is mostly
 		// distinct it will not dict-compress — stop before scanning the rest.
 		if i+1 == qpackStrDictSampleN && len(m)*100 > qpackStrDictSampleN*qpackStrDictSampleMaxPct {
@@ -108,11 +105,19 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	bits := bitsForDistinct(d)
 	bodyBytes := (n*bits + 7) >> 3
 	// Never-worse gate. The distinct table bytes are paid by both forms (the
-	// per-value path emits each distinct string once too), so they cancel;
-	// compare only the dict's fixed overhead + index body against the
-	// per-value run floor (>= 1 byte per run boundary).
+	// per-value fallback emits each distinct string once too), so they cancel;
+	// compare only the dict's fixed overhead + index body against the per-value
+	// floor. That floor is n, not the run count: the gathered-column fallback is
+	// a per-value loop (writeStringColumn) that does NOT run-length-collapse
+	// consecutive identical rows — each of the n rows emits at least a 1-byte
+	// string/intern-ref tag, so the fallback costs >= n bytes after the table
+	// cancels. (An earlier `runs` floor assumed RLE collapse that never happens;
+	// it wrongly rejected dict for skewed low-card columns whose dominant value
+	// clusters into few runs, bloating them ~2-3x.) Since distinct <= 256, the
+	// index spends <= 8 bits/row, so a bitpacked index strictly beats 1-byte refs
+	// for every d < 256 and ties (rejects) at d == 256 — exactly the n floor.
 	overhead := 1 + uvarintLen(uint64(d)) + uvarintLen(uint64(n))
-	if bodyBytes+overhead >= runs {
+	if bodyBytes+overhead >= n {
 		return false
 	}
 
