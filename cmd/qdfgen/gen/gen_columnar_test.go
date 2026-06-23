@@ -49,6 +49,21 @@ func TestColumnarSkipsCustomCodecElem(t *testing.T) {
 		}
 	})
 
+	t.Run("ptr_codec_field_routes_through_codec", func(t *testing.T) {
+		// A *Tag field (named non-struct with a hand-written codec) must encode AND
+		// decode through the custom codec. PtrCodecHolder has only this one field
+		// and no nested structs, so the sole EncodeNested/DecodeNested in the output
+		// is its codec routing. Pre-fix the encode side bypassed MarshalQDF (wrote a
+		// bare string) while decode used UnmarshalQDF — so EncodeNested was absent.
+		src := gen(t, "PtrCodecHolder")
+		if !strings.Contains(src, "EncodeNested") {
+			t.Fatalf("*Tag field encode bypassed its MarshalQDF (no EncodeNested); diverges from the DecodeNested decode side:\n%s", src)
+		}
+		if !strings.Contains(src, "DecodeNested") {
+			t.Fatalf("*Tag field decode missing DecodeNested:\n%s", src)
+		}
+	})
+
 	// A []struct element with a defined-byte-element slice field (`type B byte;
 	// []B`) must NOT classify that field as a columnar Bytes column: the Bytes
 	// emit assumes a literal []byte and would generate `unsafe.SliceData([]B)`

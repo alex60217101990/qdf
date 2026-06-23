@@ -74,3 +74,11 @@ func (t *Tag) UnmarshalQDF(src []byte) (int, error) {
 type NamedCodecHolder struct {
 	Label Tag `qdf:"label"`
 }
+
+// PtrCodecHolder holds a POINTER to the named-non-struct codec type. The encode
+// side must route *Tag through its MarshalQDF (EncodeNested), exactly as the
+// value-field path and the decode side (DecodeNested) do; otherwise encode writes
+// a bare string while decode reads it back through UnmarshalQDF — a corruption.
+type PtrCodecHolder struct {
+	Label *Tag `qdf:"label"`
+}

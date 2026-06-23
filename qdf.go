@@ -547,6 +547,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool, arena *Arena)
 	dec.noCopy = noCopy
 	dec.arena = arena
 	dec.selectFields = fields
+	dec.query = nil        // parity with UnmarshalT / SetInput: never inherit a prior query decode's plan from the shared pool
 	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
