@@ -224,14 +224,14 @@ func TestStringColumnsBeneficial(t *testing.T) {
 	for i := range lowCard {
 		lowCard[i] = []string{"GET", "POST", "PUT"}[i%3]
 	}
-	if !stringColumnsBeneficial(lowCard) {
+	if !stringColumnsBeneficial(false, lowCard) {
 		t.Fatal("low-cardinality string column should be columnar-beneficial")
 	}
 	highCard := make([]string, 64)
 	for i := range highCard {
 		highCard[i] = "unique-value-" + string(rune('a'+i%26)) + string(rune('0'+i%10)) + string(rune('A'+(i*7)%26))
 	}
-	if stringColumnsBeneficial(highCard) {
+	if stringColumnsBeneficial(false, highCard) {
 		t.Fatal("high-cardinality string column should stay row-major")
 	}
 }
