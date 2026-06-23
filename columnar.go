@@ -498,6 +498,17 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			}
 			dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
 			best := min(perValue, dictBytes)
+			// NOTE: the probe deliberately does NOT model alpha-packing. Modelling
+			// it shifts the columnar-vs-row-major boundary and flips borderline
+			// structs (pure single-string columns, prefix-shared dict columns) into
+			// columnar that row-major / front-coding encode more cheaply. Alpha only
+			// needs the struct to reach columnar for OTHER reasons (a FOR-packable
+			// numeric or dict-able enum column does this on the trace/log payloads it
+			// targets); it then fires on the restricted-alphabet string columns via
+			// the never-larger emit picker. A struct whose only compressible signal
+			// is a restricted-alphabet ID stays row-major — a missed case traded for
+			// zero columnar-decision regression. Intern-aware Balanced hybrid (which
+			// would capture it) is the deferred follow-up noted in encodeSlice.
 			// FSST competes only when enabled (OptFSST). High-cardinality,
 			// substring-sharing columns (URLs, log lines) where dict and
 			// per-value both stay near raw are exactly where FSST wins — without

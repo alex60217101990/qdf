@@ -27,7 +27,19 @@ func (e *Encoder) writeStringColumn(strs []string) {
 	if e.tryWriteStringColumnDict(strs) {
 		return
 	}
+	// FSST runs first (when enabled): on substring-sharing text (URLs, paths, log
+	// lines) it beats positional packing, and it declines (never-larger) on random
+	// restricted-alphabet IDs — no shared substrings — so those fall through to
+	// alphabet-packing next. Alpha-packing sits before raw: on a restricted-
+	// alphabet high-cardinality column (hex/base32/base64/decimal IDs) it stores
+	// ceil(log2 |A|) bits/char instead of 8. Its own never-larger gate declines
+	// (cheaply, after a one-pass alphabet scan that bails the moment |A| exceeds
+	// 64) on everything else, so non-ID columns keep their existing form with no
+	// wire/CPU regression.
 	if e.fsst && e.tryWriteStringColumnFSST(strs) {
+		return
+	}
+	if e.tryWriteStringColumnAlpha(strs) {
 		return
 	}
 	if e.tryWriteStringColumnRaw(strs) {
