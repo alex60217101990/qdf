@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -151,11 +152,11 @@ func TestFrontCodedRoundTripOracle(t *testing.T) {
 		card := 1 + r(260)
 		pool := make([]string, card)
 		for i := range pool {
-			suf := ""
+			var suf strings.Builder
 			for j := 0; j < r(6); j++ {
-				suf += string(rune('a' + r(26)))
+				suf.WriteString(string(rune('a' + r(26))))
 			}
-			pool[i] = pfx + suf
+			pool[i] = pfx + suf.String()
 			switch {
 			case r(20) == 0:
 				pool[i] = pfx // prefix-of-another / dup

@@ -7,7 +7,7 @@ import (
 
 // hex4Ref is an independent byte-at-a-time reference for DecodeHex4.
 func hex4Ref(dst, src []byte, lut *[16]byte) {
-	for k := 0; k < len(dst); k++ {
+	for k := range dst {
 		b := src[k>>1]
 		if k&1 == 0 {
 			dst[k] = lut[b&0x0f]
