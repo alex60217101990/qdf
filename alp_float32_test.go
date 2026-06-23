@@ -60,7 +60,7 @@ func TestALPFloat32Fires(t *testing.T) {
 // bit-exactly via the exception list.
 func TestALPFloat32Exceptions(t *testing.T) {
 	r := rand.New(rand.NewSource(5))
-	for iter := 0; iter < 200; iter++ {
+	for iter := range 200 {
 		n := 16 + r.Intn(300)
 		v := make([]float32, n)
 		for i := range v {
