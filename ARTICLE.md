@@ -125,7 +125,7 @@ state and codecs:
 0xE0‥0xEA   intern + state-refs        ← Dense mode
 0xE3‥0xEF   QPack numeric codecs       ← per-slice
 0xEF / 0xF7 columnar struct (pure / hybrid)
-0xF4‥0xFA   ALP floats, string columns (dict / FSST / raw / const / front-coded), timestamp
+0xF4‥0xFB   ALP floats, string columns (dict / FSST / raw / const / front-coded / alphabet-packed), timestamp
 ```
 
 `"hi"` is `0x82 'h' 'i'` — three bytes, no quotes, no separate length.
