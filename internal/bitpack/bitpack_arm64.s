@@ -117,3 +117,39 @@ loop_v2:
 
 done_v2:
 	RET
+
+// func decodeHex4NEON(dst []byte, src []byte, lut *[16]byte, blocks int)
+//
+// Expands a 4-bit nibble stream src into bytes via the 16-entry lut, two output
+// bytes per src byte (dst[2i]=lut[src[i]&0xf], dst[2i+1]=lut[src[i]>>4]). Each
+// iteration loads 16 src bytes and writes 32 dst bytes; `blocks` counts the
+// 16-byte groups. The caller handles the sub-16 / odd tail scalar.
+//
+// V3 = lut, V4 = 0x0f mask. Per chunk: V1 = low nibbles (AND), V2 = high nibbles
+// (USHR #4), TBL maps each through the lut, ZIP1/ZIP2 interleave lo,hi,lo,hi.
+TEXT ·decodeHex4NEON(SB), NOSPLIT, $0-64
+	MOVD    dst_base+0(FP), R0
+	MOVD    src_base+24(FP), R1
+	MOVD    lut+48(FP), R2
+	MOVD    blocks+56(FP), R3
+	VLD1    (R2), [V3.B16]
+	MOVD    $0x0f0f0f0f0f0f0f0f, R4
+	VDUP    R4, V4.D2
+
+loop_dh4:
+	CBZ     R3, done_dh4
+	VLD1    (R1), [V0.B16]
+	VAND    V4.B16, V0.B16, V1.B16
+	VUSHR   $4, V0.B16, V2.B16
+	VTBL    V1.B16, [V3.B16], V5.B16
+	VTBL    V2.B16, [V3.B16], V6.B16
+	VZIP1   V6.B16, V5.B16, V7.B16
+	VZIP2   V6.B16, V5.B16, V8.B16
+	VST1    [V7.B16, V8.B16], (R0)
+	ADD     $32, R0
+	ADD     $16, R1
+	SUB     $1, R3
+	B       loop_dh4
+
+done_dh4:
+	RET
