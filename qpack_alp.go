@@ -169,8 +169,11 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 		}
 		bodyBytes := (int(plan.width)*n + 7) / 8
 		base := len(out)
-		out = append(out, make([]byte, bodyBytes)...)
-		bitpack.Pack(out[base:], packed, int(plan.width))
+		// Extend into the capacity slices.Grow already reserved; bitpack.Pack
+		// overwrites every one of bodyBytes bytes, so no zero-fill is needed (a
+		// make([]byte, bodyBytes) here would alloc + zero a throwaway slice).
+		out = out[:base+bodyBytes]
+		bitpack.Pack(out[base:base+bodyBytes], packed, int(plan.width))
 	}
 
 	// Exception list.
@@ -310,8 +313,11 @@ func (e *Encoder) writePackedALPFloat32Slice(s []float32, plan alpFloatPlan) {
 		}
 		bodyBytes := (int(plan.width)*n + 7) / 8
 		base := len(out)
-		out = append(out, make([]byte, bodyBytes)...)
-		bitpack.Pack(out[base:], packed, int(plan.width))
+		// Extend into the capacity slices.Grow already reserved; bitpack.Pack
+		// overwrites every one of bodyBytes bytes, so no zero-fill is needed (a
+		// make([]byte, bodyBytes) here would alloc + zero a throwaway slice).
+		out = out[:base+bodyBytes]
+		bitpack.Pack(out[base:base+bodyBytes], packed, int(plan.width))
 	}
 
 	out = appendUvarint(out, uint64(plan.exc))
@@ -344,6 +350,11 @@ func (d *Decoder) readPackedALPFloat32Slice() ([]float32, error) {
 		return []float32{}, nil
 	}
 	if n64 > alpMaxElems {
+		return nil, ErrInvalidLength
+	}
+	// Bound by the columnar row count before make([]float32, n) (see the float64
+	// reader); no-op for standalone decode (colMaxLen==0).
+	if !d.colLenOK(n64) {
 		return nil, ErrInvalidLength
 	}
 	if d.i >= len(d.buf) {
@@ -439,6 +450,15 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 		return []float64{}, nil
 	}
 	if n64 > alpMaxElems {
+		return nil, ErrInvalidLength
+	}
+	// Inside a columnar float column the element count must equal the row count;
+	// gate before the make([]float64, n) below (mirrors readPackedGorillaHeader).
+	// The constant (width==0) path carries no per-element body, so without this a
+	// tiny header could claim alpMaxElems rows and force a ~128 MB allocation that
+	// only the post-decode len(s)!=n check would reject. Standalone decode has
+	// colMaxLen==0, so colLenOK is a no-op there (the alpMaxElems cap still holds).
+	if !d.colLenOK(n64) {
 		return nil, ErrInvalidLength
 	}
 	// Header: d(1), forMin zigzag-varuint, width(1).
