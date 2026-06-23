@@ -134,8 +134,18 @@ func (e *Encoder) WriteFloat32Column(s []float32) error {
 		st.colScratchU64 = make([]uint64, len(s))
 	}
 	u := st.colScratchU64[:len(s)]
-	for i, v := range s {
-		u[i] = uint64(math.Float32bits(v))
+	if e.opts.Has(OptCanonical) {
+		// Mirror the reflect colKindFloat32 path (columnar.go): under OptCanonical
+		// normalize -0.0 -> +0.0 and every NaN -> one quiet NaN so semantically
+		// equal columns are byte-identical. Without this the codegen wire diverged
+		// from reflect for -0.0/NaN columns under OptCanonical.
+		for i, v := range s {
+			u[i] = canonicalizeFloat32Bits(uint64(math.Float32bits(v)))
+		}
+	} else {
+		for i, v := range s {
+			u[i] = uint64(math.Float32bits(v))
+		}
 	}
 	st.colScratchU64 = u
 	return encodeSliceUint64(e, unsafe.Pointer(&u))
