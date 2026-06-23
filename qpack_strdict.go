@@ -200,7 +200,7 @@ func dictSampleHighCard(strs []string) bool {
 	sampleN := min(len(strs), qpackStrDictSampleN)
 	var seen [qpackStrDictSampleN]string
 	distinct := 0
-	for i := 0; i < sampleN; i++ {
+	for i := range sampleN {
 		s := strs[i]
 		fresh := true
 		for j := 0; j < distinct; j++ {
