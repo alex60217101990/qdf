@@ -261,6 +261,28 @@ const (
 	//        ⌈n·ceil(log2 d)/8⌉ LSB-first bitpacked indices into the sorted table
 	// sharedPrefixLen <= len(previous entry); entry 0 has prefixLen 0.
 	tagColStrDictFC = 0xFA
+
+	// tagColStrAlpha is an alphabet-aware bit-packed string column inside a
+	// tagColStruct payload: the high-cardinality, restricted-alphabet counterpart
+	// to tagColStrRaw. When every byte of every value is drawn from a small
+	// alphabet (|A| <= 64 — hex, base32, base64, decimal IDs: trace/span/request
+	// IDs, hashes, GUIDs), each character is stored in ceil(log2 |A|) bits via
+	// pure positional notation instead of 8: hex (|A|=16) halves the body. This
+	// is the one class dict (high-card), front-coding (no shared prefix) and FSST
+	// (high entropy, few shared substrings) all miss, and it is captured WITHOUT
+	// the rANS CPU cost, so it wins on the Balanced (rANS-off) tier.
+	//
+	// Wire:
+	//   0xFB,
+	//        varuint(a), a alphabet bytes,            // code k -> alphabet[k], a in [2,64]
+	//        varuint(n),                              // row count (cross-checked)
+	//        flags byte (bit0 = fixed length),
+	//        if fixedLen: varuint(L)  else: n varuint lengths,
+	//        ⌈(sum of lengths)·ceil(log2 a)/8⌉ LSB-first bitpacked char codes.
+	// Never-larger: emitted only when the packed body + header beats the raw
+	// per-value floor. a >= 2 keeps ceil(log2 a) >= 1 so the packed body is
+	// non-empty and the decode allocation is buffer-bounded.
+	tagColStrAlpha = 0xFB
 )
 
 // isStringColumnBlockTag reports whether b begins a self-describing string
@@ -269,7 +291,7 @@ const (
 // over a ReadString loop.
 func isStringColumnBlockTag(b byte) bool {
 	return b == tagColStrDict || b == tagColStrDictFC || b == tagColStrFSST ||
-		b == tagColStrRaw || b == tagColStrConst
+		b == tagColStrRaw || b == tagColStrConst || b == tagColStrAlpha
 }
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
