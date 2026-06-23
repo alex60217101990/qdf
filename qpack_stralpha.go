@@ -1,6 +1,8 @@
 package qdf
 
 import (
+	"slices"
+
 	"github.com/alex60217101990/qdf/internal/bitpack"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
@@ -133,13 +135,29 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 		}
 	}
 
+	// Grow without the make([]byte) zero-fill: every body byte is written below,
+	// so the (possibly stale) grown region needs no clearing.
 	start := len(out)
-	out = append(out, make([]byte, bodyBytes)...)
+	out = slices.Grow(out, bodyBytes)[:start+bodyBytes]
 	body := out[start : start+bodyBytes]
 	if cbits == 4 {
 		// Hex / 16-symbol alphabet — the dominant ID case. Pack two nibbles per
-		// byte directly (LSB-first: first char low, second char high), skipping the
-		// shift/accumulate window of the general path.
+		// byte (LSB-first: first char low, second char high).
+		if fixedLen && firstLen&1 == 0 {
+			// Fixed even length (32-char trace IDs, 16-char span IDs): every value
+			// is a whole number of bytes, so nibbles never straddle a value boundary
+			// — pack two-at-a-time with no carry branch.
+			pos := 0
+			for _, s := range strs {
+				for i := 0; i < len(s); i += 2 {
+					body[pos] = code[s[i]] | code[s[i+1]]<<4
+					pos++
+				}
+			}
+			e.buf = out
+			return true
+		}
+		// Variable or odd length: carry a pending low nibble across boundaries.
 		pos, pend := 0, -1
 		for _, s := range strs {
 			for i := 0; i < len(s); i++ {
