@@ -787,7 +787,15 @@ func (g *gen) emitEncodePointer(w io.Writer, expr string, p *types.Pointer, inde
 			}
 			fmt.Fprintf(w, "%s\tif err := qdf.EncodeNested(e, %s); err != nil {\n%s\t\treturn err\n%s\t}\n", indent, expr, indent, indent)
 		} else {
-			if err := g.emitEncodeValue(w, "(*"+expr+")", named.Underlying(), indent+"\t"); err != nil {
+			// Route the named element through emitEncodeNamed (NOT its underlying)
+			// so a named non-struct with a hand-written MarshalQDF is encoded via
+			// its codec, exactly as the value-field path and the decode side
+			// (emitDecodeNamed) already do. Passing named.Underlying() here bypassed
+			// the MarshalQDF check and wrote a bare scalar/slice/map, so a *Label
+			// field encoded around its codec while decode read it back through the
+			// codec — a round-trip corruption. emitEncodeNamed falls through to the
+			// same underlying encode when the type has no codec (behavior unchanged).
+			if err := g.emitEncodeNamed(w, "(*"+expr+")", named, indent+"\t"); err != nil {
 				return err
 			}
 		}
