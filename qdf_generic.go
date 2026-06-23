@@ -74,6 +74,11 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	// alias the input buffer; inheriting selectFields/query would mis-project.
 	dec.noCopy = false
 	dec.colIndex = false
+	// A generated columnar DecodeQDF that errors between ReadColStructHeader and
+	// ClearColMaxLen returns the pooled decoder with a stale colMaxLen; reset it
+	// so this decode's slice codecs are not spuriously clamped (mirrors the reset
+	// in unmarshal / unmarshalQuery — UnmarshalT shares the same decoder pool).
+	dec.colMaxLen = 0
 	dec.selectFields = nil
 	dec.query = nil
 	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
