@@ -178,7 +178,14 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 		// high-card sorted-prefix data whose index is near-uniform, where the
 		// picker cannot win, so the FC branch keeps the flat index.
 		codec, mn, forBits, first, minDelta, deltaBits, pforBits, qCost := pickU64Codec(idx)
-		if qCost < bodyBytes {
+		// The !qpackConstantOverCap guard keeps qCost honest: when n exceeds the
+		// standalone cap, emitQPackUint64 downgrades a constant-body codec (RLE /
+		// Dict / const-FOR) to raw, so the emitted block would be ~8n bytes, not
+		// qCost — choosing DictQ then could grow the wire past the flat index. It is
+		// currently unreachable here (n <= maxColumnarElems == qpackMaxStandaloneCount
+		// for every columnar/gathered caller), but gating on it decouples the
+		// never-larger guarantee from that constant coincidence.
+		if qCost < bodyBytes && !qpackConstantOverCap(n, codec, forBits, deltaBits, pforBits) {
 			out = append(out, tagColStrDictQ)
 			out = appendUvarint(out, uint64(d))
 			for _, s := range table {
