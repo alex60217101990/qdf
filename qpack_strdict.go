@@ -168,6 +168,37 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 		}
 	}
 	if !useFC {
+		// Per-row index codec: flat ceil(log2 d)-bit pack (tagColStrDict) vs the
+		// QPack integer picker (tagColStrDictQ). The picker's chosen-codec byte
+		// cost (qCost, which already includes the QPack block framing) is compared
+		// against the flat body; the QPack form is emitted only when strictly
+		// smaller, so the column never grows. The picker captures run-length /
+		// dictionary structure a skewed index has but the flat pack cannot exploit.
+		// QPack is paired only with the plain table: a front-coded table fires on
+		// high-card sorted-prefix data whose index is near-uniform, where the
+		// picker cannot win, so the FC branch keeps the flat index.
+		codec, mn, forBits, first, minDelta, deltaBits, pforBits, qCost := pickU64Codec(idx)
+		// The !qpackConstantOverCap guard keeps qCost honest: when n exceeds the
+		// standalone cap, emitQPackUint64 downgrades a constant-body codec (RLE /
+		// Dict / const-FOR) to raw, so the emitted block would be ~8n bytes, not
+		// qCost — choosing DictQ then could grow the wire past the flat index. It is
+		// currently unreachable here (n <= maxColumnarElems == qpackMaxStandaloneCount
+		// for every columnar/gathered caller), but gating on it decouples the
+		// never-larger guarantee from that constant coincidence.
+		if qCost < bodyBytes && !qpackConstantOverCap(n, codec, forBits, deltaBits, pforBits) {
+			out = append(out, tagColStrDictQ)
+			out = appendUvarint(out, uint64(d))
+			for _, s := range table {
+				out = appendUvarint(out, uint64(len(s)))
+				out = append(out, s...)
+			}
+			// emitQPackUint64 appends the index block (with its own row count) to
+			// e.buf; writeHeader is idempotent so the mid-block call is a no-op for
+			// the header already emitted above.
+			e.buf = out
+			e.emitQPackUint64(idx, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
+			return true
+		}
 		out = append(out, tagColStrDict)
 		out = appendUvarint(out, uint64(d))
 		for _, s := range table {
@@ -247,15 +278,18 @@ func (d *Decoder) readStringColumn(n int) ([]string, error) {
 		return d.readStringColumnAlpha(n)
 	}
 	out := make([]string, n)
-	if n > 0 && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrDictFC) {
+	if n > 0 && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrDictFC || d.buf[d.i] == tagColStrDictQ) {
 		var (
 			table []string
 			idx   []uint32
 			err   error
 		)
-		if d.buf[d.i] == tagColStrDictFC {
+		switch d.buf[d.i] {
+		case tagColStrDictFC:
 			table, idx, err = d.readStringColumnDictFC(n)
-		} else {
+		case tagColStrDictQ:
+			table, idx, err = d.readStringColumnDictQ(n)
+		default:
 			table, idx, err = d.readStringColumnDict(n)
 		}
 		if err != nil {
@@ -343,6 +377,61 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 	tmp := d.deltaScratch[:n]
 	bitpack.Unpack(tmp, body, bits)
 	for i, v := range tmp {
+		if v >= c64 {
+			return nil, nil, ErrBadTag
+		}
+		idx[i] = uint32(v)
+	}
+	return table, idx, nil
+}
+
+// readStringColumnDictQ decodes a tagColStrDictQ block (tag at d.i): a plain
+// distinct table (identical layout to tagColStrDict) followed by a QPack-coded
+// per-row index instead of a flat bitpack. The index block carries its own row
+// count; the decoded length must equal n (the columnar header count) and every
+// index must address a table slot. The QPack reader bounds its own allocation by
+// the remaining buffer, so a hostile inner count cannot force an oversized slice.
+func (d *Decoder) readStringColumnDictQ(n int) (table []string, idx []uint32, err error) {
+	d.i++ // consume tagColStrDictQ
+	c64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return nil, nil, ErrInvalidLength
+	}
+	d.i += nr
+	if c64 < 2 || c64 > qpackStrDictMaxDistinct {
+		// count >= 2 mirrors tagColStrDict: the encoder never emits a single-
+		// distinct dictionary (per-value wins), so this is lossless for valid
+		// streams while rejecting a hostile count.
+		return nil, nil, ErrBadTag
+	}
+	count := int(c64)
+	table = make([]string, count)
+	for i := range count {
+		l64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return nil, nil, ErrInvalidLength
+		}
+		d.i += nr
+		if l64 > uint64(len(d.buf)-d.i) {
+			return nil, nil, ErrShortBuffer
+		}
+		l := int(l64)
+		table[i] = string(d.buf[d.i : d.i+l]) // owned copy
+		d.i += l
+	}
+	// QPack index block: peek the codec tag, decode, validate length and range.
+	if d.i >= len(d.buf) {
+		return nil, nil, ErrShortBuffer
+	}
+	idx64, err := d.readQPackUint64(d.buf[d.i])
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(idx64) != n {
+		return nil, nil, ErrTypeMismatch
+	}
+	idx = make([]uint32, n)
+	for i, v := range idx64 {
 		if v >= c64 {
 			return nil, nil, ErrBadTag
 		}

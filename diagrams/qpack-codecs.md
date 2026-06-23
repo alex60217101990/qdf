@@ -25,8 +25,8 @@ flowchart TD
     GorillaOpt -->|no| Raw["tagPackRaw (0xE4)\nraw little-endian bulk"]
     GorillaOpt -->|yes| GorillaProbe["probe first 32 XOR pairs\n~30 ns"]
     GorillaProbe -->|"projected cost\n< 64 bits/sample"| Gorilla["tagPackGorilla (0xE7)\nXOR-delta, Gorilla coding\n~70% win on smooth series"]
-    GorillaProbe -->|"cost ≥ 64 bits"| ALPCheck{"float64 +\ndecimal-like?"}
-    ALPCheck -->|yes| ALP["tagPackALP (0xF4)\nAdaptive Lossless\nFloating-Point (CWI 2023)\nzig-zag FOR + exception list"]
+    GorillaProbe -->|"cost ≥ 64 bits"| ALPCheck{"float64/float32 +\ndecimal-like?"}
+    ALPCheck -->|yes| ALP["tagPackALP (0xF4)\nAdaptive Lossless\nFloating-Point (CWI 2023)\nzig-zag FOR + exception list\n(kind byte selects f64/f32)"]
     ALPCheck -->|no| Raw
 
     Float -->|no| IntSlice["integer slice\ncompute min, max, spread"]
@@ -62,7 +62,7 @@ flowchart TD
 | `tagPackRLE` | `0xEB` | run-heavy integer columns (status codes, enums) | Probe on first 32 elems |
 | `tagPackDict` | `0xED` | ≤64 distinct values, wide spread | O(1) open-addressed hash |
 | `tagPackPFor` | `0xEE` | mostly-small integers with rare large outliers | Narrow FOR body + exception list |
-| `tagPackALP` | `0xF4` | quantized / decimal float64 | Chosen only when strictly smaller than raw and Gorilla |
+| `tagPackALP` | `0xF4` | quantized / decimal float64 or float32 (kind byte selects width) | Chosen only when strictly smaller than raw and Gorilla |
 
 ## SIMD acceleration (build tag `qdf_simd`)
 

@@ -283,6 +283,25 @@ const (
 	// per-value floor. a >= 2 keeps ceil(log2 a) >= 1 so the packed body is
 	// non-empty and the decode allocation is buffer-bounded.
 	tagColStrAlpha = 0xFB
+
+	// tagColStrDictQ is a plain dictionary string column (identical distinct
+	// table to tagColStrDict) whose per-row index is QPack-coded (RLE / Dict /
+	// FOR / DeltaFor — the integer-slice picker) instead of a flat ceil(log2 d)-
+	// bit pack. A skewed (Zipf-like) low-cardinality column packs its index far
+	// below the flat width via run-length / dictionary coding, without the rANS
+	// CPU cost, so it wins on the Balanced (rANS-off) tier. The front-coded table
+	// variant (tagColStrDictFC) is never paired with a QPack index: front-coding
+	// fires on high-cardinality sorted-prefix data whose index is near-uniform,
+	// where the picker cannot beat the flat pack.
+	//
+	// Wire:
+	//   0xFC, varuint(d), d×(varuint(len), len bytes),  // distinct table (plain)
+	//        <QPack uint64 block>                        // per-row index, kind uint64
+	// Never-larger: emitted only when the picker's chosen-codec byte cost is
+	// strictly below the flat ceil(log2 d)-bit index body; otherwise tagColStrDict
+	// (flat) is written. The QPack block carries its own row count, cross-checked
+	// against the columnar header and buffer-bounded before allocation.
+	tagColStrDictQ = 0xFC
 )
 
 // isStringColumnBlockTag reports whether b begins a self-describing string
@@ -291,7 +310,8 @@ const (
 // over a ReadString loop.
 func isStringColumnBlockTag(b byte) bool {
 	return b == tagColStrDict || b == tagColStrDictFC || b == tagColStrFSST ||
-		b == tagColStrRaw || b == tagColStrConst || b == tagColStrAlpha
+		b == tagColStrRaw || b == tagColStrConst || b == tagColStrAlpha ||
+		b == tagColStrDictQ
 }
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
