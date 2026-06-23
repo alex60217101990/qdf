@@ -14,6 +14,14 @@ const (
 	scaleBits = 12
 	scale     = 1 << scaleBits // 4096; frequencies are normalized to sum to this
 	ransByteL = 1 << 23        // renormalization lower bound
+	// maxRenormBytesPerSym bounds the renorm bytes a single symbol can emit: the
+	// state lives in [ransByteL, ransByteL<<8) = [2^23, 2^31) and a freq-1 symbol
+	// has xMax = (ransByteL>>scaleBits)<<8 = 2^19, so the `for x >= xMax { x>>=8 }`
+	// renorm runs at most ceil((31-19)/8) = 2 times. Output buffers are sized as
+	// len*maxRenormBytesPerSym + state + slack so the backward writer never
+	// underflows, even when a (sub)stream's local byte distribution is skewed
+	// against the frequency table it is encoded under.
+	maxRenormBytesPerSym = 2
 )
 
 // Format tags for the leading byte of a rANS blob.
@@ -107,7 +115,14 @@ func buildSlot(cum *[257]uint32, slot *[scale]byte) {
 // encodeStream rANS-encodes src and returns the stream: 4-byte little-endian
 // final state followed by the renormalization bytes in decode order.
 func encodeStream(src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
-	size := len(src) + 16
+	// Worst-case output: each symbol emits at most maxRenormBytesPerSym renorm
+	// bytes (a freq-1 symbol over the scale=2^12 table renormalizes a state in
+	// [2^23, 2^31) down past xMax=2^19, i.e. two >>8 steps), plus the 4-byte final
+	// state. len(src)+16 under-sizes this when a stream is dominated by globally-
+	// rare bytes — most visible in the interleaved path, where a substream sees a
+	// local distribution skewed against the SHARED table (see encodeStreamStrided-
+	// Into). Size for the proven bound so the backward writer can never underflow.
+	size := len(src)*maxRenormBytesPerSym + 16
 	buf := make([]byte, size)
 	pos := size
 	x := uint32(ransByteL)
