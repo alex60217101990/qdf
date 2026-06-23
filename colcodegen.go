@@ -454,13 +454,21 @@ func (d *Decoder) ReadHybridColStructHeader() (int, []string, []byte, error) {
 func (d *Decoder) ClearColMaxLen() { d.colMaxLen = 0 }
 
 // stringColumnsBeneficial samples the given string columns and reports whether a
-// dictionary string column would beat plain per-value row-major encoding by the
-// columnar min-gain threshold. Reflection-free; reuses bitsForDistinct and the
-// same estimate the reflect columnarProbe uses for colKindString. Generated
-// code calls this only for string-ONLY elements (any numeric/time column makes
-// columnar unconditionally beneficial), so a high-cardinality string struct
-// (e.g. unique names) stays row-major exactly as the reflect probe decides.
-func stringColumnsBeneficial(cols ...[]string) bool {
+// columnar string column would beat plain per-value row-major encoding by the
+// min-gain threshold. Reflection-free; it mirrors the reflect columnarProbe's
+// colKindString branch byte-for-byte so the generated code makes the SAME
+// columnar-vs-row-major decision as reflect.
+//
+// internAware selects the model the reflect probe uses for the element kind:
+//   - false (a PURE string-only element): per-value / dict estimate, gain 10 —
+//     identical to columnarProbe with internAware=false.
+//   - true (a HYBRID string-only element, i.e. residual map/slice fields with no
+//     numeric column): additionally credits Dense intern dedup in the row-major
+//     baseline (a repeat costs 1 byte) AND alpha-packing on a restricted-alphabet
+//     high-cardinality column, with the wider gain 30 — identical to
+//     columnarProbe with internAware=true. Without this a hybrid hex-ID element
+//     would stay row-major in codegen while reflect goes columnar + alpha.
+func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 	if len(cols) == 0 || len(cols[0]) == 0 {
 		return false
 	}
@@ -469,9 +477,12 @@ func stringColumnsBeneficial(cols ...[]string) bool {
 	for _, strs := range cols {
 		var seen [columnarProbeSample]string
 		nseen := 0
-		var tableBytes, perValue int
+		var tableBytes, perValue, sampleChars int
 		prev := ""
 		first := true
+		var alphaSeen [256]bool
+		alphaCount := 0
+		alphaOK := internAware
 		for i := range sample {
 			s := strs[i]
 			fresh := true
@@ -491,19 +502,58 @@ func stringColumnsBeneficial(cols ...[]string) bool {
 			} else {
 				perValue += 2 + len(s)
 			}
-			rowBytes += 2 + len(s)
+			if internAware && !fresh {
+				rowBytes += 1
+			} else {
+				rowBytes += 2 + len(s)
+			}
 			prev = s
 			first = false
+			if alphaOK {
+				sampleChars += len(s)
+				for k := 0; k < len(s); k++ {
+					if !alphaSeen[s[k]] {
+						if alphaCount >= qpackStrAlphaMaxAlphabet {
+							alphaOK = false
+							break
+						}
+						alphaSeen[s[k]] = true
+						alphaCount++
+					}
+				}
+			}
 		}
 		dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
-		colBytes += min(perValue, dictBytes)
+		best := min(perValue, dictBytes)
+		if alphaOK && alphaCount >= 2 &&
+			nseen*100 >= sample*alphaMinDistinctPct &&
+			sampleChars >= sample*alphaProbeMinAvgLen {
+			alphaEst := alphaCount + sample + (sampleChars*bitsForDistinct(alphaCount)+7)/8
+			if alphaEst < best {
+				best = alphaEst
+			}
+		}
+		colBytes += best
 	}
 	if rowBytes == 0 {
 		return false
 	}
-	return colBytes*100 <= rowBytes*(100-columnarMinGainPct)
+	gain := columnarMinGainPct
+	if internAware {
+		gain = columnarMinGainPctInternAware
+	}
+	return colBytes*100 <= rowBytes*(100-gain)
 }
 
-// StringColumnsBeneficial is the exported entry generated code calls to gate a
-// string-only element's columnar encode (see stringColumnsBeneficial).
-func StringColumnsBeneficial(cols ...[]string) bool { return stringColumnsBeneficial(cols...) }
+// StringColumnsBeneficial gates a PURE string-only element's columnar encode in
+// generated code (mirrors columnarProbe with internAware=false).
+func StringColumnsBeneficial(cols ...[]string) bool { return stringColumnsBeneficial(false, cols...) }
+
+// StringColumnsBeneficialHybrid gates a HYBRID (residual-bearing) string-only
+// element's columnar encode in generated code (mirrors columnarProbe with
+// internAware=true: intern-credited baseline + alpha-packing estimate + the
+// wider gain), so codegen flips such an element into the columnar form exactly
+// when reflect does.
+func StringColumnsBeneficialHybrid(cols ...[]string) bool {
+	return stringColumnsBeneficial(true, cols...)
+}

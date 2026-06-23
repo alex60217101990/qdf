@@ -1172,7 +1172,15 @@ func (g *gen) emitEncodeColumnarSlice(w io.Writer, expr string, elem types.Type,
 			fmt.Fprintf(w, "%s\t%s := make([]string, min(len(%s), 32))\n", indent, pb, s)
 			fmt.Fprintf(w, "%s\tfor i := range %s { %s[i] = string(%s[i].%s) }\n", indent, pb, pb, s, c.Access)
 		}
-		fmt.Fprintf(w, "%s\t%s := qdf.StringColumnsBeneficial(%s)\n", indent, ben, strings.Join(pbs, ", "))
+		// A hybrid string-only element (residual map/slice fields, no numeric
+		// column) uses the intern-aware gate so codegen flips it into the columnar
+		// form — and alpha-packs a restricted-alphabet ID column — exactly when
+		// reflect does; a pure string-only element keeps the plain gate.
+		benFn := "StringColumnsBeneficial"
+		if plan.hybrid() {
+			benFn = "StringColumnsBeneficialHybrid"
+		}
+		fmt.Fprintf(w, "%s\t%s := qdf.%s(%s)\n", indent, ben, benFn, strings.Join(pbs, ", "))
 		fmt.Fprintf(w, "%s\tif %s {\n", indent, ben)
 		if err := g.emitEncodeColumnarFrame(w, s, plan, indent+"\t\t"); err != nil {
 			return err
