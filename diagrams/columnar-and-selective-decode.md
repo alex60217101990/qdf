@@ -31,7 +31,7 @@ flowchart TD
     ColKind -->|"uint8..uint64"| UintCol["colKindUint\ngather → []uint64\nQPack picker"]
     ColKind -->|"float32/64"| FloatCol["colKindFloat\ngather → []float64\nraw-LE or Gorilla (OptGorillaFloat)"]
     ColKind -->|"bool"| BoolCol["colKindBool\ngather → []bool\ntagPackBool (1 bit/row)"]
-    ColKind -->|"string / []byte"| StrCol["colKindString\ntry tagColStrDict first\n(distinct table + bitpacked index)\nif dict wins → emit 0xF5\n(front-coded 0xFA if prefix-shared);\notherwise per-value + intern"]
+    ColKind -->|"string / []byte"| StrCol["colKindString\ntry tagColStrDict first\n(distinct table + index;\ndict wins vs the n-byte per-value floor,\nso skewed low-card columns dict-code too)\nflat index → 0xF5, QPack index → 0xFC,\nfront-coded table → 0xFA (prefix-shared);\notherwise per-value + intern"]
     ColKind -->|"time.Time"| TimeCol["colKindTime\nSPLIT into TWO sub-columns:\n  sec  → []int64 (Delta+FOR, monotonic timestamps → near-zero bytes)\n  nsec → []uint64 (QPack)"]
     ColKind -->|"*T (pointer to scalar/string)"| NullCol["colKindNullable (high bit 0x80)\npresence bitmap: 1 bit/row, LSB-first\ndense column of present values only\n→ base colKind codec applied\n(no per-row alloc for absent rows)"]
 

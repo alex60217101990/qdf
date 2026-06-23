@@ -46,7 +46,7 @@ bit:  7   6   5   4      3            2          1          0
 | Flag | Hex | Meaning |
 |------|-----|---------|
 | `FlagDense` | `0x01` | Body uses Dense intern dialect; state-ref tags (`0xE0`–`0xEA`, `0xEC`) are present |
-| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xFB`); early hint so readers can reject unsupported codecs before parsing |
+| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xFC`); early hint so readers can reject unsupported codecs before parsing |
 | `FlagRANS` | `0x04` | Body is rANS-compressed: `varuint(origLen)` + 256-entry freq table + rANS stream. Decoder decompresses before reading tags. Set only when rANS form is strictly smaller. |
 | `FlagColIndex` | `0x08` | A `tagColStruct` payload carries a fixed-width column-length index (K × `uint32` LE) right after the shape declaration. Backpatched by the encoder; never set on non-columnar payloads. |
 
@@ -95,7 +95,7 @@ bit:  7   6   5   4      3            2          1          0
 | `tagPackDict` | `0xED` | Dictionary-coded integer slice (≤64 distinct) |
 | `tagPackPFor` | `0xEE` | Patched FOR: narrow body + outlier exception list |
 | `tagColStruct` | `0xEF` | Columnar container for `[]struct` |
-| `tagPackALP` | `0xF4` | ALP decimal-coded `[]float64` |
+| `tagPackALP` | `0xF4` | ALP decimal-coded `[]float64` or `[]float32` (a kind byte selects the width; integer mantissas `round(v·10^d)` FOR-bitpacked plus a bit-exact exception list) |
 | `tagColStrDict` | `0xF5` | Dictionary-coded string column (inside `tagColStruct`) |
 | `tagColStrFSST` | `0xF6` | FSST-coded string column (symbol table + per-row code streams), inside `tagColStruct` |
 | `tagHybridColStruct` | `0xF7` | Hybrid columnar container: a `[]struct` with mixed fields — eligible columns transposed, the rest kept as a per-row residual tail. Shape lists every field; residual entries carry kind byte `0xFF`. |
@@ -103,6 +103,7 @@ bit:  7   6   5   4      3            2          1          0
 | `tagColStrConst` | `0xF9` | Constant (single-distinct) string column (inside `tagColStruct`): one value + the row count, decoded as `n` shares of one owned string. Emitted on the codegen/`Fast` path where the per-value form does not intern repeats. |
 | `tagColStrDictFC` | `0xFA` | Front-coded dictionary string column (inside `tagColStruct`): the distinct table is sorted and each entry stored as `sharedPrefixLen + suffix`. Index body byte-identical to `tagColStrDict`; emitted only when the front-coded table is strictly smaller (prefix-shared SID / path / DN / URL columns). Decoder rebuilds the whole table into one slab. |
 | `tagColStrAlpha` | `0xFB` | Alphabet-packed string column (inside `tagColStruct`): a high-cardinality column whose bytes are all drawn from a small alphabet (`\|A\|` ≤ 64 — hex / base32 / base64 / decimal IDs). Layout: alphabet bytes, row count, fixed-or-per-row lengths, then LSB-first bitpacked `ceil(log2 \|A\|)`-bit char codes. The class the dictionary, front-coding and FSST all miss; emitted only when strictly smaller than the raw per-value floor. Decoder bit-unpacks the codes into one slab. |
+| `tagColStrDictQ` | `0xFC` | Dictionary string column with a **QPack-coded index** (inside `tagColStruct`): the plain distinct table of `tagColStrDict` followed by a QPack integer block (RLE / Dict / FOR / DeltaFor picker) for the per-row index instead of a flat `ceil(log2 d)`-bit pack. A skewed (Zipf-like) low-cardinality column codes its index at its entropy, not its cardinality. Emitted only when the picker's byte cost is strictly below the flat index body, and only with the plain table (the front-coded `tagColStrDictFC` fires on high-cardinality near-uniform indices the picker cannot beat). The Balanced-tier counterpart to whole-body rANS. |
 
 **Other**:
 
