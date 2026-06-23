@@ -354,7 +354,9 @@ func (s *StreamDecoder) Decode(out any) error {
 func (s *StreamDecoder) readFrameLen() (int, error) {
 	for {
 		if v, k := readUvarint(s.dec.buf[s.dec.i:]); k > 0 {
-			if v > maxStreamMsg {
+			// >= so a frame length of exactly maxStreamMsg (1<<31) is rejected: on a
+			// 32-bit build int(v) would otherwise overflow to a negative length.
+			if v >= maxStreamMsg {
 				return 0, ErrInvalidLength
 			}
 			s.dec.i += k

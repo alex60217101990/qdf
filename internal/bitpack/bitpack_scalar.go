@@ -60,11 +60,9 @@ func bitUnpackU64LEFast(out []uint64, in []byte, bitsPer int) {
 					pos++
 					have += 8
 				}
-				for have < b && pos < end {
-					hi |= uint64(in[pos]) << (have - 64)
-					pos++
-					have += 8
-				}
+				// No second hi-fill loop: this loop exits with have >= 64 (or the
+				// buffer drained), and b <= 64, so any straddling high bits were
+				// already captured by the `have > 56` split above.
 			}
 		}
 		out[i] = lo & mask
