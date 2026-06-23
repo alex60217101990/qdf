@@ -3,8 +3,9 @@ package rans
 import "encoding/binary"
 
 // encodeStreamStridedInto rANS-encodes the substream src[k], src[k+n], … into
-// the caller-provided buf (which must have len >= m+16, where m is the element
-// count) and returns buf[pos:] = [4-byte LE final state][renorm bytes]. Writing
+// the caller-provided buf (which must have len >= m*maxRenormBytesPerSym+16,
+// where m is the element count) and returns buf[pos:] = [4-byte LE final state]
+// [renorm bytes]. Writing
 // into a caller buffer lets appendInterleaved place all N substreams in one
 // allocation, avoiding the per-substream make() (and its size-class rounding).
 func encodeStreamStridedInto(buf, src []byte, k, n int, freq *[256]uint32, cum *[257]uint32) []byte {
@@ -43,17 +44,22 @@ func appendInterleaved(dst, src []byte, freq *[256]uint32, cum *[257]uint32, n i
 	var subsArr [maxInterleaveN][]byte
 	states := statesArr[:n]
 	subs := subsArr[:n]
-	// One allocation for every substream's output. Region k spans m_k+16 bytes
-	// (the encodeStream worst case); the regions sum to len(src)+n*16.
-	scratch := make([]byte, len(src)+n*16)
+	// One allocation for every substream's output. Each substream is encoded under
+	// the SHARED freq table, so its local distribution can be skewed against that
+	// table and emit up to maxRenormBytesPerSym bytes per symbol — region k must
+	// span m_k*maxRenormBytesPerSym+16 bytes (NOT m_k+16, which assumes <=1 byte/
+	// symbol and underflows the backward writer on rare-byte-heavy substreams). The
+	// regions sum to len(src)*maxRenormBytesPerSym + n*16.
+	scratch := make([]byte, len(src)*maxRenormBytesPerSym+n*16)
 	off := 0
 	for k := range n {
 		m := max((len(src)-k+n-1)/n, 0)
-		region := scratch[off : off+m+16]
+		sz := m*maxRenormBytesPerSym + 16
+		region := scratch[off : off+sz]
 		blob := encodeStreamStridedInto(region, src, k, n, freq, cum) // [4-byte state][bytes]; always >= 4 bytes
 		states[k] = binary.LittleEndian.Uint32(blob[:4])
 		subs[k] = blob[4:]
-		off += m + 16
+		off += sz
 	}
 	var s4 [4]byte
 	for k := range n {
