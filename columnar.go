@@ -501,12 +501,6 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			var tableBytes, perValue, sampleChars int
 			prev := ""
 			first := true
-			// Alphabet tracking (intern-aware path only) for the alpha-packed
-			// estimate. alphaOK drops the moment the alphabet exceeds 64 distinct
-			// bytes, so a text column pays only a short prefix scan.
-			var alphaSeen [256]bool
-			alphaCount := 0
-			alphaOK := internAware
 			for i := range sample {
 				s := loadStringField(base, plan.stride, col, i)
 				fresh := true
@@ -536,21 +530,9 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 				} else {
 					rowBytes += 2 + len(s)
 				}
+				sampleChars += len(s)
 				prev = s
 				first = false
-				if alphaOK {
-					sampleChars += len(s)
-					for k := 0; k < len(s); k++ {
-						if !alphaSeen[s[k]] {
-							if alphaCount >= qpackStrAlphaMaxAlphabet {
-								alphaOK = false
-								break
-							}
-							alphaSeen[s[k]] = true
-							alphaCount++
-						}
-					}
-				}
 			}
 			dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
 			best := min(perValue, dictBytes)
@@ -563,12 +545,42 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			// when this estimate brought the struct into columnar — the estimate
 			// governs only the columnar-vs-row-major decision, not the per-column
 			// codec.
-			if alphaOK && alphaCount >= 2 &&
+			//
+			// The per-byte alphabet scan is DEFERRED behind these cheap gates
+			// (cardinality + average length, both already known): low-card or short
+			// string columns — the common case — skip the O(chars) scan entirely,
+			// and only a high-card long column (where alpha could win) pays it. The
+			// scan's alphaOK/alphaCount feed only this estimate, so deferring it is
+			// byte-identical to the columnar decision. sampleChars is the full sum
+			// here, but it only affects alphaEst when alphaOK holds (restricted
+			// alphabet), where the old partial sum equalled the full sum anyway.
+			if internAware &&
 				nseen*100 >= sample*alphaMinDistinctPct &&
 				sampleChars >= sample*alphaProbeMinAvgLen {
-				alphaEst := alphaCount + sample + (sampleChars*bitsForDistinct(alphaCount)+7)/8
-				if alphaEst < best {
-					best = alphaEst
+				var alphaSeen [256]bool
+				alphaCount := 0
+				alphaOK := true
+				for i := range sample {
+					s := loadStringField(base, plan.stride, col, i)
+					for k := 0; k < len(s); k++ {
+						if !alphaSeen[s[k]] {
+							if alphaCount >= qpackStrAlphaMaxAlphabet {
+								alphaOK = false
+								break
+							}
+							alphaSeen[s[k]] = true
+							alphaCount++
+						}
+					}
+					if !alphaOK {
+						break
+					}
+				}
+				if alphaOK && alphaCount >= 2 {
+					alphaEst := alphaCount + sample + (sampleChars*bitsForDistinct(alphaCount)+7)/8
+					if alphaEst < best {
+						best = alphaEst
+					}
 				}
 			}
 			// FSST competes only when enabled (OptFSST). High-cardinality,
