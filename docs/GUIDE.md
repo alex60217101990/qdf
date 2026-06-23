@@ -202,9 +202,10 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xF8  tagColStrRaw      (QPack)   bulk-slab string column (inside columnar)
 0xF9  tagColStrConst    (QPack)   constant string column (inside columnar)
 0xFA  tagColStrDictFC   (QPack)   front-coded dictionary string column (inside columnar)
+0xFB  tagColStrAlpha    (QPack)   alphabet-packed string column (inside columnar)
 ```
 
-Tags 0xFA..0xFF are reserved.
+Tags 0xFC..0xFF are reserved.
 
 A `tagStateRef` payload is `varuint(id)`. A `tagStateMTF` payload is
 `varuint(rank)` where rank 0 means "most recently emitted". A
@@ -569,6 +570,7 @@ slice; the decoder reads the picked tag.
 0xEE  tagPackPFor      []intN       Patched FOR: narrow body + outlier exceptions
 0xF5  tagColStrDict    []string col Dictionary-coded string column (distinct table + bit-packed index/row)
 0xFA  tagColStrDictFC  []string col Front-coded dictionary string column (sorted table, sharedPrefixLen + suffix per entry)
+0xFB  tagColStrAlpha   []string col Alphabet-packed string column (restricted alphabet |A|≤64 → ceil(log2|A|) bits/char)
 ```
 
 Selection logic:
@@ -702,6 +704,21 @@ the encoder transposes the slice:
   so non-prefix columns skip the sort entirely (no CPU cost). The decoder
   rebuilds the whole table into one slab allocation. Measured −36.5% on
   real AD dictionary tables (Windows-SID −92.6%, paths/DNs 50–66%).
+- A high-cardinality column whose values are drawn from a small alphabet —
+  hex / base32 / base64 / decimal IDs (trace, span, request IDs, hashes,
+  GUIDs) — is **alphabet-packed** (`tagColStrAlpha`, 0xFB): the codec scans
+  the column alphabet in one pass (bailing the moment it exceeds 64 distinct
+  bytes) and stores each character in `ceil(log2 |A|)` bits instead of 8 —
+  hex (`|A|`=16) halves the body. This is the one class the dictionary
+  (high-cardinality), front-coding (no shared prefix) and FSST (high
+  entropy, few shared substrings) all miss, and it is captured *without* the
+  rANS CPU cost, so the win lands on the Balanced tier. It sits after the
+  dictionary and FSST in the per-column picker (so prefix-shared columns are
+  still front-coded and substring-sharing text still goes to FSST), gated on
+  a cheap high-cardinality probe and emitted only when strictly smaller than
+  the raw per-value floor — never a regression. Measured −58% on a pure
+  hex-ID column. The decoder bit-unpacks the codes and materialises the
+  column into one slab.
 - The remaining string/`[]byte` per-value emissions go through the
   normal intern path; repeated values collapse to state-refs.
 - An optional (`*T`) field whose `T` is a scalar (`int*`/`uint*`/

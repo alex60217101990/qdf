@@ -46,7 +46,7 @@ bit:  7   6   5   4      3            2          1          0
 | Flag | Hex | Meaning |
 |------|-----|---------|
 | `FlagDense` | `0x01` | Body uses Dense intern dialect; state-ref tags (`0xE0`–`0xEA`, `0xEC`) are present |
-| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xFA`); early hint so readers can reject unsupported codecs before parsing |
+| `FlagQPack` | `0x02` | Body may carry QPack codec tags (`0xE3`–`0xEF`, `0xF4`–`0xFB`); early hint so readers can reject unsupported codecs before parsing |
 | `FlagRANS` | `0x04` | Body is rANS-compressed: `varuint(origLen)` + 256-entry freq table + rANS stream. Decoder decompresses before reading tags. Set only when rANS form is strictly smaller. |
 | `FlagColIndex` | `0x08` | A `tagColStruct` payload carries a fixed-width column-length index (K × `uint32` LE) right after the shape declaration. Backpatched by the encoder; never set on non-columnar payloads. |
 
@@ -102,6 +102,7 @@ bit:  7   6   5   4      3            2          1          0
 | `tagColStrRaw` | `0xF8` | Bulk-materialized string column (inside `tagColStruct`): every value laid down once, length-prefixed, so the decoder builds the whole column in ONE slab allocation. High-cardinality counterpart to `tagColStrDict`. |
 | `tagColStrConst` | `0xF9` | Constant (single-distinct) string column (inside `tagColStruct`): one value + the row count, decoded as `n` shares of one owned string. Emitted on the codegen/`Fast` path where the per-value form does not intern repeats. |
 | `tagColStrDictFC` | `0xFA` | Front-coded dictionary string column (inside `tagColStruct`): the distinct table is sorted and each entry stored as `sharedPrefixLen + suffix`. Index body byte-identical to `tagColStrDict`; emitted only when the front-coded table is strictly smaller (prefix-shared SID / path / DN / URL columns). Decoder rebuilds the whole table into one slab. |
+| `tagColStrAlpha` | `0xFB` | Alphabet-packed string column (inside `tagColStruct`): a high-cardinality column whose bytes are all drawn from a small alphabet (`\|A\|` ≤ 64 — hex / base32 / base64 / decimal IDs). Layout: alphabet bytes, row count, fixed-or-per-row lengths, then LSB-first bitpacked `ceil(log2 \|A\|)`-bit char codes. The class the dictionary, front-coding and FSST all miss; emitted only when strictly smaller than the raw per-value floor. Decoder bit-unpacks the codes into one slab. |
 
 **Other**:
 
