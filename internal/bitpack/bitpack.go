@@ -177,3 +177,21 @@ func PackChunk(out []byte, vals []uint64, bitsPer int, elemOff int) {
 func BitsForDelta(d uint64) int {
 	return bits.Len64(d)
 }
+
+// decodeHex4Scalar fills dst from a 4-bit-packed nibble stream src, mapping each
+// nibble through lut: dst[2i] = lut[src[i]&0x0f], dst[2i+1] = lut[src[i]>>4].
+// len(dst) outputs are produced; an odd len(dst) consumes the low nibble of the
+// final src byte only. It is the portable reference for DecodeHex4 and the
+// scalar tail of the SIMD kernels — keep it bit-identical to them.
+func decodeHex4Scalar(dst, src []byte, lut *[16]byte) {
+	n := len(dst)
+	full := n &^ 1
+	for k := 0; k < full; k += 2 {
+		b := src[k>>1]
+		dst[k] = lut[b&0x0f]
+		dst[k+1] = lut[b>>4]
+	}
+	if full < n {
+		dst[full] = lut[src[full>>1]&0x0f]
+	}
+}

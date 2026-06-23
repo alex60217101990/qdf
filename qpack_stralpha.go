@@ -309,17 +309,16 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 	if cbits == 4 {
 		// Hex / 16-symbol alphabet — the dominant ID case. Fuse the unpack and the
 		// alphabet scatter into one pass over the body (two nibbles per byte),
-		// skipping the uint64 scratch and the general bit-window decoder. a in
-		// (8,16]; when a < 16 a nibble may exceed the alphabet and must be rejected.
-		full := totalChars &^ 1
-		k := 0
+		// skipping the uint64 scratch and the general bit-window decoder.
 		if a64 == 16 {
-			for ; k < full; k += 2 {
-				b := body[k>>1]
-				slab[k] = alphabet[b&0xf]
-				slab[k+1] = alphabet[b>>4]
-			}
+			// Every nibble is a valid alphabet index (no range check) → hand the
+			// whole column to the SIMD-accelerated nibble→LUT kernel (VPSHUFB on
+			// amd64, TBL on arm64, scalar otherwise; all bit-identical).
+			bitpack.DecodeHex4(slab, body, (*[16]byte)(alphabet))
 		} else {
+			// a < 16: a nibble may exceed the alphabet and must be rejected.
+			full := totalChars &^ 1
+			k := 0
 			for ; k < full; k += 2 {
 				b := body[k>>1]
 				lo, hi := b&0xf, b>>4
@@ -329,13 +328,13 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 				slab[k] = alphabet[lo]
 				slab[k+1] = alphabet[hi]
 			}
-		}
-		if k < totalChars { // trailing odd nibble (low half of the last byte)
-			lo := body[k>>1] & 0xf
-			if uint64(lo) >= a64 {
-				return nil, ErrBadTag
+			if k < totalChars { // trailing odd nibble (low half of the last byte)
+				lo := body[k>>1] & 0xf
+				if uint64(lo) >= a64 {
+					return nil, ErrBadTag
+				}
+				slab[k] = alphabet[lo]
 			}
-			slab[k] = alphabet[lo]
 		}
 	} else {
 		// General path: unpack the char codes into the shared transient scratch,

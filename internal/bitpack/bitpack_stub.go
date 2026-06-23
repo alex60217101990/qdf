@@ -4,6 +4,13 @@ package bitpack
 
 import "encoding/binary"
 
+// DecodeHex4 fills dst from a 4-bit nibble stream src via the 16-entry LUT
+// (dst[2i]=lut[src[i]&0xf], dst[2i+1]=lut[src[i]>>4]). Scalar fallback for
+// non-SIMD builds.
+func DecodeHex4(dst, src []byte, lut *[16]byte) {
+	decodeHex4Scalar(dst, src, lut)
+}
+
 // unpackBits32 fallback for non-amd64 builds and amd64 builds without
 // the qdf_simd tag.
 func unpackBits32(out []uint64, in []byte) {

@@ -698,3 +698,49 @@ loop_e20:
 done_e20:
 	VZEROUPPER
 	RET
+
+// hexmask0f holds 0x0f in every byte of a 128-bit lane — the nibble mask used
+// to isolate the low/high 4 bits of each packed byte.
+DATA hexmask0f<>+0(SB)/8, $0x0f0f0f0f0f0f0f0f
+DATA hexmask0f<>+8(SB)/8, $0x0f0f0f0f0f0f0f0f
+GLOBL hexmask0f<>(SB), RODATA|NOPTR, $16
+
+// func decodeHex4AVX2(dst []byte, src []byte, lut *[16]byte, blocks int)
+//
+// Expands a 4-bit nibble stream src into bytes via the 16-entry lut, two output
+// bytes per src byte (dst[2i]=lut[src[i]&0xf], dst[2i+1]=lut[src[i]>>4]). Each
+// iteration loads 16 src bytes and writes 32 dst bytes; `blocks` is the number
+// of such 16-byte groups. The caller handles the (sub-16 / odd) tail scalar.
+//
+// X3 = lut, X4 = 0x0f mask. Per chunk: X1 = low nibbles, X2 = high nibbles
+// (VPSRLW by 4 then mask), VPSHUFB maps each through the lut, and VPUNPCK{L,H}BW
+// interleaves low,high,low,high… into the two 16-byte output halves.
+TEXT ·decodeHex4AVX2(SB), NOSPLIT, $0-64
+	MOVQ    dst_base+0(FP), DI
+	MOVQ    src_base+24(FP), SI
+	MOVQ    lut+48(FP), AX
+	MOVQ    blocks+56(FP), CX
+	VMOVDQU (AX), X3
+	VMOVDQU hexmask0f<>(SB), X4
+
+loop_dh4:
+	CMPQ       CX, $0
+	JLE        done_dh4
+	VMOVDQU    (SI), X0       // 16 packed bytes
+	VPAND      X4, X0, X1     // low nibbles
+	VPSRLW     $4, X0, X2
+	VPAND      X4, X2, X2     // high nibbles
+	VPSHUFB    X1, X3, X5     // lut[low]
+	VPSHUFB    X2, X3, X6     // lut[high]
+	VPUNPCKLBW X6, X5, X7     // lo0,hi0,lo1,hi1,... (bytes 0..7)
+	VPUNPCKHBW X6, X5, X8     // lo8,hi8,... (bytes 8..15)
+	VMOVDQU    X7, (DI)
+	VMOVDQU    X8, 16(DI)
+	ADDQ       $16, SI
+	ADDQ       $32, DI
+	DECQ       CX
+	JMP        loop_dh4
+
+done_dh4:
+	VZEROUPPER
+	RET
