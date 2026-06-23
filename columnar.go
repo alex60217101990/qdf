@@ -132,6 +132,13 @@ type columnarPlan struct {
 	hybridNames []string
 	hybridKinds []colKind
 
+	// hasStringCol is true when at least one eligible column is a string (not
+	// []byte). A hybrid plan with a string column opts into the intern-aware
+	// columnar probe under Balanced so a restricted-alphabet ID column can pull
+	// the struct into columnar form (where alpha-packing fires) — string-free
+	// mixed structs stay row-major, byte-identical to before.
+	hasStringCol bool
+
 	stride uintptr // struct size, for base + i*stride addressing
 }
 
@@ -262,6 +269,12 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 		kinds[i] = cols[i].kind
 	}
 	plan := &columnarPlan{cols: cols, stride: td.rType.Size(), colNames: names, colKinds: kinds}
+	for i := range cols {
+		if cols[i].kind == colKindString && !cols[i].isByte {
+			plan.hasStringCol = true
+			break
+		}
+	}
 	if len(residual) > 0 {
 		// Hybrid: keep the full ordered field list for the hybrid shape.
 		plan.residual = residual
@@ -359,12 +372,27 @@ const (
 	// columnarMinGainPct is the minimum estimated wire reduction (percent of
 	// the row-major estimate) required to commit to columnar.
 	columnarMinGainPct = 10
+	// columnarMinGainPctInternAware is the (higher) threshold for the Balanced
+	// hybrid path, whose intern-aware baseline can be slightly optimistic on a
+	// string-heavy mixed struct (it credits per-column dedup but not cross-column
+	// global intern sharing). The wider margin keeps borderline flips — measured
+	// at ≈+0.14% on real AD — out, while clear wins (LogEvent −51%, Telemetry
+	// −45%, OTLP −18%) clear it comfortably.
+	columnarMinGainPctInternAware = 30
 )
 
 // columnarProbe samples up to columnarProbeSample elements and estimates
 // whether column-major beats row-major on those samples. Conservative: any
 // uncertainty falls back to row-major (returns false).
-func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool, fsstDict *fsst.SymbolTable) bool {
+//
+// internAware tightens the string-column model for the Balanced hybrid path:
+// the row-major baseline credits Dense interning (a repeated value costs a
+// 1-byte state-ref, not its full bytes — so a low-cardinality string column is
+// cheap row-major and will NOT pull a struct into columnar), and the column
+// estimate credits alpha-packing on a restricted-alphabet high-cardinality
+// column. Left false for the pure-columnar and FSST paths, where the historical
+// model is kept byte-for-byte (no decision change, no regression).
+func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool, fsstDict *fsst.SymbolTable, internAware bool) bool {
 	sample := min(n, columnarProbeSample)
 	var rowBytes, colBytes int
 	for c := range plan.cols {
@@ -470,9 +498,15 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			// tiny and a map would heap-allocate buckets on every probed column.
 			var seen [columnarProbeSample]string
 			nseen := 0
-			var tableBytes, perValue int
+			var tableBytes, perValue, sampleChars int
 			prev := ""
 			first := true
+			// Alphabet tracking (intern-aware path only) for the alpha-packed
+			// estimate. alphaOK drops the moment the alphabet exceeds 64 distinct
+			// bytes, so a text column pays only a short prefix scan.
+			var alphaSeen [256]bool
+			alphaCount := 0
+			alphaOK := internAware
 			for i := range sample {
 				s := loadStringField(base, plan.stride, col, i)
 				fresh := true
@@ -492,23 +526,51 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 				} else {
 					perValue += 2 + len(s)
 				}
-				rowBytes += 2 + len(s)
+				// Row-major baseline. internAware credits Dense interning: a repeated
+				// value (seen earlier in the column) costs a 1-byte state-ref, not its
+				// full bytes — so a low-cardinality string column is cheap row-major
+				// and will not pull the struct into columnar. The historical model
+				// (full per-value bytes) is kept for the pure/FSST paths.
+				if internAware && !fresh {
+					rowBytes += 1
+				} else {
+					rowBytes += 2 + len(s)
+				}
 				prev = s
 				first = false
+				if alphaOK {
+					sampleChars += len(s)
+					for k := 0; k < len(s); k++ {
+						if !alphaSeen[s[k]] {
+							if alphaCount >= qpackStrAlphaMaxAlphabet {
+								alphaOK = false
+								break
+							}
+							alphaSeen[s[k]] = true
+							alphaCount++
+						}
+					}
+				}
 			}
 			dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
 			best := min(perValue, dictBytes)
-			// NOTE: the probe deliberately does NOT model alpha-packing. Modelling
-			// it shifts the columnar-vs-row-major boundary and flips borderline
-			// structs (pure single-string columns, prefix-shared dict columns) into
-			// columnar that row-major / front-coding encode more cheaply. Alpha only
-			// needs the struct to reach columnar for OTHER reasons (a FOR-packable
-			// numeric or dict-able enum column does this on the trace/log payloads it
-			// targets); it then fires on the restricted-alphabet string columns via
-			// the never-larger emit picker. A struct whose only compressible signal
-			// is a restricted-alphabet ID stays row-major — a missed case traded for
-			// zero columnar-decision regression. Intern-aware Balanced hybrid (which
-			// would capture it) is the deferred follow-up noted in encodeSlice.
+			// Alpha-packed estimate (intern-aware path only), tightly gated so it
+			// credits only the class alpha actually wins and never flips a borderline
+			// struct: restricted alphabet (<= 64), high-cardinality over the sample
+			// (low-card is cheaper as dict/interned), and values long enough that the
+			// packed body dominates the per-row length prefix. The emit picker still
+			// tries dict/FSST first, so a prefix-shared column is front-coded even
+			// when this estimate brought the struct into columnar — the estimate
+			// governs only the columnar-vs-row-major decision, not the per-column
+			// codec.
+			if alphaOK && alphaCount >= 2 &&
+				nseen*100 >= sample*alphaMinDistinctPct &&
+				sampleChars >= sample*alphaProbeMinAvgLen {
+				alphaEst := alphaCount + sample + (sampleChars*bitsForDistinct(alphaCount)+7)/8
+				if alphaEst < best {
+					best = alphaEst
+				}
+			}
 			// FSST competes only when enabled (OptFSST). High-cardinality,
 			// substring-sharing columns (URLs, log lines) where dict and
 			// per-value both stay near raw are exactly where FSST wins — without
@@ -556,7 +618,17 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 	if rowBytes == 0 {
 		return false
 	}
-	return colBytes*100 <= rowBytes*(100-columnarMinGainPct)
+	// The intern-aware (Balanced hybrid) path demands a larger predicted gain.
+	// Its row-major baseline credits per-column intern dedup but still cannot see
+	// CROSS-column / global intern sharing, so it can be slightly optimistic on a
+	// string-heavy mixed struct; a wider margin absorbs that model error so only a
+	// clear win (a Delta/FOR numeric or an alpha-packable ID column) pulls the
+	// struct into columnar, never a borderline case that would lose a few bytes.
+	gain := columnarMinGainPct
+	if internAware {
+		gain = columnarMinGainPctInternAware
+	}
+	return colBytes*100 <= rowBytes*(100-gain)
 }
 
 func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int) error {

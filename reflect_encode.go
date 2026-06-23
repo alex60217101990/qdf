@@ -210,22 +210,27 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// Pure plan (every field eligible): transpose under the columnarProbe
 		// gate, as before — tagColStruct.
 		//
-		// Hybrid plan (some residual fields): only auto-fire when FSST is enabled
-		// (OptFSST / OptCompression). The per-column probe cannot see the
-		// cross-field / cross-row string deduplication that row-major Dense gets
-		// from the global intern table (e.g. two columns holding the same string,
-		// or a high-cardinality column whose values repeat across rows), so on a
-		// string-heavy mixed struct it can mispredict and produce a LARGER wire
-		// than row-major under plain Balanced. With FSST the eligible string
-		// columns are compressed by the symbol table, which reliably beats
-		// row-major — that is where hybrid's measured win lives (AD/log/RTB at
-		// OptCompression). Without FSST a hybrid plan falls through to row-major,
-		// byte-identical to today (no regression). Intern-aware Balanced hybrid is
-		// a follow-up.
+		// Hybrid plan (some residual fields): auto-fire when FSST is enabled
+		// (OptFSST / OptCompression), OR — under plain Balanced — when the plan has
+		// a string column and the INTERN-AWARE probe predicts a win. The plain
+		// per-column probe cannot see the cross-row string deduplication that
+		// row-major Dense gets from the global intern table, so a low-cardinality
+		// string column looks expensive row-major and the probe mispredicts a
+		// columnar win that does not exist. The intern-aware probe credits that
+		// dedup (a repeated value costs a 1-byte state-ref), so a low-card string
+		// column is correctly cheap row-major and only a genuine columnar win
+		// (a Delta/FOR numeric column, or a restricted-alphabet ID column that
+		// alpha-packs) pulls the struct in. The emit picker is never-larger per
+		// column, so the worst case is a small shape-header overhead — bounded by
+		// the gain threshold the probe already requires. With FSST the eligible
+		// string columns are compressed by the symbol table (AD/log/RTB win at
+		// OptCompression). A hybrid plan with no string column and no FSST still
+		// falls through to row-major, byte-identical to today.
 		if colPlan != nil && n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
 			pure := colPlan.residual == nil
-			if (pure || e.fsst) && columnarProbe(colPlan, hdr.Data, n, e.fsst, e.fsstDict) {
+			internAware := !pure && !e.fsst && colPlan.hasStringCol
+			if (pure || e.fsst || internAware) && columnarProbe(colPlan, hdr.Data, n, e.fsst, e.fsstDict, internAware) {
 				e.writeHeader()
 				if pure {
 					return e.encodeColumnar(colPlan, hdr.Data, n)

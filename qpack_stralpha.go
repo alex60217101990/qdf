@@ -30,6 +30,13 @@ const alphaMinDistinctPct = 70
 // alphaSampleN is the leading-row window for the cheap high-cardinality check.
 const alphaSampleN = 64
 
+// alphaProbeMinAvgLen is the minimum average value length (bytes) for the
+// intern-aware columnar probe to credit alpha-packing. Short tokens pack no
+// better than a dictionary once the per-row length prefix is paid, so crediting
+// them could flip a borderline struct into columnar for no real gain. The ID
+// columns alpha targets (hex/uuid/base32 — 16+ chars) clear this comfortably.
+const alphaProbeMinAvgLen = 8
+
 // tryWriteStringColumnAlpha attempts to emit strs as a tagColStrAlpha block.
 // It returns true when the alphabet-packed form was written (and is strictly
 // smaller than the raw per-value floor), false when the caller should fall

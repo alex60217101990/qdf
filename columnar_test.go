@@ -17,7 +17,7 @@ func TestColumnar_Probe(t *testing.T) {
 	for i := range good {
 		good[i] = colElig{A: 1000 + i%4, B: 7, C: 1.5, D: true, E: "INFO"}
 	}
-	if !columnarProbe(plan, ptrToSliceData(good), len(good), false, nil) {
+	if !columnarProbe(plan, ptrToSliceData(good), len(good), false, nil, false) {
 		t.Fatal("probe must accept a compressible struct array")
 	}
 	// Incompressible: every field unique/random-ish.
@@ -25,7 +25,7 @@ func TestColumnar_Probe(t *testing.T) {
 	for i := range bad {
 		bad[i] = colElig{A: i * 2654435761, B: uint32(i * 40503), C: float64(i) * 1.1, D: i%2 == 0, E: "u" + itoa(i)}
 	}
-	if columnarProbe(plan, ptrToSliceData(bad), len(bad), false, nil) {
+	if columnarProbe(plan, ptrToSliceData(bad), len(bad), false, nil, false) {
 		t.Fatal("probe must reject an incompressible struct array")
 	}
 }
