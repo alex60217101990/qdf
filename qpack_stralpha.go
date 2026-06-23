@@ -221,6 +221,16 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 	// cheap and avoids a per-row lengths allocation, keeping decode allocs on par
 	// with the raw path it replaces.
 	rem := uint64(len(d.buf) - d.i)
+	// Each char costs cbits bits in the packed body, so the total character count
+	// is bounded by rem*8/cbits (NOT rem: cbits < 8 means totalChars can
+	// legitimately exceed the remaining byte count). Cap that bound by maxInt as
+	// well so the int(tc) narrowings below cannot truncate a multi-GiB count to a
+	// negative length on a 32-bit build (which would bypass the body check and
+	// panic), mirroring the origLen guard in decodeRANS.
+	maxChars := rem * 8 / uint64(cbits)
+	if maxInt := uint64(int(^uint(0) >> 1)); maxChars > maxInt {
+		maxChars = maxInt
+	}
 	var (
 		totalChars int
 		fixedL     int
@@ -232,23 +242,20 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 			return nil, ErrInvalidLength
 		}
 		d.i += k
-		// totalChars = n*L; guard against overflow and the buffer bound.
+		// totalChars = n*L; guard against multiplication overflow and the bound.
 		tc := uint64(n) * l64
 		if l64 != 0 && tc/l64 != uint64(n) {
 			return nil, ErrInvalidLength // overflow
 		}
-		if tc > rem*8/uint64(cbits) {
+		if tc > maxChars {
 			return nil, ErrShortBuffer
 		}
 		totalChars = int(tc)
 		fixedL = int(l64)
 	} else {
 		lenStart = d.i
-		// Each char costs cbits bits in the packed body, so the total character
-		// count is bounded by rem*8/cbits (NOT rem: cbits < 8 means totalChars can
-		// legitimately exceed the remaining byte count). Guard inside the loop so a
-		// hostile run of huge length varints bails immediately.
-		maxChars := rem * 8 / uint64(cbits)
+		// Guard inside the loop so a hostile run of huge length varints bails
+		// immediately rather than accumulating past the bound.
 		var tc uint64
 		for range n {
 			l64, k := readUvarint(d.buf[d.i:])
