@@ -180,10 +180,56 @@ func TestHybridRoundTrip(t *testing.T) {
 	if !containsByte(b, tagHybridColStruct) {
 		t.Fatalf("OptBalanced|OptFSST: mixed struct must use hybrid, got %x...", b[:min(48, len(b))])
 	}
-	// Without FSST, hybrid must NOT fire (no Balanced regression guarantee).
+	// Under plain Balanced the intern-aware probe now lets this compressible mixed
+	// struct (monotonic Seq + bool Active drive a clear columnar win) auto-fire as
+	// hybrid — measured −27% vs the row-major form it replaces. The round-trip
+	// across every tier above already proves correctness on this path; the
+	// conservative side (a non-winning mixed struct stays row-major) is locked by
+	// TestHybridBalancedNoRegression.
 	bb, _ := Marshal(in, OptBalanced)
+	if !containsByte(bb, tagHybridColStruct) {
+		t.Fatalf("OptBalanced: compressible mixed struct must auto-fire hybrid")
+	}
+}
+
+// TestHybridBalancedNoRegression locks the conservative side of the intern-aware
+// Balanced hybrid gate: a mixed struct whose eligible columns do NOT compress
+// (high-entropy ints, all-distinct non-restricted-alphabet strings) must stay
+// row-major under plain Balanced — the probe's intern-aware baseline + the wider
+// gain threshold keep it from flipping into a columnar form that would not win.
+func TestHybridBalancedNoRegression(t *testing.T) {
+	// One eligible string column drawn from the full printable-ASCII alphabet
+	// (> 64 symbols → no alpha-pack; all-distinct → no dictionary) plus a map
+	// residual (→ hybrid). The column does not compress, so columnar cannot beat
+	// row-major and the struct must stay row-major. All wire bytes are ≤ 0x7e
+	// (ASCII data + small varints), so they never collide with tagHybridColStruct
+	// (0xF7) — the tag scan is reliable here.
+	type noWinRec struct {
+		ID   string            // high-card, full-alphabet (no alpha-pack, no dict)
+		Tags map[string]string // residual → hybrid
+	}
+	r := rand.New(rand.NewPCG(0xC0FFEE, 0xBADF00D))
+	in := make([]noWinRec, 300)
+	for i := range in {
+		b := make([]byte, 24)
+		for j := range b {
+			b[j] = byte(32 + r.IntN(95)) // full printable ASCII → >64 alphabet
+		}
+		in[i] = noWinRec{ID: string(b), Tags: map[string]string{"k": "v"}}
+	}
+	bb, err := Marshal(in, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if containsByte(bb, tagHybridColStruct) {
-		t.Fatal("OptBalanced (no FSST): hybrid must not auto-fire in v1")
+		t.Fatal("OptBalanced: non-winning mixed struct must NOT auto-fire hybrid (would not beat row-major)")
+	}
+	var out []noWinRec
+	if err := Unmarshal(bb, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatal("round-trip mismatch")
 	}
 }
 

@@ -607,8 +607,9 @@ func (d *Decoder) Skip() error {
 		}
 		return nil
 	case tagHybridColStruct:
-		// Hybrid columnar []struct (unknown mixed-struct-slice field under
-		// OptFSST/OptCompression). Same rationale as tagColStruct: decode-and-
+		// Hybrid columnar []struct (unknown mixed-struct-slice field — emitted
+		// under OptFSST/OptCompression, or under Balanced when the intern-aware
+		// probe predicts a win). Same rationale as tagColStruct: decode-and-
 		// discard via the any path to advance the cursor and replay the intern /
 		// shape state, keeping later state-refs in sync.
 		if _, err := decodeHybridColumnarAny(d); err != nil {
