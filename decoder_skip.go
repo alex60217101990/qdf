@@ -362,7 +362,12 @@ func (d *Decoder) Skip() error {
 		if d.i >= len(d.buf) {
 			return ErrShortBuffer
 		}
-		if d.buf[d.i] != qpackKindFloat64 {
+		excValBytes := 8 // float64 exception value width
+		switch d.buf[d.i] {
+		case qpackKindFloat64:
+		case qpackKindFloat32:
+			excValBytes = 4
+		default:
 			return ErrTypeMismatch
 		}
 		d.i++ // kind
@@ -415,10 +420,10 @@ func (d *Decoder) Skip() error {
 				return ErrInvalidLength
 			}
 			d.i += nr
-			if d.i+8 > len(d.buf) {
+			if d.i+excValBytes > len(d.buf) {
 				return ErrShortBuffer
 			}
-			d.i += 8
+			d.i += excValBytes
 		}
 		return nil
 	case tagPackDeltaFor:
