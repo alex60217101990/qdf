@@ -298,7 +298,11 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 		totalChars = int(tc)
 	}
 
-	bodyBytes := (totalChars*cbits + 7) >> 3
+	// Widen the multiply: totalChars is capped at maxInt and cbits at 6, so on a
+	// 32-bit build totalChars*cbits as int could overflow to a negative bodyBytes.
+	// The true value is <= rem (totalChars <= rem*8/cbits), so it fits int once the
+	// intermediate is computed in 64 bits.
+	bodyBytes := int((uint64(totalChars)*uint64(cbits) + 7) >> 3)
 	if bodyBytes > len(d.buf)-d.i {
 		return nil, ErrShortBuffer
 	}
