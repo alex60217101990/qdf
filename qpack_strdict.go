@@ -185,6 +185,33 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	return true
 }
 
+// dictSampleHighCard reports whether a leading sample of strs is mostly distinct
+// (> qpackStrDictSampleMaxPct), using a fixed stack array and a linear scan — no
+// map, no allocation. It mirrors the in-loop high-cardinality bail of
+// tryWriteStringColumnDict so a mostly-distinct column can exit before the hash
+// map is built. The linear O(sample²) compares are cheap because distinct values
+// (random IDs) diverge in their first bytes, so most comparisons fail fast.
+func dictSampleHighCard(strs []string) bool {
+	sampleN := min(len(strs), qpackStrDictSampleN)
+	var seen [qpackStrDictSampleN]string
+	distinct := 0
+	for i := 0; i < sampleN; i++ {
+		s := strs[i]
+		fresh := true
+		for j := 0; j < distinct; j++ {
+			if seen[j] == s {
+				fresh = false
+				break
+			}
+		}
+		if fresh {
+			seen[distinct] = s
+			distinct++
+		}
+	}
+	return distinct*100 > sampleN*qpackStrDictSampleMaxPct
+}
+
 // commonPrefixLen returns the length of the longest byte prefix shared by a and
 // b. Used by the front-coded string-dictionary codec.
 func commonPrefixLen(a, b string) int {

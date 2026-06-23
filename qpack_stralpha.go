@@ -27,9 +27,6 @@ const qpackStrAlphaMaxAlphabet = 64
 // the dict probe's high-cardinality threshold.
 const alphaMinDistinctPct = 70
 
-// alphaSampleN is the leading-row window for the cheap high-cardinality check.
-const alphaSampleN = 64
-
 // alphaProbeMinAvgLen is the minimum average value length (bytes) for the
 // intern-aware columnar probe to credit alpha-packing. Short tokens pack no
 // better than a dictionary once the per-row length prefix is paid, so crediting
@@ -49,30 +46,12 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 		return false
 	}
 
-	// Cheap high-cardinality gate first: count distinct values over a leading
-	// sample with a stack set (no allocation). A low-card column (constant, enum,
-	// run-heavy) is cheaper as const/dict/interned references than as packed
-	// chars, and the raw-floor gate below would not catch that — so bail before
-	// the full alphabet scan. This mirrors the dict probe's sample bail (inverted:
-	// alpha wants HIGH cardinality).
-	sampleN := min(n, alphaSampleN)
-	var sampleSeen [alphaSampleN]string
-	distinct := 0
-	for i := range sampleN {
-		s := strs[i]
-		fresh := true
-		for j := 0; j < distinct; j++ {
-			if sampleSeen[j] == s {
-				fresh = false
-				break
-			}
-		}
-		if fresh {
-			sampleSeen[distinct] = s
-			distinct++
-		}
-	}
-	if distinct*100 < sampleN*alphaMinDistinctPct {
+	// Cheap high-cardinality gate first (shared with the dict pre-bail): a low-card
+	// column (constant, enum, run-heavy) is cheaper as const/dict/interned
+	// references than as packed chars, and the raw-floor gate below would not catch
+	// that — so bail before the full alphabet scan. alpha wants HIGH cardinality,
+	// the inverse of the dict bail (same 64-row window / 70% threshold).
+	if !dictSampleHighCard(strs) {
 		return false
 	}
 
@@ -157,9 +136,32 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 	start := len(out)
 	out = append(out, make([]byte, bodyBytes)...)
 	body := out[start : start+bodyBytes]
-	// Manual LSB-first bit-writer over the char codes — identical layout to
-	// bitpack.Pack, so bitpack.Unpack reverses it on decode (no per-value uint64
-	// scratch is built; codes are < a <= 2^cbits, so no masking is needed).
+	if cbits == 4 {
+		// Hex / 16-symbol alphabet — the dominant ID case. Pack two nibbles per
+		// byte directly (LSB-first: first char low, second char high), skipping the
+		// shift/accumulate window of the general path.
+		pos, pend := 0, -1
+		for _, s := range strs {
+			for i := 0; i < len(s); i++ {
+				c := int(code[s[i]])
+				if pend < 0 {
+					pend = c
+				} else {
+					body[pos] = byte(pend | c<<4)
+					pos++
+					pend = -1
+				}
+			}
+		}
+		if pend >= 0 {
+			body[pos] = byte(pend)
+		}
+		e.buf = out
+		return true
+	}
+	// General LSB-first bit-writer over the char codes — identical layout to
+	// bitpack.Pack, so bitpack.Unpack reverses it on decode (codes are < a <=
+	// 2^cbits, so no masking is needed).
 	var acc uint64
 	var have uint
 	pos := 0
@@ -285,19 +287,52 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
 
-	// Unpack the char codes into the shared transient scratch, then map each code
-	// to its alphabet byte in one owned slab.
-	if cap(d.deltaScratch) < totalChars {
-		d.deltaScratch = make([]uint64, totalChars)
-	}
-	codes := d.deltaScratch[:totalChars]
-	bitpack.Unpack(codes, body, cbits)
 	slab := make([]byte, totalChars)
-	for k, c := range codes {
-		if c >= a64 {
-			return nil, ErrBadTag
+	if cbits == 4 {
+		// Hex / 16-symbol alphabet — the dominant ID case. Fuse the unpack and the
+		// alphabet scatter into one pass over the body (two nibbles per byte),
+		// skipping the uint64 scratch and the general bit-window decoder. a in
+		// (8,16]; when a < 16 a nibble may exceed the alphabet and must be rejected.
+		full := totalChars &^ 1
+		k := 0
+		if a64 == 16 {
+			for ; k < full; k += 2 {
+				b := body[k>>1]
+				slab[k] = alphabet[b&0xf]
+				slab[k+1] = alphabet[b>>4]
+			}
+		} else {
+			for ; k < full; k += 2 {
+				b := body[k>>1]
+				lo, hi := b&0xf, b>>4
+				if uint64(lo) >= a64 || uint64(hi) >= a64 {
+					return nil, ErrBadTag
+				}
+				slab[k] = alphabet[lo]
+				slab[k+1] = alphabet[hi]
+			}
 		}
-		slab[k] = alphabet[c]
+		if k < totalChars { // trailing odd nibble (low half of the last byte)
+			lo := body[k>>1] & 0xf
+			if uint64(lo) >= a64 {
+				return nil, ErrBadTag
+			}
+			slab[k] = alphabet[lo]
+		}
+	} else {
+		// General path: unpack the char codes into the shared transient scratch,
+		// then map each code to its alphabet byte.
+		if cap(d.deltaScratch) < totalChars {
+			d.deltaScratch = make([]uint64, totalChars)
+		}
+		codes := d.deltaScratch[:totalChars]
+		bitpack.Unpack(codes, body, cbits)
+		for k, c := range codes {
+			if c >= a64 {
+				return nil, ErrBadTag
+			}
+			slab[k] = alphabet[c]
+		}
 	}
 
 	out := make([]string, n)
