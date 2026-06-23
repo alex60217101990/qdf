@@ -490,9 +490,6 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 		var tableBytes, perValue, sampleChars int
 		prev := ""
 		first := true
-		var alphaSeen [256]bool
-		alphaCount := 0
-		alphaOK := internAware
 		for i := range sample {
 			s := strs[i]
 			fresh := true
@@ -517,10 +514,25 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 			} else {
 				rowBytes += 2 + len(s)
 			}
+			sampleChars += len(s)
 			prev = s
 			first = false
-			if alphaOK {
-				sampleChars += len(s)
+		}
+		dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
+		best := min(perValue, dictBytes)
+		// Defer the O(chars) per-byte alphabet scan behind the cheap alpha
+		// preconditions (cardinality + average length), so low-card / short string
+		// columns skip it entirely — byte-identical to the columnar decision (the
+		// scan's alphaOK/alphaCount feed only the alphaEst below). Mirrors
+		// columnarProbe.
+		if internAware &&
+			nseen*100 >= sample*alphaMinDistinctPct &&
+			sampleChars >= sample*alphaProbeMinAvgLen {
+			var alphaSeen [256]bool
+			alphaCount := 0
+			alphaOK := true
+			for i := range sample {
+				s := strs[i]
 				for k := 0; k < len(s); k++ {
 					if !alphaSeen[s[k]] {
 						if alphaCount >= qpackStrAlphaMaxAlphabet {
@@ -531,16 +543,15 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 						alphaCount++
 					}
 				}
+				if !alphaOK {
+					break
+				}
 			}
-		}
-		dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
-		best := min(perValue, dictBytes)
-		if alphaOK && alphaCount >= 2 &&
-			nseen*100 >= sample*alphaMinDistinctPct &&
-			sampleChars >= sample*alphaProbeMinAvgLen {
-			alphaEst := alphaCount + sample + (sampleChars*bitsForDistinct(alphaCount)+7)/8
-			if alphaEst < best {
-				best = alphaEst
+			if alphaOK && alphaCount >= 2 {
+				alphaEst := alphaCount + sample + (sampleChars*bitsForDistinct(alphaCount)+7)/8
+				if alphaEst < best {
+					best = alphaEst
+				}
 			}
 		}
 		colBytes += best
