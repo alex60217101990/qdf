@@ -271,7 +271,10 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 			// without forcing another doubling on a slight
 			// underestimate.
 			remaining := n - sliceProbeSize
-			projected := probeBytes * remaining / sliceProbeSize
+			// 64-bit intermediate: probeBytes*remaining can exceed int32 on a
+			// 32-bit build for a large slice, wrapping projected negative and
+			// panicking slices.Grow.
+			projected := int(int64(probeBytes) * int64(remaining) / int64(sliceProbeSize))
 			projected += projected >> 2
 			e.buf = slices.Grow(e.buf, projected)
 		}
@@ -1337,7 +1340,9 @@ func encodeSliceAny(e *Encoder, p unsafe.Pointer) error {
 	// Project the remaining size from the probe (+25% slack) and grow once,
 	// killing the doubling chain on large dynamic arrays.
 	if probeBytes := len(e.buf) - probeStart; probeBytes > 0 {
-		projected := probeBytes * (n - probe) / probe
+		// 64-bit intermediate: the product can exceed int32 on a 32-bit build for
+		// a large slice, wrapping projected negative and panicking slices.Grow.
+		projected := int(int64(probeBytes) * int64(n-probe) / int64(probe))
 		projected += projected >> 2
 		e.buf = slices.Grow(e.buf, projected)
 	}

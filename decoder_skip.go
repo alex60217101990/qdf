@@ -455,13 +455,16 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += nr
 		if n64 >= 2 {
-			// Body holds (n-1) elements at bitsPer each. Compute the
-			// byte size in uint64 to keep the bounds check overflow-safe.
-			bodyBits := (n64 - 1) * uint64(bitsPer)
-			bodyBytes := (bodyBits + 7) >> 3
-			if bodyBytes > uint64(len(d.buf)-d.i) {
+			// Body holds (n-1) elements at bitsPer each. Bound (n-1) by the
+			// remaining bytes via DIVISION before the multiply — n64 is an
+			// unbounded varuint, so `(n64-1)*bitsPer` would overflow uint64 for a
+			// large n64 (wrapping to a small bodyBytes that passes the size check
+			// and desyncs the skip cursor). Mirrors readPackedDeltaForHeader.
+			rem := uint64(len(d.buf) - d.i)
+			if bitsPer > 0 && n64-1 > rem*8/uint64(bitsPer) {
 				return ErrShortBuffer
 			}
+			bodyBytes := ((n64-1)*uint64(bitsPer) + 7) >> 3
 			d.i += int(bodyBytes)
 		}
 		return nil
