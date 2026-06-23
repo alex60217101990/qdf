@@ -73,7 +73,7 @@ func TestDictIndexQPackHostileDecode(t *testing.T) {
 		t.Fatal("fixture did not exercise tagColStrDictQ")
 	}
 	// Truncations.
-	for cut := 0; cut < len(good); cut++ {
+	for cut := range good {
 		var out []dictIdxQRow
 		_ = Unmarshal(good[:cut], &out) // must not panic
 	}
