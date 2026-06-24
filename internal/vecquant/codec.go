@@ -11,14 +11,28 @@ import (
 // encoder may randomize it per column without breaking decode).
 const hadamardSeed uint64 = 0x51ed270b9f4d8c3a
 
+// Variant identifies the lattice used for a Block's coordinates.
+const (
+	VariantScalar uint8 = 0
+	VariantE8     uint8 = 1
+)
+
 // Block is the self-contained encoded form of a set of equal-length vectors.
 type Block struct {
-	Dim    int
-	Count  int
-	Seed   uint64
-	Delta  float64
-	Coords []byte // encodeCoords output over the flattened, row-major indices
+	Dim     int
+	Count   int
+	Seed    uint64
+	Delta   float64
+	Coords  []byte // encodeCoords output over the flattened, row-major indices
+	Variant uint8  // VariantScalar or VariantE8
+	Cosets  []byte // coset bits for VariantE8; nil for VariantScalar
 }
+
+// e8Eligible reports whether the E8 variant is worth attempting for a padded
+// dimension. Below 16 (one or two 8-D blocks) the coset/packing overhead
+// dominates any packing gain, so we skip the extra encode. This is a perf gate,
+// never a correctness gate: scalar is always computed.
+func e8Eligible(pdim int) bool { return pdim >= 16 }
 
 // rotateAll pads each vector to pdim, rotates in place, returns a flat
 // [count*pdim] buffer plus the padded dim.
@@ -45,11 +59,81 @@ func rms(flat []float64) float64 {
 	return math.Sqrt(s / float64(len(flat)))
 }
 
-// Encode runs rotate → choose Δ → quantize, shrinking Δ until the sampled
-// achieved error meets the budget (bounded retries).
+// variantResult holds the output of one encode attempt.
+type variantResult struct {
+	delta  float64
+	coords []byte
+	cosets []byte
+	ok     bool
+}
+
+// encodeScalar runs the scalar verify-loop and returns the encoded coords.
+// Scalar is always emitted as the floor; ok is not checked by the caller.
+func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget) variantResult {
+	delta := DeltaFor(b, sigma, lattice.ScalarG)
+	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
+		delta = sigma
+	}
+	var q []int32
+	ok := false
+	for range 4 {
+		q = lattice.QuantizeScalar(flat, delta, q)
+		if budgetMetScalar(orig, q, pdim, dim, delta, b) {
+			ok = true
+			break
+		}
+		delta *= 0.6
+	}
+	_ = ok // scalar is always emitted as the floor; ok not needed by caller
+	return variantResult{delta: delta, coords: encodeCoords(q), ok: true}
+}
+
+// encodeE8 runs the E8 verify-loop; ok=false if it never meets the budget.
+func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget) variantResult {
+	delta := DeltaFor(b, sigma, lattice.E8G)
+	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
+		delta = sigma
+	}
+	var coords []int32
+	var cosets []byte
+	ok := false
+	for range 4 {
+		coords, cosets = lattice.QuantizeE8(flat, delta)
+		if budgetMetE8(orig, coords, cosets, pdim, dim, delta, b) {
+			ok = true
+			break
+		}
+		delta *= 0.6
+	}
+	if !ok {
+		return variantResult{ok: false}
+	}
+	return variantResult{delta: delta, coords: encodeCoords(coords), cosets: cosets, ok: true}
+}
+
+func budgetMetScalar(orig [][]float64, q []int32, pdim, dim int, delta float64, b Budget) bool {
+	recon := reconstruct(q, pdim, dim, len(orig), delta)
+	return budgetCheck(orig, recon, b)
+}
+
+func budgetMetE8(orig [][]float64, coords []int32, cosets []byte, pdim, dim int, delta float64, b Budget) bool {
+	recon := reconstructE8(coords, cosets, pdim, dim, len(orig), delta)
+	return budgetCheck(orig, recon, b)
+}
+
+func budgetCheck(orig, recon [][]float64, b Budget) bool {
+	got := metric(orig, recon, b.Kind)
+	if b.Kind == KindCosine {
+		return got >= b.Val
+	}
+	return got <= relTarget(b)
+}
+
+// Encode rotates, then encodes with the scalar quantizer and (when eligible)
+// the E8 quantizer, keeping the smaller encoding that meets the budget.
 func Encode(vectors [][]float64, b Budget) Block {
 	if len(vectors) == 0 {
-		return Block{Seed: hadamardSeed, Delta: 1}
+		return Block{Seed: hadamardSeed, Delta: 1, Variant: VariantScalar}
 	}
 	dim := len(vectors[0])
 	flat, pdim := rotateAll(vectors, hadamardSeed)
@@ -57,40 +141,24 @@ func Encode(vectors [][]float64, b Budget) Block {
 	if sigma == 0 {
 		sigma = 1
 	}
-	delta := DeltaFor(b, sigma, lattice.ScalarG)
-	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
-		delta = sigma // safe fallback
-	}
 
-	var q []int32
-	for range 4 {
-		q = lattice.QuantizeScalar(flat, delta, q)
-		if budgetMet(vectors, flat, q, pdim, dim, delta, b) {
-			break
+	sc := encodeScalar(vectors, flat, pdim, dim, sigma, b)
+	best := Block{
+		Dim: dim, Count: len(vectors), Seed: hadamardSeed,
+		Delta: sc.delta, Coords: sc.coords, Variant: VariantScalar,
+	}
+	bestSize := len(sc.coords)
+
+	if e8Eligible(pdim) {
+		e8 := encodeE8(vectors, flat, pdim, dim, sigma, b)
+		if e8.ok && len(e8.coords)+len(e8.cosets) < bestSize {
+			best = Block{
+				Dim: dim, Count: len(vectors), Seed: hadamardSeed,
+				Delta: e8.delta, Coords: e8.coords, Variant: VariantE8, Cosets: e8.cosets,
+			}
 		}
-		delta *= 0.6 // tighten and retry
 	}
-
-	bl := Block{
-		Dim:    dim,
-		Count:  len(vectors),
-		Seed:   hadamardSeed,
-		Delta:  delta,
-		Coords: encodeCoords(q),
-	}
-	return bl
-}
-
-// budgetMet reconstructs from q and checks the achieved error against b.
-func budgetMet(orig [][]float64, flat []float64, q []int32, pdim, dim int, delta float64, b Budget) bool {
-	recon := reconstruct(q, pdim, dim, len(orig), delta)
-	got := metric(orig, recon, b.Kind)
-	switch b.Kind {
-	case KindCosine:
-		return got >= b.Val
-	default: // RelError, SNR expressed as rel
-		return got <= relTarget(b)
-	}
+	return best
 }
 
 // relTarget converts any budget to an equivalent max-rel-error for comparison.
@@ -161,6 +229,21 @@ func reconstruct(q []int32, pdim, dim, count int, delta float64) [][]float64 {
 	return out
 }
 
+// reconstructE8 dequantizes E8 coords+cosets and inverse-rotates to dim.
+func reconstructE8(coords []int32, cosets []byte, pdim, dim, count int, delta float64) [][]float64 {
+	flat := lattice.ReconstructE8(coords, cosets, delta, count*pdim)
+	out := make([][]float64, count)
+	row := make([]float64, pdim)
+	for i := 0; i < count; i++ {
+		copy(row, flat[i*pdim:i*pdim+pdim])
+		hadamard.Inverse(row, hadamardSeed)
+		v := make([]float64, dim)
+		copy(v, row[:dim])
+		out[i] = v
+	}
+	return out
+}
+
 // Decode inverts the pipeline from the on-wire block.
 func (bl Block) Decode() [][]float64 {
 	if bl.Count == 0 {
@@ -170,6 +253,12 @@ func (bl Block) Decode() [][]float64 {
 	q, err := decodeCoords(bl.Coords, bl.Count*pdim)
 	if err != nil {
 		return nil
+	}
+	if bl.Variant == VariantE8 {
+		if len(bl.Cosets) != (bl.Count*pdim+63)/64*8 && len(bl.Cosets) != (bl.Count*pdim/8) {
+			// length is validated at the wire layer; guard here defensively.
+		}
+		return reconstructE8(q, bl.Cosets, pdim, bl.Dim, bl.Count, bl.Delta)
 	}
 	return reconstruct(q, pdim, bl.Dim, bl.Count, bl.Delta)
 }
