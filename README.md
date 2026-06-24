@@ -748,6 +748,24 @@ Measured, decode into a pre-sized target (i7-9750H):
 | string-bearing telemetry `[]struct` | 393,924 → 229,948 (**−42 %**) | ~−9 % |
 | `[]struct{map[string]string}` (256×16) | 341,000 → 25,000 (**−92 %**) | ~−17 % |
 
+### Lossy vector codec (`OptLossyVec`)
+
+`[]float32` and `[]float64` embedding fields can be compressed with a
+configurable fidelity budget — cosine similarity, relative L2 error, or SNR.
+The codec is **opt-in and lossy**; the default mode is always bit-exact.
+
+```go
+enc := qdf.NewEncoderWith(qdf.OptBalanced | qdf.OptLossyVec)
+enc.SetVectorBudget(qdf.MinCosine(0.999)) // or MaxRelError / TargetSNR
+data, _ := enc.EncodeValue(rows)
+```
+
+NaN and Inf values are preserved exactly via an exception list in the wire
+format — they are never corrupted or silently dropped.
+
+Full details, pipeline description, budget knobs, and a worked example are in
+**[`docs/LOSSY-VECTOR.md`](docs/LOSSY-VECTOR.md)**.
+
 ---
 
 ## Code generation
