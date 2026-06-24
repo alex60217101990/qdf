@@ -254,10 +254,12 @@ func (bl Block) Decode() [][]float64 {
 		return nil
 	}
 	if bl.Variant == VariantE8 {
-		// Defense in depth: the coset stream holds one bit per 8-D block.
-		// The wire layer validates this too, but guard here so a malformed
-		// Block can never index past the coset slice.
-		if len(bl.Cosets) != (bl.Count*pdim+7)/8 {
+		// Defense in depth: the coset stream holds one bit per 8-D block, so
+		// blocks = count*pdim/8 and the byte length is ceil(blocks/8). The wire
+		// layer validates this too, but guard here so a malformed Block can
+		// never index past the coset slice.
+		blocks := bl.Count * pdim / 8
+		if len(bl.Cosets) != (blocks+7)/8 {
 			return nil
 		}
 		return reconstructE8(q, bl.Cosets, pdim, bl.Dim, bl.Count, bl.Delta)
