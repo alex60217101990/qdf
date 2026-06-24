@@ -13,6 +13,11 @@ type Scratch struct {
 	row     []float64 // streaming reconstruct row, len pdim
 	qScalar []int32   // scalar quantizer codes
 	qE8     []int32   // E8 quantizer codes
+
+	zig          []byte // transient zigzag-varint staging (shared by both variants)
+	ransDst      []byte // transient rANS encode staging (shared)
+	coordsScalar []byte // scalar variant's final coord block (coexists with E8's)
+	coordsE8     []byte // E8 variant's final coord block
 }
 
 // Reset prepares the scratch for the next encode, dropping any buffer that grew
@@ -29,6 +34,18 @@ func (s *Scratch) Reset() {
 	}
 	if cap(s.row) > maxRetainedScratch {
 		s.row = nil
+	}
+	if cap(s.zig) > maxRetainedScratch {
+		s.zig = nil
+	}
+	if cap(s.ransDst) > maxRetainedScratch {
+		s.ransDst = nil
+	}
+	if cap(s.coordsScalar) > maxRetainedScratch {
+		s.coordsScalar = nil
+	}
+	if cap(s.coordsE8) > maxRetainedScratch {
+		s.coordsE8 = nil
 	}
 }
 
