@@ -79,17 +79,9 @@ func rms(flat []float64) float64 {
 	return math.Sqrt(s / float64(len(flat)))
 }
 
-// variantResult holds the output of one encode attempt.
-type variantResult struct {
-	delta  float64
-	coords []byte
-	cosets []byte
-	ok     bool
-}
-
-// encodeScalar runs the scalar verify-loop and returns the encoded coords plus
-// the (possibly grown) coord slice so the caller can reuse it next call.
-func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, q []int32) (variantResult, []int32) {
+// encodeScalar runs the scalar verify-loop and returns the chosen delta plus
+// the (possibly grown) quantized coord slice so the caller can reuse it.
+func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, q []int32) (float64, []int32) {
 	delta := DeltaFor(b, sigma, lattice.ScalarG)
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
@@ -103,20 +95,16 @@ func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64
 		}
 		delta *= 0.6
 	}
-	return variantResult{delta: delta, coords: encodeCoords(q), ok: true}, q
+	return delta, q
 }
 
 // encodeE8 runs the E8 verify-loop; ok=false if it never meets the budget.
-// row and q are reused buffers; q is passed through and returned unchanged
-// (QuantizeE8 allocates coords internally; E8 coord reuse is a follow-up).
-func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, q []int32) (variantResult, []int32) {
-	delta := DeltaFor(b, sigma, lattice.E8G)
+// Returns the chosen delta, the integer coords, and the coset bits.
+func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64) (delta float64, coords []int32, cosets []byte, ok bool) {
+	delta = DeltaFor(b, sigma, lattice.E8G)
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
-	var coords []int32
-	var cosets []byte
-	ok := false
 	for range 4 {
 		coords, cosets = lattice.QuantizeE8(flat, delta)
 		if budgetMetE8(orig, coords, cosets, pdim, dim, delta, b, row) {
@@ -125,10 +113,7 @@ func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b 
 		}
 		delta *= 0.6
 	}
-	if !ok {
-		return variantResult{ok: false}, q
-	}
-	return variantResult{delta: delta, coords: encodeCoords(coords), cosets: cosets, ok: true}, q
+	return delta, coords, cosets, ok
 }
 
 // budgetMetStream reconstructs one vector at a time into row (len pdim), inverse-
@@ -206,6 +191,11 @@ func Encode(vectors [][]float64, b Budget) Block {
 }
 
 // EncodeWith encodes reusing sc's buffers across the verify-loop and variants.
+//
+// The returned Block.Coords aliases an sc-owned buffer; it stays valid only
+// until the next EncodeWith call on the same sc. Callers must consume it (the
+// qdf wire layer copies it into the output before reusing the encoder) before
+// re-encoding. Use Encode for a one-shot Block whose Coords is independent.
 func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 	if len(vectors) == 0 {
 		return Block{Seed: hadamardSeed, Delta: 1, Variant: VariantScalar}
@@ -219,24 +209,31 @@ func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 		sigma = 1
 	}
 
-	scRes, qs := encodeScalar(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qScalar)
+	scDelta, qs := encodeScalar(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qScalar)
 	sc.qScalar = qs
+	scCoords, zb, rb := encodeCoordsInto(qs, sc.coordsScalar, sc.zig, sc.ransDst)
+	sc.coordsScalar, sc.zig, sc.ransDst = scCoords, zb, rb
 	best := Block{
 		Dim: dim, Count: len(vectors), Seed: hadamardSeed,
-		Delta: scRes.delta, Coords: scRes.coords, Variant: VariantScalar,
+		Delta: scDelta, Coords: scCoords, Variant: VariantScalar,
 	}
-	bestSize := len(scRes.coords)
+	bestSize := len(scCoords)
 
 	if e8Eligible(pdim) && e8WorthTrying(b) {
-		e8, qe := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qE8)
-		sc.qE8 = qe
-		// Compare true wire sizes: E8 additionally carries the coset stream and
-		// its varuint length prefix, which the wire layer writes.
-		e8Size := len(e8.coords) + uvarintLen(uint64(len(e8.cosets))) + len(e8.cosets)
-		if e8.ok && e8Size < bestSize {
-			best = Block{
-				Dim: dim, Count: len(vectors), Seed: hadamardSeed,
-				Delta: e8.delta, Coords: e8.coords, Variant: VariantE8, Cosets: e8.cosets,
+		e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row)
+		if ok {
+			// E8's coord block uses its own scratch buffer so it can coexist with
+			// scalar's for the size comparison; the zig/ransDst staging is reused.
+			e8Bytes, zb2, rb2 := encodeCoordsInto(e8Coords, sc.coordsE8, sc.zig, sc.ransDst)
+			sc.coordsE8, sc.zig, sc.ransDst = e8Bytes, zb2, rb2
+			// Compare true wire sizes: E8 additionally carries the coset stream and
+			// its varuint length prefix, which the wire layer writes.
+			e8Size := len(e8Bytes) + uvarintLen(uint64(len(e8Cosets))) + len(e8Cosets)
+			if e8Size < bestSize {
+				best = Block{
+					Dim: dim, Count: len(vectors), Seed: hadamardSeed,
+					Delta: e8Delta, Coords: e8Bytes, Variant: VariantE8, Cosets: e8Cosets,
+				}
 			}
 		}
 	}
@@ -262,13 +259,13 @@ func EncodeForcedE8(vectors [][]float64, b Budget) (Block, bool) {
 		sigma = 1
 	}
 	row := make([]float64, pdim)
-	e8, _ := encodeE8(vectors, flat, pdim, dim, sigma, b, row, nil)
-	if !e8.ok {
+	e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, row)
+	if !ok {
 		return Block{}, false
 	}
 	return Block{
 		Dim: dim, Count: len(vectors), Seed: hadamardSeed,
-		Delta: e8.delta, Coords: e8.coords, Variant: VariantE8, Cosets: e8.cosets,
+		Delta: e8Delta, Coords: encodeCoords(e8Coords), Variant: VariantE8, Cosets: e8Cosets,
 	}, true
 }
 

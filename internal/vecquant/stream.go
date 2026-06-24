@@ -36,6 +36,28 @@ func readVarintZigzag(src []byte, n int) ([]int32, error) {
 }
 
 // Stream layout: mode byte (0=raw varint, 1=rANS) | varuint(rawLen) | body.
+// encodeCoordsInto is the buffer-reusing form of encodeCoords: it zigzag-varint
+// encodes q into the reused zig buffer, rANS-encodes into the reused ransDst
+// buffer, and writes the never-larger framing into out (reused). Returns the
+// coord block plus the grown staging buffers so the caller can retain them.
+func encodeCoordsInto(q []int32, out, zig, ransDst []byte) (res, zigBack, ransBack []byte) {
+	zig = appendVarintZigzag(zig[:0], q)
+	ransDst = rans.Encode(ransDst[:0], zig)
+	out = out[:0]
+	var tmp [binary.MaxVarintLen64]byte
+	hdr := binary.PutUvarint(tmp[:], uint64(len(zig)))
+	if len(ransDst) < len(zig) {
+		out = append(out, 1)
+		out = append(out, tmp[:hdr]...)
+		out = append(out, ransDst...)
+	} else {
+		out = append(out, 0)
+		out = append(out, tmp[:hdr]...)
+		out = append(out, zig...)
+	}
+	return out, zig, ransDst
+}
+
 func encodeCoords(q []int32) []byte {
 	raw := appendVarintZigzag(nil, q)
 	packed := rans.Encode(nil, raw)
