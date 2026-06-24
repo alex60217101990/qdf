@@ -1,123 +1,175 @@
-# Lossy Vector Codec
+# Lossy vector codec — `OptLossyVec`
 
-qdf includes a lossy codec for `[]float32` and `[]float64` fields that
-contain embedding vectors or other high-dimensional float data. The codec
-is **opt-in** (disabled by default) and **lossy** — decoded values are
-reconstructed approximations, not bit-exact copies.
-
-## Enabling the codec
-
-Add `OptLossyVec` to the encoder's option set and supply a fidelity budget:
+qdf includes an **opt-in, lossy** codec for `[]float32` / `[]float64` fields
+that hold embedding vectors or other high-dimensional float data. It trades a
+bounded, caller-chosen amount of fidelity for a much smaller wire: at equal
+reconstruction quality it produces **~19–22 % fewer bytes per vector than
+scalar quantization** (and than a TurboQuant-style rotated-scalar codec), while
+the default qdf path stays bit-exact.
 
 ```go
 enc := qdf.NewEncoderWith(qdf.OptBalanced | qdf.OptLossyVec)
-enc.SetVectorBudget(qdf.MinCosine(0.999))
-
-if err := enc.EncodeValue(rows); err != nil {
-    log.Fatal(err)
-}
+enc.SetVectorBudget(qdf.MinCosine(0.999)) // keep cosine similarity >= 0.999
+_ = enc.EncodeValue(rows)
 data := enc.Bytes()
 
 var out []EmbedRow
-if err := qdf.Unmarshal(data, &out); err != nil {
-    log.Fatal(err)
-}
+_ = qdf.Unmarshal(data, &out) // no flag needed; the 0xFD tag self-describes
 ```
 
-Decoding requires no special flag — `qdf.Unmarshal` (or any `Decoder`)
-recognises the `0xFD` tag and reconstructs the vectors automatically.
+> **Visual reference:** the [lossy-vector diagram](../diagrams/lossy-vector.md)
+> shows the encode pipeline (rotation → quantize → entropy → never-worse) and
+> the `0xFD` wire format / decode path.
 
-## Budget knobs
+<img src="../diagrams/svg/lossy-vector-1.svg" alt="Lossy vector encode pipeline">
 
-Three constructors set the fidelity target. All are per-vector guarantees.
+---
 
-| Constructor | Meaning |
-|---|---|
-| `MaxRelError(eps float64)` | Per-vector relative L2 error ≤ eps (e.g. `0.02` = 2 %). |
-| `MinCosine(c float64)` | Cosine similarity ≥ c (e.g. `0.999`). Best for embedding search. |
-| `TargetSNR(db float64)` | Signal-to-noise ratio ≥ db decibels (e.g. `40`). |
+## Why it exists
 
-If no budget is set, the default is `MinCosine(0.999)`.
+A 768-dim `float32` embedding is 3 072 bytes. A corpus of millions of them is
+the dominant storage and bandwidth cost of a vector database or a RAG index.
+The values are not telemetry that must round-trip bit-for-bit — what matters is
+that nearest-neighbour search returns the same results, i.e. that cosine
+similarity (or L2 distance) is preserved to a few decimal places. That is
+exactly the regime where lossy quantization wins, and it is **off by default**
+so no exact workload is ever silently approximated.
 
-## When the codec fires
+The codec borrows the rotation idea from Google's TurboQuant (KV-cache
+quantization) but, being a **CPU serializer** rather than a GPU kernel, it can
+do two things a fixed-width GPU codebook cannot, which is where its size edge
+comes from:
 
-The codec is applied only when all of the following are true:
+1. **Entropy-code the quantization indices.** After the rotation the indices are
+   near-Gaussian (a peaked distribution); an order-0 rANS pass — the same one
+   the rest of qdf uses — recovers the bits a fixed-width code wastes.
+2. **Use a lattice.** The E8 lattice's Voronoi cell is rounder than the scalar
+   cube, so it needs fewer bits for the same distortion.
 
-- `OptLossyVec` is set on the encoder.
-- The slice has at least 32 elements (`lossyVecMinElems`).
-- The encoded result is not larger than the lossless path (never-worse
-  guarantee — if quantization would inflate the wire size the encoder
-  falls back to the standard float codec automatically).
+---
 
-## Pipeline
+## When to use it (and which budget)
 
-For each column of float vectors, the encoder:
+| Situation | Use it? | Budget |
+|---|---|---|
+| Embedding store / RAG index (ANN search) | **Yes** — the headline use case | `MinCosine(0.999)` (recall-preserving) |
+| Bandwidth-bound embedding transfer | **Yes** | `MinCosine` or `MaxRelError(0.01)` |
+| Model weight / activation tensors | Yes, with care | `MaxRelError` / `TargetSNR`, validate downstream accuracy |
+| Scientific / financial floats needing exact values | **No** — leave `OptLossyVec` off | — |
+| Short vectors (< 32 elems) or scalar float fields | Won't fire | — (stays lossless automatically) |
 
-1. **Randomised Hadamard transform** — decorrelates the coordinates using a
-   seeded random Hadamard rotation, spreading energy evenly before quantization.
-2. **Scalar uniform quantization** — chooses the smallest integer bit-width
-   whose reconstruction error meets the budget; the quantised integers are
-   stored in the `Coords` byte block.
-3. **rANS entropy coding** — compresses the `Coords` block using the same
-   interleaved rANS stage used by the rest of qdf.
+Rules of thumb:
 
-The decoder reverses the steps: rANS decode → dequantize → inverse Hadamard.
+- **`MinCosine`** is the right knob for embeddings used in dot-product / cosine
+  ANN search — it directly bounds the metric the index relies on.
+- **`MaxRelError`** bounds the per-vector relative L2 error; use it when you
+  reason about reconstruction error directly. Tighter `eps` ⇒ more bytes.
+- **`TargetSNR`** (dB) suits signal-style data.
+- A looser budget is smaller and faster; pick the loosest your downstream task
+  tolerates and verify recall on a held-out query set.
 
-## Quantizers
+The codec **only fires** when `OptLossyVec` is set, the slice has ≥ 32 elements,
+and the lossy result is not larger than the lossless encoding (the never-worse
+guarantee, below). Scalar float fields and short slices stay bit-exact even with
+the flag on.
 
-The codec supports two quantizers. For each column the encoder runs both and
-keeps whichever produces the smaller wire block that meets the budget.
+---
 
-### Scalar quantizer
+## How it works
 
-Maps every rotated coordinate independently to the nearest integer multiple of
-the step size `delta`. It always produces a valid result and is used as the
-baseline: the codec is guaranteed to never exceed the wire size of scalar
-quantization (the try-both selection enforces this).
+For each float-vector column the encoder runs this pipeline (see the
+[diagram](../diagrams/lossy-vector.md)):
 
-### E8 lattice quantizer
+1. **Exception scan** — `NaN`/`±Inf` cannot be quantized; they are pulled into
+   an exception list and replaced with `0` for the pipeline, then restored
+   bit-exactly on decode (see *NaN/Inf handling*).
+2. **Randomized Hadamard rotation** — `R = (1/√n)·H·D`, a seed-driven sign-flip
+   diagonal `D` composed with the Walsh–Hadamard transform `H`. It spreads
+   per-coordinate outliers evenly so the data becomes approximately Gaussian —
+   the ideal shape for low-bit quantization — and it costs only `O(n·log n)`
+   with **no stored matrix** (just a `uint64` seed on the wire).
+3. **Budget → step `delta`** — a closed-form distortion model
+   (`MSE ≈ delta²·G_lattice`) maps the fidelity budget to a quantization step,
+   then a short verify-loop tightens `delta` against the actual data until the
+   achieved error meets the budget (so the guarantee holds even when the data
+   is not perfectly Gaussian).
+4. **Quantize** — both the scalar and (when worthwhile) the E8 quantizer, below.
+5. **rANS entropy coding** — the zigzag-varint integer coordinates are
+   compressed with qdf's interleaved rANS stage.
+6. **Pick the smaller** quantizer that meets the budget, then **never-worse**:
+   if even that is not smaller than the lossless float encoding, emit lossless.
 
-After the Hadamard rotation the coordinates are grouped into 8-dimensional
-blocks. Each block is mapped to the nearest point on the E8 lattice — the
-densest known sphere packing in 8 dimensions. E8 has a packing density roughly
-10× higher than the integer lattice in 8D, which means fewer bits are needed
-per block to represent a given reconstruction quality.
+Decode reverses it: rANS decode → dequantize (per the recorded variant) →
+inverse Hadamard → restore exceptions.
 
-The E8 nearest-point algorithm works by:
+### Quantizers
 
-1. Rounding all 8 coordinates to the nearest even integer and to the nearest
-   odd integer, producing two candidate points in the "shell" sublattice.
-2. Picking the candidate with the smaller squared distance to the input.
-3. Storing the residual coset membership (even vs odd shell) as a single bit
-   per block in a separate coset byte stream on the wire.
+**Scalar** (`Z` lattice) maps every rotated coordinate to the nearest integer
+multiple of `delta`. It always produces a valid result and is the floor the
+never-worse guarantee is measured against.
 
-The resulting wire block is `coords` (the same rANS-coded integer stream as
-scalar) plus a length-prefixed `cosets` byte stream. The E8 quantizer is only
-attempted when the padded dimension is at least 16 (two or more 8-D blocks);
-below this threshold the coset overhead outweighs any packing gain and the
-codec uses scalar only.
+**E8 lattice** groups the rotated coordinates into 8-D blocks and maps each
+block to its nearest point on **E8** — the densest lattice packing in 8
+dimensions. The exact nearest-point search (Conway–Sloane) compares the nearest
+point of the integer sublattice **D8** against the nearest point of its glue
+coset **D8 + ½**, and keeps the closer; the coset choice is stored as **one bit
+per 8-D block** in a separate stream. E8's normalized second moment
+(`≈ 0.0717`) is below the scalar cube's (`1/12 ≈ 0.0833`), a ~0.65 dB coding
+gain — fewer bits for the same distortion.
 
-The variant used for each column is recorded in bits 1–2 of the `flags` byte
-in the wire block so the decoder can reconstruct via the correct path without
-any encoder-side hint at decode time.
+The codec runs **both** quantizers and keeps the smaller block that meets the
+budget (recorded in `flags` bits 1–2, so decode needs no hint). E8 is attempted
+only when it can plausibly win: the padded dimension is ≥ 16 (≥ two 8-D blocks)
+**and** the target rel-error is ≤ 0.04 — at looser budgets the per-block coset
+bit costs more than the packing saves, so the second pass is skipped.
 
-## NaN and Inf handling
+<img src="../diagrams/svg/lossy-vector-2.svg" alt="Lossy vector wire format and decode">
 
-Non-finite values (`NaN`, `+Inf`, `-Inf`) cannot be quantized. The codec
-detects them before encoding, stores them in an **exception list** appended
-to the wire block, and replaces them with `0` for the lossy pipeline. After
-decoding, the exception values are written back to the reconstructed vectors
-at their original positions.
+---
 
-The exception list is always present in the wire format (zero-length when
-there are no non-finite values). This means a payload that contains NaN or
-Inf round-trips with the exact bit pattern preserved:
+## Numbers
 
-```go
-v := []float32{1.0, float32(math.NaN()), float32(math.Inf(1))}
-// ... encode with OptLossyVec, decode ...
-// out[1] is NaN, out[2] is +Inf — bit-exact
-```
+Measured on a synthetic Gaussian corpus (2 000 vectors × 256 dims), all methods
+compared at **matched quality** (`rel ≈ 0.05`) and on equal, buffer-reusing
+footing. Reproduce with `go run ./cmd/qdf-vecbench -synthetic -n 2000 -dim 256`.
+
+### Size at equal quality
+
+| Method | bytes / vector | vs qdf |
+|---|---|---|
+| **qdf-lossy** | **143** | — |
+| naive scalar (5-bit) | 176 | **+23 %** |
+| TurboQuant-scalar (5-bit) | 184 | **+29 %** |
+
+qdf is **19–22 % smaller at equal reconstruction quality**. PQ (product
+quantization) does not reach this quality on this corpus at comparable rates.
+
+### Speed and allocations (warm, buffer-reusing)
+
+| Method | enc MB/s | dec MB/s | enc allocs |
+|---|---|---|---|
+| qdf-lossy | 128 | 301 | **1** |
+| naive scalar | 722 | 575 | 0 |
+| TurboQuant-scalar | 389 | 226 | — |
+
+This is an **honest trade**: qdf does strictly more work per vector (rotation +
+entropy coding + a verify-loop) than the scalar baselines, so its encode
+throughput is lower. In exchange you get the smallest wire at a given quality
+and near-zero steady-state allocations — the right trade for write-once,
+read-many embedding stores where storage and bandwidth dominate.
+
+### Allocation efficiency vs a naive per-call encode
+
+The encoder reuses its scratch across calls (the pooled `Marshal` path does this
+automatically). On a 256×768 batch this brings the pooled encode from
+**13 855 → 1 308 allocs/op** and **21.2 MB → 2.0 MB/op** (≈ 10× each) versus a
+naive non-reusing encode, with byte-identical output. The wins come from:
+
+- streaming the budget check (one reused row, no materialized `[][]float64`);
+- per-Encoder reuse of the rotation, coordinate, widen, and rANS buffers;
+- skipping the second (E8) quantization when it cannot reduce size.
+
+---
 
 ## Wire format
 
@@ -125,103 +177,77 @@ v := []float32{1.0, float32(math.NaN()), float32(math.Inf(1))}
 0xFD                         tag byte
 flags (u8)                   bit 0: elemF32 (1=float32, 0=float64)
                              bits 1-2: variant (0=scalar, 1=E8)
-varuint dim                  vector length
+varuint dim                  vector length (pre-padding)
 varuint count                number of vectors
 u64le seed                   Hadamard rotation seed
 f64le delta                  quantization step size
-varuint coordsLen            byte length of coords block
-[coordsLen]byte coords       rANS-compressed quantised integers
+varuint coordsLen            byte length of the coords block
+[coordsLen]byte coords       rANS-compressed zigzag-varint integers
 // E8 variant only:
-varuint cosetsLen            byte length of coset stream
-[cosetsLen]byte cosets       one bit per 8-D block (ceil(count*pdim/8 / 8) bytes)
+varuint cosetsLen            byte length of the coset stream
+[cosetsLen]byte cosets       one bit per 8-D block, ceil((count*pdim/8)/8) bytes
 // always present:
 varuint nExc                 number of exceptions (0 if none)
 nExc × {
     varuint vecIdx           which vector (0-based)
     varuint coordIdx         which coordinate (0-based)
-    u32le / u64le bits       raw float32 or float64 bits (per elemF32 flag)
+    u32le / u64le bits       raw float32 or float64 bits (per elemF32)
 }
 ```
+
+`pdim = nextPow2(dim)`. Decode bounds every allocation by `dim`/`count` read
+from the wire, validates `cosetsLen` exactly, and rejects an unknown variant.
+
+---
 
 ## Never-worse guarantee
 
-The encoder measures the output of the lossy path and compares it to the
-lossless float encoding. If the lossy output is not smaller, it discards it
-and writes the lossless encoding instead. The caller sees no API difference;
-`OptLossyVec` is a performance hint, not a hard commitment.
+The encoder builds both the lossy block and the lossless float encoding and
+keeps whichever is smaller. `OptLossyVec` is therefore a *hint*, never a
+commitment to inflate: an incompressible or exception-heavy column falls back to
+the lossless codec automatically, and the caller sees no API difference.
 
-## Worked example
+---
+
+## NaN and Inf handling
+
+Non-finite values round-trip **bit-exactly** regardless of the lossy budget.
+They are detected before encoding, stored in the exception list (always present,
+zero-length when there are none), and written back at their original positions
+after decode. The caller's input slice is never mutated.
 
 ```go
-package main
-
-import (
-    "fmt"
-    "log"
-    "math"
-
-    "github.com/alex60217101990/qdf"
-)
-
-type Doc struct {
-    ID  string
-    Emb []float32
-}
-
-func main() {
-    // Build 100 synthetic embedding vectors of dimension 384.
-    docs := make([]Doc, 100)
-    for i := range docs {
-        v := make([]float32, 384)
-        for j := range v {
-            v[j] = float32(math.Sin(float64(i*384+j) * 0.007))
-        }
-        docs[i] = Doc{ID: fmt.Sprintf("doc-%d", i), Emb: v}
-    }
-
-    // Encode with lossy compression targeting cosine similarity >= 0.999.
-    enc := qdf.NewEncoderWith(qdf.OptBalanced | qdf.OptLossyVec)
-    enc.SetVectorBudget(qdf.MinCosine(0.999))
-    if err := enc.EncodeValue(docs); err != nil {
-        log.Fatal(err)
-    }
-    data := enc.Bytes()
-    fmt.Printf("encoded %d docs, wire size %d bytes (raw f32: %d)\n",
-        len(docs), len(data), len(docs)*384*4)
-
-    // Decode — no special flag needed.
-    var out []Doc
-    if err := qdf.Unmarshal(data, &out); err != nil {
-        log.Fatal(err)
-    }
-
-    // Verify cosine similarity of the first vector.
-    var dot, na, nb float64
-    for j := range docs[0].Emb {
-        a, b := float64(docs[0].Emb[j]), float64(out[0].Emb[j])
-        dot += a * b
-        na += a * a
-        nb += b * b
-    }
-    fmt.Printf("cosine similarity of doc-0: %.6f\n", dot/(math.Sqrt(na)*math.Sqrt(nb)))
-}
+v := []float64{1.0, math.NaN(), math.Inf(1)}
+// ...encode with OptLossyVec, decode...
+// out[1] is NaN, out[2] is +Inf — exact bit patterns
 ```
 
-## Performance
+---
 
-The encoder reuses internal scratch buffers across calls — the rotated vector
-buffer, the streaming reconstruction row, the quantizer coordinate slices, and
-the `[]float32`→`[]float64` widen buffer. The buffers are reset between encodes
-and dropped only past a retention ceiling, so a one-off giant vector cannot pin
-memory. When an encoder is reused (the pooled `Marshal`/`Unmarshal` path), the
-second and later encodes reuse those buffers.
+## Runnable examples
 
-Two further allocation savings: the budget check reconstructs one vector at a
-time into a single reused row and accumulates the error metric directly, instead
-of materializing all reconstructed vectors; and the second (E8) quantization is
-attempted only when the requested fidelity is tight enough for the lattice to
-reduce size, so looser budgets pay for one quantization pass instead of two.
+See `ExampleEncoder_lossyVector` and `ExampleMaxRelError` in
+[`example_lossyvec_test.go`](../example_lossyvec_test.go) for compilable, tested
+end-to-end usage (encode → decode → verify cosine / rel-error / NaN handling).
 
-On a 256×768 `float32` embedding batch over the pooled encode path, these
-changes cut wall-clock roughly in half and allocation volume by about 5×
-relative to a naive per-call encode.
+```go
+type Doc struct {
+	ID  string
+	Emb []float32
+}
+
+docs := loadEmbeddings() // []Doc, dim 384
+
+enc := qdf.NewEncoderWith(qdf.OptBalanced | qdf.OptLossyVec)
+enc.SetVectorBudget(qdf.MinCosine(0.999))
+if err := enc.EncodeValue(docs); err != nil {
+	log.Fatal(err)
+}
+data := enc.Bytes()
+
+var out []Doc
+if err := qdf.Unmarshal(data, &out); err != nil {
+	log.Fatal(err)
+}
+// out[i].Emb approximates docs[i].Emb with cosine >= 0.999
+```
