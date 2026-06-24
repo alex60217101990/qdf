@@ -185,3 +185,25 @@ func TestStreamMetricMatchesMaterialized(t *testing.T) {
 		t.Fatalf("streaming rel %v != materialized %v", gotRel, wantRel)
 	}
 }
+
+func TestE8WorthTrying(t *testing.T) {
+	if !e8WorthTrying(Budget{Kind: KindRelError, Val: 0.02}) {
+		t.Fatal("tight budget must try E8")
+	}
+	if e8WorthTrying(Budget{Kind: KindRelError, Val: 0.10}) {
+		t.Fatal("loose budget must skip E8")
+	}
+	// Cosine 0.999 -> rel ~0.045 > 0.04 -> skip.
+	if e8WorthTrying(Budget{Kind: KindCosine, Val: 0.999}) {
+		t.Fatal("cos 0.999 (rel~0.045) must skip E8")
+	}
+}
+
+func TestLooseBudgetStaysScalar(t *testing.T) {
+	v := gv(40, 256, 2)
+	b := Budget{Kind: KindRelError, Val: 0.10}
+	got := Encode(v, b)
+	if got.Variant != VariantScalar {
+		t.Fatalf("loose budget selected variant %d, want scalar", got.Variant)
+	}
+}
