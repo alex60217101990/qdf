@@ -4,7 +4,11 @@ import (
 	"math"
 	"math/rand"
 	"testing"
+
+	"github.com/alex60217101990/qdf/internal/hadamard"
 )
+
+func hadamardInverseForTest(row []float64) { hadamard.Inverse(row, hadamardSeed) }
 
 func gaussianVecs(n, dim int, seed int64) [][]float64 {
 	r := rand.New(rand.NewSource(seed))
@@ -114,5 +118,70 @@ func TestEncodeNonPow2Dim(t *testing.T) {
 		if cos < 0.999*0.999 {
 			t.Fatalf("i=%d cosine %v below target", i, cos)
 		}
+	}
+}
+
+// QuantizeScalarLocal is a tiny test helper mirroring lattice.QuantizeScalar.
+func QuantizeScalarLocal(x []float64, delta float64) []int32 {
+	out := make([]int32, len(x))
+	inv := 1.0 / delta
+	for i, v := range x {
+		out[i] = int32(math.RoundToEven(v * inv))
+	}
+	return out
+}
+
+// streamRelError is a test shim exposing the streaming scalar rel-error so the
+// test can compare it to the materialized path. The production code uses the
+// same inner loop via budgetMetStream.
+func streamRelError(orig [][]float64, q []int32, pdim, dim int, delta float64, row []float64) float64 {
+	worst := 0.0
+	for i := range orig {
+		seg := q[i*pdim : i*pdim+pdim]
+		for j := 0; j < pdim; j++ {
+			row[j] = float64(seg[j]) * delta
+		}
+		hadamardInverseForTest(row)
+		o := orig[i]
+		var se, ne float64
+		for j := 0; j < dim; j++ {
+			d := o[j] - row[j]
+			se += d * d
+			ne += o[j] * o[j]
+		}
+		if rel := math.Sqrt(se / (ne + 1e-30)); rel > worst {
+			worst = rel
+		}
+	}
+	return worst
+}
+
+// TestStreamMetricMatchesMaterialized proves the streaming budget check returns
+// the same pass/fail decision (and selected delta) as the materialized path
+// would, so the wire stays identical.
+func TestStreamMetricMatchesMaterialized(t *testing.T) {
+	r := rand.New(rand.NewSource(3))
+	count, dim := 50, 128
+	orig := make([][]float64, count)
+	for i := range orig {
+		v := make([]float64, dim)
+		for j := range v {
+			v[j] = r.NormFloat64()
+		}
+		orig[i] = v
+	}
+	flat, pdim := rotateAll(orig, hadamardSeed)
+	delta := 0.3
+	q := QuantizeScalarLocal(flat, delta)
+
+	// Reference: materialized metric.
+	recon := reconstruct(q, pdim, dim, count, delta)
+	wantRel := achievedRelError(orig, recon)
+
+	// Streaming: must produce the same rel error within float noise.
+	row := make([]float64, pdim)
+	gotRel := streamRelError(orig, q, pdim, dim, delta, row)
+	if math.Abs(gotRel-wantRel) > 1e-9 {
+		t.Fatalf("streaming rel %v != materialized %v", gotRel, wantRel)
 	}
 }

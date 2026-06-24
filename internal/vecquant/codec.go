@@ -74,12 +74,13 @@ func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
+	row := make([]float64, pdim)
 	var q []int32
 	// Scalar is always emitted as the floor: tighten delta until it meets the
 	// budget, then stop. Even at the tightest tried delta it is the fallback.
 	for range 4 {
 		q = lattice.QuantizeScalar(flat, delta, q)
-		if budgetMetScalar(orig, q, pdim, dim, delta, b) {
+		if budgetMetScalar(orig, q, pdim, dim, delta, b, row) {
 			break
 		}
 		delta *= 0.6
@@ -93,12 +94,13 @@ func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b 
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
+	row := make([]float64, pdim)
 	var coords []int32
 	var cosets []byte
 	ok := false
 	for range 4 {
 		coords, cosets = lattice.QuantizeE8(flat, delta)
-		if budgetMetE8(orig, coords, cosets, pdim, dim, delta, b) {
+		if budgetMetE8(orig, coords, cosets, pdim, dim, delta, b, row) {
 			ok = true
 			break
 		}
@@ -110,22 +112,72 @@ func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b 
 	return variantResult{delta: delta, coords: encodeCoords(coords), cosets: cosets, ok: true}
 }
 
-func budgetMetScalar(orig [][]float64, q []int32, pdim, dim int, delta float64, b Budget) bool {
-	recon := reconstruct(q, pdim, dim, len(orig), delta)
-	return budgetCheck(orig, recon, b)
-}
-
-func budgetMetE8(orig [][]float64, coords []int32, cosets []byte, pdim, dim int, delta float64, b Budget) bool {
-	recon := reconstructE8(coords, cosets, pdim, dim, len(orig), delta)
-	return budgetCheck(orig, recon, b)
-}
-
-func budgetCheck(orig, recon [][]float64, b Budget) bool {
-	got := metric(orig, recon, b.Kind)
-	if b.Kind == KindCosine {
-		return got >= b.Val
+// budgetMetStream reconstructs one vector at a time into row (len pdim), inverse-
+// rotates it, and accumulates the budget metric against orig — without building
+// a [][]float64. fill(i) writes the dequantized rotated coords of vector i into
+// row[:pdim].
+func budgetMetStream(orig [][]float64, pdim, dim int, b Budget, row []float64, fill func(i int)) bool {
+	cosine := b.Kind == KindCosine
+	worst := 0.0
+	if cosine {
+		worst = math.Inf(1)
 	}
-	return got <= relTarget(b)
+	for i := range orig {
+		fill(i)
+		hadamard.Inverse(row, hadamardSeed)
+		o := orig[i]
+		if cosine {
+			var dot, na, nb float64
+			for j := 0; j < dim; j++ {
+				dot += o[j] * row[j]
+				na += o[j] * o[j]
+				nb += row[j] * row[j]
+			}
+			if cos := dot / (math.Sqrt(na)*math.Sqrt(nb) + 1e-30); cos < worst {
+				worst = cos
+			}
+		} else {
+			var se, ne float64
+			for j := 0; j < dim; j++ {
+				d := o[j] - row[j]
+				se += d * d
+				ne += o[j] * o[j]
+			}
+			if rel := math.Sqrt(se / (ne + 1e-30)); rel > worst {
+				worst = rel
+			}
+		}
+	}
+	if cosine {
+		return worst >= b.Val
+	}
+	return worst <= relTarget(b)
+}
+
+func budgetMetScalar(orig [][]float64, q []int32, pdim, dim int, delta float64, b Budget, row []float64) bool {
+	return budgetMetStream(orig, pdim, dim, b, row, func(i int) {
+		seg := q[i*pdim : i*pdim+pdim]
+		for j := 0; j < pdim; j++ {
+			row[j] = float64(seg[j]) * delta
+		}
+	})
+}
+
+func budgetMetE8(orig [][]float64, coords []int32, cosets []byte, pdim, dim int, delta float64, b Budget, row []float64) bool {
+	nbPerVec := pdim / 8
+	return budgetMetStream(orig, pdim, dim, b, row, func(i int) {
+		for blk := 0; blk < nbPerVec; blk++ {
+			bb := i*nbPerVec + blk
+			off := 0.0
+			if cosets[bb/8]&(1<<(uint(bb)&7)) != 0 {
+				off = 0.5
+			}
+			base := i*pdim + blk*8
+			for k := 0; k < 8; k++ {
+				row[blk*8+k] = (float64(coords[base+k]) + off) * delta
+			}
+		}
+	})
 }
 
 // Encode rotates, then encodes with the scalar quantizer and (when eligible)
