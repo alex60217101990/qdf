@@ -34,6 +34,17 @@ type Block struct {
 // never a correctness gate: scalar is always computed.
 func e8Eligible(pdim int) bool { return pdim >= 16 }
 
+// e8TryThreshold is the loosest rel-error at which the E8 variant can still beat
+// scalar; above it the coset overhead makes E8 lose, so skip the second encode.
+// Set above the measured win boundary (rel ~0.02-0.03) so a winning E8 is never
+// skipped.
+const e8TryThreshold = 0.04
+
+// e8WorthTrying reports whether the budget is tight enough for E8 to have a
+// chance of beating scalar. A perf gate (skips wasted work), never a correctness
+// gate: scalar is always computed and the never-worse picker still applies.
+func e8WorthTrying(b Budget) bool { return relTarget(b) <= e8TryThreshold }
+
 // rotateInto pads each vector to pdim and rotates into dst (grown as needed),
 // returning the flat buffer and the padded dim.
 func rotateInto(vectors [][]float64, seed uint64, dst []float64) (flat []float64, pdim int) {
@@ -216,7 +227,7 @@ func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 	}
 	bestSize := len(scRes.coords)
 
-	if e8Eligible(pdim) {
+	if e8Eligible(pdim) && e8WorthTrying(b) {
 		e8, qe := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qE8)
 		sc.qE8 = qe
 		// Compare true wire sizes: E8 additionally carries the coset stream and
