@@ -403,7 +403,9 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 			s = append(s, loadFloat64Field(newData, stride, col, r))
 		}
 		st.colScratchF64 = s
-		return encodeSliceFloat64(enc, unsafe.Pointer(&s))
+		// Lossless: a SCALAR float64 column must never become lossy under
+		// OptLossyVec (which targets genuine []float64/[]float32 VECTOR fields).
+		return encodeSliceFloat64Lossless(enc, s)
 	case colKindFloat32:
 		// Float32 cells are gathered as raw bits and emitted via the uint64 codec,
 		// which never re-floats them — so the canonical -0.0/NaN normalization that

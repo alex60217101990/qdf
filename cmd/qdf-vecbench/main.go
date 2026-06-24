@@ -382,17 +382,6 @@ func methodPoints(rows []row, method string) []row {
 	return out
 }
 
-// methodPointsPrefix returns all rows whose method name starts with prefix.
-func methodPointsPrefix(rows []row, prefix string) []row {
-	var out []row
-	for _, r := range rows {
-		if len(r.method) >= len(prefix) && r.method[:len(prefix)] == prefix {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 // interpBPV linearly interpolates bytes/vec at the target rel-error from a
 // set of operating points. Points are sorted by relErr ascending; the two
 // bracketing points are used. Returns (bpv, true) if R is bracketed, else

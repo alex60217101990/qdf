@@ -113,11 +113,12 @@ func collectExceptions(vectors [][]float64, elemF32 bool) []vecException {
 // NOTE: appendLossyVec mutates vectors in place (it zeroes non-finite coords
 // before encoding). Callers must pass a slice they own; the current callers
 // build it via toF64, which allocates a fresh []float64.
-func appendLossyVec(dst []byte, vectors [][]float64, elemF32 bool, b vecquant.Budget) []byte {
+func appendLossyVec(vectors [][]float64, elemF32 bool, b vecquant.Budget) []byte {
 	// Collect and zero out non-finite values before encoding.
 	exc := collectExceptions(vectors, elemF32)
 
 	bl := vecquant.Encode(vectors, b)
+	var dst []byte
 	dst = append(dst, tagColVecLossy)
 	var flags byte
 	if elemF32 {

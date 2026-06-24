@@ -708,7 +708,9 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 			s = append(s, loadFloat64Field(base, plan.stride, col, i))
 		}
 		st.colScratchF64 = s
-		return encodeSliceFloat64(e, unsafe.Pointer(&s))
+		// Lossless: a SCALAR float64 column must never become lossy, even under
+		// OptLossyVec (which targets genuine []float64/[]float32 VECTOR fields).
+		return encodeSliceFloat64Lossless(e, s)
 	case colKindFloat32:
 		// float32 column: store raw 32-bit patterns via the uint codec (4 B,
 		// bit-exact). Reuses the u64 scratch — the high 32 bits are always zero.

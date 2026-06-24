@@ -63,7 +63,7 @@ func Encode(vectors [][]float64, b Budget) Block {
 	}
 
 	var q []int32
-	for tries := 0; tries < 4; tries++ {
+	for range 4 {
 		q = lattice.QuantizeScalar(flat, delta, q)
 		if budgetMet(vectors, flat, q, pdim, dim, delta, b) {
 			break
@@ -83,7 +83,7 @@ func Encode(vectors [][]float64, b Budget) Block {
 
 // budgetMet reconstructs from q and checks the achieved error against b.
 func budgetMet(orig [][]float64, flat []float64, q []int32, pdim, dim int, delta float64, b Budget) bool {
-	recon := reconstruct(q, pdim, dim, len(orig), delta, flat)
+	recon := reconstruct(q, pdim, dim, len(orig), delta)
 	got := metric(orig, recon, b.Kind)
 	switch b.Kind {
 	case KindCosine:
@@ -145,12 +145,12 @@ func achievedRelError(orig, recon [][]float64) float64 {
 }
 
 // reconstruct dequantizes q and inverse-rotates back to original dim.
-func reconstruct(q []int32, pdim, dim, count int, delta float64, scratch []float64) [][]float64 {
+func reconstruct(q []int32, pdim, dim, count int, delta float64) [][]float64 {
 	out := make([][]float64, count)
 	row := make([]float64, pdim)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		seg := q[i*pdim : i*pdim+pdim]
-		for j := 0; j < pdim; j++ {
+		for j := range pdim {
 			row[j] = float64(seg[j]) * delta
 		}
 		hadamard.Inverse(row, hadamardSeed)
@@ -171,5 +171,5 @@ func (bl Block) Decode() [][]float64 {
 	if err != nil {
 		return nil
 	}
-	return reconstruct(q, pdim, bl.Dim, bl.Count, bl.Delta, nil)
+	return reconstruct(q, pdim, bl.Dim, bl.Count, bl.Delta)
 }

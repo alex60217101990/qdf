@@ -10,8 +10,9 @@ import "math"
 // the quantization MSE of a uniform scalar quantizer with step Δ is Δ²·ScalarG.
 const ScalarG = 1.0 / 12.0
 
-// QuantizeScalar rounds each x[i]/delta to the nearest integer, appending the
-// results into dst (allocated when nil) and returning it.
+// QuantizeScalar rounds each x[i]/delta to the nearest integer, writing the
+// results into dst and returning it. dst is reused when it has enough capacity
+// (its existing contents are discarded), otherwise a new slice is allocated.
 func QuantizeScalar(x []float64, delta float64, dst []int32) []int32 {
 	if cap(dst) < len(x) {
 		dst = make([]int32, 0, len(x))

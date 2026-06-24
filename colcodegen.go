@@ -119,9 +119,11 @@ func (e *Encoder) WriteIntColumn(s []int64) error { return encodeSliceInt64(e, u
 // WriteUintColumn encodes an unsigned-integer column.
 func (e *Encoder) WriteUintColumn(s []uint64) error { return encodeSliceUint64(e, unsafe.Pointer(&s)) }
 
-// WriteFloat64Column encodes a float64 column.
+// WriteFloat64Column encodes a SCALAR float64 column losslessly. OptLossyVec
+// targets genuine []float64/[]float32 VECTOR fields, not scalar columns, so this
+// path never emits a lossy 0xFD block.
 func (e *Encoder) WriteFloat64Column(s []float64) error {
-	return encodeSliceFloat64(e, unsafe.Pointer(&s))
+	return encodeSliceFloat64Lossless(e, s)
 }
 
 // WriteFloat32Column encodes a float32 column as its 32-bit patterns through

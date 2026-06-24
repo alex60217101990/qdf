@@ -7,30 +7,40 @@ import (
 	"testing"
 )
 
-// hybridRow is a hybrid-columnar struct: int64 and float64 are columnar-eligible
-// while string is not. Under OptBalanced the intern-aware probe fires for the
-// string column, pulling the struct into the hybrid columnar container
-// (tagColStruct). With n=32 the float64 column has exactly lossyVecMinElems
-// elements, so encodeSliceFloat64 emits tagColVecLossy under OptLossyVec.
-// Decoding that column calls decodeSliceFloat64Into, which (before the fix)
-// did not handle tagColVecLossy and returned ErrTypeMismatch.
-type hybridRow struct {
-	ID    int64
-	Tag   string
-	Score float64
+// embedHybridRow is a hybrid-columnar struct: int64 and string are handled by
+// the columnar container (int64 as a column, string as a residual/dict column),
+// while Emb []float64 is a non-[]byte slice — classifyColKind rejects it, so it
+// becomes a RESIDUAL field encoded row-major per record via the slice codec.
+// Under OptLossyVec that genuine vector field is lossy-eligible and emits
+// tagColVecLossy (0xFD). Decoding it exercises decodeSliceFloat64 inside the
+// columnar (hybrid) container.
+type embedHybridRow struct {
+	ID  int64
+	Tag string
+	Emb []float64
 }
 
-// TestLossyVecColumnarFloat64 is the regression test for the encode/decode
-// asymmetry in decodeSliceFloat64Into: it must handle tagColVecLossy (0xFD).
+// TestLossyVecColumnarFloat64 regression-tests that the lossy 0xFD block
+// round-trips when a genuine SLICE-typed float64 vector field rides inside the
+// columnar (hybrid) container — the residual slice field reaches the lossy
+// codec and decode must handle 0xFD there.
 func TestLossyVecColumnarFloat64(t *testing.T) {
-	const nRows = 32
+	// 64 rows of low-cardinality scalar columns make the columnar probe predict
+	// a gain and route the struct through the hybrid container; the Emb slice
+	// field then encodes as a residual lossy block (0xFD) per record.
+	const nRows = 64
+	const dim = 32 // >= lossyVecMinElems so the lossy codec fires
 
-	rows := make([]hybridRow, nRows)
+	rows := make([]embedHybridRow, nRows)
 	for i := range rows {
-		rows[i] = hybridRow{
-			ID:    int64(i),
-			Tag:   fmt.Sprintf("host-%d", i%5),
-			Score: math.Sin(float64(i) * 0.3),
+		emb := make([]float64, dim)
+		for j := range emb {
+			emb[j] = math.Sin(float64(i*dim+j) * 0.05)
+		}
+		rows[i] = embedHybridRow{
+			ID:  int64(i % 4),
+			Tag: fmt.Sprintf("host-%d", i%5),
+			Emb: emb,
 		}
 	}
 
@@ -42,26 +52,21 @@ func TestLossyVecColumnarFloat64(t *testing.T) {
 	}
 	data := enc.Bytes()
 
-	// Confirm the test actually drives the columnar path with a lossy block.
-	if !bytes.Contains(data, []byte{tagColStruct}) {
-		t.Fatal("expected tagColStruct (0xEF) in payload — columnar path not taken; test invalid")
+	// Confirm the test drives the columnar (hybrid) path with at least one lossy
+	// block. The slice field is residual, so the container is tagHybridColStruct.
+	if !bytes.Contains(data, []byte{tagHybridColStruct}) {
+		t.Fatal("expected tagHybridColStruct in payload — hybrid columnar path not taken; test invalid")
 	}
-	count0xFD := 0
-	for _, b := range data {
-		if b == tagColVecLossy {
-			count0xFD++
-		}
-	}
+	count0xFD := bytes.Count(data, []byte{tagColVecLossy})
 	if count0xFD == 0 {
-		t.Fatal("expected at least one tagColVecLossy (0xFD) in payload — lossy vec not fired; test invalid")
+		t.Fatal("expected at least one tagColVecLossy (0xFD) — lossy vec not fired on the slice field; test invalid")
 	}
-	t.Logf("tagColStruct present, tagColVecLossy (0xFD) count=%d — columnar+lossy path confirmed", count0xFD)
+	t.Logf("tagColStruct present, tagColVecLossy (0xFD) count=%d — columnar+lossy slice-field path confirmed", count0xFD)
 
-	var out []hybridRow
+	var out []embedHybridRow
 	if err := Unmarshal(data, &out); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-
 	if len(out) != nRows {
 		t.Fatalf("row count: got %d, want %d", len(out), nRows)
 	}
@@ -73,26 +78,19 @@ func TestLossyVecColumnarFloat64(t *testing.T) {
 		if out[i].Tag != orig.Tag {
 			t.Errorf("row %d: Tag got %q want %q", i, out[i].Tag, orig.Tag)
 		}
-		// Score is a scalar float64 re-assembled from a lossy column.
-		// The lossy codec operates on the full 32-element column as a single
-		// vector, so per-element fidelity is bounded by the Hadamard rotation +
-		// quantization step; a 30% relative error bound is generous enough to
-		// survive that while still catching a complete decode failure (zeros,
-		// garbage, or the wrong column).
-		orig64 := orig.Score
-		got64 := out[i].Score
-		// Use absolute error for small values (|orig| < 0.1) to avoid divide-
-		// by-near-zero blowing up relative error on a lossy decode.
-		if math.Abs(orig64) < 0.1 {
-			absErr := math.Abs(got64 - orig64)
-			if absErr > 0.15 {
-				t.Errorf("row %d: Score abs error %.4f > 0.15 (orig=%v got=%v)", i, absErr, orig64, got64)
-			}
-			continue
+		if len(out[i].Emb) != dim {
+			t.Fatalf("row %d: Emb len got %d want %d", i, len(out[i].Emb), dim)
 		}
-		rel := math.Abs((got64 - orig64) / orig64)
-		if rel > 0.30 {
-			t.Errorf("row %d: Score rel error %.4f > 0.30 (orig=%v got=%v)", i, rel, orig64, got64)
+		// Emb is lossy; bound per-vector cosine similarity against the budget.
+		var dot, na, nb float64
+		for j := range orig.Emb {
+			dot += orig.Emb[j] * out[i].Emb[j]
+			na += orig.Emb[j] * orig.Emb[j]
+			nb += out[i].Emb[j] * out[i].Emb[j]
+		}
+		cos := dot / (math.Sqrt(na)*math.Sqrt(nb) + 1e-30)
+		if cos < 0.99 {
+			t.Errorf("row %d: Emb cosine %.5f < 0.99 (lossy decode degraded)", i, cos)
 		}
 	}
 }

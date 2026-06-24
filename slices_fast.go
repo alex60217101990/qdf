@@ -766,15 +766,48 @@ func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 
 // ----- []float32 / []float64 -----
 
+// encodeSliceFloat32 is the lossy-eligible entry for a genuine []float32 VECTOR
+// field (one slice per record). Under OptLossyVec it emits the smaller of the
+// lossy 0xFD block and the lossless body (never-worse). Scalar float32 columns
+// transposed by the columnar path must NOT go through here — they call
+// encodeSliceFloat32Lossless directly so OptLossyVec never makes a scalar field
+// lossy.
 func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float32)(p)
 	if e.opts.Has(OptCanonical) {
 		s = e.canonicalFloat32Slice(s)
 	}
 	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
-		vecs := [][]float64{toF64(s)}
-		e.buf = appendLossyVec(e.buf, vecs, true, toBudget(e.vecBudget))
+		// Build the lossy block into scratch; emit it only if it is no larger
+		// than the lossless body (never-worse). toF64 allocates a fresh slice,
+		// so appendLossyVec's in-place mutation does not touch s.
+		lossy := appendLossyVec([][]float64{toF64(s)}, true, toBudget(e.vecBudget))
+		start := len(e.buf)
+		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
+		if err := encodeSliceFloat32Lossless(e, s); err != nil {
+			return err
+		}
+		if len(lossy) <= len(e.buf)-start {
+			// Lossy wins (or ties): roll back the lossless body and emit lossy.
+			// Restore the header latch so appending the lossy block re-emits the
+			// stream header if the lossless write rolled it away.
+			e.buf = e.buf[:start]
+			e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
+			e.buf = append(e.buf, lossy...)
+		}
 		return nil
+	}
+	return encodeSliceFloat32Lossless(e, s)
+}
+
+// encodeSliceFloat32Lossless encodes a []float32 with the lossless float codec
+// (raw-LE / qpack / Gorilla / ALP). Never emits a lossy 0xFD block. Shared by
+// the lossy-eligible entry's fallback and by columnar scalar-float gathers.
+// Canonicalization is idempotent, so the lossy entry (which canonicalizes
+// before calling here) is unaffected while direct callers still get it applied.
+func encodeSliceFloat32Lossless(e *Encoder, s []float32) error {
+	if e.opts.Has(OptCanonical) {
+		s = e.canonicalFloat32Slice(s)
 	}
 	if e.qpack {
 		// Under OptCompression both Gorilla and ALP are enabled. Pick the smallest
@@ -882,15 +915,49 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 	*(*[]float32)(p) = out
 	return nil
 }
+
+// encodeSliceFloat64 is the lossy-eligible entry for a genuine []float64 VECTOR
+// field (one slice per record). Under OptLossyVec it emits the smaller of the
+// lossy 0xFD block and the lossless body (never-worse). Scalar float64 columns
+// transposed by the columnar / delta / nullable paths must NOT go through here —
+// they call encodeSliceFloat64Lossless directly so OptLossyVec never makes a
+// scalar field lossy.
 func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float64)(p)
 	if e.opts.Has(OptCanonical) {
 		s = e.canonicalFloat64Slice(s)
 	}
 	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
-		vecs := [][]float64{toF64(s)}
-		e.buf = appendLossyVec(e.buf, vecs, false, toBudget(e.vecBudget))
+		// Build the lossy block into scratch; emit it only if it is no larger
+		// than the lossless body (never-worse). toF64 copies s into a fresh
+		// slice, so appendLossyVec's in-place mutation does not touch s.
+		lossy := appendLossyVec([][]float64{toF64(s)}, false, toBudget(e.vecBudget))
+		start := len(e.buf)
+		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
+		if err := encodeSliceFloat64Lossless(e, s); err != nil {
+			return err
+		}
+		if len(lossy) <= len(e.buf)-start {
+			// Lossy wins (or ties): roll back the lossless body and emit lossy.
+			// Restore the header latch so appending the lossy block re-emits the
+			// stream header if the lossless write rolled it away.
+			e.buf = e.buf[:start]
+			e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
+			e.buf = append(e.buf, lossy...)
+		}
 		return nil
+	}
+	return encodeSliceFloat64Lossless(e, s)
+}
+
+// encodeSliceFloat64Lossless encodes a []float64 with the lossless float codec
+// (raw-LE / qpack / Gorilla / ALP). Never emits a lossy 0xFD block. Shared by
+// the lossy-eligible entry's fallback and by columnar scalar-float gathers.
+// Canonicalization is idempotent, so the lossy entry (which canonicalizes
+// before calling here) is unaffected while direct callers still get it applied.
+func encodeSliceFloat64Lossless(e *Encoder, s []float64) error {
+	if e.opts.Has(OptCanonical) {
+		s = e.canonicalFloat64Slice(s)
 	}
 	if e.qpack {
 		// Under OptCompression both Gorilla and ALP are enabled. Pick the
