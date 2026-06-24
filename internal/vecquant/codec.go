@@ -34,18 +34,27 @@ type Block struct {
 // never a correctness gate: scalar is always computed.
 func e8Eligible(pdim int) bool { return pdim >= 16 }
 
-// rotateAll pads each vector to pdim, rotates in place, returns a flat
-// [count*pdim] buffer plus the padded dim.
-func rotateAll(vectors [][]float64, seed uint64) (flat []float64, pdim int) {
+// rotateInto pads each vector to pdim and rotates into dst (grown as needed),
+// returning the flat buffer and the padded dim.
+func rotateInto(vectors [][]float64, seed uint64, dst []float64) (flat []float64, pdim int) {
 	dim := len(vectors[0])
 	pdim = hadamard.NextPow2(dim)
-	flat = make([]float64, len(vectors)*pdim)
+	flat = growF64(dst, len(vectors)*pdim)
 	for i, v := range vectors {
 		row := flat[i*pdim : i*pdim+pdim]
-		copy(row, v) // tail stays zero (pad)
+		copy(row, v)
+		for k := len(v); k < pdim; k++ {
+			row[k] = 0 // clear pad (buffer may be reused/dirty)
+		}
 		hadamard.Forward(row, seed)
 	}
 	return flat, pdim
+}
+
+// rotateAll pads each vector to pdim, rotates in place, returns a flat
+// [count*pdim] buffer plus the padded dim.
+func rotateAll(vectors [][]float64, seed uint64) (flat []float64, pdim int) {
+	return rotateInto(vectors, seed, nil)
 }
 
 func rms(flat []float64) float64 {
@@ -67,15 +76,13 @@ type variantResult struct {
 	ok     bool
 }
 
-// encodeScalar runs the scalar verify-loop and returns the encoded coords.
-// Scalar is always emitted as the floor; ok is not checked by the caller.
-func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget) variantResult {
+// encodeScalar runs the scalar verify-loop and returns the encoded coords plus
+// the (possibly grown) coord slice so the caller can reuse it next call.
+func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, q []int32) (variantResult, []int32) {
 	delta := DeltaFor(b, sigma, lattice.ScalarG)
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
-	row := make([]float64, pdim)
-	var q []int32
 	// Scalar is always emitted as the floor: tighten delta until it meets the
 	// budget, then stop. Even at the tightest tried delta it is the fallback.
 	for range 4 {
@@ -85,16 +92,17 @@ func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64
 		}
 		delta *= 0.6
 	}
-	return variantResult{delta: delta, coords: encodeCoords(q), ok: true}
+	return variantResult{delta: delta, coords: encodeCoords(q), ok: true}, q
 }
 
 // encodeE8 runs the E8 verify-loop; ok=false if it never meets the budget.
-func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget) variantResult {
+// row and q are reused buffers; q is passed through and returned unchanged
+// (QuantizeE8 allocates coords internally; E8 coord reuse is a follow-up).
+func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, q []int32) (variantResult, []int32) {
 	delta := DeltaFor(b, sigma, lattice.E8G)
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
-	row := make([]float64, pdim)
 	var coords []int32
 	var cosets []byte
 	ok := false
@@ -107,9 +115,9 @@ func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b 
 		delta *= 0.6
 	}
 	if !ok {
-		return variantResult{ok: false}
+		return variantResult{ok: false}, q
 	}
-	return variantResult{delta: delta, coords: encodeCoords(coords), cosets: cosets, ok: true}
+	return variantResult{delta: delta, coords: encodeCoords(coords), cosets: cosets, ok: true}, q
 }
 
 // budgetMetStream reconstructs one vector at a time into row (len pdim), inverse-
@@ -180,28 +188,37 @@ func budgetMetE8(orig [][]float64, coords []int32, cosets []byte, pdim, dim int,
 	})
 }
 
-// Encode rotates, then encodes with the scalar quantizer and (when eligible)
-// the E8 quantizer, keeping the smaller encoding that meets the budget.
+// Encode is the convenience entry that allocates a one-shot Scratch.
 func Encode(vectors [][]float64, b Budget) Block {
+	var sc Scratch
+	return EncodeWith(vectors, b, &sc)
+}
+
+// EncodeWith encodes reusing sc's buffers across the verify-loop and variants.
+func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 	if len(vectors) == 0 {
 		return Block{Seed: hadamardSeed, Delta: 1, Variant: VariantScalar}
 	}
 	dim := len(vectors[0])
-	flat, pdim := rotateAll(vectors, hadamardSeed)
+	flat, pdim := rotateInto(vectors, hadamardSeed, sc.flat)
+	sc.flat = flat
+	sc.row = growF64(sc.row, pdim)
 	sigma := rms(flat)
 	if sigma == 0 {
 		sigma = 1
 	}
 
-	sc := encodeScalar(vectors, flat, pdim, dim, sigma, b)
+	scRes, qs := encodeScalar(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qScalar)
+	sc.qScalar = qs
 	best := Block{
 		Dim: dim, Count: len(vectors), Seed: hadamardSeed,
-		Delta: sc.delta, Coords: sc.coords, Variant: VariantScalar,
+		Delta: scRes.delta, Coords: scRes.coords, Variant: VariantScalar,
 	}
-	bestSize := len(sc.coords)
+	bestSize := len(scRes.coords)
 
 	if e8Eligible(pdim) {
-		e8 := encodeE8(vectors, flat, pdim, dim, sigma, b)
+		e8, qe := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qE8)
+		sc.qE8 = qe
 		// Compare true wire sizes: E8 additionally carries the coset stream and
 		// its varuint length prefix, which the wire layer writes.
 		e8Size := len(e8.coords) + uvarintLen(uint64(len(e8.cosets))) + len(e8.cosets)
@@ -233,7 +250,8 @@ func EncodeForcedE8(vectors [][]float64, b Budget) (Block, bool) {
 	if sigma == 0 {
 		sigma = 1
 	}
-	e8 := encodeE8(vectors, flat, pdim, dim, sigma, b)
+	row := make([]float64, pdim)
+	e8, _ := encodeE8(vectors, flat, pdim, dim, sigma, b, row, nil)
 	if !e8.ok {
 		return Block{}, false
 	}
