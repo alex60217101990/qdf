@@ -781,7 +781,7 @@ func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 		// Build the lossy block into scratch; emit it only if it is no larger
 		// than the lossless body (never-worse). toF64 allocates a fresh slice,
 		// so appendLossyVec's in-place mutation does not touch s.
-		lossy := appendLossyVec([][]float64{toF64(s)}, true, toBudget(e.vecBudget))
+		lossy := appendLossyVec([][]float64{toF64(s)}, true, toBudget(e.vecBudget), &e.vecScratch)
 		start := len(e.buf)
 		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
 		if err := encodeSliceFloat32Lossless(e, s); err != nil {
@@ -931,7 +931,7 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 		// Build the lossy block into scratch; emit it only if it is no larger
 		// than the lossless body (never-worse). toF64 copies s into a fresh
 		// slice, so appendLossyVec's in-place mutation does not touch s.
-		lossy := appendLossyVec([][]float64{toF64(s)}, false, toBudget(e.vecBudget))
+		lossy := appendLossyVec([][]float64{toF64(s)}, false, toBudget(e.vecBudget), &e.vecScratch)
 		start := len(e.buf)
 		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
 		if err := encodeSliceFloat64Lossless(e, s); err != nil {
