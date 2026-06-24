@@ -147,7 +147,7 @@ func budgetMetStream(orig [][]float64, dim int, b Budget, row []float64, fill fu
 		o := orig[i]
 		if cosine {
 			var dot, na, nb float64
-			for j := 0; j < dim; j++ {
+			for j := range dim {
 				dot += o[j] * row[j]
 				na += o[j] * o[j]
 				nb += row[j] * row[j]
@@ -157,7 +157,7 @@ func budgetMetStream(orig [][]float64, dim int, b Budget, row []float64, fill fu
 			}
 		} else {
 			var se, ne float64
-			for j := 0; j < dim; j++ {
+			for j := range dim {
 				d := o[j] - row[j]
 				se += d * d
 				ne += o[j] * o[j]
@@ -176,7 +176,7 @@ func budgetMetStream(orig [][]float64, dim int, b Budget, row []float64, fill fu
 func budgetMetScalar(orig [][]float64, q []int32, pdim, dim int, delta float64, b Budget, row []float64) bool {
 	return budgetMetStream(orig, dim, b, row, func(i int) {
 		seg := q[i*pdim : i*pdim+pdim]
-		for j := 0; j < pdim; j++ {
+		for j := range pdim {
 			row[j] = float64(seg[j]) * delta
 		}
 	})
@@ -185,14 +185,14 @@ func budgetMetScalar(orig [][]float64, q []int32, pdim, dim int, delta float64, 
 func budgetMetE8(orig [][]float64, coords []int32, cosets []byte, pdim, dim int, delta float64, b Budget, row []float64) bool {
 	nbPerVec := pdim / 8
 	return budgetMetStream(orig, dim, b, row, func(i int) {
-		for blk := 0; blk < nbPerVec; blk++ {
+		for blk := range nbPerVec {
 			bb := i*nbPerVec + blk
 			off := 0.0
 			if cosets[bb/8]&(1<<(uint(bb)&7)) != 0 {
 				off = 0.5
 			}
 			base := i*pdim + blk*8
-			for k := 0; k < 8; k++ {
+			for k := range 8 {
 				row[blk*8+k] = (float64(coords[base+k]) + off) * delta
 			}
 		}

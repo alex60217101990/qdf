@@ -105,7 +105,7 @@ func TestLossyConcurrentEncodersRace(t *testing.T) {
 		rows[i] = embedRowE8{ID: "d", Emb: v}
 	}
 	done := make(chan []byte, 4)
-	for g := 0; g < 4; g++ {
+	for range 4 {
 		go func() {
 			enc := NewEncoderWith(OptBalanced | OptLossyVec)
 			enc.SetVectorBudget(MaxRelError(0.02))
@@ -114,7 +114,7 @@ func TestLossyConcurrentEncodersRace(t *testing.T) {
 		}()
 	}
 	var first []byte
-	for g := 0; g < 4; g++ {
+	for range 4 {
 		b := <-done
 		if first == nil {
 			first = b
