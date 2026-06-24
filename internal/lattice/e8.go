@@ -19,7 +19,7 @@ func nearestD8(x *[8]float64) [8]float64 {
 	var pt [8]float64
 	var sum int
 	worstIdx, worstErr := 0, -1.0
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		r := math.RoundToEven(x[i])
 		pt[i] = r
 		sum += int(r)
@@ -39,7 +39,7 @@ func nearestD8(x *[8]float64) [8]float64 {
 
 func dist2(a, b *[8]float64) float64 {
 	var s float64
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		d := a[i] - b[i]
 		s += d * d
 	}
@@ -51,12 +51,12 @@ func dist2(a, b *[8]float64) float64 {
 func NearestE8(x *[8]float64) [8]float64 {
 	p0 := nearestD8(x)
 	var xs [8]float64
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		xs[i] = x[i] - 0.5
 	}
 	p1d := nearestD8(&xs)
 	var p1 [8]float64
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		p1[i] = p1d[i] + 0.5
 	}
 	if dist2(x, &p1) < dist2(x, &p0) {
@@ -77,18 +77,18 @@ func QuantizeE8(x []float64, delta float64) (coords []int32, cosets []byte) {
 	cosets = make([]byte, (nb+7)/8)
 	inv := 1.0 / delta
 	var blk [8]float64
-	for b := 0; b < nb; b++ {
-		for i := 0; i < 8; i++ {
+	for b := range nb {
+		for i := range 8 {
 			blk[i] = x[b*8+i] * inv
 		}
 		pt := NearestE8(&blk)
 		if pt[0]-math.Floor(pt[0]) == 0.5 { // half-integer coset
 			cosets[b/8] |= 1 << (uint(b) & 7)
-			for i := 0; i < 8; i++ {
+			for i := range 8 {
 				coords = append(coords, int32(math.Floor(pt[i])))
 			}
 		} else {
-			for i := 0; i < 8; i++ {
+			for i := range 8 {
 				coords = append(coords, int32(pt[i]))
 			}
 		}
@@ -100,12 +100,12 @@ func QuantizeE8(x []float64, delta float64) (coords []int32, cosets []byte) {
 func ReconstructE8(coords []int32, cosets []byte, delta float64, n int) []float64 {
 	out := make([]float64, n)
 	nb := n / 8
-	for b := 0; b < nb; b++ {
+	for b := range nb {
 		off := 0.0
 		if cosets[b/8]&(1<<(uint(b)&7)) != 0 {
 			off = 0.5
 		}
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			out[b*8+i] = (float64(coords[b*8+i]) + off) * delta
 		}
 	}
