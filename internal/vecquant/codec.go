@@ -160,6 +160,34 @@ func Encode(vectors [][]float64, b Budget) Block {
 	return best
 }
 
+// EncodeForcedE8 encodes with the E8 quantizer only, ignoring the scalar
+// alternative. It returns the resulting Block and ok=true when E8 is eligible
+// and meets the budget; otherwise ok=false. Intended for measurement/benchmark
+// callers that want the real E8 wire size (rANS-coded coords + coset stream),
+// not for the production encode path, which uses the never-worse try-both Encode.
+func EncodeForcedE8(vectors [][]float64, b Budget) (Block, bool) {
+	if len(vectors) == 0 {
+		return Block{Seed: hadamardSeed, Delta: 1, Variant: VariantE8}, false
+	}
+	dim := len(vectors[0])
+	flat, pdim := rotateAll(vectors, hadamardSeed)
+	if !e8Eligible(pdim) {
+		return Block{}, false
+	}
+	sigma := rms(flat)
+	if sigma == 0 {
+		sigma = 1
+	}
+	e8 := encodeE8(vectors, flat, pdim, dim, sigma, b)
+	if !e8.ok {
+		return Block{}, false
+	}
+	return Block{
+		Dim: dim, Count: len(vectors), Seed: hadamardSeed,
+		Delta: e8.delta, Coords: e8.coords, Variant: VariantE8, Cosets: e8.cosets,
+	}, true
+}
+
 // relTarget converts any budget to an equivalent max-rel-error for comparison.
 func relTarget(b Budget) float64 {
 	switch b.Kind {
