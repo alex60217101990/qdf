@@ -150,7 +150,10 @@ func Encode(vectors [][]float64, b Budget) Block {
 
 	if e8Eligible(pdim) {
 		e8 := encodeE8(vectors, flat, pdim, dim, sigma, b)
-		if e8.ok && len(e8.coords)+len(e8.cosets) < bestSize {
+		// Compare true wire sizes: E8 additionally carries the coset stream and
+		// its varuint length prefix, which the wire layer writes.
+		e8Size := len(e8.coords) + uvarintLen(uint64(len(e8.cosets))) + len(e8.cosets)
+		if e8.ok && e8Size < bestSize {
 			best = Block{
 				Dim: dim, Count: len(vectors), Seed: hadamardSeed,
 				Delta: e8.delta, Coords: e8.coords, Variant: VariantE8, Cosets: e8.cosets,

@@ -90,6 +90,16 @@ func decodeCoords(src []byte, count int) ([]int32, error) {
 	return readVarintZigzag(raw, count)
 }
 
+// uvarintLen returns the number of bytes binary.PutUvarint would write for v.
+func uvarintLen(v uint64) int {
+	n := 1
+	for v >= 0x80 {
+		v >>= 7
+		n++
+	}
+	return n
+}
+
 // appendCosets writes a length-prefixed raw coset-bit byte stream.
 func appendCosets(dst, cosets []byte) []byte {
 	dst = binary.AppendUvarint(dst, uint64(len(cosets)))
