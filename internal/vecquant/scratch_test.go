@@ -36,3 +36,17 @@ func TestEncodeWithReuseByteIdentical(t *testing.T) {
 			fresh.Variant, len(fresh.Coords), reused.Variant, len(reused.Coords))
 	}
 }
+
+func TestScratchResetDropsOversized(t *testing.T) {
+	var sc Scratch
+	// Grow flat past the retention ceiling via a large encode.
+	big := gv(2, (maxRetainedScratch/2)+8, 1) // count*pdim > maxRetainedScratch
+	_ = EncodeWith(big, Budget{Kind: KindRelError, Val: 0.05}, &sc)
+	if cap(sc.flat) <= maxRetainedScratch {
+		t.Skip("flat did not exceed ceiling on this shape; nothing to assert")
+	}
+	sc.Reset()
+	if sc.flat != nil {
+		t.Fatalf("Reset kept oversized flat (cap=%d > %d)", cap(sc.flat), maxRetainedScratch)
+	}
+}
