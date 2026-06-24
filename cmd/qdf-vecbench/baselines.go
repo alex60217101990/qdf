@@ -188,3 +188,74 @@ func sqDist(a, b []float64) float64 {
 	}
 	return s
 }
+
+// ---- warm (buffer-reusing) encoders for the fair performance comparison ----
+//
+// These mirror the cold encoders above but reuse caller-provided scratch so the
+// per-call allocation cost (not one-time setup) is what gets measured, on the
+// same footing as qdf's reused Scratch.
+
+// naiveScalarEncodeInto quantizes v into the reused q buffer.
+func naiveScalarEncodeInto(v []float64, bits int, q []uint16) ([]uint16, float64, float64) {
+	mn := math.Inf(1)
+	mx := math.Inf(-1)
+	for _, x := range v {
+		mn = math.Min(mn, x)
+		mx = math.Max(mx, x)
+	}
+	levels := float64(int(1) << bits)
+	delta := (mx - mn) / (levels - 1)
+	if delta == 0 {
+		delta = 1
+	}
+	if cap(q) < len(v) {
+		q = make([]uint16, len(v))
+	}
+	q = q[:len(v)]
+	for i, x := range v {
+		c := math.RoundToEven((x - mn) / delta)
+		if c < 0 {
+			c = 0
+		}
+		if c > levels-1 {
+			c = levels - 1
+		}
+		q[i] = uint16(c)
+	}
+	return q, mn, delta
+}
+
+// naiveBatchEncodeWarm encodes every vector in corpus reusing q and rowless
+// state; returns the reused q and the total wire bytes. This is the timed unit.
+func naiveBatchEncodeWarm(corpus [][]float64, bits int, q []uint16) ([]uint16, int) {
+	total := 0
+	for _, v := range corpus {
+		var mn, delta float64
+		q, mn, delta = naiveScalarEncodeInto(v, bits, q)
+		_, _ = mn, delta
+		total += naiveScalarBytes(q, bits)
+	}
+	return q, total
+}
+
+// tqBatchEncodeWarm rotates+quantizes every vector reusing row and q.
+func tqBatchEncodeWarm(corpus [][]float64, bits int, seed uint64, row []float64, q []uint16) ([]float64, []uint16, int) {
+	total := 0
+	pdim := nextPow2(len(corpus[0]))
+	if cap(row) < pdim {
+		row = make([]float64, pdim)
+	}
+	row = row[:pdim]
+	for _, v := range corpus {
+		for i := range row {
+			row[i] = 0
+		}
+		copy(row, v)
+		hadamard.Forward(row, seed)
+		var mn, delta float64
+		q, mn, delta = naiveScalarEncodeInto(row, bits, q)
+		_, _ = mn, delta
+		total += turboQuantScalarBytes(q, bits)
+	}
+	return row, q, total
+}
