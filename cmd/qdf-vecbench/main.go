@@ -118,6 +118,45 @@ func main() {
 		})
 	}
 
+	// ── qdf-e8: sweep the same MaxRelError budgets, forcing the E8 variant ──
+	// Measure the real E8 wire size (rANS-coded coords + coset stream), exactly
+	// as the codec stores it, so the comparison against qdf-lossy is apples to
+	// apples. EncodeForcedE8 returns ok=false when E8 is ineligible (tiny dim)
+	// or never meets the budget; those points are skipped.
+	for _, eps := range qdfBudgets {
+		b := vecquant.Budget{Kind: vecquant.KindRelError, Val: eps}
+
+		t0 := time.Now()
+		bl, ok := vecquant.EncodeForcedE8(corpus, b)
+		encDur := time.Since(t0)
+		if !ok {
+			continue
+		}
+
+		t1 := time.Now()
+		recon := bl.Decode()
+		decDur := time.Since(t1)
+
+		// Same accounting as qdf-lossy, plus the coset stream E8 carries.
+		wire := len(bl.Coords) + len(bl.Cosets) + blockOverheadBytes
+		bpv := float64(wire) / float64(len(corpus))
+		totalBytes := float64(len(corpus)) * float64(*dim) * 8
+		encMBs := (totalBytes / 1e6) / encDur.Seconds()
+		decMBs := (totalBytes / 1e6) / decDur.Seconds()
+		relErr := avgRelError(corpus, recon)
+		rec := recall10(corpus, recon, groundTruth)
+
+		rows = append(rows, row{
+			method:      "qdf-e8",
+			budget:      eps,
+			bytesPerVec: bpv,
+			relErr:      relErr,
+			recall10:    rec,
+			encMBs:      encMBs,
+			decMBs:      decMBs,
+		})
+	}
+
 	// ── Naive scalar: sweep bit-widths ────────────────────────────────────────
 	for _, bits := range bitSweep {
 		var totalWire int
@@ -441,14 +480,15 @@ func printHeadlineTable(rows []row) {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
-	// header: rel-err | qdf | naive-best | tq-best | pq-best | qdf-vs-best %
-	fmt.Fprintf(w, "rel-err\t%s\t%s\t%s\t%s\t%s\n",
-		"qdf-lossy", "naive-best", "tq-best", "pq-best", "qdf-vs-best")
-	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-		"-------", "---------", "-------", "-------", "-----------")
+	// header: rel-err | qdf-lossy | qdf-e8 | naive-best | tq-best | pq-best | qdf-vs-best %
+	fmt.Fprintf(w, "rel-err\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		"qdf-lossy", "qdf-e8", "naive-best", "tq-best", "pq-best", "qdf-vs-best")
+	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		"-------", "------", "---------", "-------", "-------", "-----------")
 
 	for _, target := range relErrTargets {
 		qdfBPV, qdfOK := interpBPV(pts["qdf-lossy"], target)
+		e8BPV, e8OK := interpBPV(pts["qdf-e8"], target)
 
 		// naive-best: best (lowest) bytes/vec among all naive-Nbit methods at this target
 		naiveBPV, naiveOK := bestInterp(rows, "naive-", pts, target)
@@ -460,20 +500,22 @@ func printHeadlineTable(rows []row) {
 		pqBPV, pqOK := bestInterp(rows, "pq-", pts, target)
 
 		qdfStr := fmtBPV(qdfBPV, qdfOK)
+		e8Str := fmtBPV(e8BPV, e8OK)
 		naiveStr := fmtBPV(naiveBPV, naiveOK)
 		tqStr := fmtBPV(tqBPV, tqOK)
 		pqStr := fmtBPV(pqBPV, pqOK)
 
-		// headline %: qdf vs the single best baseline at this target
+		// headline %: best qdf variant vs the single best baseline at this target
+		bestQdfBPV, bestQdfOK := minBPV(qdfBPV, qdfOK, e8BPV, e8OK, 0, false)
 		vsStr := "n/a"
-		if qdfOK {
+		if bestQdfOK {
 			bestBaseline, bestOK := minBPV(
 				naiveBPV, naiveOK,
 				tqBPV, tqOK,
 				pqBPV, pqOK,
 			)
 			if bestOK {
-				pct := (bestBaseline - qdfBPV) / bestBaseline * 100
+				pct := (bestBaseline - bestQdfBPV) / bestBaseline * 100
 				if pct > 0 {
 					vsStr = fmt.Sprintf("qdf −%.1f%%", pct)
 				} else if pct < 0 {
@@ -484,8 +526,8 @@ func printHeadlineTable(rows []row) {
 			}
 		}
 
-		fmt.Fprintf(w, "%.2f\t%s\t%s\t%s\t%s\t%s\n",
-			target, qdfStr, naiveStr, tqStr, pqStr, vsStr)
+		fmt.Fprintf(w, "%.2f\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			target, qdfStr, e8Str, naiveStr, tqStr, pqStr, vsStr)
 	}
 	w.Flush()
 	fmt.Println()
