@@ -1,0 +1,117 @@
+package qdf
+
+import (
+	"encoding/binary"
+	"errors"
+	"math"
+
+	"github.com/alex60217101990/qdf/internal/vecquant"
+)
+
+// VectorBudget expresses the fidelity target for the lossy vector codec.
+// Construct it with MaxRelError, MinCosine, or TargetSNR.
+type VectorBudget struct {
+	kind vecquant.BudgetKind
+	val  float64
+	set  bool
+}
+
+// MaxRelError bounds the per-vector relative L2 error (e.g. 1e-3).
+func MaxRelError(eps float64) VectorBudget {
+	return VectorBudget{kind: vecquant.KindRelError, val: eps, set: true}
+}
+
+// MinCosine bounds the minimum cosine similarity (e.g. 0.999) — for embeddings.
+func MinCosine(c float64) VectorBudget {
+	return VectorBudget{kind: vecquant.KindCosine, val: c, set: true}
+}
+
+// TargetSNR targets a signal-to-noise ratio in dB (e.g. 40).
+func TargetSNR(db float64) VectorBudget {
+	return VectorBudget{kind: vecquant.KindSNR, val: db, set: true}
+}
+
+// orDefault returns the budget itself if set, otherwise the package default.
+func (b VectorBudget) orDefault() VectorBudget {
+	if b.set {
+		return b
+	}
+	return MinCosine(0.999)
+}
+
+func toBudget(b VectorBudget) vecquant.Budget {
+	b = b.orDefault()
+	return vecquant.Budget{Kind: b.kind, Val: b.val}
+}
+
+// appendLossyVec encodes vectors into dst using the lossy vector codec and
+// returns the extended slice. Wire layout:
+//
+//	0xFD | flags(u8: bit0=elemF32) | varuint(dim) | varuint(count) |
+//	u64le seed | f64le delta | varuint(len(coords)) | coords
+func appendLossyVec(dst []byte, vectors [][]float64, elemF32 bool, b vecquant.Budget) []byte {
+	bl := vecquant.Encode(vectors, b)
+	dst = append(dst, tagColVecLossy)
+	var flags byte
+	if elemF32 {
+		flags |= 1
+	}
+	dst = append(dst, flags)
+	dst = binary.AppendUvarint(dst, uint64(bl.Dim))
+	dst = binary.AppendUvarint(dst, uint64(bl.Count))
+	dst = binary.LittleEndian.AppendUint64(dst, bl.Seed)
+	dst = binary.LittleEndian.AppendUint64(dst, math.Float64bits(bl.Delta))
+	dst = binary.AppendUvarint(dst, uint64(len(bl.Coords)))
+	dst = append(dst, bl.Coords...)
+	return dst
+}
+
+// readLossyVec decodes a lossy-vec block from src and returns the vectors,
+// the elemF32 flag, the number of bytes consumed, and any error.
+func readLossyVec(src []byte) (vectors [][]float64, elemF32 bool, used int, err error) {
+	if len(src) < 2 || src[0] != tagColVecLossy {
+		return nil, false, 0, errors.New("qdf: not a lossy-vec block")
+	}
+	off := 1
+	flags := src[off]
+	off++
+	elemF32 = flags&1 != 0
+	dim, k := binary.Uvarint(src[off:])
+	if k <= 0 {
+		return nil, false, 0, errors.New("qdf: bad dim")
+	}
+	off += k
+	count, k := binary.Uvarint(src[off:])
+	if k <= 0 {
+		return nil, false, 0, errors.New("qdf: bad count")
+	}
+	off += k
+	if off+16 > len(src) {
+		return nil, false, 0, errors.New("qdf: short header")
+	}
+	seed := binary.LittleEndian.Uint64(src[off:])
+	off += 8
+	delta := math.Float64frombits(binary.LittleEndian.Uint64(src[off:]))
+	off += 8
+	clen, k := binary.Uvarint(src[off:])
+	if k <= 0 {
+		return nil, false, 0, errors.New("qdf: bad coords len")
+	}
+	off += k
+	if uint64(len(src)-off) < clen {
+		return nil, false, 0, errors.New("qdf: short coords")
+	}
+	bl := vecquant.Block{
+		Dim:    int(dim),
+		Count:  int(count),
+		Seed:   seed,
+		Delta:  delta,
+		Coords: src[off : off+int(clen)],
+	}
+	off += int(clen)
+	vectors = bl.Decode()
+	if vectors == nil && count != 0 {
+		return nil, false, 0, errors.New("qdf: lossy-vec decode failed")
+	}
+	return vectors, elemF32, off, nil
+}
