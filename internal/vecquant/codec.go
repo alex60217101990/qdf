@@ -75,16 +75,15 @@ func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64
 		delta = sigma
 	}
 	var q []int32
-	ok := false
+	// Scalar is always emitted as the floor: tighten delta until it meets the
+	// budget, then stop. Even at the tightest tried delta it is the fallback.
 	for range 4 {
 		q = lattice.QuantizeScalar(flat, delta, q)
 		if budgetMetScalar(orig, q, pdim, dim, delta, b) {
-			ok = true
 			break
 		}
 		delta *= 0.6
 	}
-	_ = ok // scalar is always emitted as the floor; ok not needed by caller
 	return variantResult{delta: delta, coords: encodeCoords(q), ok: true}
 }
 
@@ -255,8 +254,11 @@ func (bl Block) Decode() [][]float64 {
 		return nil
 	}
 	if bl.Variant == VariantE8 {
-		if len(bl.Cosets) != (bl.Count*pdim+63)/64*8 && len(bl.Cosets) != (bl.Count*pdim/8) {
-			// length is validated at the wire layer; guard here defensively.
+		// Defense in depth: the coset stream holds one bit per 8-D block.
+		// The wire layer validates this too, but guard here so a malformed
+		// Block can never index past the coset slice.
+		if len(bl.Cosets) != (bl.Count*pdim+7)/8 {
+			return nil
 		}
 		return reconstructE8(q, bl.Cosets, pdim, bl.Dim, bl.Count, bl.Delta)
 	}
