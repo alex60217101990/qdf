@@ -779,9 +779,10 @@ func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 	}
 	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
 		// Build the lossy block into scratch; emit it only if it is no larger
-		// than the lossless body (never-worse). toF64 allocates a fresh slice,
-		// so appendLossyVec's in-place mutation does not touch s.
-		lossy := appendLossyVec([][]float64{toF64(s)}, true, toBudget(e.vecBudget), &e.vecScratch)
+		// than the lossless body (never-worse). Widen into the reused e.wideF64
+		// buffer so appendLossyVec's in-place NaN/Inf zeroing does not touch s.
+		e.wideF64 = toF64Into(s, e.wideF64)
+		lossy := appendLossyVec([][]float64{e.wideF64}, true, toBudget(e.vecBudget), &e.vecScratch)
 		start := len(e.buf)
 		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
 		if err := encodeSliceFloat32Lossless(e, s); err != nil {
@@ -929,9 +930,12 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 	}
 	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
 		// Build the lossy block into scratch; emit it only if it is no larger
-		// than the lossless body (never-worse). toF64 copies s into a fresh
-		// slice, so appendLossyVec's in-place mutation does not touch s.
-		lossy := appendLossyVec([][]float64{toF64(s)}, false, toBudget(e.vecBudget), &e.vecScratch)
+		// than the lossless body (never-worse). Copy s into the reused e.wideF64
+		// buffer so appendLossyVec's in-place NaN/Inf zeroing does not touch the
+		// caller's []float64 slice. toF64Into returns s unchanged for []float64,
+		// so we must copy explicitly here rather than routing through toF64Into.
+		e.wideF64 = append(e.wideF64[:0], s...)
+		lossy := appendLossyVec([][]float64{e.wideF64}, false, toBudget(e.vecBudget), &e.vecScratch)
 		start := len(e.buf)
 		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
 		if err := encodeSliceFloat64Lossless(e, s); err != nil {

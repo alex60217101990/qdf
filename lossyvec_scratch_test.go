@@ -5,6 +5,44 @@ import (
 	"testing"
 )
 
+func TestToF64Into(t *testing.T) {
+	s := []float32{1, 2, 3, -4.5, 0}
+	buf := make([]float64, 0, 8)
+	out := toF64Into(s, buf)
+	if len(out) != len(s) {
+		t.Fatalf("len %d != %d", len(out), len(s))
+	}
+	for i := range s {
+		if out[i] != float64(s[i]) {
+			t.Fatalf("i=%d %v != %v", i, out[i], float64(s[i]))
+		}
+	}
+	// reuse: a shorter slice must not leak stale tail.
+	out2 := toF64Into([]float32{9, 8}, out)
+	if len(out2) != 2 || out2[0] != 9 || out2[1] != 8 {
+		t.Fatalf("reuse leaked: %v", out2)
+	}
+}
+
+func TestLossyVecF64NoCallerMutation(t *testing.T) {
+	orig := make([]float64, 64)
+	for i := range orig {
+		orig[i] = float64(i) + 0.25
+	}
+	cp := append([]float64(nil), orig...)
+	rows := []embedRowE8{{ID: "x", Emb: orig}}
+	enc := NewEncoderWith(OptBalanced | OptLossyVec)
+	enc.SetVectorBudget(MaxRelError(0.02))
+	if err := enc.EncodeValue(rows); err != nil {
+		t.Fatal(err)
+	}
+	for i := range orig {
+		if orig[i] != cp[i] {
+			t.Fatalf("caller slice mutated at %d: %v != %v", i, orig[i], cp[i])
+		}
+	}
+}
+
 // TestEncoderScratchReuseByteIdentical proves reusing one Encoder (scratch
 // retained) gives the same bytes as a fresh Encoder for the same input.
 func TestEncoderScratchReuseByteIdentical(t *testing.T) {

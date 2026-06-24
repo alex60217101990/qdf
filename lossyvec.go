@@ -27,21 +27,31 @@ func nextPow2Int(n int) int {
 // even when OptLossyVec is set.
 const lossyVecMinElems = 32
 
-// toF64 widens a []float32 or []float64 slice to []float64.
+// toF64Into widens a []float32 or []float64 into dst (reused when cap suffices)
+// and returns the filled slice. For []float64 it returns s unchanged (no copy).
 // Any other type returns nil.
-func toF64(v any) []float64 {
+func toF64Into(v any, dst []float64) []float64 {
 	switch s := v.(type) {
 	case []float64:
-		return s
+		return s // already float64; caller must copy if mutation is a concern
 	case []float32:
-		out := make([]float64, len(s))
-		for i, x := range s {
-			out[i] = float64(x)
+		if cap(dst) < len(s) {
+			dst = make([]float64, len(s))
 		}
-		return out
+		dst = dst[:len(s)]
+		for i, x := range s {
+			dst[i] = float64(x)
+		}
+		return dst
 	}
 	return nil
 }
+
+// toF64 widens a []float32 or []float64 slice to []float64.
+// For []float32 it always allocates a fresh slice (safe to pass to
+// appendLossyVec, which zeroes non-finite coords in place).
+// Any other type returns nil.
+func toF64(v any) []float64 { return toF64Into(v, nil) }
 
 // VectorBudget expresses the fidelity target for the lossy vector codec.
 // Construct it with MaxRelError, MinCosine, or TargetSNR.
