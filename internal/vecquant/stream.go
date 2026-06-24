@@ -96,6 +96,12 @@ func appendCosets(dst, cosets []byte) []byte {
 	return append(dst, cosets...)
 }
 
+// ReadCosets is the exported entry for the qdf wire layer; it reads a
+// length-prefixed coset stream and verifies it equals wantBytes.
+func ReadCosets(src []byte, wantBytes int) (cosets []byte, used int, err error) {
+	return readCosets(src, wantBytes)
+}
+
 // readCosets reads a length-prefixed coset stream and verifies the length
 // equals wantBytes (the only legal value for the block's shape).
 func readCosets(src []byte, wantBytes int) (cosets []byte, used int, err error) {

@@ -8,6 +8,20 @@ import (
 	"github.com/alex60217101990/qdf/internal/vecquant"
 )
 
+// nextPow2Int returns the smallest power of two >= n (minimum 1). Mirrors
+// hadamard.NextPow2 so the wire layer can recompute pdim without importing the
+// internal rotation package.
+func nextPow2Int(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	p := 1
+	for p < n {
+		p <<= 1
+	}
+	return p
+}
+
 // lossyVecMinElems is the smallest slice length that warrants the codec's
 // fixed header overhead. Slices shorter than this go through the lossless path
 // even when OptLossyVec is set.
@@ -124,6 +138,7 @@ func appendLossyVec(vectors [][]float64, elemF32 bool, b vecquant.Budget) []byte
 	if elemF32 {
 		flags |= 1
 	}
+	flags |= bl.Variant << 1 // bits1-2 carry the lattice variant
 	dst = append(dst, flags)
 	dst = binary.AppendUvarint(dst, uint64(bl.Dim))
 	dst = binary.AppendUvarint(dst, uint64(bl.Count))
@@ -131,6 +146,12 @@ func appendLossyVec(vectors [][]float64, elemF32 bool, b vecquant.Budget) []byte
 	dst = binary.LittleEndian.AppendUint64(dst, math.Float64bits(bl.Delta))
 	dst = binary.AppendUvarint(dst, uint64(len(bl.Coords)))
 	dst = append(dst, bl.Coords...)
+
+	// E8 carries one coset bit per 8-D block, length-prefixed.
+	if bl.Variant == vecquant.VariantE8 {
+		dst = binary.AppendUvarint(dst, uint64(len(bl.Cosets)))
+		dst = append(dst, bl.Cosets...)
+	}
 
 	// Append exception list: varuint(nExc) then each entry.
 	dst = binary.AppendUvarint(dst, uint64(len(exc)))
@@ -156,6 +177,10 @@ func readLossyVec(src []byte) (vectors [][]float64, elemF32 bool, used int, err 
 	flags := src[off]
 	off++
 	elemF32 = flags&1 != 0
+	variant := (flags >> 1) & 0x3
+	if variant != vecquant.VariantScalar && variant != vecquant.VariantE8 {
+		return nil, false, 0, errors.New("qdf: bad lossy-vec variant")
+	}
 	dim, k := binary.Uvarint(src[off:])
 	if k <= 0 {
 		return nil, false, 0, errors.New("qdf: bad dim")
@@ -189,14 +214,32 @@ func readLossyVec(src []byte) (vectors [][]float64, elemF32 bool, used int, err 
 	if dim > maxVecFactor || count > maxVecFactor || dim*count*8 > maxColumnarBytes {
 		return nil, false, 0, errors.New("qdf: lossy-vec output exceeds bound")
 	}
-	bl := vecquant.Block{
-		Dim:    int(dim),
-		Count:  int(count),
-		Seed:   seed,
-		Delta:  delta,
-		Coords: src[off : off+int(clen)],
-	}
+	coords := src[off : off+int(clen)]
 	off += int(clen)
+
+	// E8 carries a coset stream (one bit per 8-D block) after the coords.
+	var cosets []byte
+	if variant == vecquant.VariantE8 {
+		pdim := nextPow2Int(int(dim))
+		blocks := int(count) * pdim / 8
+		wantCoset := (blocks + 7) / 8
+		cs, used2, cerr := vecquant.ReadCosets(src[off:], wantCoset)
+		if cerr != nil {
+			return nil, false, 0, cerr
+		}
+		cosets = cs
+		off += used2
+	}
+
+	bl := vecquant.Block{
+		Dim:     int(dim),
+		Count:   int(count),
+		Seed:    seed,
+		Delta:   delta,
+		Coords:  coords,
+		Variant: variant,
+		Cosets:  cosets,
+	}
 	vectors = bl.Decode()
 	if vectors == nil && count != 0 {
 		return nil, false, 0, errors.New("qdf: lossy-vec decode failed")
