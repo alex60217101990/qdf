@@ -65,12 +65,54 @@ func toBudget(b VectorBudget) vecquant.Budget {
 	return vecquant.Budget{Kind: b.kind, Val: b.val}
 }
 
+// vecException records a single non-finite value that must be restored after
+// lossy quantization. RawBits is interpreted as float32 bits when elemF32 is
+// true, or float64 bits otherwise.
+type vecException struct {
+	vecIdx   uint64
+	coordIdx uint64
+	rawBits  uint64 // float32bits or float64bits
+}
+
+// collectExceptions scans vectors for non-finite (NaN/Inf) values, zeroes them
+// out in-place so the lossy pipeline sees finite data, and returns the list of
+// exceptions to be restored after decode.
+func collectExceptions(vectors [][]float64, elemF32 bool) []vecException {
+	var exc []vecException
+	for vi, v := range vectors {
+		for ci, x := range v {
+			if math.IsNaN(x) || math.IsInf(x, 0) {
+				var bits uint64
+				if elemF32 {
+					bits = uint64(math.Float32bits(float32(x)))
+				} else {
+					bits = math.Float64bits(x)
+				}
+				exc = append(exc, vecException{
+					vecIdx:   uint64(vi),
+					coordIdx: uint64(ci),
+					rawBits:  bits,
+				})
+				vectors[vi][ci] = 0
+			}
+		}
+	}
+	return exc
+}
+
 // appendLossyVec encodes vectors into dst using the lossy vector codec and
 // returns the extended slice. Wire layout:
 //
 //	0xFD | flags(u8: bit0=elemF32) | varuint(dim) | varuint(count) |
-//	u64le seed | f64le delta | varuint(len(coords)) | coords
+//	u64le seed | f64le delta | varuint(len(coords)) | coords |
+//	varuint(nExc) then nExc × (varuint vecIdx, varuint coordIdx, u32/u64 bits)
+//
+// Non-finite values (NaN/Inf) are stored in the exception list and zeroed for
+// quantization; the decoder restores them after bl.Decode().
 func appendLossyVec(dst []byte, vectors [][]float64, elemF32 bool, b vecquant.Budget) []byte {
+	// Collect and zero out non-finite values before encoding.
+	exc := collectExceptions(vectors, elemF32)
+
 	bl := vecquant.Encode(vectors, b)
 	dst = append(dst, tagColVecLossy)
 	var flags byte
@@ -84,6 +126,18 @@ func appendLossyVec(dst []byte, vectors [][]float64, elemF32 bool, b vecquant.Bu
 	dst = binary.LittleEndian.AppendUint64(dst, math.Float64bits(bl.Delta))
 	dst = binary.AppendUvarint(dst, uint64(len(bl.Coords)))
 	dst = append(dst, bl.Coords...)
+
+	// Append exception list: varuint(nExc) then each entry.
+	dst = binary.AppendUvarint(dst, uint64(len(exc)))
+	for _, e := range exc {
+		dst = binary.AppendUvarint(dst, e.vecIdx)
+		dst = binary.AppendUvarint(dst, e.coordIdx)
+		if elemF32 {
+			dst = binary.LittleEndian.AppendUint32(dst, uint32(e.rawBits))
+		} else {
+			dst = binary.LittleEndian.AppendUint64(dst, e.rawBits)
+		}
+	}
 	return dst
 }
 
@@ -141,6 +195,47 @@ func readLossyVec(src []byte) (vectors [][]float64, elemF32 bool, used int, err 
 	vectors = bl.Decode()
 	if vectors == nil && count != 0 {
 		return nil, false, 0, errors.New("qdf: lossy-vec decode failed")
+	}
+
+	// Read exception list: varuint(nExc) then each (vecIdx, coordIdx, bits).
+	nExc, k := binary.Uvarint(src[off:])
+	if k <= 0 {
+		return nil, false, 0, errors.New("qdf: bad exception count")
+	}
+	off += k
+	// Bound to prevent hostile blocks from causing OOM.
+	if nExc > dim*count {
+		return nil, false, 0, errors.New("qdf: exception count exceeds dim*count")
+	}
+	for range nExc {
+		vi, k := binary.Uvarint(src[off:])
+		if k <= 0 {
+			return nil, false, 0, errors.New("qdf: bad exception vecIdx")
+		}
+		off += k
+		ci, k := binary.Uvarint(src[off:])
+		if k <= 0 {
+			return nil, false, 0, errors.New("qdf: bad exception coordIdx")
+		}
+		off += k
+		if vi >= count || ci >= dim {
+			return nil, false, 0, errors.New("qdf: exception index out of range")
+		}
+		if elemF32 {
+			if off+4 > len(src) {
+				return nil, false, 0, errors.New("qdf: short exception bits (f32)")
+			}
+			bits := binary.LittleEndian.Uint32(src[off:])
+			off += 4
+			vectors[vi][ci] = float64(math.Float32frombits(bits))
+		} else {
+			if off+8 > len(src) {
+				return nil, false, 0, errors.New("qdf: short exception bits (f64)")
+			}
+			bits := binary.LittleEndian.Uint64(src[off:])
+			off += 8
+			vectors[vi][ci] = math.Float64frombits(bits)
+		}
 	}
 	return vectors, elemF32, off, nil
 }

@@ -63,7 +63,7 @@ func TestLossyVecSmallerThanRaw(t *testing.T) {
 // maxColumnarBytes.  A hostile block with dim=70000, count=70000 would attempt
 // a ~37 GB allocation; the bound check must reject it before bl.Decode runs.
 func TestReadLossyVecRejectsHugeShape(t *testing.T) {
-	const hugeDim   = 70000
+	const hugeDim = 70000
 	const hugeCount = 70000
 
 	// Build a minimal but syntactically valid 0xFD block:
@@ -74,10 +74,10 @@ func TestReadLossyVecRejectsHugeShape(t *testing.T) {
 	buf = append(buf, 0x00)           // flags = 0
 	buf = binary.AppendUvarint(buf, hugeDim)
 	buf = binary.AppendUvarint(buf, hugeCount)
-	buf = binary.LittleEndian.AppendUint64(buf, 0)               // seed
+	buf = binary.LittleEndian.AppendUint64(buf, 0)                     // seed
 	buf = binary.LittleEndian.AppendUint64(buf, math.Float64bits(1.0)) // delta
-	buf = binary.AppendUvarint(buf, 1)                           // clen = 1
-	buf = append(buf, 0x00)                                      // one coord byte
+	buf = binary.AppendUvarint(buf, 1)                                 // clen = 1
+	buf = append(buf, 0x00)                                            // one coord byte
 
 	_, _, _, err := readLossyVec(buf)
 	if err == nil {
