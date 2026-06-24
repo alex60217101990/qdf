@@ -63,6 +63,44 @@ For each column of float vectors, the encoder:
 
 The decoder reverses the steps: rANS decode → dequantize → inverse Hadamard.
 
+## Quantizers
+
+The codec supports two quantizers. For each column the encoder runs both and
+keeps whichever produces the smaller wire block that meets the budget.
+
+### Scalar quantizer
+
+Maps every rotated coordinate independently to the nearest integer multiple of
+the step size `delta`. It always produces a valid result and is used as the
+baseline: the codec is guaranteed to never exceed the wire size of scalar
+quantization (the try-both selection enforces this).
+
+### E8 lattice quantizer
+
+After the Hadamard rotation the coordinates are grouped into 8-dimensional
+blocks. Each block is mapped to the nearest point on the E8 lattice — the
+densest known sphere packing in 8 dimensions. E8 has a packing density roughly
+10× higher than the integer lattice in 8D, which means fewer bits are needed
+per block to represent a given reconstruction quality.
+
+The E8 nearest-point algorithm works by:
+
+1. Rounding all 8 coordinates to the nearest even integer and to the nearest
+   odd integer, producing two candidate points in the "shell" sublattice.
+2. Picking the candidate with the smaller squared distance to the input.
+3. Storing the residual coset membership (even vs odd shell) as a single bit
+   per block in a separate coset byte stream on the wire.
+
+The resulting wire block is `coords` (the same rANS-coded integer stream as
+scalar) plus a length-prefixed `cosets` byte stream. The E8 quantizer is only
+attempted when the padded dimension is at least 16 (two or more 8-D blocks);
+below this threshold the coset overhead outweighs any packing gain and the
+codec uses scalar only.
+
+The variant used for each column is recorded in bits 1–2 of the `flags` byte
+in the wire block so the decoder can reconstruct via the correct path without
+any encoder-side hint at decode time.
+
 ## NaN and Inf handling
 
 Non-finite values (`NaN`, `+Inf`, `-Inf`) cannot be quantized. The codec
@@ -86,12 +124,17 @@ v := []float32{1.0, float32(math.NaN()), float32(math.Inf(1))}
 ```
 0xFD                         tag byte
 flags (u8)                   bit 0: elemF32 (1=float32, 0=float64)
+                             bits 1-2: variant (0=scalar, 1=E8)
 varuint dim                  vector length
 varuint count                number of vectors
 u64le seed                   Hadamard rotation seed
 f64le delta                  quantization step size
 varuint coordsLen            byte length of coords block
 [coordsLen]byte coords       rANS-compressed quantised integers
+// E8 variant only:
+varuint cosetsLen            byte length of coset stream
+[cosetsLen]byte cosets       one bit per 8-D block (ceil(count*pdim/8 / 8) bytes)
+// always present:
 varuint nExc                 number of exceptions (0 if none)
 nExc × {
     varuint vecIdx           which vector (0-based)
