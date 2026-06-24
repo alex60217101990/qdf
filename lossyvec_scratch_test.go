@@ -91,3 +91,35 @@ func TestEncoderScratchReuseByteIdentical(t *testing.T) {
 		t.Fatalf("scratch reuse changed bytes: got %d want %d", len(got), len(want))
 	}
 }
+
+// TestLossyConcurrentEncodersRace runs independent Encoders concurrently, each
+// owning its own vecScratch, and asserts identical output and no data race.
+func TestLossyConcurrentEncodersRace(t *testing.T) {
+	r := rand.New(rand.NewSource(5))
+	rows := make([]embedRowE8, 16)
+	for i := range rows {
+		v := make([]float64, 256)
+		for j := range v {
+			v[j] = r.NormFloat64()
+		}
+		rows[i] = embedRowE8{ID: "d", Emb: v}
+	}
+	done := make(chan []byte, 4)
+	for g := 0; g < 4; g++ {
+		go func() {
+			enc := NewEncoderWith(OptBalanced | OptLossyVec)
+			enc.SetVectorBudget(MaxRelError(0.02))
+			_ = enc.EncodeValue(rows)
+			done <- append([]byte(nil), enc.Bytes()...)
+		}()
+	}
+	var first []byte
+	for g := 0; g < 4; g++ {
+		b := <-done
+		if first == nil {
+			first = b
+		} else if string(b) != string(first) {
+			t.Fatal("concurrent encoders produced different bytes")
+		}
+	}
+}

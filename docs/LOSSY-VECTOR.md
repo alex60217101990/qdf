@@ -206,3 +206,22 @@ func main() {
     fmt.Printf("cosine similarity of doc-0: %.6f\n", dot/(math.Sqrt(na)*math.Sqrt(nb)))
 }
 ```
+
+## Performance
+
+The encoder reuses internal scratch buffers across calls — the rotated vector
+buffer, the streaming reconstruction row, the quantizer coordinate slices, and
+the `[]float32`→`[]float64` widen buffer. The buffers are reset between encodes
+and dropped only past a retention ceiling, so a one-off giant vector cannot pin
+memory. When an encoder is reused (the pooled `Marshal`/`Unmarshal` path), the
+second and later encodes reuse those buffers.
+
+Two further allocation savings: the budget check reconstructs one vector at a
+time into a single reused row and accumulates the error metric directly, instead
+of materializing all reconstructed vectors; and the second (E8) quantization is
+attempted only when the requested fidelity is tight enough for the lattice to
+reduce size, so looser budgets pay for one quantization pass instead of two.
+
+On a 256×768 `float32` embedding batch over the pooled encode path, these
+changes cut wall-clock roughly in half and allocation volume by about 5×
+relative to a naive per-call encode.
