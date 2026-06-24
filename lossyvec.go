@@ -109,6 +109,10 @@ func collectExceptions(vectors [][]float64, elemF32 bool) []vecException {
 //
 // Non-finite values (NaN/Inf) are stored in the exception list and zeroed for
 // quantization; the decoder restores them after bl.Decode().
+//
+// NOTE: appendLossyVec mutates vectors in place (it zeroes non-finite coords
+// before encoding). Callers must pass a slice they own; the current callers
+// build it via toF64, which allocates a fresh []float64.
 func appendLossyVec(dst []byte, vectors [][]float64, elemF32 bool, b vecquant.Budget) []byte {
 	// Collect and zero out non-finite values before encoding.
 	exc := collectExceptions(vectors, elemF32)
