@@ -65,6 +65,11 @@ func decodeCoords(src []byte, count int) ([]int32, error) {
 	if k <= 0 {
 		return nil, errors.New("vecquant: bad rawLen")
 	}
+	// Bound rawLen: each coordinate is at most binary.MaxVarintLen32 bytes.
+	maxRaw := uint64(count) * uint64(binary.MaxVarintLen32)
+	if rawLen > maxRaw {
+		return nil, errors.New("vecquant: rawLen exceeds bound")
+	}
 	body := src[1+k:]
 	var raw []byte
 	switch mode {
