@@ -66,7 +66,6 @@ func TestLossyVecColumnarFloat64(t *testing.T) {
 		t.Fatalf("row count: got %d, want %d", len(out), nRows)
 	}
 
-	const threshold = 0.999 * 0.999
 	for i, orig := range rows {
 		if out[i].ID != orig.ID {
 			t.Errorf("row %d: ID got %d want %d", i, out[i].ID, orig.ID)
