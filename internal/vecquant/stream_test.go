@@ -1,6 +1,7 @@
 package vecquant
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 )
@@ -93,5 +94,34 @@ func TestDecodeCoordsRejectsOversizedRawLenMode0(t *testing.T) {
 	}
 	if got == nil && err != nil {
 		t.Logf("correctly rejected oversized rawLen (mode 0): %v", err)
+	}
+}
+
+func TestCosetRoundTrip(t *testing.T) {
+	cosets := []byte{0b10110100, 0b00000011}
+	enc := appendCosets(nil, cosets)
+	got, used, err := readCosets(enc, len(cosets))
+	if err != nil {
+		t.Fatalf("readCosets: %v", err)
+	}
+	if used != len(enc) {
+		t.Fatalf("used %d != %d", used, len(enc))
+	}
+	if !bytes.Equal(got, cosets) {
+		t.Fatalf("got %v want %v", got, cosets)
+	}
+}
+
+func TestReadCosetsRejectsWrongLength(t *testing.T) {
+	enc := appendCosets(nil, []byte{1, 2, 3})
+	if _, _, err := readCosets(enc, 2); err == nil {
+		t.Fatal("expected error on length mismatch")
+	}
+}
+
+func TestReadCosetsRejectsTruncated(t *testing.T) {
+	enc := appendCosets(nil, []byte{1, 2, 3})
+	if _, _, err := readCosets(enc[:len(enc)-1], 3); err == nil {
+		t.Fatal("expected error on truncated body")
 	}
 }
