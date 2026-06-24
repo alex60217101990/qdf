@@ -264,7 +264,7 @@ func reconstructE8(coords []int32, cosets []byte, pdim, dim, count int, delta fl
 	flat := lattice.ReconstructE8(coords, cosets, delta, count*pdim)
 	out := make([][]float64, count)
 	row := make([]float64, pdim)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		copy(row, flat[i*pdim:i*pdim+pdim])
 		hadamard.Inverse(row, hadamardSeed)
 		v := make([]float64, dim)
