@@ -55,7 +55,9 @@ func TestLossyVecNaNInfException(t *testing.T) {
 	if err := Unmarshal(data, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if !math.IsNaN(float64(out[0].Emb[2])) || !math.IsInf(float64(out[0].Emb[3]), 1) {
+	if !math.IsNaN(float64(out[0].Emb[2])) ||
+		!math.IsInf(float64(out[0].Emb[3]), 1) ||
+		!math.IsInf(float64(out[0].Emb[4]), -1) {
 		t.Fatalf("NaN/Inf not preserved: %v", out[0].Emb[:5])
 	}
 }
