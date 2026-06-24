@@ -89,3 +89,25 @@ func decodeCoords(src []byte, count int) ([]int32, error) {
 	}
 	return readVarintZigzag(raw, count)
 }
+
+// appendCosets writes a length-prefixed raw coset-bit byte stream.
+func appendCosets(dst, cosets []byte) []byte {
+	dst = binary.AppendUvarint(dst, uint64(len(cosets)))
+	return append(dst, cosets...)
+}
+
+// readCosets reads a length-prefixed coset stream and verifies the length
+// equals wantBytes (the only legal value for the block's shape).
+func readCosets(src []byte, wantBytes int) (cosets []byte, used int, err error) {
+	n, k := binary.Uvarint(src)
+	if k <= 0 {
+		return nil, 0, errors.New("vecquant: bad coset length")
+	}
+	if int(n) != wantBytes {
+		return nil, 0, errors.New("vecquant: coset length mismatch")
+	}
+	if uint64(len(src)-k) < n {
+		return nil, 0, errors.New("vecquant: short coset body")
+	}
+	return src[k : k+int(n)], k + int(n), nil
+}
