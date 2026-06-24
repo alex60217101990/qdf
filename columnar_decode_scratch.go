@@ -662,6 +662,21 @@ func decodeSliceFloat64Into(d *Decoder, dst *[]float64) error {
 	if err != nil {
 		return err
 	}
+	if t == tagColVecLossy {
+		vecs, elemF32, used, err2 := readLossyVec(d.buf[d.i:])
+		if err2 != nil {
+			return err2
+		}
+		if len(vecs) == 0 {
+			return ErrShortBuffer
+		}
+		if elemF32 {
+			return ErrTypeMismatch
+		}
+		d.i += used
+		*dst = vecs[0]
+		return nil
+	}
 	if t == tagPackRaw {
 		d.i++
 		n, body, err2 := d.readPackedRawHeader(qpackKindFloat64)
