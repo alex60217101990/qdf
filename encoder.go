@@ -106,6 +106,13 @@ type Encoder struct {
 	// resetForReuse. Mirrors alpScratch.
 	vecScratch vecquant.Scratch
 
+	// wideF64 reuses the []float32 -> []float64 widening buffer for the lossy
+	// vector codec, retained across encodes and dropped past the ceiling in
+	// resetForReuse. For f32 fields this avoids one allocation per encode;
+	// for f64 fields it holds a defensive copy so appendLossyVec cannot mutate
+	// the caller's slice.
+	wideF64 []float64
+
 	// preIntern is an opt-in identity cache populated by PreIntern.
 	// When non-empty WriteString does a linear scan against it
 	// before falling to the intern table — a pointer-and-length
@@ -347,6 +354,9 @@ func (e *Encoder) resetForReuse() {
 		e.alpScratch = nil
 	}
 	e.vecScratch.Reset()
+	if cap(e.wideF64) > maxRetainedColScratch {
+		e.wideF64 = nil
+	}
 	// Keyed-diff match map: drop a spike-sized backing, else clear() it in place.
 	// The keys are unsafe.String / string-header aliases into the caller's prior
 	// key strings or []struct element backing (keyTokenAt), so leaving them
