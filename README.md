@@ -752,19 +752,26 @@ Measured, decode into a pre-sized target (i7-9750H):
 
 `[]float32` and `[]float64` embedding fields can be compressed with a
 configurable fidelity budget — cosine similarity, relative L2 error, or SNR.
-The codec is **opt-in and lossy**; the default mode is always bit-exact.
+The codec is **opt-in and lossy**; the default mode is always bit-exact. It
+rotates (Hadamard), quantizes (scalar or E8 lattice — whichever is smaller),
+and entropy-codes the result, so at equal reconstruction quality it is
+**~19–22 % smaller than scalar / TurboQuant-style quantization**.
 
 ```go
 enc := qdf.NewEncoderWith(qdf.OptBalanced | qdf.OptLossyVec)
 enc.SetVectorBudget(qdf.MinCosine(0.999)) // or MaxRelError / TargetSNR
-data, _ := enc.EncodeValue(rows)
+_ = enc.EncodeValue(rows)
+data := enc.Bytes()
 ```
 
 NaN and Inf values are preserved exactly via an exception list in the wire
-format — they are never corrupted or silently dropped.
+format — they are never corrupted or silently dropped. The encode never exceeds
+the lossless size (never-worse), and reuses pooled scratch for near-zero warm
+allocations.
 
-Full details, pipeline description, budget knobs, and a worked example are in
-**[`docs/LOSSY-VECTOR.md`](docs/LOSSY-VECTOR.md)**.
+Full details — pipeline, budget knobs, `0xFD` wire format, the
+[diagram](diagrams/lossy-vector.md), benchmark numbers, and runnable examples —
+are in **[`docs/LOSSY-VECTOR.md`](docs/LOSSY-VECTOR.md)**.
 
 ---
 
