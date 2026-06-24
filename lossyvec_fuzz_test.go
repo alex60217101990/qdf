@@ -3,6 +3,8 @@ package qdf
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/alex60217101990/qdf/internal/vecquant"
 )
 
 func FuzzReadLossyVec(f *testing.F) {
@@ -27,7 +29,7 @@ func FuzzReadLossyVec(f *testing.F) {
 			}
 			vecs[i] = v
 		}
-		f.Add(appendLossyVec(vecs, false, toBudget(MaxRelError(0.02))))
+		f.Add(appendLossyVec(vecs, false, toBudget(MaxRelError(0.02)), &vecquant.Scratch{}))
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {

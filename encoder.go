@@ -9,6 +9,7 @@ import (
 	"github.com/alex60217101990/qdf/internal/fsst"
 	"github.com/alex60217101990/qdf/internal/rans"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
+	"github.com/alex60217101990/qdf/internal/vecquant"
 )
 
 // ransMinBytes is the smallest message body worth a rANS attempt. Below it
@@ -99,6 +100,11 @@ type Encoder struct {
 	// writer (mirrors the decoder's deltaScratch). Lives on the Encoder, not
 	// encState, so the row-major float path reuses it without needing a state.
 	alpScratch []uint64
+
+	// vecScratch reuses the lossy vector codec's rotate/row/coord buffers across
+	// encodes, retained between batches and dropped past the ceiling in
+	// resetForReuse. Mirrors alpScratch.
+	vecScratch vecquant.Scratch
 
 	// preIntern is an opt-in identity cache populated by PreIntern.
 	// When non-empty WriteString does a linear scan against it
@@ -340,6 +346,7 @@ func (e *Encoder) resetForReuse() {
 	if cap(e.alpScratch) > maxRetainedColScratch {
 		e.alpScratch = nil
 	}
+	e.vecScratch.Reset()
 	// Keyed-diff match map: drop a spike-sized backing, else clear() it in place.
 	// The keys are unsafe.String / string-header aliases into the caller's prior
 	// key strings or []struct element backing (keyTokenAt), so leaving them
