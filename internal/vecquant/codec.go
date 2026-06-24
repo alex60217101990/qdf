@@ -7,8 +7,8 @@ import (
 	"github.com/alex60217101990/qdf/internal/lattice"
 )
 
-// hadamardSeed is the fixed rotation seed for Phase 1 (stored on the wire so a
-// future encoder may randomize it per column without breaking decode).
+// hadamardSeed is the fixed rotation seed (stored on the wire so a future
+// encoder may randomize it per column without breaking decode).
 const hadamardSeed uint64 = 0x51ed270b9f4d8c3a
 
 // Block is the self-contained encoded form of a set of equal-length vectors.
