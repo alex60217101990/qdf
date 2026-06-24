@@ -8,6 +8,27 @@ import (
 	"github.com/alex60217101990/qdf/internal/vecquant"
 )
 
+// lossyVecMinElems is the smallest slice length that warrants the codec's
+// fixed header overhead. Slices shorter than this go through the lossless path
+// even when OptLossyVec is set.
+const lossyVecMinElems = 32
+
+// toF64 widens a []float32 or []float64 slice to []float64.
+// Any other type returns nil.
+func toF64(v any) []float64 {
+	switch s := v.(type) {
+	case []float64:
+		return s
+	case []float32:
+		out := make([]float64, len(s))
+		for i, x := range s {
+			out[i] = float64(x)
+		}
+		return out
+	}
+	return nil
+}
+
 // VectorBudget expresses the fidelity target for the lossy vector codec.
 // Construct it with MaxRelError, MinCosine, or TargetSNR.
 type VectorBudget struct {

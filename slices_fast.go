@@ -771,6 +771,11 @@ func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 	if e.opts.Has(OptCanonical) {
 		s = e.canonicalFloat32Slice(s)
 	}
+	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
+		vecs := [][]float64{toF64(s)}
+		e.buf = appendLossyVec(e.buf, vecs, true, toBudget(e.vecBudget))
+		return nil
+	}
 	if e.qpack {
 		// Under OptCompression both Gorilla and ALP are enabled. Pick the smallest
 		// of {raw-LE, Gorilla projection, ALP estimate}. ALP's estimate is a
@@ -812,6 +817,19 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
 		return err
+	}
+	if t == tagColVecLossy {
+		vecs, _, used, err := readLossyVec(d.buf[d.i:])
+		if err != nil {
+			return err
+		}
+		d.i += used
+		out := make([]float32, len(vecs[0]))
+		for i, v := range vecs[0] {
+			out[i] = float32(v)
+		}
+		*(*[]float32)(p) = out
+		return nil
 	}
 	if t == tagPackRaw {
 		d.i++
@@ -862,6 +880,11 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]float64)(p)
 	if e.opts.Has(OptCanonical) {
 		s = e.canonicalFloat64Slice(s)
+	}
+	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
+		vecs := [][]float64{toF64(s)}
+		e.buf = appendLossyVec(e.buf, vecs, false, toBudget(e.vecBudget))
+		return nil
 	}
 	if e.qpack {
 		// Under OptCompression both Gorilla and ALP are enabled. Pick the
@@ -915,6 +938,15 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
 		return err
+	}
+	if t == tagColVecLossy {
+		vecs, _, used, err := readLossyVec(d.buf[d.i:])
+		if err != nil {
+			return err
+		}
+		d.i += used
+		*(*[]float64)(p) = vecs[0]
+		return nil
 	}
 	if t == tagPackRaw {
 		d.i++
