@@ -212,7 +212,24 @@ b, err := qdf.Marshal(vec, qdf.OptQPack)
 Result: encode 903 ns vs json 80 µs (**89× faster**) vs msgpack 36 µs
 (40×). Decode 904 ns vs json 213 µs (**236× faster**). Wire 3 KB vs
 json 8.4 KB. For embeddings this is the difference between a viable
-storage format and a bottleneck.
+storage format and a bottleneck. `OptQPack` is **lossless** — the vector
+round-trips bit-for-bit.
+
+**If the values may be approximated** — embeddings used only for
+nearest-neighbour / cosine search, where recall matters but exact bits do
+not — add **`OptLossyVec`** and a fidelity budget. The codec rotates,
+lattice-quantizes, and entropy-codes the vector for **~19–22 % less wire
+than scalar quantization at equal recall**, while staying never-worse than
+lossless. It is opt-in; the default path is always exact.
+
+```go
+enc := qdf.NewEncoderWith(qdf.OptBalanced | qdf.OptLossyVec)
+enc.SetVectorBudget(qdf.MinCosine(0.999)) // recall-preserving for ANN search
+_ = enc.EncodeValue(docs)
+data := enc.Bytes()
+```
+
+See [`LOSSY-VECTOR.md`](LOSSY-VECTOR.md) for budgets, the pipeline, and numbers.
 
 ### Map-heavy config
 

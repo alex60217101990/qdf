@@ -122,6 +122,7 @@ order:
 |  6  | `OptRANS` | Order-0 rANS entropy pass over the whole body, applied only when it shrinks (`FlagRANS`) — never larger, ~4–6× CPU where it fires, whole-buffer (not streaming) | — |
 |  7  | `OptFSST` | FSST substring-level codec for high-cardinality columnar string columns (URLs, log lines, paths); tried after the dictionary codec bails; never larger; columnar `[]struct` only | `OptQPack` + columnar |
 |  9  | `OptMapShape` | Key-set interning for `map[string]V` fields: a recurring set of keys (telemetry tags, log labels) is declared once via `tagMapShape`; later maps emit only the shape ID + values in canonical key order. ~−24 % encode CPU and ~−26 % wire on tag-map-heavy rows; opt-in. | `OptDense` |
+| 12  | `OptLossyVec` | Opt-in **lossy** codec for `[]float32` / `[]float64` embedding fields (≥ 32 elems): Hadamard rotation → scalar or E8-lattice quantize → rANS, keeps the smaller, never larger than lossless. ~19–22 % smaller than scalar quantization at equal quality. Fidelity via `(*Encoder).SetVectorBudget` (`MinCosine` / `MaxRelError` / `TargetSNR`). In no bundle; default mode stays bit-exact. See [`LOSSY-VECTOR.md`](LOSSY-VECTOR.md). | — |
 
 `OptSpeed = 0`. `OptBalanced = OptDense | OptQPack | OptShapeIntern
 | OptPairPred | OptMTF`. `OptCompression = OptBalanced | OptGorillaFloat
