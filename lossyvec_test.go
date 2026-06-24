@@ -15,7 +15,7 @@ func TestLossyVecWireRoundTrip(t *testing.T) {
 		}
 		vecs[i] = v
 	}
-	enc := appendLossyVec(nil, vecs, false, toBudget(MinCosine(0.999)))
+	enc := appendLossyVec(vecs, false, toBudget(MinCosine(0.999)))
 	got, isF32, used, err := readLossyVec(enc)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -51,7 +51,7 @@ func TestLossyVecSmallerThanRaw(t *testing.T) {
 		}
 		vecs[i] = v
 	}
-	enc := appendLossyVec(nil, vecs, true, toBudget(MaxRelError(0.02)))
+	enc := appendLossyVec(vecs, true, toBudget(MaxRelError(0.02)))
 	raw := 128 * 256 * 4 // f32 raw bytes
 	if len(enc) >= raw {
 		t.Fatalf("lossy %d not smaller than raw %d", len(enc), raw)

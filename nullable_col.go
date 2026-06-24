@@ -209,7 +209,9 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 		}
 		st.colScratchF64 = s
 		e.buf = append(e.buf, mask...)
-		return encodeSliceFloat64(e, unsafe.Pointer(&s))
+		// Lossless: a SCALAR *float64 column must never become lossy under
+		// OptLossyVec (which targets genuine []float64/[]float32 VECTOR fields).
+		return encodeSliceFloat64Lossless(e, s)
 	case colKindBool:
 		s := st.colScratchBool[:0]
 		for i := range n {

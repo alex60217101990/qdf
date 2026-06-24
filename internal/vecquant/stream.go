@@ -7,7 +7,7 @@ import (
 	"github.com/alex60217101990/qdf/internal/rans"
 )
 
-func zigzag32(v int32) uint32  { return uint32((v << 1) ^ (v >> 31)) }
+func zigzag32(v int32) uint32   { return uint32((v << 1) ^ (v >> 31)) }
 func unzigzag32(u uint32) int32 { return int32(u>>1) ^ -int32(u&1) }
 
 // appendVarintZigzag writes each coordinate as a zigzag uvarint.
@@ -24,7 +24,7 @@ func appendVarintZigzag(dst []byte, q []int32) []byte {
 func readVarintZigzag(src []byte, n int) ([]int32, error) {
 	out := make([]int32, 0, n)
 	off := 0
-	for i := 0; i < n; i++ {
+	for range n {
 		u, k := binary.Uvarint(src[off:])
 		if k <= 0 {
 			return nil, errors.New("vecquant: truncated coord stream")

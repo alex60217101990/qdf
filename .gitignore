@@ -49,3 +49,6 @@ docs/PERF-NEXT.md
 # Claude Code local session/worktree state (never commit)
 .claude/
 cmd/qdf-bench/qdf-bench
+
+# qdf-vecbench RD output artifact
+cmd/qdf-vecbench/rd.csv
