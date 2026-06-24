@@ -338,7 +338,13 @@ const (
 	// payloads (use the default mode for bit-exact float round-trip).
 	OptCanonical // bit 11
 
-	// Bits 12..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptLossyVec enables the opt-in lossy float-vector codec (tag 0xFD) for
+	// []float32/[]float64 columns. LOSSY: reconstruction is approximate within
+	// the VectorBudget set on the Encoder (default MinCosine(0.999)). Never
+	// fires unless this bit is set; never larger than the raw/lossless form.
+	OptLossyVec // bit 12
+
+	// Bits 13..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.

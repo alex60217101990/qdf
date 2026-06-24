@@ -190,6 +190,10 @@ type Encoder struct {
 	pairPred bool
 	mtf      bool
 
+	// vecBudget is the fidelity target used when OptLossyVec is active.
+	// No effect unless OptLossyVec is set. Zero value resolves to MinCosine(0.999).
+	vecBudget VectorBudget
+
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
 	keyIdxBusy bool
@@ -502,6 +506,10 @@ func (e *Encoder) writeHeader() {
 // Setting must happen before the first write of the value (the header is
 // emitted lazily and carries the FlagQPack hint when this is on).
 func (e *Encoder) SetQPack(v bool) { e.qpack = v }
+
+// SetVectorBudget sets the fidelity target used when OptLossyVec is active.
+// No effect unless OptLossyVec is in the encoder's options.
+func (e *Encoder) SetVectorBudget(b VectorBudget) { e.vecBudget = b }
 
 // QPack reports whether QPack codec emission is enabled.
 func (e *Encoder) QPack() bool { return e.qpack }

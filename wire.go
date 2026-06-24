@@ -302,6 +302,8 @@ const (
 	// (flat) is written. The QPack block carries its own row count, cross-checked
 	// against the columnar header and buffer-bounded before allocation.
 	tagColStrDictQ = 0xFC
+
+	tagColVecLossy = 0xFD // lossy float-vector block (Hadamard+quant+rANS)
 )
 
 // isStringColumnBlockTag reports whether b begins a self-describing string
