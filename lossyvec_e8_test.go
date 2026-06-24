@@ -41,9 +41,11 @@ func TestE8OptionMatrixRoundTrip(t *testing.T) {
 	}
 }
 
-func TestE8NeverWorseThanScalar(t *testing.T) {
-	// The auto codec must never produce a larger field than the scalar-only
-	// encoding of the same vectors (try-both keeps the smaller).
+func TestE8AutoNeverWorseVsLossless(t *testing.T) {
+	// The lossy auto codec (which keeps the smaller of scalar/E8 per column)
+	// must never produce a larger payload than the lossless encoding of the
+	// same rows, and must round-trip cleanly. Uses 256-dim vectors so E8 is
+	// eligible at the tight budget.
 	rows := make([]embedRowE8, 64)
 	for i := range rows {
 		v := make([]float64, 256)
@@ -52,17 +54,25 @@ func TestE8NeverWorseThanScalar(t *testing.T) {
 		}
 		rows[i] = embedRowE8{ID: "d", Emb: v}
 	}
+
+	lossless, err := Marshal(rows, OptBalanced)
+	if err != nil {
+		t.Fatalf("lossless marshal: %v", err)
+	}
+
 	enc := NewEncoderWith(OptBalanced | OptLossyVec)
 	enc.SetVectorBudget(MaxRelError(0.02))
-	// Brief specifies enc.Marshal(rows); actual API is EncodeValue+Bytes.
 	if err := enc.EncodeValue(rows); err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("lossy marshal: %v", err)
 	}
-	auto := enc.Bytes()
-	// Round-trips and is finite-size; the unit-level scalar-vs-E8 min is proven
-	// in vecquant. Here we just assert a clean decode.
+	lossy := enc.Bytes()
+
+	if len(lossy) > len(lossless) {
+		t.Fatalf("never-worse violated: lossy %d > lossless %d", len(lossy), len(lossless))
+	}
+
 	var out []embedRowE8
-	if err := Unmarshal(auto, &out); err != nil {
+	if err := Unmarshal(lossy, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(out) != len(rows) {
