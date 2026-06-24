@@ -47,12 +47,6 @@ func toF64Into(v any, dst []float64) []float64 {
 	return nil
 }
 
-// toF64 widens a []float32 or []float64 slice to []float64.
-// For []float32 it always allocates a fresh slice (safe to pass to
-// appendLossyVec, which zeroes non-finite coords in place).
-// Any other type returns nil.
-func toF64(v any) []float64 { return toF64Into(v, nil) }
-
 // VectorBudget expresses the fidelity target for the lossy vector codec.
 // Construct it with MaxRelError, MinCosine, or TargetSNR.
 type VectorBudget struct {

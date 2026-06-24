@@ -135,7 +135,7 @@ func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b 
 // rotates it, and accumulates the budget metric against orig — without building
 // a [][]float64. fill(i) writes the dequantized rotated coords of vector i into
 // row[:pdim].
-func budgetMetStream(orig [][]float64, pdim, dim int, b Budget, row []float64, fill func(i int)) bool {
+func budgetMetStream(orig [][]float64, dim int, b Budget, row []float64, fill func(i int)) bool {
 	cosine := b.Kind == KindCosine
 	worst := 0.0
 	if cosine {
@@ -174,7 +174,7 @@ func budgetMetStream(orig [][]float64, pdim, dim int, b Budget, row []float64, f
 }
 
 func budgetMetScalar(orig [][]float64, q []int32, pdim, dim int, delta float64, b Budget, row []float64) bool {
-	return budgetMetStream(orig, pdim, dim, b, row, func(i int) {
+	return budgetMetStream(orig, dim, b, row, func(i int) {
 		seg := q[i*pdim : i*pdim+pdim]
 		for j := 0; j < pdim; j++ {
 			row[j] = float64(seg[j]) * delta
@@ -184,7 +184,7 @@ func budgetMetScalar(orig [][]float64, q []int32, pdim, dim int, delta float64, 
 
 func budgetMetE8(orig [][]float64, coords []int32, cosets []byte, pdim, dim int, delta float64, b Budget, row []float64) bool {
 	nbPerVec := pdim / 8
-	return budgetMetStream(orig, pdim, dim, b, row, func(i int) {
+	return budgetMetStream(orig, dim, b, row, func(i int) {
 		for blk := 0; blk < nbPerVec; blk++ {
 			bb := i*nbPerVec + blk
 			off := 0.0
@@ -283,27 +283,6 @@ func relTarget(b Budget) float64 {
 		return math.Sqrt(2 * (1 - b.Val))
 	}
 	return b.Val
-}
-
-// metric returns rel-error (RelError/SNR) or min-cosine (Cosine) over all rows.
-func metric(orig, recon [][]float64, kind BudgetKind) float64 {
-	if kind == KindCosine {
-		worst := math.Inf(1)
-		for i := range orig {
-			var dot, na, nb float64
-			for j := range orig[i] {
-				dot += orig[i][j] * recon[i][j]
-				na += orig[i][j] * orig[i][j]
-				nb += recon[i][j] * recon[i][j]
-			}
-			cos := dot / (math.Sqrt(na)*math.Sqrt(nb) + 1e-30)
-			if cos < worst {
-				worst = cos
-			}
-		}
-		return worst
-	}
-	return achievedRelError(orig, recon)
 }
 
 func achievedRelError(orig, recon [][]float64) float64 {
