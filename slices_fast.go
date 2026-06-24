@@ -819,9 +819,15 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	if t == tagColVecLossy {
-		vecs, _, used, err := readLossyVec(d.buf[d.i:])
+		vecs, elemF32, used, err := readLossyVec(d.buf[d.i:])
 		if err != nil {
 			return err
+		}
+		if len(vecs) == 0 {
+			return ErrShortBuffer
+		}
+		if !elemF32 {
+			return ErrTypeMismatch
 		}
 		d.i += used
 		out := make([]float32, len(vecs[0]))
@@ -940,9 +946,15 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	if t == tagColVecLossy {
-		vecs, _, used, err := readLossyVec(d.buf[d.i:])
+		vecs, elemF32, used, err := readLossyVec(d.buf[d.i:])
 		if err != nil {
 			return err
+		}
+		if len(vecs) == 0 {
+			return ErrShortBuffer
+		}
+		if elemF32 {
+			return ErrTypeMismatch
 		}
 		d.i += used
 		*(*[]float64)(p) = vecs[0]
