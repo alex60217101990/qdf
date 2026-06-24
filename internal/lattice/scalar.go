@@ -1,8 +1,7 @@
 // Package lattice implements vector quantizers used by the lossy vector codec.
-// Phase 1 ships the scalar (integer/cube) lattice; E8 and Leech land in later
-// phases. After the Hadamard rotation the data is ~Gaussian, so a uniform
-// scalar grid with step Δ is already a reasonable quantizer and the entropy
-// stage recovers the rest.
+// It currently provides the scalar (integer/cube) lattice. After the Hadamard
+// rotation the data is ~Gaussian, so a uniform scalar grid with step Δ is
+// already a reasonable quantizer and the entropy stage recovers the rest.
 package lattice
 
 import "math"
