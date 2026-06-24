@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -29,6 +30,11 @@ func TestLossyVecF64NoCallerMutation(t *testing.T) {
 	for i := range orig {
 		orig[i] = float64(i) + 0.25
 	}
+	// Inject non-finite values: collectExceptions zeroes these in place, so this
+	// is the path that would mutate the caller's slice if the copy were skipped.
+	orig[3] = math.NaN()
+	orig[7] = math.Inf(1)
+	orig[11] = math.Inf(-1)
 	cp := append([]float64(nil), orig...)
 	rows := []embedRowE8{{ID: "x", Emb: orig}}
 	enc := NewEncoderWith(OptBalanced | OptLossyVec)
@@ -36,8 +42,9 @@ func TestLossyVecF64NoCallerMutation(t *testing.T) {
 	if err := enc.EncodeValue(rows); err != nil {
 		t.Fatal(err)
 	}
+	// Bit-compare (handles NaN, which is != itself).
 	for i := range orig {
-		if orig[i] != cp[i] {
+		if math.Float64bits(orig[i]) != math.Float64bits(cp[i]) {
 			t.Fatalf("caller slice mutated at %d: %v != %v", i, orig[i], cp[i])
 		}
 	}
