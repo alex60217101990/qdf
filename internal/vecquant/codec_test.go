@@ -138,13 +138,13 @@ func streamRelError(orig [][]float64, q []int32, pdim, dim int, delta float64, r
 	worst := 0.0
 	for i := range orig {
 		seg := q[i*pdim : i*pdim+pdim]
-		for j := 0; j < pdim; j++ {
+		for j := range pdim {
 			row[j] = float64(seg[j]) * delta
 		}
 		hadamardInverseForTest(row)
 		o := orig[i]
 		var se, ne float64
-		for j := 0; j < dim; j++ {
+		for j := range dim {
 			d := o[j] - row[j]
 			se += d * d
 			ne += o[j] * o[j]
