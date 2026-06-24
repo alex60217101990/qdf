@@ -102,9 +102,11 @@ func readLossyVec(src []byte) (vectors [][]float64, elemF32 bool, used int, err 
 		return nil, false, 0, errors.New("qdf: short coords")
 	}
 	// Bound the output allocation: dim*count float64s must fit within
-	// maxColumnarBytes.  dim and count are still uint64 here so the multiply
-	// cannot overflow on 64-bit; ×8 accounts for float64 element size.
-	if dim > 0 && count > 0 && dim*count*8 > maxColumnarBytes {
+	// maxColumnarBytes (×8 accounts for float64 element size). dim and count
+	// are uint64; guard each factor before the product so the multiply itself
+	// cannot wrap for adversarial inputs near 2^32.
+	const maxVecFactor = maxColumnarBytes / 8
+	if dim > maxVecFactor || count > maxVecFactor || dim*count*8 > maxColumnarBytes {
 		return nil, false, 0, errors.New("qdf: lossy-vec output exceeds bound")
 	}
 	bl := vecquant.Block{
