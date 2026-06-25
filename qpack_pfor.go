@@ -221,6 +221,9 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 		// b == 0 (constant base): empty packed body, no per-element bound.
 		return nil, ErrInvalidLength
 	}
+	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
+		return nil, ErrInvalidLength
+	}
 	n := int(n64)
 	bodyBytes := (n*b + 7) >> 3
 	if d.i+bodyBytes > len(d.buf) {
@@ -307,6 +310,9 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) {
 		}
 	} else if n64 > qpackMaxStandaloneCount {
 		// b == 0 (constant base): empty packed body, no per-element bound.
+		return nil, ErrInvalidLength
+	}
+	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
 		return nil, ErrInvalidLength
 	}
 	n := int(n64)

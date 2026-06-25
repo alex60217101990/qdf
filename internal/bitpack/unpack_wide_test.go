@@ -7,7 +7,7 @@ import "testing"
 // scalar decoder, bit-for-bit, across sizes that hit the SIMD body, the
 // read-headroom guard, the byte-alignment trim, and the scalar tail.
 func TestUnpackBitsVarWide_MatchesReference(t *testing.T) {
-	widths := []int{15, 17, 18, 19, 21, 23, 24, 28}
+	widths := []int{15, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28}
 	sizes := []int{0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 33, 64, 100, 257, 1000}
 	for _, b := range widths {
 		mask := uint64(1)<<uint(b) - 1

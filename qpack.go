@@ -809,6 +809,9 @@ func (d *Decoder) readPackedBool() ([]bool, error) {
 		// cannot possibly fit even if every byte carried 8 valid bits.
 		return nil, ErrShortBuffer
 	}
+	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
+		return nil, ErrInvalidLength
+	}
 	n := int(n64)
 	nBytes := (n + 7) >> 3
 	if d.i+nBytes > len(d.buf) {
