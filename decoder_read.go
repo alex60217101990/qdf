@@ -462,9 +462,16 @@ func (d *Decoder) ReadArrayHeader() (int, error) {
 		if d.i+4 > len(d.buf) {
 			return 0, ErrShortBuffer
 		}
-		n := int(readU32(d.buf[d.i:]))
+		// uint64 before narrowing: on a 32-bit int a count >= 2^31 wraps negative,
+		// breaking the non-negative API contract and slipping past caller bounds
+		// checks. Each element is >= 1 byte, so a count over the remaining bytes is
+		// impossible. Mirrors the readStringBytes / decoder_skip tagArr32 guard.
+		n64 := uint64(readU32(d.buf[d.i:]))
 		d.i += 4
-		return n, nil
+		if n64 > uint64(len(d.buf)-d.i) {
+			return 0, ErrShortBuffer
+		}
+		return int(n64), nil
 	}
 	return 0, ErrTypeMismatch
 }
@@ -494,9 +501,14 @@ func (d *Decoder) ReadMapHeader() (int, error) {
 		if d.i+4 > len(d.buf) {
 			return 0, ErrShortBuffer
 		}
-		n := int(readU32(d.buf[d.i:]))
+		// Same 32-bit wrap guard as tagArr32; each entry is >= 2 bytes (key+value),
+		// so a count over the remaining bytes is impossible.
+		n64 := uint64(readU32(d.buf[d.i:]))
 		d.i += 4
-		return n, nil
+		if n64 > uint64(len(d.buf)-d.i) {
+			return 0, ErrShortBuffer
+		}
+		return int(n64), nil
 	}
 	return 0, ErrTypeMismatch
 }

@@ -92,7 +92,7 @@ func alpChooseExp(s []float64) int {
 			sample = append(sample, s[i])
 		}
 	}
-	bestD, bestCost := 0, math.MaxInt64
+	bestD, bestCost := 0, math.MaxInt // platform max sentinel (int, 32-bit safe)
 	for d := 0; d <= alpMaxExpSearch; d++ {
 		_, w, exc := alpScoreExp(sample, d)
 		cost := (int(w)*len(sample)+7)/8 + exc*10
@@ -246,7 +246,7 @@ func alpChooseExpF32(s []float32) int {
 			sample = append(sample, s[i])
 		}
 	}
-	bestD, bestCost := 0, math.MaxInt64
+	bestD, bestCost := 0, math.MaxInt // platform max sentinel (int, 32-bit safe)
 	for d := 0; d <= alpMaxExpSearch; d++ {
 		_, w, exc := alpScoreExpF32(sample, d)
 		cost := (int(w)*len(sample)+7)/8 + exc*6 // exc value is 4 bytes here
