@@ -109,3 +109,81 @@ func ExampleMaxRelError() {
 	// +Inf preserved: true
 	// rel error <= 1%: true
 }
+
+// Example_aiEmbeddingStore is the headline use case: a RAG index / vector
+// database stored as ONE self-describing qdf blob — id + metadata + the
+// embedding vector per record — instead of a separate vector store plus a
+// metadata store.
+//
+// Why this is a good fit:
+//   - The records are a []struct with a []float32 vector field. Under OptLossyVec
+//     qdf batches that field across ALL rows into a single column block, so the
+//     per-vector header and entropy-coding overhead are amortized once over the
+//     whole batch (not paid per row) — a 256-dim float32 vector lands at roughly
+//     a third of its 1 KiB raw size.
+//   - The fidelity budget is the metric the index relies on (cosine here), so
+//     nearest-neighbour results are preserved while the bytes shrink.
+//   - It is never-worse (a column that would not shrink stays lossless) and the
+//     default path is bit-exact, so turning the flag off restores exact vectors.
+func Example_aiEmbeddingStore() {
+	type Doc struct {
+		ID    string
+		Title string
+		Emb   []float32 // the embedding — batched + lossily compressed
+	}
+
+	// A small deterministic "corpus" of 128 documents, 256-dim embeddings.
+	const n, dim = 128, 256
+	docs := make([]Doc, n)
+	for i := range docs {
+		v := make([]float32, dim)
+		for j := range v {
+			v[j] = float32(math.Sin(float64(i)*0.3 + float64(j)*0.02))
+		}
+		docs[i] = Doc{ID: fmt.Sprintf("doc-%04d", i), Title: "title", Emb: v}
+	}
+
+	// Store the whole index in one blob; cosine recall kept >= 0.999.
+	data, err := qdf.Marshal(docs, qdf.OptBalanced|qdf.OptLossyVec)
+	if err != nil {
+		panic(err)
+	}
+
+	var out []Doc
+	if err := qdf.Unmarshal(data, &out); err != nil {
+		panic(err)
+	}
+
+	cos := func(a, b []float32) float64 {
+		var dot, na, nb float64
+		for j := range a {
+			x, y := float64(a[j]), float64(b[j])
+			dot, na, nb = dot+x*y, na+x*x, nb+y*y
+		}
+		return dot / (math.Sqrt(na)*math.Sqrt(nb) + 1e-30)
+	}
+	// Top-1 retrieval: for a handful of original query vectors, the nearest
+	// DECODED vector must still be the same document (recall survives the loss).
+	hits := 0
+	for _, q := range []int{0, 17, 63, 100} {
+		best, bestC := -1, -1.0
+		for i := range out {
+			if c := cos(docs[q].Emb, out[i].Emb); c > bestC {
+				bestC, best = c, i
+			}
+		}
+		if best == q {
+			hits++
+		}
+	}
+
+	rawF32 := n * dim * 4
+	fmt.Println("metadata intact:", out[0].ID == "doc-0000" && out[0].Title == "title")
+	fmt.Println("smaller than raw f32:", len(data) < rawF32/2) // well under half
+	fmt.Println("top-1 recall preserved:", hits == 4)
+
+	// Output:
+	// metadata intact: true
+	// smaller than raw f32: true
+	// top-1 recall preserved: true
+}

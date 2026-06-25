@@ -46,6 +46,15 @@ comes from:
 2. **Use a lattice.** The E8 lattice's Voronoi cell is rounder than the scalar
    cube, so it needs fewer bits for the same distortion.
 
+**One blob, not two stores.** A typical embedding record is id + metadata +
+vector. With qdf you serialize the whole `[]struct` as a single self-describing
+blob: the scalar/string fields stay exact, the vector field is batched into one
+lossy column block, and `Unmarshal` rebuilds the records with no flag and no side
+schema. You do not run a separate vector store next to a metadata store, and you
+do not invent a wire format — it is the same `Marshal`/`Unmarshal` you already
+use, with one option flipped. See the runnable `Example_aiEmbeddingStore` in the
+package docs.
+
 ---
 
 ## When to use it (and which budget)
