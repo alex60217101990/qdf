@@ -369,6 +369,12 @@ func (e *Encoder) resetForReuse() {
 	}
 	if cap(e.vecBatchFlat) > maxRetainedColScratch {
 		e.vecBatchFlat = nil
+	}
+	// vecBatchRows holds slice headers into vecBatchFlat; drop it independently
+	// (many rows × small dim keeps flat under the ceiling) and clear first so the
+	// retained headers do not GC-pin the prior flat backing.
+	if cap(e.vecBatchRows) > maxRetainedColScratch || e.vecBatchFlat == nil {
+		clear(e.vecBatchRows[:cap(e.vecBatchRows)])
 		e.vecBatchRows = nil
 	}
 	if cap(e.vecBatchNorms) > maxRetainedColScratch {

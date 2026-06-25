@@ -353,13 +353,18 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		// rType, not the descriptor's elem.
 		for i := range td.fields {
 			fd := td.fields[i].desc
-			if fd == nil || fd.rType == nil || fd.rType.Kind() != reflect.Slice {
+			if fd == nil || fd.rType == nil {
 				continue
 			}
-			switch fd.rType.Elem().Kind() {
-			case reflect.Float32:
+			// Only the exact unnamed []float32 / []float64 types qualify. A named
+			// slice type (type Vec []float32) can carry a custom Marshaler/
+			// Unmarshaler, and batching would bypass it; unnamed slices cannot have
+			// methods, so restricting to the canonical types is both safe and the
+			// shape the typed slice fast paths already special-case.
+			switch fd.rType {
+			case sliceFloat32Type:
 				td.vecFields = append(td.vecFields, vecBatchField{offset: td.fields[i].offset, fieldIdx: i, elemF32: true})
-			case reflect.Float64:
+			case sliceFloat64Type:
 				td.vecFields = append(td.vecFields, vecBatchField{offset: td.fields[i].offset, fieldIdx: i, elemF32: false})
 			}
 		}
