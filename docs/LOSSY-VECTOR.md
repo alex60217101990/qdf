@@ -125,6 +125,20 @@ bit costs more than the packing saves, so the second pass is skipped.
 
 <img src="../diagrams/svg/lossy-vector-2.svg" alt="Lossy vector wire format and decode">
 
+### Batched vector columns
+
+When you marshal a `[]struct` whose element has a `[]float32`/`[]float64` vector
+field (the common embedding-store shape — `[]EmbedRow{ID, Emb}`), all rows'
+vectors of that field are gathered into **one** count-`N` block (wire tag
+`0xFE`, `tagVecBatchStruct`) instead of one count-1 block per row. This amortizes
+the fixed block header **and** the rANS frequency framing, which a per-row
+encoding pays for every vector — on a 256-dim corpus the per-row form costs
+~290 B/vec versus ~176 B/vec batched (the size numbers below are therefore the
+ones you get in production, not just in a micro-benchmark). Batching kicks in
+under `OptLossyVec` for ≥ 16 rows when the field has the same length in every row
+and the batched block beats raw; otherwise each vector stays row-major. Scalar
+and string fields, and varying-length / short vectors, are unaffected.
+
 ---
 
 ## Numbers

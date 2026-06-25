@@ -113,6 +113,13 @@ type Encoder struct {
 	// the caller's slice.
 	wideF64 []float64
 
+	// vecBatchFlat / vecBatchRows reuse the gather scratch for the batched lossy
+	// vector-column codec: vecBatchFlat is the flat [n*dim]float64 backing and
+	// vecBatchRows the [n] row views into it. Retained across encodes, dropped
+	// past the ceiling in Reset.
+	vecBatchFlat []float64
+	vecBatchRows [][]float64
+
 	// preIntern is an opt-in identity cache populated by PreIntern.
 	// When non-empty WriteString does a linear scan against it
 	// before falling to the intern table — a pointer-and-length
@@ -356,6 +363,10 @@ func (e *Encoder) resetForReuse() {
 	e.vecScratch.Reset()
 	if cap(e.wideF64) > maxRetainedColScratch {
 		e.wideF64 = nil
+	}
+	if cap(e.vecBatchFlat) > maxRetainedColScratch {
+		e.vecBatchFlat = nil
+		e.vecBatchRows = nil
 	}
 	// Keyed-diff match map: drop a spike-sized backing, else clear() it in place.
 	// The keys are unsafe.String / string-header aliases into the caller's prior

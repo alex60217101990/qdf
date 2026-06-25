@@ -32,6 +32,13 @@ type typeDesc struct {
 
 	fields []fieldDesc // structs only
 
+	// vecFields lists the []float32/[]float64 fields of a struct, in declaration
+	// order, with the index back into fields. Non-nil only for struct types that
+	// have at least one such field. Used by the batched lossy vector-column codec
+	// (tagVecBatchStruct) to gather one column's vectors across all rows into a
+	// single count=N block. Pure type info (option-independent), set at build.
+	vecFields []vecBatchField
+
 	// schemaFP is the structural fingerprint of this descriptor's full subtree
 	// (kind + field names + recursive field/element kinds). Computed once at build
 	// time (descBuild) so the delta Diff/Apply path reads it with zero runtime
@@ -80,6 +87,15 @@ type fieldDesc struct {
 	preInternStr []byte
 	offset       uintptr
 	isKey        bool // this field carried the ,key tag option
+}
+
+// vecBatchField identifies a []float32/[]float64 struct field for the batched
+// lossy vector-column codec. fieldIdx indexes into the struct's fields slice;
+// elemF32 distinguishes the element type so decode reconstructs the right slice.
+type vecBatchField struct {
+	offset   uintptr
+	fieldIdx int
+	elemF32  bool
 }
 
 var typeCache sync.Map // map[reflect.Type]*typeDesc — only fully-built entries
@@ -331,6 +347,22 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 			return err
 		}
 		td.fields = fields
+		// Record []float32/[]float64 fields for the batched lossy vector codec.
+		// Detect via the field's reflect type: the typed slice fast paths set the
+		// encode/decode closures but leave td.elem nil, so the kind is read from
+		// rType, not the descriptor's elem.
+		for i := range td.fields {
+			fd := td.fields[i].desc
+			if fd == nil || fd.rType == nil || fd.rType.Kind() != reflect.Slice {
+				continue
+			}
+			switch fd.rType.Elem().Kind() {
+			case reflect.Float32:
+				td.vecFields = append(td.vecFields, vecBatchField{offset: td.fields[i].offset, fieldIdx: i, elemF32: true})
+			case reflect.Float64:
+				td.vecFields = append(td.vecFields, vecBatchField{offset: td.fields[i].offset, fieldIdx: i, elemF32: false})
+			}
+		}
 		// Record the identity key (the ,key-tagged field), if any. Reject more
 		// than one ,key field per type.
 		for i := range td.fields {

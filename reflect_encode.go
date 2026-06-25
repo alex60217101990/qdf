@@ -205,6 +205,18 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		}
 		hdr := (*sliceHeader)(p)
 		n := hdr.Len
+		// Batched lossy vector-column path: under OptLossyVec, a []struct with an
+		// equal-length []float32/[]float64 field is encoded as one count=N block
+		// per vector field (tagVecBatchStruct) instead of N count=1 blocks. Gated
+		// to the same contexts as columnar; falls through when nothing is batchable
+		// (so non-lossy and unbatchable shapes stay byte-identical).
+		if e.opts.Has(OptLossyVec) && elem != nil && len(elem.vecFields) > 0 &&
+			n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
+			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
+			if done, err := e.encodeVectorBatchStruct(elem, hdr.Data, n, stride); done {
+				return err
+			}
+		}
 		// Columnar / hybrid-columnar path.
 		//
 		// Pure plan (every field eligible): transpose under the columnarProbe
@@ -305,6 +317,16 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 			return err
 		}
 		defer d.ascend()
+		// Batched lossy vector-column dispatch (tagVecBatchStruct). Works even when
+		// colPlan is nil (a vector-only struct is not columnar-eligible).
+		if elem != nil && len(elem.vecFields) > 0 {
+			if tag, err := d.peekTag(); err == nil && tag == tagVecBatchStruct {
+				if elemDynamic || d.query != nil {
+					return ErrUnsupported // v1: no schemaless / query decode of a batched block
+				}
+				return d.decodeVectorBatchStruct(t, elem, p)
+			}
+		}
 		// Columnar / hybrid-columnar decode dispatch.
 		if colPlan != nil {
 			if tag, err := d.peekTag(); err == nil {
