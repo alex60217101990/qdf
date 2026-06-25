@@ -304,6 +304,24 @@ const (
 	tagColStrDictQ = 0xFC
 
 	tagColVecLossy = 0xFD // lossy float-vector block (Hadamard+quant+rANS)
+
+	// tagVecBatchStruct is a container for a []struct whose []float32/[]float64
+	// vector field(s) are batched into ONE count=N lossy block each (amortizing
+	// the per-vector block header + rANS frequency framing that a per-row count=1
+	// block pays). Only emitted under OptLossyVec when at least one vector field
+	// is batchable (equal length across all rows, >= lossyVecMinElems, and the
+	// batched block beats raw). Layout:
+	//
+	//   0xFE, varuint(n), byte(numVecFields), byte(batchedMask),
+	//     for each set mask bit (vector-field order): <0xFD count=n block>,
+	//     per row: each NON-batched field encoded in declaration order via its
+	//              own (row-major) field codec.
+	//
+	// Non-batched vector fields and all scalar/string fields stay row-major, so
+	// decode reconstructs each row by decoding those fields and scattering the
+	// batched vectors. Forward-compat: a decoder that does not understand 0xFE
+	// errors cleanly.
+	tagVecBatchStruct = 0xFE
 )
 
 // isStringColumnBlockTag reports whether b begins a self-describing string
