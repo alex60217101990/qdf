@@ -99,14 +99,17 @@ func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64
 }
 
 // encodeE8 runs the E8 verify-loop; ok=false if it never meets the budget.
-// Returns the chosen delta, the integer coords, and the coset bits.
-func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64) (delta float64, coords []int32, cosets []byte, ok bool) {
+// Returns the chosen delta, the integer coords, and the coset bits. qDst is
+// reused as the coords backing across the verify-loop iterations (pass nil for
+// a fresh slice each call).
+func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, qDst []int32) (delta float64, coords []int32, cosets []byte, ok bool) {
 	delta = DeltaFor(b, sigma, lattice.E8G)
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
+	coords = qDst
 	for range 4 {
-		coords, cosets = lattice.QuantizeE8(flat, delta)
+		coords, cosets = lattice.QuantizeE8(flat, delta, coords)
 		if budgetMetE8(orig, coords, cosets, pdim, dim, delta, b, row) {
 			ok = true
 			break
@@ -220,7 +223,8 @@ func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 	bestSize := len(scCoords)
 
 	if e8Eligible(pdim) && e8WorthTrying(b) {
-		e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row)
+		e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qE8)
+		sc.qE8 = e8Coords
 		if ok {
 			// E8's coord block uses its own scratch buffer so it can coexist with
 			// scalar's for the size comparison; the zig/ransDst staging is reused.
@@ -259,7 +263,7 @@ func EncodeForcedE8(vectors [][]float64, b Budget) (Block, bool) {
 		sigma = 1
 	}
 	row := make([]float64, pdim)
-	e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, row)
+	e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, row, nil)
 	if !ok {
 		return Block{}, false
 	}

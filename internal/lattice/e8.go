@@ -67,13 +67,18 @@ func NearestE8(x *[8]float64) [8]float64 {
 
 // QuantizeE8 quantizes x (length a multiple of 8) to the E8 lattice at the
 // given step. Returns the integer coordinates (floor for the half-integer
-// coset) and one coset bit per 8-D block, LSB-first.
-func QuantizeE8(x []float64, delta float64) (coords []int32, cosets []byte) {
+// coset) and one coset bit per 8-D block, LSB-first. dst is reused as the
+// coords backing when its capacity suffices (pass nil for a fresh slice).
+func QuantizeE8(x []float64, delta float64, dst []int32) (coords []int32, cosets []byte) {
 	if len(x)%8 != 0 {
 		panic("lattice: QuantizeE8 length must be a multiple of 8")
 	}
 	nb := len(x) / 8
-	coords = make([]int32, 0, len(x))
+	if cap(dst) >= len(x) {
+		coords = dst[:0]
+	} else {
+		coords = make([]int32, 0, len(x))
+	}
 	cosets = make([]byte, (nb+7)/8)
 	inv := 1.0 / delta
 	var blk [8]float64

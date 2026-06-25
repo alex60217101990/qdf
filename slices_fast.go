@@ -790,10 +790,13 @@ func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 		}
 		if len(lossy) <= len(e.buf)-start {
 			// Lossy wins (or ties): roll back the lossless body and emit lossy.
-			// Restore the header latch so appending the lossy block re-emits the
-			// stream header if the lossless write rolled it away.
+			// Restore the header latch, then re-emit the stream header if the
+			// lossless write had to roll it away (bare top-level slice: no header
+			// existed before this call). writeHeader is a no-op when the header is
+			// already present (struct-field case), so this is safe for both.
 			e.buf = e.buf[:start]
 			e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
+			e.writeHeader()
 			e.buf = append(e.buf, lossy...)
 		}
 		return nil
@@ -943,10 +946,13 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 		}
 		if len(lossy) <= len(e.buf)-start {
 			// Lossy wins (or ties): roll back the lossless body and emit lossy.
-			// Restore the header latch so appending the lossy block re-emits the
-			// stream header if the lossless write rolled it away.
+			// Restore the header latch, then re-emit the stream header if the
+			// lossless write had to roll it away (bare top-level slice: no header
+			// existed before this call). writeHeader is a no-op when the header is
+			// already present (struct-field case), so this is safe for both.
 			e.buf = e.buf[:start]
 			e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
+			e.writeHeader()
 			e.buf = append(e.buf, lossy...)
 		}
 		return nil

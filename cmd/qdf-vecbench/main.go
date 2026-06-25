@@ -12,8 +12,8 @@ import (
 	"log"
 	"math"
 	"os"
-	"sort"
 	"runtime"
+	"sort"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -28,6 +28,31 @@ const tqSeed uint64 = 0x51ed270b9f4d8c3a
 // blockOverheadBytes is the fixed on-wire overhead for a qdf Block:
 // Dim(8) + Count(8) + Seed(8) + Delta(8) = 32 bytes.
 const blockOverheadBytes = 32
+
+// uvarintSize returns the number of bytes binary.PutUvarint writes for v.
+func uvarintSize(v uint64) int {
+	n := 1
+	for v >= 0x80 {
+		v >>= 7
+		n++
+	}
+	return n
+}
+
+// lossyVecWireBytes returns the on-wire byte size of a qdf lossy-vec Block,
+// matching what the qdf wire layer emits: the fixed Block overhead plus the
+// rANS-coded coords and, for the E8 variant, the length-prefixed coset stream
+// (its uvarint length prefix plus the coset bytes). Omitting the prefix — or
+// the coset stream entirely on an E8 block — undercounts the true E8 size and
+// would bias qdf smaller at tight budgets where E8 is selected. Exception
+// bytes are excluded: the synthetic corpus is finite, so there are none.
+func lossyVecWireBytes(bl vecquant.Block) int {
+	wire := len(bl.Coords) + blockOverheadBytes
+	if bl.Variant == vecquant.VariantE8 {
+		wire += uvarintSize(uint64(len(bl.Cosets))) + len(bl.Cosets)
+	}
+	return wire
+}
 
 // qdfBudgets are the MaxRelError values swept for the qdf-lossy method.
 var qdfBudgets = []float64{0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.30}
@@ -97,9 +122,9 @@ func main() {
 		recon := bl.Decode()
 		decDur := time.Since(t1)
 
-		// blockOverheadBytes covers the four fixed 8-byte fields
-		// (Dim, Count, Seed, Delta); Coords is the variable-length payload.
-		wire := len(bl.Coords) + blockOverheadBytes
+		// True on-wire size: fixed overhead + rANS coords, plus the coset
+		// stream (and its length prefix) when the codec auto-selected E8.
+		wire := lossyVecWireBytes(bl)
 		bpv := float64(wire) / float64(len(corpus))
 		totalBytes := float64(len(corpus)) * float64(*dim) * 8
 		encMBs := (totalBytes / 1e6) / encDur.Seconds()
@@ -138,8 +163,9 @@ func main() {
 		recon := bl.Decode()
 		decDur := time.Since(t1)
 
-		// Same accounting as qdf-lossy, plus the coset stream E8 carries.
-		wire := len(bl.Coords) + len(bl.Cosets) + blockOverheadBytes
+		// Same accounting as qdf-lossy (E8 here, so the coset stream and its
+		// length prefix are always included).
+		wire := lossyVecWireBytes(bl)
 		bpv := float64(wire) / float64(len(corpus))
 		totalBytes := float64(len(corpus)) * float64(*dim) * 8
 		encMBs := (totalBytes / 1e6) / encDur.Seconds()
@@ -733,8 +759,12 @@ func runPerfComparison(corpus [][]float64, dim int) {
 				bestErr, qb = e, cand
 			}
 		}
-		bl := vecquant.EncodeWith(corpus, qb, &sc)
-		bytes := float64(len(bl.Coords)+len(bl.Cosets)+blockOverheadBytes) / float64(nvec)
+		// Use Encode (independent Block) for the decode measurement: EncodeWith
+		// returns a Block whose Coords alias sc, which the encode perf loop below
+		// overwrites — decoding that alias would read post-loop scratch. The encode
+		// perf loop still measures the warm, sc-reusing EncodeWith.
+		bl := vecquant.Encode(corpus, qb)
+		bytes := float64(lossyVecWireBytes(bl)) / float64(nvec)
 		rel := avgRelError(corpus, bl.Decode())
 		ea, ens := measurePerf(func() { _ = vecquant.EncodeWith(corpus, qb, &sc) })
 		da, dns := measurePerf(func() { _ = bl.Decode() })
@@ -753,15 +783,11 @@ func runPerfComparison(corpus [][]float64, dim int) {
 		_, total := naiveBatchEncodeWarm(corpus, bits, q)
 		bytes := float64(total) / float64(nvec)
 		ea, ens := measurePerf(func() { q, _ = naiveBatchEncodeWarm(corpus, bits, q) })
-		// decode warm: reconstruct into reused recon rows
+		// decode warm: pre-encode once (cold), then time decode-only into reused
+		// recon rows — no encode work inside the timed window.
 		recon := make([][]float64, nvec)
-		da, dns := measurePerf(func() {
-			for i, v := range corpus {
-				qq, mn, delta := naiveScalarEncodeInto(v, bits, q)
-				q = qq
-				recon[i] = naiveScalarDecode(qq, mn, delta)
-			}
-		})
+		encAll := naiveBatchEncodeAll(corpus, bits)
+		da, dns := measurePerf(func() { naiveBatchDecodeWarm(encAll, recon) })
 		prows = append(prows, perfRow{
 			method: fmt.Sprintf("naive-%db", bits), bytesPerVec: bytes, relErr: rel,
 			encAllocs: ea, decAllocs: da,
@@ -778,13 +804,11 @@ func runPerfComparison(corpus [][]float64, dim int) {
 		_, _, total := tqBatchEncodeWarm(corpus, bits, tqSeed, row, q)
 		bytes := float64(total) / float64(nvec)
 		ea, ens := measurePerf(func() { row, q, _ = tqBatchEncodeWarm(corpus, bits, tqSeed, row, q) })
+		// decode warm: pre-encode once (cold), then time decode-only (dequant +
+		// inverse-rotate) into reused recon rows — no encode inside the window.
 		recon := make([][]float64, nvec)
-		da, dns := measurePerf(func() {
-			for i, v := range corpus {
-				qq, mn, delta, pdim := turboQuantScalarEncode(v, bits, tqSeed)
-				recon[i] = turboQuantScalarDecode(qq, mn, delta, pdim, len(v), tqSeed)
-			}
-		})
+		encAll := tqBatchEncodeAll(corpus, bits, tqSeed)
+		da, dns := measurePerf(func() { tqBatchDecodeWarm(encAll, dim, tqSeed, recon) })
 		prows = append(prows, perfRow{
 			method: fmt.Sprintf("tq-scalar-%db", bits), bytesPerVec: bytes, relErr: rel,
 			encAllocs: ea, decAllocs: da,
