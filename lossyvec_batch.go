@@ -3,6 +3,7 @@ package qdf
 import (
 	"encoding/binary"
 	"errors"
+	"math"
 	"reflect"
 	"unsafe"
 
@@ -31,13 +32,16 @@ func (e *Encoder) encodeVectorBatchStruct(td *typeDesc, base unsafe.Pointer, n i
 		return false, nil
 	}
 	blocks := make([][]byte, nv)
-	var mask byte
+	var mask, polarMask byte
 	budget := toBudget(e.vecBudget)
 	for vi := range td.vecFields {
-		blk, ok := e.buildVecColumnBlock(&td.vecFields[vi], base, n, stride, budget)
+		blk, polar, ok := e.buildVecColumnBlock(&td.vecFields[vi], base, n, stride, budget)
 		if ok {
 			blocks[vi] = blk
 			mask |= 1 << uint(vi)
+			if polar {
+				polarMask |= 1 << uint(vi)
+			}
 		}
 	}
 	if mask == 0 {
@@ -47,7 +51,7 @@ func (e *Encoder) encodeVectorBatchStruct(td *typeDesc, base unsafe.Pointer, n i
 	e.writeHeader()
 	e.buf = append(e.buf, tagVecBatchStruct)
 	e.buf = appendUvarint(e.buf, uint64(n))
-	e.buf = append(e.buf, byte(nv), mask)
+	e.buf = append(e.buf, byte(nv), mask, polarMask)
 	for vi := range blocks {
 		if mask&(1<<uint(vi)) != 0 {
 			e.buf = append(e.buf, blocks[vi]...)
@@ -70,10 +74,21 @@ func (e *Encoder) encodeVectorBatchStruct(td *typeDesc, base unsafe.Pointer, n i
 	return true, nil
 }
 
+// polarMinCV is the smallest per-vector norm coefficient of variation
+// (std/mean) at which the polar-split variant is worth attempting. Below it the
+// norms are near-constant (unit-norm embeddings), so storing them separately
+// only adds overhead — the never-worse compare would reject polar anyway, so we
+// skip the second encode. Above it (varying-norm data: weights, raw vectors) a
+// shared step over the raw vectors is driven by the largest norm and wastes bits
+// on the small ones; normalizing first lets one tight step serve every direction.
+const polarMinCV = 0.08
+
 // buildVecColumnBlock gathers field vf across all n rows and returns its batched
-// lossy block, or ok=false when the field is not batchable (varying length,
-// shorter than lossyVecMinElems, or the lossy block is not smaller than raw).
-func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n int, stride uintptr, b vecquant.Budget) ([]byte, bool) {
+// payload plus polar (true when the payload is the polar-split form: a per-vector
+// norm stream followed by the lossy block of unit directions). ok=false when the
+// field is not batchable (varying length, shorter than lossyVecMinElems, or no
+// form beats raw).
+func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n int, stride uintptr, b vecquant.Budget) (payload []byte, polar bool, ok bool) {
 	dim := -1
 	for i := range n {
 		fp := unsafe.Add(base, uintptr(i)*stride+vf.offset)
@@ -86,11 +101,11 @@ func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n 
 		if i == 0 {
 			dim = l
 		} else if l != dim {
-			return nil, false // varying length across rows: cannot batch
+			return nil, false, false // varying length across rows: cannot batch
 		}
 	}
 	if dim < lossyVecMinElems {
-		return nil, false
+		return nil, false, false
 	}
 
 	// Gather n vectors into reused scratch (appendLossyVec zeroes NaN/Inf in
@@ -103,6 +118,15 @@ func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n 
 		e.vecBatchRows = make([][]float64, n)
 	}
 	rows := e.vecBatchRows[:n]
+	// Gather, and in the same pass compute each vector's L2 norm and whether any
+	// coordinate is non-finite — BEFORE the plain encode, which zeroes NaN/Inf in
+	// flat (so the norms must be read here, while flat still holds the originals).
+	if cap(e.vecBatchNorms) < n {
+		e.vecBatchNorms = make([]float64, n)
+	}
+	norms := e.vecBatchNorms[:n]
+	finite := true
+	var mean float64
 	for i := range n {
 		fp := unsafe.Add(base, uintptr(i)*stride+vf.offset)
 		dst := flat[i*dim : (i+1)*dim]
@@ -114,22 +138,107 @@ func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n 
 			copy(dst, *(*[]float64)(fp))
 		}
 		rows[i] = dst
+		var s float64
+		for _, x := range dst {
+			s += x * x
+		}
+		nrm := math.Sqrt(s)
+		norms[i] = nrm
+		if nrm <= 0 || math.IsNaN(nrm) || math.IsInf(nrm, 0) {
+			finite = false
+		}
+		mean += nrm
 	}
-	blk := appendLossyVec(rows, vf.elemF32, b, &e.vecScratch)
+	plain := appendLossyVec(rows, vf.elemF32, b, &e.vecScratch)
 
-	// Never-worse vs raw element bytes (the lossless floor's upper bound): if the
-	// batched lossy block is not smaller than raw, skip batching this field so it
-	// stays row-major (where its own never-worse picker applies per vector).
 	elemSize := 8
 	if vf.elemF32 {
 		elemSize = 4
 	}
-	if len(blk) >= n*dim*elemSize {
-		return nil, false
+	rawBytes := n * dim * elemSize
+	best, bestPolar := plain, false
+
+	// Polar candidate: only when every vector is finite and positive-norm (so the
+	// plain encode did not zero any coordinate in flat) and the norm spread (CV)
+	// is large enough to plausibly beat the per-vector norm overhead.
+	if finite {
+		mean /= float64(n)
+		var varsum float64
+		for _, nrm := range norms {
+			d := nrm - mean
+			varsum += d * d
+		}
+		cv := math.Sqrt(varsum/float64(n)) / (mean + 1e-30)
+		if cv > polarMinCV {
+			// Normalize flat in place (no NaN/Inf in this branch, so plain's encode
+			// left it intact) → unit directions; encode those.
+			for i := range n {
+				inv := 1.0 / norms[i]
+				seg := flat[i*dim : (i+1)*dim]
+				for j := range seg {
+					seg[j] *= inv
+				}
+			}
+			dirsBlk := appendLossyVec(rows, vf.elemF32, b, &e.vecScratch)
+			polarPayload := appendNormStream(nil, norms)
+			polarPayload = append(polarPayload, dirsBlk...)
+			if len(polarPayload) < len(best) {
+				best, bestPolar = polarPayload, true
+			}
+		}
 	}
-	// blk aliases e.buf-independent scratch inside appendLossyVec's return; it is
-	// a freshly appended slice, safe to retain until written.
-	return blk, true
+
+	// Never-worse vs raw: if even the smaller form is not below raw, keep the
+	// field row-major (its own per-vector never-worse picker applies there).
+	if len(best) >= rawBytes {
+		return nil, false, false
+	}
+	return best, bestPolar, true
+}
+
+// appendNormStream writes the polar-split norm stream: f64 log-min, f64 log-max,
+// then one uint16 per vector quantizing log(norm) over [log-min, log-max]. The
+// log domain gives uniform RELATIVE precision, so a wide norm range (1000x)
+// still round-trips to ~1e-4. norms must all be finite and positive.
+func appendNormStream(dst []byte, norms []float64) []byte {
+	logMin, logMax := math.Inf(1), math.Inf(-1)
+	for _, nrm := range norms {
+		l := math.Log(nrm)
+		logMin, logMax = math.Min(logMin, l), math.Max(logMax, l)
+	}
+	dst = binary.LittleEndian.AppendUint64(dst, math.Float64bits(logMin))
+	dst = binary.LittleEndian.AppendUint64(dst, math.Float64bits(logMax))
+	span := logMax - logMin
+	if span <= 0 {
+		span = 1 // all norms equal: every quantum maps to log-min
+	}
+	for _, nrm := range norms {
+		q := math.RoundToEven((math.Log(nrm) - logMin) / span * 65535)
+		dst = binary.LittleEndian.AppendUint16(dst, uint16(q))
+	}
+	return dst
+}
+
+// readNormStream reads n quantized norms written by appendNormStream and returns
+// them plus the number of bytes consumed.
+func readNormStream(src []byte, n int) (norms []float64, used int, err error) {
+	if len(src) < 16+2*n {
+		return nil, 0, ErrShortBuffer
+	}
+	logMin := math.Float64frombits(binary.LittleEndian.Uint64(src[0:]))
+	logMax := math.Float64frombits(binary.LittleEndian.Uint64(src[8:]))
+	span := logMax - logMin
+	if span <= 0 {
+		span = 1
+	}
+	norms = make([]float64, n)
+	off := 16
+	for i := range n {
+		q := binary.LittleEndian.Uint16(src[off:])
+		off += 2
+		norms[i] = math.Exp(logMin + float64(q)/65535*span)
+	}
+	return norms, off, nil
 }
 
 // batchedFieldSet returns a per-field bool: true when that struct field is a
@@ -161,21 +270,32 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 	if err := d.CheckLength(n, 1); err != nil {
 		return err
 	}
-	if d.i+2 > len(d.buf) {
+	if d.i+3 > len(d.buf) {
 		return ErrShortBuffer
 	}
 	nv := int(d.buf[d.i])
 	mask := d.buf[d.i+1]
-	d.i += 2
+	polarMask := d.buf[d.i+2]
+	d.i += 3
 	if nv != len(td.vecFields) {
 		return errors.New("qdf: vec-batch shape mismatch")
 	}
 
-	// Read each batched column's block (count=n vectors).
+	// Read each batched column's block (count=n vectors). A polar field carries a
+	// norm stream before the directions block; rescale to recover the vectors.
 	batched := make([][][]float64, nv)
 	for vi := range nv {
 		if mask&(1<<uint(vi)) == 0 {
 			continue
+		}
+		var norms []float64
+		if polarMask&(1<<uint(vi)) != 0 {
+			ns, used, err := readNormStream(d.buf[d.i:], n)
+			if err != nil {
+				return err
+			}
+			d.i += used
+			norms = ns
 		}
 		vecs, elemF32, used, err := readLossyVec(d.buf[d.i:])
 		if err != nil {
@@ -187,6 +307,14 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 		}
 		if elemF32 != td.vecFields[vi].elemF32 {
 			return ErrTypeMismatch
+		}
+		if norms != nil {
+			for i := range vecs {
+				scale := norms[i]
+				for j := range vecs[i] {
+					vecs[i][j] *= scale
+				}
+			}
 		}
 		batched[vi] = vecs
 	}

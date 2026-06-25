@@ -139,6 +139,16 @@ under `OptLossyVec` for ≥ 16 rows when the field has the same length in every 
 and the batched block beats raw; otherwise each vector stays row-major. Scalar
 and string fields, and varying-length / short vectors, are unaffected.
 
+**Polar split (varying-norm columns).** A single quantization step over a whole
+batch is driven by the largest-norm vector, so when the per-vector norms vary
+widely (model weights, un-normalized vectors) the small ones are over-quantized.
+For such a column the codec stores each vector's L2 norm separately (16-bit in
+the log domain, ~2 B/vector) and quantizes the **unit directions**, so one tight
+step serves every direction — −10…−20 % at equal quality on varying-norm data,
+and it keeps the codec within budget where a shared step would not. It is
+never-worse and probe-gated on the norm spread, so unit-norm embeddings (where it
+cannot win) pay nothing.
+
 ---
 
 ## Numbers
