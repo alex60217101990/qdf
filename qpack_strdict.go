@@ -481,6 +481,14 @@ func (d *Decoder) readStringColumnDictFC(n int) (table []string, idx []uint32, e
 			return nil, nil, ErrBadTag
 		}
 		p, s := int(p64), int(s64)
+		// Cap cumulative slab growth: the prefix is copied from the previous entry
+		// (no wire cost), so a hostile table (entry 0 suffix S, then N entries with
+		// prefix=S, suffix=0) amplifies to N*S with no per-entry guard catching it.
+		// The uncompressed distinct table cannot legitimately exceed the columnar
+		// byte ceiling.
+		if int64(len(slab))+int64(p)+int64(s) > int64(maxColumnarBytes) {
+			return nil, nil, ErrInvalidLength
+		}
 		start := len(slab)
 		slab = append(slab, slab[prevStart:prevStart+p]...) // shared prefix from prev
 		slab = append(slab, d.buf[d.i:d.i+s]...)            // suffix from wire

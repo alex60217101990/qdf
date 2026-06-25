@@ -535,6 +535,16 @@ func (e *encState) reset() {
 	if cap(e.colScratchF32) > maxRetainedColScratch {
 		e.colScratchF32 = nil
 	}
+	// deltaColAux* are swapped with colScratchI64/U64 in encodeDeltaColumn, so
+	// after a large columnar-delta batch one of the two grown backings lives here
+	// and is missed by the colScratchI64 check above — cap them independently or
+	// the pooled encoder retains double the intended scratch.
+	if cap(e.deltaColAuxI64) > maxRetainedColScratch {
+		e.deltaColAuxI64 = nil
+	}
+	if cap(e.deltaColAuxU64) > maxRetainedColScratch {
+		e.deltaColAuxU64 = nil
+	}
 	// Column-diff scratch (delta_columnar.go): same row-scaled hard-ceiling
 	// retention as colScratch* (pointer-free, no clear needed).
 	if cap(e.deltaColBitmap) > maxRetainedColScratch {
