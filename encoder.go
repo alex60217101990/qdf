@@ -119,6 +119,9 @@ type Encoder struct {
 	// past the ceiling in Reset.
 	vecBatchFlat []float64
 	vecBatchRows [][]float64
+	// vecBatchNorms reuses the per-vector L2 norm scratch for the polar-split
+	// variant of the batched vector codec.
+	vecBatchNorms []float64
 
 	// preIntern is an opt-in identity cache populated by PreIntern.
 	// When non-empty WriteString does a linear scan against it
@@ -367,6 +370,9 @@ func (e *Encoder) resetForReuse() {
 	if cap(e.vecBatchFlat) > maxRetainedColScratch {
 		e.vecBatchFlat = nil
 		e.vecBatchRows = nil
+	}
+	if cap(e.vecBatchNorms) > maxRetainedColScratch {
+		e.vecBatchNorms = nil
 	}
 	// Keyed-diff match map: drop a spike-sized backing, else clear() it in place.
 	// The keys are unsafe.String / string-header aliases into the caller's prior

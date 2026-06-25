@@ -332,3 +332,85 @@ func FuzzVecBatchDecode(f *testing.F) {
 		_ = Unmarshal(data, &out) // must never panic / OOM
 	})
 }
+
+// vecBatchPolarMask parses a tagVecBatchStruct stream and returns its polarMask
+// byte (0 if not a batched stream). Layout after the 5-byte header:
+//
+//	0xFE, uvarint(n), nv, mask, polarMask, ...
+func vecBatchPolarMask(t *testing.T, data []byte) byte {
+	t.Helper()
+	if len(data) < 6 || data[5] != tagVecBatchStruct {
+		return 0
+	}
+	i := 6
+	for i < len(data) && data[i] >= 0x80 { // skip uvarint(n) continuation bytes
+		i++
+	}
+	i++ // last uvarint byte
+	if i+3 > len(data) {
+		return 0
+	}
+	return data[i+2] // nv, mask, polarMask
+}
+
+func TestVecBatchPolarVaryingNorm(t *testing.T) {
+	const n, dim = 64, 256
+	rows := make([]vecOnlyRow, n)
+	for i := range rows {
+		v := sinVec32(i, dim)
+		scale := float32(math.Exp(math.Sin(float64(i)) * 2)) // ~e^-2..e^2 spread
+		for j := range v {
+			v[j] *= scale
+		}
+		rows[i] = vecOnlyRow{Emb: v}
+	}
+	enc := NewEncoderWith(OptBalanced | OptLossyVec)
+	enc.SetVectorBudget(MaxRelError(0.05))
+	if err := enc.EncodeValue(rows); err != nil {
+		t.Fatal(err)
+	}
+	data := enc.Bytes()
+	if pm := vecBatchPolarMask(t, data); pm == 0 {
+		t.Fatalf("polar should engage on varying-norm data, polarMask=0")
+	}
+	var out []vecOnlyRow
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	for i := range rows {
+		var se, ne float64
+		for j := range rows[i].Emb {
+			d := float64(rows[i].Emb[j] - out[i].Emb[j])
+			se += d * d
+			ne += float64(rows[i].Emb[j]) * float64(rows[i].Emb[j])
+		}
+		if rel := math.Sqrt(se / (ne + 1e-30)); rel > 0.08 {
+			t.Fatalf("row %d relErr %.4f exceeds budget+slack", i, rel)
+		}
+	}
+}
+
+func TestVecBatchPolarSkippedUnitNorm(t *testing.T) {
+	// Unit-norm vectors: norm CV ~0, polar must be skipped (polarMask=0).
+	const n, dim = 64, 256
+	rows := make([]vecOnlyRow, n)
+	for i := range rows {
+		v := sinVec32(i, dim)
+		var s float64
+		for _, x := range v {
+			s += float64(x) * float64(x)
+		}
+		inv := float32(1 / math.Sqrt(s))
+		for j := range v {
+			v[j] *= inv
+		}
+		rows[i] = vecOnlyRow{Emb: v}
+	}
+	data, err := Marshal(rows, OptBalanced|OptLossyVec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pm := vecBatchPolarMask(t, data); pm != 0 {
+		t.Fatalf("polar should be skipped on unit-norm data, polarMask=0x%02x", pm)
+	}
+}
