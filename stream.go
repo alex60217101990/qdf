@@ -373,16 +373,19 @@ func (s *StreamDecoder) readFrameLen() (int, error) {
 }
 
 // fill reads from the underlying reader until at least need unread bytes are
-// buffered. Returns io.EOF if the stream ends with nothing unread, or
-// ErrShortBuffer if it ends mid-message (fewer than need bytes available).
-// fill reads from the underlying reader until at least need unread bytes are
 // buffered. When boundary is true (reading at a message boundary — the header
 // or a frame length) an immediate clean end of stream returns io.EOF; in every
 // other case a stream that ends before need bytes returns ErrShortBuffer.
 func (s *StreamDecoder) fill(need int, boundary bool) error {
 	for len(s.dec.buf)-s.dec.i < need {
 		if cap(*s.buf)-len(s.dec.buf) == 0 {
-			grown := make([]byte, len(s.dec.buf), cap(*s.buf)*2+4096)
+			// Grow to fit `need` in one shot (the doubling alone would take many
+			// passes for a large frame): max(cap*2+4096, current + need).
+			newCap := cap(*s.buf)*2 + 4096
+			if minCap := s.dec.i + need; minCap > newCap {
+				newCap = minCap
+			}
+			grown := make([]byte, len(s.dec.buf), newCap)
 			copy(grown, s.dec.buf)
 			*s.buf = grown
 			s.dec.buf = grown

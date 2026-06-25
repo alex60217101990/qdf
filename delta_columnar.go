@@ -120,6 +120,13 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	// value. The encoder must end there too, or the two diverge and a later
 	// pair/repeat state-ref desyncs (the keyed picker keeps the same invariant).
 	preTrialLastID := st.lastID
+	// shapeStart anchors the shape-id counter the same way lastID is anchored: a
+	// suspended StructShape (a codegen marshaler's e.StructShape in the positional
+	// trial) still advances shapeCount to keep the decoder aligned, so the
+	// discarded candidate's declarations must be rebased off shapeCount when the
+	// wire-stateless column body wins — else the next shape id desyncs
+	// (ErrUnknownStateID). Mirrors diffKeyedSlice.
+	shapeStart := st.shapeCount
 
 	// Build the positional body into enc.buf first (the comparison baseline).
 	posStart := len(enc.buf)
@@ -128,6 +135,7 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	}
 	posLen := len(enc.buf) - posStart
 	posEndLastID := st.lastID
+	shapeAfterPos := st.shapeCount
 
 	body := st.deltaColBuf[:0]
 	body = append(body, tagColSlicePatch)
@@ -151,6 +159,7 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 			enc.buf = savedBuf
 			st.deltaColBuf = body[:0]
 			st.lastID = posEndLastID // positional wins; track its kept bytes
+			st.shapeCount = shapeAfterPos
 			return true, nil
 		}
 		nChanged++
@@ -205,10 +214,15 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 		// column). Without this the encoder/decoder lastID + pair predictor
 		// diverge after the slice.
 		st.lastID = preTrialLastID
+		// The kept column body is wire-stateless, so rebase shapeCount off the
+		// discarded positional trial's declarations (column body declares none, so
+		// this resolves to shapeStart; the general form mirrors diffKeyedSlice).
+		st.shapeCount = shapeStart + (st.shapeCount - shapeAfterPos)
 	} else {
 		// Positional wins; restore lastID to its post-positional value so it
 		// tracks the bytes the decoder will actually read.
 		st.lastID = posEndLastID
+		st.shapeCount = shapeAfterPos
 	}
 	// Either way exactly one body remains and the slice is handled.
 	return true, nil
@@ -597,7 +611,10 @@ func applyColSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 // Gap encoding: gap[0] = idx0, gap[j] = idx[j] - idx[j-1] (>= 1 for j>0).
 func applySparseColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base unsafe.Pointer, n int) error {
 	nc64, k := readUvarint(dec.buf[dec.i:])
-	if k <= 0 || nc64 > uint64(n) {
+	// nc==0 is never emitted by a conforming encoder (a column with no changed
+	// rows is skipped); reject it before it sets colMaxLen=0, which colLenOK reads
+	// as "unbounded" and would let a constant-codec body force a large make().
+	if k <= 0 || nc64 == 0 || nc64 > uint64(n) {
 		return ErrInvalidPatch
 	}
 	dec.i += k

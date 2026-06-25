@@ -276,6 +276,9 @@ func applyKeyedSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int
 		return ErrInvalidPatch
 	}
 	dec.i += k
+	if newLen64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(newLen64) would truncate silently
+		return ErrInvalidPatch
+	}
 	newLen := int(newLen64)
 	if newLen < 0 || uint64(newLen) > uint64(len(dec.buf)-dec.i) {
 		return ErrInvalidPatch

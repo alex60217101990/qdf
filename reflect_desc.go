@@ -219,8 +219,12 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		td.encode = encodeBool
 		td.decode = decodeBool
 	case reflect.Int:
-		td.encode = encodeIntN(8)
-		td.decode = decodeIntN(8)
+		// Platform-width: 8 bytes on 64-bit, 4 on 32-bit. Hardcoding 8 would read
+		// (encode) and write (decode) past a 4-byte int on 32-bit — an OOB access
+		// corrupting the adjacent field. Mirrors slices_fast encodeSliceInt and
+		// delta_diff's platform-width handling.
+		td.encode = encodeIntN(int(t.Size()))
+		td.decode = decodeIntN(int(t.Size()))
 	case reflect.Int8:
 		td.encode = encodeIntN(1)
 		td.decode = decodeIntN(1)
@@ -234,8 +238,8 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		td.encode = encodeIntN(8)
 		td.decode = decodeIntN(8)
 	case reflect.Uint:
-		td.encode = encodeUintN(8)
-		td.decode = decodeUintN(8)
+		td.encode = encodeUintN(int(t.Size())) // platform-width (see reflect.Int)
+		td.decode = decodeUintN(int(t.Size()))
 	case reflect.Uint8:
 		td.encode = encodeUintN(1)
 		td.decode = decodeUintN(1)
@@ -249,8 +253,8 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		td.encode = encodeUintN(8)
 		td.decode = decodeUintN(8)
 	case reflect.Uintptr:
-		td.encode = encodeUintN(8)
-		td.decode = decodeUintN(8)
+		td.encode = encodeUintN(int(t.Size())) // platform-width (see reflect.Int)
+		td.decode = decodeUintN(int(t.Size()))
 	case reflect.Float32:
 		td.encode = encodeF32
 		td.decode = decodeF32

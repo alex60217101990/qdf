@@ -156,9 +156,17 @@ func (d *Decoder) Skip() error {
 			if d.i+4 > len(d.buf) {
 				return ErrShortBuffer
 			}
-			n := int(readU32(d.buf[d.i:]))
+			// Compare in uint64 before narrowing: on a 32-bit int a count near 2^32
+			// wraps negative, making `for range n` run zero iterations and Skip
+			// silently succeed without consuming the elements (parse desync). Each
+			// element is >= 1 byte, so a count exceeding the remaining bytes is
+			// impossible. Mirrors the tagStr32/tagBin32 guard below.
+			n64 := uint64(readU32(d.buf[d.i:]))
 			d.i += 4
-			for range n {
+			if n64 > uint64(len(d.buf)-d.i) {
+				return ErrShortBuffer
+			}
+			for range int(n64) {
 				if err := d.Skip(); err != nil {
 					return err
 				}
@@ -169,9 +177,14 @@ func (d *Decoder) Skip() error {
 			if d.i+4 > len(d.buf) {
 				return ErrShortBuffer
 			}
-			n := int(readU32(d.buf[d.i:]))
+			// Same 32-bit wrap guard as tagArr32; each entry is >= 2 bytes (key +
+			// value, each >= 1), so a count exceeding the remaining bytes is invalid.
+			n64 := uint64(readU32(d.buf[d.i:]))
 			d.i += 4
-			for range n {
+			if n64 > uint64(len(d.buf)-d.i) {
+				return ErrShortBuffer
+			}
+			for range int(n64) {
 				if err := d.Skip(); err != nil {
 					return err
 				}

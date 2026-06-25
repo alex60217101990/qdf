@@ -223,6 +223,9 @@ func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsign
 		// bitsPer == 0 (constant deltas): empty body, no per-element bound.
 		return 0, 0, 0, 0, 0, nil, ErrInvalidLength
 	}
+	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
+		return 0, 0, 0, 0, 0, nil, ErrInvalidLength
+	}
 	n = int(n64)
 	bodyBytes := int(((n64-1)*uint64(bitsPer) + 7) / 8)
 	body = d.buf[d.i : d.i+bodyBytes]
