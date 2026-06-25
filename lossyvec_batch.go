@@ -107,6 +107,12 @@ func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n 
 	if dim < lossyVecMinElems {
 		return nil, false, false
 	}
+	// Bound the gather before n*dim is computed as int (cannot overflow on 32-bit;
+	// also keeps the batch within the columnar byte budget). Over the cap, the
+	// field stays row-major.
+	if int64(n)*int64(dim) > int64(maxColumnarBytes/8) {
+		return nil, false, false
+	}
 
 	// Gather n vectors into reused scratch (appendLossyVec zeroes NaN/Inf in
 	// place, so it must never see the caller's backing arrays).
@@ -201,6 +207,9 @@ func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n 
 // log domain gives uniform RELATIVE precision, so a wide norm range (1000x)
 // still round-trips to ~1e-4. norms must all be finite and positive.
 func appendNormStream(dst []byte, norms []float64) []byte {
+	if len(norms) == 0 {
+		return dst // never reached in practice (n >= columnarMinElems); guards ±Inf header
+	}
 	logMin, logMax := math.Inf(1), math.Inf(-1)
 	for _, nrm := range norms {
 		l := math.Log(nrm)
@@ -222,7 +231,7 @@ func appendNormStream(dst []byte, norms []float64) []byte {
 // readNormStream reads n quantized norms written by appendNormStream and returns
 // them plus the number of bytes consumed.
 func readNormStream(src []byte, n int) (norms []float64, used int, err error) {
-	if len(src) < 16+2*n {
+	if uint64(len(src)) < 16+2*uint64(n) { // uint64 intermediate: 2*n cannot wrap
 		return nil, 0, ErrShortBuffer
 	}
 	logMin := math.Float64frombits(binary.LittleEndian.Uint64(src[0:]))
@@ -266,8 +275,17 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 		return errors.New("qdf: bad vec-batch count")
 	}
 	d.i += k
+	if n64 > uint64(maxColumnarElems) { // uint64->int maxInt clause (32-bit) + ceiling
+		return ErrInvalidLength
+	}
 	n := int(n64)
-	if err := d.CheckLength(n, 1); err != nil {
+	// Bound the result allocation by the input: MakeSlice(t, n) below allocates
+	// n*stride, so CheckLength(n, 1) is not enough — a hostile count amplifies by
+	// the struct stride. Mirror the columnar decoders' count + byte caps.
+	if err := checkColumnarN(n); err != nil {
+		return err
+	}
+	if err := checkColumnarBytes(n, t.Elem().Size()); err != nil {
 		return err
 	}
 	if d.i+3 > len(d.buf) {
@@ -279,6 +297,9 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 	d.i += 3
 	if nv != len(td.vecFields) {
 		return errors.New("qdf: vec-batch shape mismatch")
+	}
+	if polarMask&^mask != 0 { // polar bit on a non-batched field would desync d.i
+		return errors.New("qdf: vec-batch polarMask not a subset of mask")
 	}
 
 	// Read each batched column's block (count=n vectors). A polar field carries a

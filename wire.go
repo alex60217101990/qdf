@@ -312,10 +312,16 @@ const (
 	// is batchable (equal length across all rows, >= lossyVecMinElems, and the
 	// batched block beats raw). Layout:
 	//
-	//   0xFE, varuint(n), byte(numVecFields), byte(batchedMask),
-	//     for each set mask bit (vector-field order): <0xFD count=n block>,
+	//   0xFE, varuint(n), byte(numVecFields), byte(batchedMask), byte(polarMask),
+	//     for each set batchedMask bit (vector-field order):
+	//       if polarMask bit set: <norm stream: f64 logMin, f64 logMax, n×uint16>,
+	//       <0xFD count=n block>,
 	//     per row: each NON-batched field encoded in declaration order via its
 	//              own (row-major) field codec.
+	//
+	// polarMask (a subset of batchedMask) marks fields stored in polar-split form:
+	// each vector's L2 norm separately (log-domain 16-bit) plus the quantized unit
+	// direction in the block, which the decoder rescales.
 	//
 	// Non-batched vector fields and all scalar/string fields stay row-major, so
 	// decode reconstructs each row by decoding those fields and scattering the

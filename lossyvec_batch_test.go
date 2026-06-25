@@ -414,3 +414,63 @@ func TestVecBatchPolarSkippedUnitNorm(t *testing.T) {
 		t.Fatalf("polar should be skipped on unit-norm data, polarMask=0x%02x", pm)
 	}
 }
+
+// NamedVec is a named []float32 type; it must NOT be batched (a named slice type
+// could carry a custom codec), but must still round-trip via the row-major path.
+type NamedVec []float32
+type namedVecRow struct {
+	V NamedVec
+}
+
+func TestVecBatchExcludesNamedType(t *testing.T) {
+	const n, dim = 32, 64
+	rows := make([]namedVecRow, n)
+	for i := range rows {
+		rows[i] = namedVecRow{V: NamedVec(sinVec32(i, dim))}
+	}
+	data, err := Marshal(rows, OptBalanced|OptLossyVec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 5 && data[5] == tagVecBatchStruct {
+		t.Fatalf("named slice type must not batch (0xFE emitted)")
+	}
+	var out []namedVecRow
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	for i := range rows {
+		if len(out[i].V) != dim {
+			t.Fatalf("row %d len %d", i, len(out[i].V))
+		}
+	}
+}
+
+// TestVecBatchHostileCountNoOOM crafts a 0xFE block claiming a huge row count and
+// asserts decode rejects it cleanly (no panic, no giant allocation).
+func TestVecBatchHostileCountNoOOM(t *testing.T) {
+	// Valid stream to get the 5-byte header, then a crafted 0xFE body.
+	rows := make([]vecOnlyRow, 32)
+	for i := range rows {
+		rows[i] = vecOnlyRow{Emb: sinVec32(i, 64)}
+	}
+	good, _ := Marshal(rows, OptBalanced|OptLossyVec)
+	hdr := good[:5] // QDF header
+	// 0xFE, uvarint(huge), nv, mask, polarMask
+	body := make([]byte, 0, 1+10+3)
+	body = append(body, tagVecBatchStruct)
+	huge := make([]byte, 0, 10)
+	x := uint64(1) << 40
+	for x >= 0x80 {
+		huge = append(huge, byte(x)|0x80)
+		x >>= 7
+	}
+	huge = append(huge, byte(x))
+	body = append(body, huge...)
+	body = append(body, 1, 1, 0) // nv=1, mask=1, polarMask=0
+	hostile := append(append([]byte{}, hdr...), body...)
+	var out []vecOnlyRow
+	if err := Unmarshal(hostile, &out); err == nil {
+		t.Fatal("expected error on hostile huge count, got nil")
+	}
+}
