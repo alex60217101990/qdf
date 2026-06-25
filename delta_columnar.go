@@ -611,7 +611,10 @@ func applyColSlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer) error {
 // Gap encoding: gap[0] = idx0, gap[j] = idx[j] - idx[j-1] (>= 1 for j>0).
 func applySparseColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base unsafe.Pointer, n int) error {
 	nc64, k := readUvarint(dec.buf[dec.i:])
-	if k <= 0 || nc64 > uint64(n) {
+	// nc==0 is never emitted by a conforming encoder (a column with no changed
+	// rows is skipped); reject it before it sets colMaxLen=0, which colLenOK reads
+	// as "unbounded" and would let a constant-codec body force a large make().
+	if k <= 0 || nc64 == 0 || nc64 > uint64(n) {
 		return ErrInvalidPatch
 	}
 	dec.i += k
