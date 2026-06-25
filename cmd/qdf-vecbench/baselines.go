@@ -259,3 +259,64 @@ func tqBatchEncodeWarm(corpus [][]float64, bits int, seed uint64, row []float64,
 	}
 	return row, q, total
 }
+
+// ---- decode-only timing helpers ----
+//
+// The decode comparison must time decode in isolation: the encode step is run
+// once up front (cold) and each vector keeps its own code slice, so the timed
+// closure does pure decode work — matching qdf's bl.Decode(), which decodes
+// without re-encoding. Running encode inside the timed loop (as a naive batch
+// helper would) measures encode+decode and understates decode throughput.
+
+// naiveEncoded retains one vector's quantized form for the decode-only timing.
+type naiveEncoded struct {
+	q     []uint16
+	mn    float64
+	delta float64
+}
+
+// naiveBatchEncodeAll encodes every vector into its own retained code slice
+// (cold; runs once, outside the timed decode loop).
+func naiveBatchEncodeAll(corpus [][]float64, bits int) []naiveEncoded {
+	enc := make([]naiveEncoded, len(corpus))
+	for i, v := range corpus {
+		q, mn, delta := naiveScalarEncode(v, bits)
+		enc[i] = naiveEncoded{q: q, mn: mn, delta: delta}
+	}
+	return enc
+}
+
+// naiveBatchDecodeWarm decodes every pre-encoded vector into recon; this is the
+// timed decode unit (no encode work inside).
+func naiveBatchDecodeWarm(enc []naiveEncoded, recon [][]float64) {
+	for i := range enc {
+		recon[i] = naiveScalarDecode(enc[i].q, enc[i].mn, enc[i].delta)
+	}
+}
+
+// tqEncoded is the TurboQuant-scalar analogue of naiveEncoded.
+type tqEncoded struct {
+	q     []uint16
+	mn    float64
+	delta float64
+	pdim  int
+}
+
+// tqBatchEncodeAll rotates+quantizes every vector into its own retained code
+// slice (cold; runs once, outside the timed decode loop).
+func tqBatchEncodeAll(corpus [][]float64, bits int, seed uint64) []tqEncoded {
+	enc := make([]tqEncoded, len(corpus))
+	for i, v := range corpus {
+		q, mn, delta, pdim := turboQuantScalarEncode(v, bits, seed)
+		enc[i] = tqEncoded{q: q, mn: mn, delta: delta, pdim: pdim}
+	}
+	return enc
+}
+
+// tqBatchDecodeWarm decodes (dequant + inverse-rotate) every pre-encoded vector
+// into recon; this is the timed decode unit (no encode work inside).
+func tqBatchDecodeWarm(enc []tqEncoded, origDim int, seed uint64, recon [][]float64) {
+	for i := range enc {
+		recon[i] = turboQuantScalarDecode(enc[i].q, enc[i].mn, enc[i].delta, enc[i].pdim, origDim, seed)
+	}
+}

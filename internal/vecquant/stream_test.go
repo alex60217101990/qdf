@@ -44,7 +44,7 @@ func TestDecodeCoordsRejectsOversizedRawLen(t *testing.T) {
 	count := 4
 
 	// Construct a buffer: mode=1, varint(1<<40), empty body.
-	var buf []byte
+	buf := make([]byte, 0, 1+binary.MaxVarintLen64)
 	buf = append(buf, 1) // mode=1 (rANS)
 
 	// Encode a large rawLen as uvarint (e.g. 1<<40).
@@ -73,7 +73,7 @@ func TestDecodeCoordsRejectsOversizedRawLenMode0(t *testing.T) {
 	// Same test but for mode 0 (raw varint path).
 	count := 4
 
-	var buf []byte
+	buf := make([]byte, 0, 1+binary.MaxVarintLen64+2)
 	buf = append(buf, 0) // mode=0 (raw)
 
 	// Encode a large rawLen as uvarint.

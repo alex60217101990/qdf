@@ -218,7 +218,7 @@ round-trips bit-for-bit.
 **If the values may be approximated** — embeddings used only for
 nearest-neighbour / cosine search, where recall matters but exact bits do
 not — add **`OptLossyVec`** and a fidelity budget. The codec rotates,
-lattice-quantizes, and entropy-codes the vector for **~19–22 % less wire
+lattice-quantizes, and entropy-codes the vector for **~17–22 % less wire
 than scalar quantization at equal recall**, while staying never-worse than
 lossless. It is opt-in; the default path is always exact.
 

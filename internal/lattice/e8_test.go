@@ -50,9 +50,9 @@ func TestNearestE8ReturnsValidPoint(t *testing.T) {
 func TestNearestE8FixesLatticePoint(t *testing.T) {
 	// An exact lattice point maps to itself.
 	pts := [][8]float64{
-		{1, 1, 0, 0, 0, 0, 0, 0},  // integer, even sum
-		{2, -2, 0, 0, 0, 0, 0, 0}, // integer, even sum
-		{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},    // half, even int-sum (0)
+		{1, 1, 0, 0, 0, 0, 0, 0},                  // integer, even sum
+		{2, -2, 0, 0, 0, 0, 0, 0},                 // integer, even sum
+		{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},  // half, even int-sum (0)
 		{1.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5}, // half coset
 	}
 	for _, p := range pts {
@@ -74,7 +74,7 @@ func TestQuantizeReconstructE8RoundTripErrorBound(t *testing.T) {
 	for i := range x {
 		x[i] = math.Sin(float64(i)*0.37) * 4
 	}
-	coords, cosets := QuantizeE8(x, delta)
+	coords, cosets := QuantizeE8(x, delta, nil)
 	got := ReconstructE8(coords, cosets, delta, len(x))
 	// E8 covering radius is sqrt(2); per-coordinate error is bounded loosely by
 	// delta*sqrt(2). Assert a comfortable bound that still catches gross errors.
@@ -103,7 +103,7 @@ func TestE8MSEBeatsScalar(t *testing.T) {
 		seScalar += d * d
 	}
 	// e8
-	ce, cs := QuantizeE8(x, delta)
+	ce, cs := QuantizeE8(x, delta, nil)
 	re := ReconstructE8(ce, cs, delta, n)
 	var seE8 float64
 	for i := range x {

@@ -755,7 +755,7 @@ configurable fidelity budget — cosine similarity, relative L2 error, or SNR.
 The codec is **opt-in and lossy**; the default mode is always bit-exact. It
 rotates (Hadamard), quantizes (scalar or E8 lattice — whichever is smaller),
 and entropy-codes the result, so at equal reconstruction quality it is
-**~19–22 % smaller than scalar / TurboQuant-style quantization**.
+**~17–22 % smaller than scalar / TurboQuant-style quantization**.
 
 ```go
 enc := qdf.NewEncoderWith(qdf.OptBalanced | qdf.OptLossyVec)

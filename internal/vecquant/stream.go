@@ -61,8 +61,8 @@ func encodeCoordsInto(q []int32, out, zig, ransDst []byte) (res, zigBack, ransBa
 func encodeCoords(q []int32) []byte {
 	raw := appendVarintZigzag(nil, q)
 	packed := rans.Encode(nil, raw)
-	// rans.Encode returns the raw bytes when rANS would not be smaller; detect
-	// the win by size and pick the smaller framing.
+	// rans.Encode always returns a rANS blob; pick the smaller of it and the raw
+	// zigzag bytes here (never-larger framing).
 	var out []byte
 	var tmp [binary.MaxVarintLen64]byte
 	hdr := binary.PutUvarint(tmp[:], uint64(len(raw)))

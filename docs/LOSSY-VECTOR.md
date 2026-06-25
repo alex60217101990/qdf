@@ -3,7 +3,7 @@
 qdf includes an **opt-in, lossy** codec for `[]float32` / `[]float64` fields
 that hold embedding vectors or other high-dimensional float data. It trades a
 bounded, caller-chosen amount of fidelity for a much smaller wire: at equal
-reconstruction quality it produces **~19–22 % fewer bytes per vector than
+reconstruction quality it produces **~17–22 % fewer bytes per vector than
 scalar quantization** (and than a TurboQuant-style rotated-scalar codec), while
 the default qdf path stays bit-exact.
 
@@ -141,22 +141,31 @@ footing. Reproduce with `go run ./cmd/qdf-vecbench -synthetic -n 2000 -dim 256`.
 | naive scalar (5-bit) | 176 | **+23 %** |
 | TurboQuant-scalar (5-bit) | 184 | **+29 %** |
 
-qdf is **19–22 % smaller at equal reconstruction quality**. PQ (product
-quantization) does not reach this quality on this corpus at comparable rates.
+qdf is **≈17–22 % smaller at equal reconstruction quality** (−18.8 % vs naive,
+−22.3 % vs TurboQuant at the rel ≈ 0.05 point above). Interpolated to exact
+iso-quality the win is **12–21 % across the rel 0.02–0.10 range** (−16.7 % at
+rel 0.05, widening to −21.3 % at rel 0.10). PQ (product quantization) does not
+reach this quality on this corpus at comparable rates.
 
 ### Speed and allocations (warm, buffer-reusing)
 
+Encode and decode are timed in isolation — each method's scratch is pre-built,
+so the encode loop measures encode only and the decode loop measures decode
+only (matching qdf's `bl.Decode()`).
+
 | Method | enc MB/s | dec MB/s | enc allocs |
 |---|---|---|---|
-| qdf-lossy | 128 | 301 | **1** |
-| naive scalar | 722 | 575 | 0 |
-| TurboQuant-scalar | 389 | 226 | — |
+| qdf-lossy | 174 | 526 | **1** |
+| naive scalar | 993 | 4054 | 0 |
+| TurboQuant-scalar | 543 | 949 | 0 |
 
 This is an **honest trade**: qdf does strictly more work per vector (rotation +
-entropy coding + a verify-loop) than the scalar baselines, so its encode
-throughput is lower. In exchange you get the smallest wire at a given quality
-and near-zero steady-state allocations — the right trade for write-once,
-read-many embedding stores where storage and bandwidth dominate.
+entropy decoding on the read path, plus a verify-loop on encode) than the scalar
+baselines, so its raw throughput is lower. In exchange you get the smallest wire
+at a given quality and near-zero steady-state encode allocations — the right
+trade for write-once, read-many embedding stores where storage and bandwidth
+dominate. (Throughput figures are single-run laptop measurements; absolute MB/s
+varies with thermal state, but the relative ordering is stable.)
 
 ### Allocation efficiency vs a naive per-call encode
 
