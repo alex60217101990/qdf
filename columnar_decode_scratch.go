@@ -667,8 +667,10 @@ func decodeSliceFloat64Into(d *Decoder, dst *[]float64) error {
 		if err2 != nil {
 			return err2
 		}
-		if len(vecs) == 0 {
-			return ErrShortBuffer
+		// A scalar float64 column is one vector (the whole column); reject a
+		// multi-vector block rather than silently dropping vecs[1:].
+		if len(vecs) != 1 {
+			return ErrInvalidLength
 		}
 		if elemF32 {
 			return ErrTypeMismatch

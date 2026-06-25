@@ -302,7 +302,38 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	if err != nil {
 		return err
 	}
+	// String columns do not use the typed backing slice — handle them first so
+	// the present*sizeof(string) allocation below is not made and discarded, and
+	// add the same len(strs)==present guard every other kind has.
+	if col.kind.base() == colKindString {
+		strs, err := d.readStringColumn(present)
+		if err != nil {
+			return err
+		}
+		if len(strs) != present {
+			return ErrTypeMismatch
+		}
+		stride, off := plan.stride, col.offset
+		k := 0
+		for i := range n {
+			fp := unsafe.Add(base, uintptr(i)*stride+off)
+			if mask[i>>3]&(1<<uint(i&7)) != 0 {
+				*(*unsafe.Pointer)(fp) = unsafe.Pointer(&strs[k])
+				k++
+			} else {
+				*(*unsafe.Pointer)(fp) = nil
+			}
+		}
+		runtime.KeepAlive(strs)
+		return nil
+	}
 	elemSize := col.elemType.Size()
+	// Bound the typed backing by the columnar byte ceiling: the outer decode
+	// check used the struct stride (8 for a *T field), but elemType.Size() can be
+	// larger (time.Time is 24), so present*elemSize can exceed maxColumnarBytes.
+	if err := checkColumnarBytes(present, elemSize); err != nil {
+		return err
+	}
 	backing := reflect.MakeSlice(reflect.SliceOf(col.elemType), present, present)
 	dataPtr := backing.UnsafePointer()
 	stride, off := plan.stride, col.offset
@@ -367,23 +398,6 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 			return ErrTypeMismatch
 		}
 		set(func(ea unsafe.Pointer, k int) { *(*bool)(ea) = s[k] })
-	case colKindString:
-		strs, err := d.readStringColumn(present)
-		if err != nil {
-			return err
-		}
-		k := 0
-		for i := range n {
-			fp := unsafe.Add(base, uintptr(i)*stride+off)
-			if mask[i>>3]&(1<<uint(i&7)) != 0 {
-				*(*unsafe.Pointer)(fp) = unsafe.Pointer(&strs[k])
-				k++
-			} else {
-				*(*unsafe.Pointer)(fp) = nil
-			}
-		}
-		runtime.KeepAlive(strs)
-		return nil
 	case colKindTime:
 		// Decode two dense sub-columns (sec []int64, nsec []uint64) for the
 		// present count, reconstruct time.Time values, scatter into *time.Time
@@ -553,6 +567,11 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 			return cv, ErrTypeMismatch
 		}
 		if err := checkNsecColumn(nsec); err != nil {
+			return cv, err
+		}
+		// time.Time is 24 bytes; the outer check used the struct stride (8 for a
+		// *time.Time field), so n*24 can exceed the columnar byte ceiling.
+		if err := checkColumnarBytes(n, unsafe.Sizeof(time.Time{})); err != nil {
 			return cv, err
 		}
 		full := make([]time.Time, n)
