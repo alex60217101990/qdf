@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"encoding/binary"
+	"errors"
 	"testing"
 )
 
@@ -24,7 +25,7 @@ func TestRLEStandaloneCapNotBypassedByLargeBuffer(t *testing.T) {
 
 	d := &Decoder{buf: buf}
 	d.i++ // consume the peeked tag (tagPackRLE)
-	if _, err := d.readPackedRLEUint64Slice(); err != ErrInvalidLength {
+	if _, err := d.readPackedRLEUint64Slice(); !errors.Is(err, ErrInvalidLength) {
 		t.Fatalf("want ErrInvalidLength for over-cap RLE in a large buffer, got %v", err)
 	}
 }
