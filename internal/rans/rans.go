@@ -254,6 +254,9 @@ func Decode(src []byte, n int) ([]byte, error) {
 	if n == 0 {
 		return []byte{}, nil
 	}
+	if n < 0 { // honor the never-panics contract: make([]byte, n<0) would panic
+		return nil, ErrCorrupt
+	}
 	if len(src) < 1 {
 		return nil, ErrCorrupt
 	}

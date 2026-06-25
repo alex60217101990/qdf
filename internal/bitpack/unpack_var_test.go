@@ -9,7 +9,7 @@ import "testing"
 // the SIMD body, the read-headroom guard, the byte-alignment handoff,
 // and the scalar tail.
 func TestUnpackBitsVar_MatchesReference(t *testing.T) {
-	widths := []int{5, 6, 7, 9, 11, 13}
+	widths := []int{1, 2, 3, 4, 5, 6, 7, 9, 11, 13}
 	sizes := []int{0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 33, 64, 100, 257, 1000}
 	for _, b := range widths {
 		mask := uint64(1)<<uint(b) - 1

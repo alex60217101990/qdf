@@ -231,7 +231,10 @@ func (t *SymbolTable) DecompressN(codes, dst []byte, limit int) ([]byte, bool) {
 			continue
 		}
 		if int(c) >= len(t.symbols) {
-			continue
+			// A code with no symbol is a corrupt block (a conforming encoder only
+			// emits codes < len(symbols) or escapeCode). Reject rather than silently
+			// skipping it, which would return a truncated string as success.
+			return dst, false
 		}
 		s := &t.symbols[c]
 		if len(dst)+int(s.len) > limit {
