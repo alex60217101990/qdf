@@ -29,7 +29,16 @@ func MarshalT[T any](v T, opts Options) ([]byte, error) {
 		return nil, err
 	}
 	enc.maybeApplyRANS(0)
-	out := slices.Clone(enc.buf)
+	// Mirror marshalDict: hand a spike-sized backing straight to the caller
+	// instead of cloning it (putEnc would drop it past maxPooledBuf anyway), so
+	// MarshalT stays allocation-equivalent to Marshal on large payloads.
+	var out []byte
+	if cap(enc.buf) > marshalDetachThreshold {
+		out = enc.buf
+		enc.buf = nil
+	} else {
+		out = slices.Clone(enc.buf)
+	}
 	putEnc(enc, &encPool) // cap a spike-sized buffer / widening scratch before pooling
 	return out, nil
 }

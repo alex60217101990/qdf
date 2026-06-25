@@ -93,10 +93,11 @@ func UnmarshalDirect[T Unmarshaler](data []byte, out T) error {
 	if data[3] != Version1 {
 		return ErrBadVersion
 	}
-	if data[4]&(FlagDense|FlagRANS) != 0 {
-		// Dense buffers carry an intern table that generated code does
-		// not maintain, and rANS buffers need the entropy pass reversed
-		// first; fall back to the reflect path which handles both.
+	if data[4]&(FlagDense|FlagQPack|FlagRANS|FlagColIndex) != 0 {
+		// Any non-Fast wire (Dense intern table, QPack codec bodies, a rANS
+		// entropy pass, or a columnar index) is not what a hand-rolled UnmarshalQDF
+		// expects; fall back to the reflect path which handles all of them instead
+		// of failing with ErrBadTag on the first codec tag.
 		return Unmarshal(data, out)
 	}
 	_, err := out.UnmarshalQDF(data[5:])
