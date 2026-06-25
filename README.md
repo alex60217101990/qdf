@@ -764,10 +764,26 @@ _ = enc.EncodeValue(rows)
 data := enc.Bytes()
 ```
 
+**Built for embedding stores.** The natural shape of a RAG index or vector
+database is a `[]struct` — `{ID, Title, Emb []float32}` — i.e. id + metadata +
+vector per record. qdf serializes the whole thing as **one** self-describing
+blob, and under `OptLossyVec` it **batches the vector field across all rows into
+a single column block**, so the per-vector header and entropy-coding overhead are
+amortized once over the batch instead of paid per row (a per-row encoding is
+~70 % larger). A 256-dim `float32` vector lands at roughly a third of its 1 KiB
+raw size while cosine recall is preserved — no separate vector store, no second
+metadata store, no custom format.
+
+For columns whose vectors have **widely varying magnitudes** (model-weight rows,
+un-normalized vectors) the codec automatically switches to a *polar split* —
+storing each vector's norm separately and quantizing the unit direction — so one
+tight step serves every vector and the column keeps its fidelity budget. Unit-
+norm embeddings, where it cannot help, pay nothing for it.
+
 NaN and Inf values are preserved exactly via an exception list in the wire
 format — they are never corrupted or silently dropped. The encode never exceeds
 the lossless size (never-worse), and reuses pooled scratch for near-zero warm
-allocations.
+allocations. See the runnable `Example_aiEmbeddingStore`.
 
 Full details — pipeline, budget knobs, `0xFD` wire format, the
 [diagram](diagrams/lossy-vector.md), benchmark numbers, and runnable examples —
