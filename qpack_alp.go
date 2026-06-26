@@ -176,13 +176,17 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 		bitpack.Pack(out[base:base+bodyBytes], packed, int(plan.width))
 	}
 
-	// Exception list.
+	// Exception list. The plan already counted exceptions, so when there are
+	// none (the common case for clean quantized telemetry) skip the second
+	// full RoundToEven re-scan of every element entirely.
 	out = appendUvarint(out, uint64(plan.exc))
-	for i, v := range s {
-		I := int64(math.RoundToEven(v * pe))
-		if math.Float64bits(float64(I)*ie) != math.Float64bits(v) {
-			out = appendUvarint(out, uint64(i))
-			out = appendU64(out, math.Float64bits(v))
+	if plan.exc > 0 {
+		for i, v := range s {
+			I := int64(math.RoundToEven(v * pe))
+			if math.Float64bits(float64(I)*ie) != math.Float64bits(v) {
+				out = appendUvarint(out, uint64(i))
+				out = appendU64(out, math.Float64bits(v))
+			}
 		}
 	}
 	e.buf = out
@@ -320,11 +324,15 @@ func (e *Encoder) writePackedALPFloat32Slice(s []float32, plan alpFloatPlan) {
 		bitpack.Pack(out[base:base+bodyBytes], packed, int(plan.width))
 	}
 
+	// See the float64 path: skip the second full re-scan when the plan found no
+	// exceptions (the common clean-telemetry case).
 	out = appendUvarint(out, uint64(plan.exc))
-	for i, v := range s {
-		if _, ok := alpMantissaF32(v, pe, ie); !ok {
-			out = appendUvarint(out, uint64(i))
-			out = appendU32(out, math.Float32bits(v))
+	if plan.exc > 0 {
+		for i, v := range s {
+			if _, ok := alpMantissaF32(v, pe, ie); !ok {
+				out = appendUvarint(out, uint64(i))
+				out = appendU32(out, math.Float32bits(v))
+			}
 		}
 	}
 	e.buf = out

@@ -26,9 +26,10 @@ import (
 // bitWriter / bitReader are MSB-first scratchpads. They are local to the
 // gorilla codec and do not allocate on the hot path.
 type bitWriter struct {
-	buf  []byte
-	cur  byte
-	used uint8 // bits used in cur (0..7)
+	buf   []byte
+	nbits int // total bits written, independent of buf's base offset
+	cur   byte
+	used  uint8 // bits used in cur (0..7)
 }
 
 func (bw *bitWriter) writeBit(v bool) {
@@ -36,6 +37,7 @@ func (bw *bitWriter) writeBit(v bool) {
 		bw.cur |= 1 << (7 - bw.used)
 	}
 	bw.used++
+	bw.nbits++
 	if bw.used == 8 {
 		bw.buf = append(bw.buf, bw.cur)
 		bw.cur = 0
@@ -49,15 +51,34 @@ func (bw *bitWriter) writeBits(v uint64, count uint8) {
 	}
 }
 
-// flush finalises any partial byte. Returns the total bit count written.
+// flush finalises any partial byte. Returns the total bit count written. The
+// count is tracked incrementally (nbits) rather than derived from len(buf) so
+// the writer can append directly into a caller buffer that already holds a
+// header prefix.
 func (bw *bitWriter) flush() int {
-	total := len(bw.buf)*8 + int(bw.used)
+	total := bw.nbits
 	if bw.used > 0 {
 		bw.buf = append(bw.buf, bw.cur)
 		bw.cur = 0
 		bw.used = 0
 	}
 	return total
+}
+
+// finishGorillaBody finalises a Gorilla body that was written in-place into out
+// starting at bodyStart (no separate scratch buffer), prepending its
+// uvarint(totalBits) length via a single memmove of the body. This avoids the
+// per-call scratch []byte that grew from nil and the final copy into out.
+func finishGorillaBody(out []byte, bodyStart, totalBits int) []byte {
+	bodyEnd := len(out)
+	ul := uvarintLen(uint64(totalBits))
+	out = slices.Grow(out, ul)
+	out = out[:bodyEnd+ul]
+	copy(out[bodyStart+ul:], out[bodyStart:bodyEnd])
+	// Write the uvarint into the gap we just opened; cap is guaranteed, so
+	// appendUvarint fills out[bodyStart:bodyStart+ul] without reallocating.
+	_ = appendUvarint(out[bodyStart:bodyStart], uint64(totalBits))
+	return out
 }
 
 type bitReader struct {
@@ -121,7 +142,8 @@ func (e *Encoder) writePackedGorillaFloat64Slice(s []float64) {
 		e.buf = out
 		return
 	}
-	bw := bitWriter{}
+	bodyStart := len(out)
+	bw := bitWriter{buf: out}
 	prev := first
 	// prevLZ == 64 marks "no previous window".
 	prevLZ := uint8(64)
@@ -156,8 +178,7 @@ func (e *Encoder) writePackedGorillaFloat64Slice(s []float64) {
 		prev = cur
 	}
 	totalBits := bw.flush()
-	out = appendUvarint(out, uint64(totalBits))
-	out = append(out, bw.buf...)
+	out = finishGorillaBody(bw.buf, bodyStart, totalBits)
 	e.buf = out
 }
 
@@ -178,7 +199,8 @@ func (e *Encoder) writePackedGorillaFloat32Slice(s []float32) {
 		e.buf = out
 		return
 	}
-	bw := bitWriter{}
+	bodyStart := len(out)
+	bw := bitWriter{buf: out}
 	prev := first
 	prevLZ := uint8(32)
 	prevTZ := uint8(0)
@@ -212,8 +234,7 @@ func (e *Encoder) writePackedGorillaFloat32Slice(s []float32) {
 		prev = cur
 	}
 	totalBits := bw.flush()
-	out = appendUvarint(out, uint64(totalBits))
-	out = append(out, bw.buf...)
+	out = finishGorillaBody(bw.buf, bodyStart, totalBits)
 	e.buf = out
 }
 
