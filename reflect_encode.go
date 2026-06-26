@@ -889,7 +889,7 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 	slices.Sort(keys)
 	id := st.shapeDeclareEnc()
 	st.mapShapeRegister(setHash, n, keys, id)
-	st.lastMapShapeID, st.lastMapShapeKeys = id, st.mapShapes[len(st.mapShapes)-1].keys
+	st.lastMapShapeID, st.lastMapShapeKeys = id, keys
 	e.buf = append(e.buf, tagMapShape)
 	e.buf = appendUvarint(e.buf, 0)
 	e.buf = appendUvarint(e.buf, uint64(n))

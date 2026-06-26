@@ -115,10 +115,11 @@ func TestEncStateMapShape_Registry(t *testing.T) {
 	if _, _, ok := st.mapShapeFindKeys(0x1234, 3); ok {
 		t.Fatal("len mismatch must miss")
 	}
-	// Register mutates nothing the caller owns: caller slice change must not leak.
-	keys[0] = "MUTATED"
-	if _, got, ok := st.mapShapeFindKeys(0x1234, 2); !ok || got[0] != "client" {
-		t.Fatal("mapShapeRegister must clone keys")
+	// mapShapeRegister takes ownership of the passed slice (no defensive clone):
+	// the binding stores the exact slice the caller handed over. Production
+	// callers always pass a freshly-made per-declare slice and never reuse it.
+	if &got[0] != &keys[0] {
+		t.Fatal("mapShapeRegister must take ownership of the passed slice (no clone)")
 	}
 	st.reset()
 	if _, _, ok := st.mapShapeFindKeys(0x1234, 2); ok {

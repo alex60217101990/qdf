@@ -18,7 +18,7 @@ func TestLossyVecWireRoundTrip(t *testing.T) {
 		}
 		vecs[i] = v
 	}
-	enc := appendLossyVec(vecs, false, toBudget(MinCosine(0.999)), &vecquant.Scratch{})
+	enc, _ := appendLossyVec(vecs, false, toBudget(MinCosine(0.999)), &vecquant.Scratch{})
 	got, isF32, used, err := readLossyVec(enc)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -54,7 +54,7 @@ func TestLossyVecSmallerThanRaw(t *testing.T) {
 		}
 		vecs[i] = v
 	}
-	enc := appendLossyVec(vecs, true, toBudget(MaxRelError(0.02)), &vecquant.Scratch{})
+	enc, _ := appendLossyVec(vecs, true, toBudget(MaxRelError(0.02)), &vecquant.Scratch{})
 	raw := 128 * 256 * 4 // f32 raw bytes
 	if len(enc) >= raw {
 		t.Fatalf("lossy %d not smaller than raw %d", len(enc), raw)
@@ -76,7 +76,7 @@ func TestLossyVecE8WireRoundTrip(t *testing.T) {
 		}
 		vecs[i] = v
 	}
-	enc := appendLossyVec(vecs, false, toBudget(MaxRelError(0.02)), &vecquant.Scratch{})
+	enc, _ := appendLossyVec(vecs, false, toBudget(MaxRelError(0.02)), &vecquant.Scratch{})
 	// Assert the E8 variant was actually selected so this test covers the E8
 	// wire encode/decode, not the scalar fallback. flags is at index 1, with
 	// the variant in bits 1-2.

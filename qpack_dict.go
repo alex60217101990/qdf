@@ -23,7 +23,9 @@ func (e *Encoder) writePackedDictUint64Slice(s []uint64) {
 	e.writeHeader()
 	n := len(s)
 	var table [qpackDictMaxDistinct + 1]uint64
-	count, ok := probeDistinctU64(s, &table)
+	// One open-addressed pass yields both the distinct table and the value→index
+	// map, so the encoder skips the separate buildDictIndex pass.
+	count, ok, hslot, hidx := probeDistinctIndexU64(s, &table)
 	if !ok || count == 0 {
 		// Fall back to raw — picker mis-selected or the slice grew
 		// distinct values between probe and encode. The fallback
@@ -50,10 +52,7 @@ func (e *Encoder) writePackedDictUint64Slice(s []uint64) {
 	out = out[:start+bodyBytes]
 	body := out[start : start+bodyBytes]
 	clear(body)
-	// Build an open-addressed value→index map once so each element's
-	// index resolves in O(1); a linear scan over the table would be
-	// O(n·count) and grow with the cap.
-	hslot, hidx := buildDictIndexU64(&table, count)
+	// hslot/hidx (the value→index map) came from probeDistinctIndexU64 above.
 	// Stage indices in a chunk buffer so bitpack.PackChunk can
 	// reuse its existing LSB-first packing routine.
 	var chunk [64]uint64
@@ -71,32 +70,13 @@ func (e *Encoder) writePackedDictUint64Slice(s []uint64) {
 	e.buf = out
 }
 
-// buildDictIndexU64 returns an open-addressed map from each of the
-// count distinct values in table to its index, used by the dict
-// encoder to resolve element indices in O(1). The hslot array holds
-// the keys; hidx[slot] is the value's position in the dictionary.
-func buildDictIndexU64(table *[qpackDictMaxDistinct + 1]uint64, count int) (hslot [qpackProbeSlots]uint64, hidx [qpackProbeSlots]int16) {
-	var used [qpackProbeSlots]bool
-	for k := range count {
-		v := table[k]
-		h := (v * 0x9E3779B97F4A7C15) >> (64 - 7)
-		for used[h] {
-			h = (h + 1) & (qpackProbeSlots - 1)
-		}
-		used[h] = true
-		hslot[h] = v
-		hidx[h] = int16(k)
-	}
-	return hslot, hidx
-}
-
 // writePackedDictInt64Slice mirrors the unsigned variant. Dictionary
 // entries are zigzag-encoded.
 func (e *Encoder) writePackedDictInt64Slice(s []int64) {
 	e.writeHeader()
 	n := len(s)
 	var table [qpackDictMaxDistinct + 1]int64
-	count, ok := probeDistinctI64(s, &table)
+	count, ok, hslot, hidx := probeDistinctIndexI64(s, &table)
 	if !ok || count == 0 {
 		e.writePackedInt64Slice(s)
 		return
@@ -118,7 +98,7 @@ func (e *Encoder) writePackedDictInt64Slice(s []int64) {
 	out = out[:start+bodyBytes]
 	body := out[start : start+bodyBytes]
 	clear(body)
-	hslot, hidx := buildDictIndexI64(&table, count)
+	// hslot/hidx (the value→index map) came from probeDistinctIndexI64 above.
 	var chunk [64]uint64
 	for i := 0; i < n; i += len(chunk) {
 		end := min(i+len(chunk), n)
@@ -132,23 +112,6 @@ func (e *Encoder) writePackedDictInt64Slice(s []int64) {
 		bitpack.PackChunk(body, chunk[:end-i], bp, i)
 	}
 	e.buf = out
-}
-
-// buildDictIndexI64 mirrors buildDictIndexU64 for signed dictionaries,
-// hashing the two's-complement bit pattern.
-func buildDictIndexI64(table *[qpackDictMaxDistinct + 1]int64, count int) (hslot [qpackProbeSlots]int64, hidx [qpackProbeSlots]int16) {
-	var used [qpackProbeSlots]bool
-	for k := range count {
-		v := table[k]
-		h := (uint64(v) * 0x9E3779B97F4A7C15) >> (64 - 7)
-		for used[h] {
-			h = (h + 1) & (qpackProbeSlots - 1)
-		}
-		used[h] = true
-		hslot[h] = v
-		hidx[h] = int16(k)
-	}
-	return hslot, hidx
 }
 
 // readPackedDictHeader parses the kind byte and distinct count after

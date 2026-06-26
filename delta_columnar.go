@@ -343,6 +343,14 @@ func nullableCellEqual(col *colColumn, op, np unsafe.Pointer) bool {
 	switch col.kind.base() {
 	case colKindString:
 		return *(*string)(pa) == *(*string)(pb)
+	case colKindTime:
+		// Mirror colCellEqual's semantic time compare: a raw width-byte memcmp
+		// over time.Time would over-report changes because the same instant can
+		// have two internal encodings (wall+monotonic vs ext) and a *Location
+		// pointer, re-shipping the whole column for an unchanged value.
+		ot := (*time.Time)(pa).UTC()
+		nt := (*time.Time)(pb).UTC()
+		return ot.Unix() == nt.Unix() && ot.Nanosecond() == nt.Nanosecond()
 	default:
 		return bytes.Equal(unsafe.Slice((*byte)(pa), col.width), unsafe.Slice((*byte)(pb), col.width))
 	}

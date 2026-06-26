@@ -29,7 +29,8 @@ func FuzzReadLossyVec(f *testing.F) {
 			}
 			vecs[i] = v
 		}
-		f.Add(appendLossyVec(vecs, false, toBudget(MaxRelError(0.02)), &vecquant.Scratch{}))
+		seed, _ := appendLossyVec(vecs, false, toBudget(MaxRelError(0.02)), &vecquant.Scratch{})
+		f.Add(seed)
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {

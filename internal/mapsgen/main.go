@@ -399,13 +399,16 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 	// reflect path's `defer e.canonKeysRelease(pooled)`.
 	fmt.Fprintf(buf, "\t\tif canonPooled {\n\t\t\te.state.%s = keys\n\t\t\te.state.canonKeysBusy = true\n\t\t\tdefer func() { e.state.canonKeysBusy = false }()\n\t\t}\n", scratchField)
 	fmt.Fprintf(buf, "\t\tfor _, sk := range keys {\n")
+	// sk is already a per-iteration copy of the range value. Only the narrow-key
+	// variants need a real conversion (k := T(sk)); the string/wide-key variants
+	// use sk directly — a `k := sk` rename would be dead generated code.
+	keyVar := "sk"
 	if needCast {
 		fmt.Fprintf(buf, "\t\t\tk := %s(sk)\n", p.K.goType)
-	} else {
-		fmt.Fprintf(buf, "\t\t\tk := sk\n")
+		keyVar = "k"
 	}
-	fmt.Fprintf(buf, "\t\t\tv := m[k]\n")
-	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.K.writeBlock("k"))))
+	fmt.Fprintf(buf, "\t\t\tv := m[%s]\n", keyVar)
+	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.K.writeBlock(keyVar))))
 	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.V.writeBlock("v"))))
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn nil\n\t}\n")

@@ -69,7 +69,10 @@ func NearestE8(x *[8]float64) [8]float64 {
 // given step. Returns the integer coordinates (floor for the half-integer
 // coset) and one coset bit per 8-D block, LSB-first. dst is reused as the
 // coords backing when its capacity suffices (pass nil for a fresh slice).
-func QuantizeE8(x []float64, delta float64, dst []int32) (coords []int32, cosets []byte) {
+// The overflow return mirrors QuantizeScalar: a coordinate past the int32 range
+// is clamped (saturated) and overflow=true is reported so the caller can abort
+// to a lossless encoding rather than ship a wrapped/corrupt coordinate.
+func QuantizeE8(x []float64, delta float64, dst []int32) (coords []int32, cosets []byte, overflow bool) {
 	if len(x)%8 != 0 {
 		panic("lattice: QuantizeE8 length must be a multiple of 8")
 	}
@@ -90,15 +93,19 @@ func QuantizeE8(x []float64, delta float64, dst []int32) (coords []int32, cosets
 		if pt[0]-math.Floor(pt[0]) == 0.5 { // half-integer coset
 			cosets[b/8] |= 1 << (uint(b) & 7)
 			for i := range 8 {
-				coords = append(coords, int32(math.Floor(pt[i])))
+				c, ov := clampI32(math.Floor(pt[i]))
+				coords = append(coords, c)
+				overflow = overflow || ov
 			}
 		} else {
 			for i := range 8 {
-				coords = append(coords, int32(pt[i]))
+				c, ov := clampI32(pt[i])
+				coords = append(coords, c)
+				overflow = overflow || ov
 			}
 		}
 	}
-	return coords, cosets
+	return coords, cosets, overflow
 }
 
 // ReconstructE8 inverts QuantizeE8. n must be a multiple of 8 and len(coords)==n.
