@@ -19,13 +19,15 @@ const (
 
 // Block is the self-contained encoded form of a set of equal-length vectors.
 type Block struct {
+	// Slices first so the GC pointer-scan range stops here instead of spanning
+	// the whole struct (the trailing scalars are pointer-free).
+	Coords  []byte // encodeCoords output over the flattened, row-major indices
+	Cosets  []byte // coset bits for VariantE8; nil for VariantScalar
 	Dim     int
 	Count   int
 	Seed    uint64
 	Delta   float64
-	Coords  []byte // encodeCoords output over the flattened, row-major indices
-	Variant uint8  // VariantScalar or VariantE8
-	Cosets  []byte // coset bits for VariantE8; nil for VariantScalar
+	Variant uint8 // VariantScalar or VariantE8
 }
 
 // e8Eligible reports whether the E8 variant is worth attempting for a padded

@@ -162,6 +162,12 @@ type Encoder struct {
 	depth    int
 	maxDepth int
 
+	// vecBudget is the fidelity target used when OptLossyVec is active.
+	// No effect unless OptLossyVec is set. Zero value resolves to MinCosine(0.999).
+	// Placed among the 8-byte fields (it is pointer-free, 8-byte aligned) so the
+	// trailing 1-byte flags pack contiguously without a padding gap on either side.
+	vecBudget VectorBudget
+
 	// opts is the bit-mask of feature toggles. mode and qpack are
 	// derived from it at configure time so the hot path can stay on
 	// fast bool / Mode compares; the rest of the codecs (MTF, Pair,
@@ -212,10 +218,6 @@ type Encoder struct {
 	// Reset — same pattern as qpack/rans/fsst/colIndex.
 	pairPred bool
 	mtf      bool
-
-	// vecBudget is the fidelity target used when OptLossyVec is active.
-	// No effect unless OptLossyVec is set. Zero value resolves to MinCosine(0.999).
-	vecBudget VectorBudget
 
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.

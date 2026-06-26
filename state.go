@@ -170,16 +170,20 @@ type encState struct {
 	tokenShapes  []tokenShape
 	lastTokenPtr *byte
 	lastTokenID  uint32
+	// lastMapShapeID memoises the most recently used map shape so a run of
+	// homogeneous rows (the common case) verifies against it directly — no
+	// set-hash recompute, no registry scan (see lastMapShapeKeys). 0 means none.
+	// Packed adjacent to lastTokenID so the two cold uint32 memo IDs share one
+	// 8-byte word instead of each stranding a 4-byte pad before the next slice.
+	lastMapShapeID uint32
 
 	// mapShapes interns recurring map key-sets (OptMapShape), parallel to
 	// shapeBindings but keyed on the key-set rather than a *typeDesc. Shares
 	// the shapeCount ID space with struct shapes (shapeDeclareEnc) so the
 	// decoder's single shape table stays in lockstep.
 	mapShapes []mapShapeBinding
-	// lastMapShape* memoises the most recently used map shape so a run of
-	// homogeneous rows (the common case) verifies against it directly — no
-	// set-hash recompute, no registry scan. lastMapShapeID == 0 means none.
-	lastMapShapeID   uint32
+	// lastMapShapeKeys holds the key order of the shape memoised by
+	// lastMapShapeID, so a homogeneous run skips the registry scan.
 	lastMapShapeKeys []string
 	// mapEnc pools reflect holders for the generic (reflect) string-keyed map
 	// encode path so it does not reflect.New per map (OptMapShape).

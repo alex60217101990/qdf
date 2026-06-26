@@ -50,8 +50,8 @@ func toF64Into(v any, dst []float64) []float64 {
 // VectorBudget expresses the fidelity target for the lossy vector codec.
 // Construct it with MaxRelError, MinCosine, or TargetSNR.
 type VectorBudget struct {
-	kind vecquant.BudgetKind
 	val  float64
+	kind vecquant.BudgetKind
 	set  bool
 }
 
