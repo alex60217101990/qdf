@@ -1449,9 +1449,16 @@ func (d *Decoder) runQueryColumns(
 	// Single forward pass: decode projected or referenced columns once, skip rest.
 	retained = make([]*colVals, len(sh.kinds))
 	colCV := make([]*colVals, len(sh.kinds))
+	// Projected-only block columns are deferred: a predicate over OTHER columns
+	// narrows the row set first, then these are decoded block-selectively so only
+	// the blocks covering matched rows are materialized. Requires the column-length
+	// index (colLens) to seek past the deferred column cheaply in this pass.
+	type deferredBlock struct{ c, start int }
+	var deferred []deferredBlock
 	for c := range sh.kinds {
 		proj := isProj(c)
-		if !proj && !referenced[c] {
+		ref := referenced[c]
+		if !proj && !ref {
 			if colLens != nil {
 				if d.i+int(colLens[c]) > len(d.buf) {
 					return nil, nil, ErrShortBuffer
@@ -1462,14 +1469,25 @@ func (d *Decoder) runQueryColumns(
 			}
 			continue
 		}
-		cv, e := d.decodeColumnVals(sh.kinds[c], n, isByte(c))
+		k := sh.kinds[c]
+		if proj && !ref && colLens != nil && !k.isNullable() &&
+			(k == colKindInt || k == colKindUint) &&
+			d.i < len(d.buf) && d.buf[d.i] == tagPackBlock {
+			if d.i+int(colLens[c]) > len(d.buf) {
+				return nil, nil, ErrShortBuffer
+			}
+			deferred = append(deferred, deferredBlock{c, d.i})
+			d.i += int(colLens[c])
+			continue
+		}
+		cv, e := d.decodeColumnVals(k, n, isByte(c))
 		if e != nil {
 			return nil, nil, e
 		}
 		if proj {
 			retained[c] = &cv
 		}
-		if referenced[c] {
+		if ref {
 			colCV[c] = &cv
 		}
 	}
@@ -1489,6 +1507,17 @@ func (d *Decoder) runQueryColumns(
 		combined, _ = evalCond(flat, 0, n)
 	}
 	matched = matchedIndices(combined, n, nil)
+
+	// Decode the deferred block columns for matched rows only. d.i is irrelevant
+	// here (each call seeks via the column's recorded start and restores), so the
+	// forward-pass cursor left at the end of all columns is untouched.
+	for _, db := range deferred {
+		cv, e := d.decodeBlockColumnSelective(db.start, sh.kinds[db.c], n, matched)
+		if e != nil {
+			return nil, nil, e
+		}
+		retained[db.c] = &cv
+	}
 	return retained, matched, nil
 }
 

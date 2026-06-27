@@ -337,6 +337,9 @@ func decodeSliceInt64Into(d *Decoder, dst *[]int64) error {
 	case tagPackPFor:
 		d.i++
 		return d.readPackedPForInt64SliceInto(dst)
+	case tagPackBlock:
+		d.i++
+		return d.readBlockInt64Into(dst)
 	}
 	// Fallback: element-by-element array decode.
 	n, err := d.ReadArrayHeader()
@@ -631,6 +634,9 @@ func decodeSliceUint64Into(d *Decoder, dst *[]uint64) error {
 	case tagPackPFor:
 		d.i++
 		return d.readPackedPForUint64SliceInto(dst)
+	case tagPackBlock:
+		d.i++
+		return d.readBlockUint64Into(dst)
 	}
 	// Fallback: element-by-element array decode.
 	n, err := d.ReadArrayHeader()

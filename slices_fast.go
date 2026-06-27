@@ -197,9 +197,14 @@ func decodeSliceString(d *Decoder, p unsafe.Pointer) error {
 
 // ----- QPack codec helpers shared by 64-bit and widened 32-bit paths -----
 
-// writeQPackUint64 runs the codec picker over s and writes the chosen QPack form.
+// writeQPackUint64 runs the codec picker over s and writes the chosen QPack form,
+// first trying the per-block adaptive codec (reusing the single pick so a
+// non-firing column is picked exactly once).
 func (e *Encoder) writeQPackUint64(s []uint64) {
 	codec, mn, forBits, first, minDelta, deltaBits, pforBits, _ := pickU64Codec(s)
+	if e.tryWriteBlockUint64(s, codec, mn, forBits, first, minDelta, deltaBits, pforBits) {
+		return
+	}
 	e.emitQPackUint64(s, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
 }
 
@@ -252,9 +257,14 @@ func (e *Encoder) emitQPackUint64(s []uint64, codec qpackCodec, mn uint64, forBi
 	}
 }
 
-// writeQPackInt64 runs the codec picker over s and writes the chosen QPack form.
+// writeQPackInt64 runs the codec picker over s and writes the chosen QPack form,
+// first trying the per-block adaptive codec (reusing the single pick so a
+// non-firing column is picked exactly once).
 func (e *Encoder) writeQPackInt64(s []int64) {
 	codec, mn, forBits, first, minDelta, deltaBits, pforBits, _ := pickI64Codec(s)
+	if e.tryWriteBlockInt64(s, codec, mn, forBits, first, minDelta, deltaBits, pforBits) {
+		return
+	}
 	e.emitQPackInt64(s, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
 }
 
@@ -311,7 +321,7 @@ func decodeSliceInt(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	switch t {
-	case tagPackRaw, tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor:
+	case tagPackRaw, tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor, tagPackBlock:
 		if unsafe.Sizeof(int(0)) == 8 {
 			var dest []int64
 			if err := decodeSliceInt64(d, unsafe.Pointer(&dest)); err != nil {
@@ -422,6 +432,8 @@ func (d *Decoder) readQPackUint64(t byte) ([]uint64, error) {
 		return d.readPackedDictUint64Slice()
 	case tagPackPFor:
 		return d.readPackedPForUint64Slice()
+	case tagPackBlock:
+		return d.readBlockUint64()
 	}
 	return nil, ErrBadTag
 }
@@ -444,6 +456,8 @@ func (d *Decoder) readQPackInt64(t byte) ([]int64, error) {
 		return d.readPackedDictInt64Slice()
 	case tagPackPFor:
 		return d.readPackedPForInt64Slice()
+	case tagPackBlock:
+		return d.readBlockInt64()
 	}
 	return nil, ErrBadTag
 }
@@ -509,7 +523,7 @@ func decodeSliceInt32(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]int64)(p)
 	if e.qpack {
-		e.writeQPackInt64(s)
+		e.writeQPackInt64(s) // tries the per-block codec, else the whole-column pick
 		return nil
 	}
 	e.WriteArrayHeader(len(s))
@@ -567,6 +581,14 @@ func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 	case tagPackPFor:
 		d.i++
 		v, err := d.readPackedPForInt64Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]int64)(p) = v
+		return nil
+	case tagPackBlock:
+		d.i++
+		v, err := d.readBlockInt64()
 		if err != nil {
 			return err
 		}
@@ -681,7 +703,7 @@ func decodeSliceUint32(d *Decoder, p unsafe.Pointer) error {
 func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]uint64)(p)
 	if e.qpack {
-		e.writeQPackUint64(s)
+		e.writeQPackUint64(s) // tries the per-block codec, else the whole-column pick
 		return nil
 	}
 	e.WriteArrayHeader(len(s))
@@ -739,6 +761,14 @@ func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 	case tagPackPFor:
 		d.i++
 		v, err := d.readPackedPForUint64Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]uint64)(p) = v
+		return nil
+	case tagPackBlock:
+		d.i++
+		v, err := d.readBlockUint64()
 		if err != nil {
 			return err
 		}
