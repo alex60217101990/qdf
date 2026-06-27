@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 360" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <rect width="1180" height="360" fill="#ffffff"/>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <text x="40" y="40" font-size="22" font-weight="700" fill="#1a1a2e">OptLossyVec encode pipeline (wire tag 0xFD)</text>
+  <text x="40" y="62" font-size="13" fill="#9ca3af">source: lossyvec.go · internal/lattice · internal/hadamard · internal/rans — see docs/LOSSY-VECTOR.md</text>
+
+  <!-- stage boxes -->
+  <g font-size="14">
+    <!-- 1 input -->
+    <rect x="24" y="120" width="160" height="84" rx="10" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+    <text x="104" y="150" text-anchor="middle" font-weight="700" fill="#312e81">input vector</text>
+    <text x="104" y="172" text-anchor="middle" fill="#4338ca">[]float32 / []float64</text>
+    <text x="104" y="190" text-anchor="middle" fill="#6b7280">≥ 32 elems</text>
+
+    <!-- 2 hadamard -->
+    <rect x="224" y="120" width="160" height="84" rx="10" fill="#fff7ed" stroke="#fb923c" stroke-width="1.5"/>
+    <text x="304" y="148" text-anchor="middle" font-weight="700" fill="#9a3412">Hadamard rotation</text>
+    <text x="304" y="170" text-anchor="middle" fill="#c2410c">R = (1/√n)·H·D</text>
+    <text x="304" y="188" text-anchor="middle" font-size="12" fill="#6b7280">outliers → ~Gaussian</text>
+
+    <!-- 3 budget -->
+    <rect x="424" y="120" width="160" height="84" rx="10" fill="#ecfeff" stroke="#06b6d4" stroke-width="1.5"/>
+    <text x="504" y="148" text-anchor="middle" font-weight="700" fill="#155e75">budget → step δ</text>
+    <text x="504" y="170" text-anchor="middle" font-size="12" fill="#0e7490">MSE ≈ δ²·G_lattice</text>
+    <text x="504" y="188" text-anchor="middle" font-size="12" fill="#6b7280">verify-loop to meet budget</text>
+
+    <!-- 4 quantize fork -->
+    <rect x="624" y="96" width="160" height="52" rx="10" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="704" y="118" text-anchor="middle" font-weight="700" fill="#166534">scalar (Z)</text>
+    <text x="704" y="136" text-anchor="middle" font-size="12" fill="#6b7280">round to nearest δ</text>
+    <rect x="624" y="176" width="160" height="56" rx="10" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="704" y="198" text-anchor="middle" font-weight="700" fill="#166534">E8 lattice</text>
+    <text x="704" y="216" text-anchor="middle" font-size="12" fill="#6b7280">D8 vs D8+½ · +1 coset bit</text>
+
+    <!-- 5 rANS -->
+    <rect x="824" y="120" width="150" height="84" rx="10" fill="#fdf4ff" stroke="#d946ef" stroke-width="1.5"/>
+    <text x="899" y="150" text-anchor="middle" font-weight="700" fill="#86198f">rANS entropy</text>
+    <text x="899" y="172" text-anchor="middle" font-size="12" fill="#a21caf">zigzag-varint coords</text>
+    <text x="899" y="190" text-anchor="middle" font-size="12" fill="#6b7280">order-0, interleaved</text>
+
+    <!-- 6 never-worse pick -->
+    <rect x="1014" y="120" width="142" height="84" rx="10" fill="#fff1f2" stroke="#f43f5e" stroke-width="1.5"/>
+    <text x="1085" y="148" text-anchor="middle" font-weight="700" fill="#9f1239">keep smaller</text>
+    <text x="1085" y="170" text-anchor="middle" font-size="12" fill="#be123c">never-worse vs</text>
+    <text x="1085" y="186" text-anchor="middle" font-size="12" fill="#be123c">lossless float</text>
+  </g>
+
+  <!-- arrows -->
+  <g stroke="#6b7280" stroke-width="2" fill="none">
+    <line x1="184" y1="162" x2="222" y2="162" marker-end="url(#arrow)"/>
+    <line x1="384" y1="162" x2="422" y2="162" marker-end="url(#arrow)"/>
+    <line x1="584" y1="150" x2="622" y2="122" marker-end="url(#arrow)"/>
+    <line x1="584" y1="174" x2="622" y2="204" marker-end="url(#arrow)"/>
+    <line x1="784" y1="122" x2="822" y2="150" marker-end="url(#arrow)"/>
+    <line x1="784" y1="204" x2="822" y2="174" marker-end="url(#arrow)"/>
+    <line x1="974" y1="162" x2="1012" y2="162" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- outputs -->
+  <text x="1085" y="238" text-anchor="middle" font-size="12" fill="#374151">↓</text>
+  <text x="1085" y="262" text-anchor="middle" font-size="13" fill="#111827" font-weight="600">0xFD block</text>
+  <text x="1085" y="280" text-anchor="middle" font-size="11.5" fill="#6b7280">or lossless fallback</text>
+
+  <!-- footnote: exceptions + batched -->
+  <rect x="24" y="300" width="1132" height="40" rx="8" fill="#f9fafb" stroke="#e5e7eb"/>
+  <text x="40" y="325" font-size="12.5" fill="#374151">NaN/±Inf pulled into an exception list first and restored bit-exactly on decode · []struct embedding rows batch into ONE count-N block (tag 0xFE) — amortizes header + rANS framing</text>
+</svg>

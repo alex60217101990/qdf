@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 480" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <rect width="1180" height="480" fill="#ffffff"/>
+  <text x="40" y="40" font-size="22" font-weight="700" fill="#1a1a2e">Why qdf instead of the usual stacks</text>
+  <text x="40" y="62" font-size="13" fill="#9ca3af">drop-in, training-free, self-describing — the metadata and the vector live in one blob</text>
+
+  <!-- header row -->
+  <g font-size="12.5" fill="#6b7280" font-weight="700">
+    <text x="320" y="104" text-anchor="middle">storage shape</text>
+    <text x="520" y="104" text-anchor="middle">vector size</text>
+    <text x="690" y="104" text-anchor="middle">training</text>
+    <text x="870" y="104" text-anchor="middle">exactness</text>
+    <text x="1050" y="104" text-anchor="middle">read cost</text>
+  </g>
+  <line x1="40" y1="114" x2="1140" y2="114" stroke="#e5e7eb"/>
+
+  <!-- row: qdf -->
+  <rect x="40" y="124" width="1100" height="62" rx="10" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+  <text x="60" y="150" font-size="15" font-weight="700" fill="#065f46">qdf + OptLossyVec</text>
+  <text x="60" y="172" font-size="11.5" fill="#6b7280">rotation + E8 lattice + rANS</text>
+  <g font-size="12.5" fill="#111827">
+    <text x="320" y="160" text-anchor="middle">one self-describing blob</text>
+    <text x="520" y="160" text-anchor="middle" font-weight="700" fill="#047857">~143 B / 256-dim</text>
+    <text x="690" y="160" text-anchor="middle" fill="#047857">none</text>
+    <text x="870" y="160" text-anchor="middle">lossy vec · exact meta</text>
+    <text x="1050" y="160" text-anchor="middle" fill="#047857">zero-copy (mmap)</text>
+  </g>
+
+  <!-- row: separate vector DB -->
+  <rect x="40" y="196" width="1100" height="62" rx="10" fill="#fafafa" stroke="#e5e7eb"/>
+  <text x="60" y="222" font-size="15" font-weight="700" fill="#374151">FAISS / pgvector + PQ</text>
+  <text x="60" y="244" font-size="11.5" fill="#6b7280">product quantization codebook</text>
+  <g font-size="12.5" fill="#374151">
+    <text x="320" y="232" text-anchor="middle" fill="#b91c1c">vector store + metadata DB</text>
+    <text x="520" y="232" text-anchor="middle">tiny (2–16 B)</text>
+    <text x="690" y="232" text-anchor="middle" fill="#b91c1c">trained codebook</text>
+    <text x="870" y="232" text-anchor="middle">lossy, recall drops at low B</text>
+    <text x="1050" y="232" text-anchor="middle">two systems to keep in sync</text>
+  </g>
+
+  <!-- row: protobuf/msgpack raw -->
+  <rect x="40" y="268" width="1100" height="62" rx="10" fill="#fafafa" stroke="#e5e7eb"/>
+  <text x="60" y="294" font-size="15" font-weight="700" fill="#374151">protobuf / msgpack</text>
+  <text x="60" y="316" font-size="11.5" fill="#6b7280">raw float32, per-record</text>
+  <g font-size="12.5" fill="#374151">
+    <text x="320" y="304" text-anchor="middle">one blob</text>
+    <text x="520" y="304" text-anchor="middle" fill="#b91c1c">1024 B (full)</text>
+    <text x="690" y="304" text-anchor="middle" fill="#047857">none</text>
+    <text x="870" y="304" text-anchor="middle">exact (no shrink)</text>
+    <text x="1050" y="304" text-anchor="middle">copy per field</text>
+  </g>
+
+  <!-- row: manual quant + msgpack -->
+  <rect x="40" y="340" width="1100" height="62" rx="10" fill="#fafafa" stroke="#e5e7eb"/>
+  <text x="60" y="366" font-size="15" font-weight="700" fill="#374151">manual scalar quant</text>
+  <text x="60" y="388" font-size="11.5" fill="#6b7280">int8 + your own glue code</text>
+  <g font-size="12.5" fill="#374151">
+    <text x="320" y="376" text-anchor="middle">DIY format you maintain</text>
+    <text x="520" y="376" text-anchor="middle">~176 B (5-bit)</text>
+    <text x="690" y="376" text-anchor="middle" fill="#047857">none</text>
+    <text x="870" y="376" text-anchor="middle">lossy, no never-worse</text>
+    <text x="1050" y="376" text-anchor="middle" fill="#b91c1c">hand-rolled decode</text>
+  </g>
+
+  <!-- footnote -->
+  <rect x="40" y="416" width="1100" height="48" rx="8" fill="#f9fafb" stroke="#e5e7eb"/>
+  <text x="56" y="436" font-size="12" fill="#374151">qdf trades raw quantization throughput for the smallest wire at a given recall — no second system, no codebook training.</text>
+  <text x="56" y="453" font-size="12" fill="#374151">PQ reaches smaller sizes, but recall@10 collapses to 0.02–0.11 at those rates.</text>
+</svg>
