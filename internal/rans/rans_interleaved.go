@@ -92,7 +92,11 @@ func parseInterleavedRegions(src []byte, n int, states *[maxInterleaveN]uint32, 
 	}
 	src = src[n*4:]
 	var lens [maxInterleaveN]int
-	total := 0
+	// Sum in uint64: on a 32-bit build `int` is 32-bit, and the n-1 per-substream
+	// lengths (each individually bounded by len(src), which is not decremented by
+	// region bytes here) can sum past 2^31 and wrap negative — making the guard
+	// below pass and the remainder length blow up into an out-of-range reslice.
+	var total uint64
 	for k := 0; k < n-1; k++ {
 		v, used := uvarint(src)
 		if used <= 0 {
@@ -103,12 +107,12 @@ func parseInterleavedRegions(src []byte, n int, states *[maxInterleaveN]uint32, 
 			return ErrCorrupt
 		}
 		lens[k] = int(v)
-		total += int(v)
+		total += v
 	}
-	if total > len(src) {
+	if total > uint64(len(src)) {
 		return ErrCorrupt
 	}
-	lens[n-1] = len(src) - total // remainder
+	lens[n-1] = len(src) - int(total) // remainder (total <= len(src), fits int)
 	off := 0
 	for k := range n {
 		regions[k] = src[off : off+lens[k]]

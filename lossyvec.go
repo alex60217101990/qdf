@@ -50,8 +50,8 @@ func toF64Into(v any, dst []float64) []float64 {
 // VectorBudget expresses the fidelity target for the lossy vector codec.
 // Construct it with MaxRelError, MinCosine, or TargetSNR.
 type VectorBudget struct {
-	kind vecquant.BudgetKind
 	val  float64
+	kind vecquant.BudgetKind
 	set  bool
 }
 
@@ -131,11 +131,17 @@ func collectExceptions(vectors [][]float64, elemF32 bool) []vecException {
 // NOTE: appendLossyVec mutates vectors in place (it zeroes non-finite coords
 // before encoding). Callers must pass a slice they own; the current callers
 // build it via toF64, which allocates a fresh []float64.
-func appendLossyVec(vectors [][]float64, elemF32 bool, b vecquant.Budget, sc *vecquant.Scratch) []byte {
+// The ok return is false when quantization saturated the int32 coordinate range
+// (an over-tight budget on a spiky vector): the lossy block would silently
+// violate the fidelity budget, so the caller must keep the lossless encoding.
+func appendLossyVec(vectors [][]float64, elemF32 bool, b vecquant.Budget, sc *vecquant.Scratch) ([]byte, bool) {
 	// Collect and zero out non-finite values before encoding.
 	exc := collectExceptions(vectors, elemF32)
 
 	bl := vecquant.EncodeWith(vectors, b, sc)
+	if sc.Overflowed {
+		return nil, false
+	}
 	var dst []byte
 	dst = append(dst, tagColVecLossy)
 	var flags byte
@@ -168,7 +174,7 @@ func appendLossyVec(vectors [][]float64, elemF32 bool, b vecquant.Budget, sc *ve
 			dst = binary.LittleEndian.AppendUint64(dst, e.rawBits)
 		}
 	}
-	return dst
+	return dst, true
 }
 
 // readLossyVec decodes a lossy-vec block from src and returns the vectors,
@@ -217,6 +223,20 @@ func readLossyVec(src []byte) (vectors [][]float64, elemF32 bool, used int, err 
 	const maxVecFactor = maxColumnarBytes / 8
 	if dim > maxVecFactor || count > maxVecFactor || dim*count*8 > maxColumnarBytes {
 		return nil, false, 0, errors.New("qdf: lossy-vec output exceeds bound")
+	}
+	// decodeCoords (Block.Decode) allocates intermediates sized by the PADDED
+	// coord count count*pdim (pdim = NextPow2(dim), up to ~2*dim) — the dim*count
+	// output bound above does not cover this. The largest such alloc is the rANS
+	// rawLen ceiling (count*pdim*MaxVarintLen32), which rans.Decode reserves up
+	// front from a possibly tiny compressed coords body. Bound the padded product
+	// so that ceiling stays within maxColumnarBytes, else a few-byte blob could
+	// claim a ~320MB allocation.
+	if count != 0 {
+		pdim := uint64(nextPow2Int(int(dim)))
+		const maxPadded = maxColumnarBytes / binary.MaxVarintLen32
+		if pdim != 0 && count > maxPadded/pdim {
+			return nil, false, 0, errors.New("qdf: lossy-vec coords exceed bound")
+		}
 	}
 	coords := src[off : off+int(clen)]
 	off += int(clen)

@@ -170,16 +170,20 @@ type encState struct {
 	tokenShapes  []tokenShape
 	lastTokenPtr *byte
 	lastTokenID  uint32
+	// lastMapShapeID memoises the most recently used map shape so a run of
+	// homogeneous rows (the common case) verifies against it directly — no
+	// set-hash recompute, no registry scan (see lastMapShapeKeys). 0 means none.
+	// Packed adjacent to lastTokenID so the two cold uint32 memo IDs share one
+	// 8-byte word instead of each stranding a 4-byte pad before the next slice.
+	lastMapShapeID uint32
 
 	// mapShapes interns recurring map key-sets (OptMapShape), parallel to
 	// shapeBindings but keyed on the key-set rather than a *typeDesc. Shares
 	// the shapeCount ID space with struct shapes (shapeDeclareEnc) so the
 	// decoder's single shape table stays in lockstep.
 	mapShapes []mapShapeBinding
-	// lastMapShape* memoises the most recently used map shape so a run of
-	// homogeneous rows (the common case) verifies against it directly — no
-	// set-hash recompute, no registry scan. lastMapShapeID == 0 means none.
-	lastMapShapeID   uint32
+	// lastMapShapeKeys holds the key order of the shape memoised by
+	// lastMapShapeID, so a homogeneous run skips the registry scan.
 	lastMapShapeKeys []string
 	// mapEnc pools reflect holders for the generic (reflect) string-keyed map
 	// encode path so it does not reflect.New per map (OptMapShape).
@@ -529,8 +533,22 @@ func (e *encState) reset() {
 	// columnar workload, whose row count is independent of internLoad), dropped
 	// only past the hard ceiling so a one-off giant batch can't pin unbounded
 	// memory. sync.Pool's GC eviction reclaims it when the encoder goes idle.
+	// Each backing grows on its own per-column-type demand (a batch of only
+	// float64 columns grows colScratchF64 while colScratchI64 stays at 0), so
+	// gate each independently — a single check keyed on colScratchI64 would miss
+	// an oversized U64/F64/Bool backing and pin double the intended scratch (same
+	// class as the deltaColAux* fix below).
 	if cap(e.colScratchI64) > maxRetainedColScratch {
-		e.colScratchI64, e.colScratchU64, e.colScratchF64, e.colScratchBool = nil, nil, nil, nil
+		e.colScratchI64 = nil
+	}
+	if cap(e.colScratchU64) > maxRetainedColScratch {
+		e.colScratchU64 = nil
+	}
+	if cap(e.colScratchF64) > maxRetainedColScratch {
+		e.colScratchF64 = nil
+	}
+	if cap(e.colScratchBool) > maxRetainedColScratch {
+		e.colScratchBool = nil
 	}
 	if cap(e.colScratchF32) > maxRetainedColScratch {
 		e.colScratchF32 = nil
@@ -602,8 +620,15 @@ func (e *encState) reset() {
 		e.canonKeyVals = e.canonKeyVals[:0]
 	}
 	// Canonical float-slice scratch is pointer-free: drop only past the ceiling.
+	// canonFloat64/canonFloat32 grow independently (a dirty []float32 workload
+	// grows canonFloat32 while canonFloat64 stays empty), so gate each on its own
+	// cap — a single check keyed on canonFloat64 would never drop an oversized
+	// canonFloat32.
 	if cap(e.canonFloat64) > maxRetainedColScratch {
-		e.canonFloat64, e.canonFloat32 = nil, nil
+		e.canonFloat64 = nil
+	}
+	if cap(e.canonFloat32) > maxRetainedColScratch {
+		e.canonFloat32 = nil
 	}
 	if cap(e.colDictTable) > maxRetainedColScratch {
 		e.colDictTable = nil
@@ -700,11 +725,12 @@ func (e *encState) mapShapeFindKeys(setHash uint64, n int) (id uint32, keys []st
 }
 
 // mapShapeRegister binds a key-set to a shape ID. keys must be the canonical
-// (sorted) order; it is cloned so the binding owns its slice.
+// (sorted) order and is taken over by the binding — the caller must not reuse or
+// mutate it afterward. Both callers pass a freshly-allocated per-declare slice
+// (the strings alias the caller's map keys, exactly as a clone would have), so
+// ownership transfer drops one []string allocation per first-sight key-set.
 func (e *encState) mapShapeRegister(setHash uint64, n int, keys []string, id uint32) {
-	cp := make([]string, len(keys))
-	copy(cp, keys)
-	e.mapShapes = append(e.mapShapes, mapShapeBinding{setHash: setHash, n: n, keys: cp, id: id})
+	e.mapShapes = append(e.mapShapes, mapShapeBinding{setHash: setHash, n: n, keys: keys, id: id})
 }
 
 // pairLookup reports whether the top-1 predicted successor of prev
@@ -1156,9 +1182,21 @@ func (d *decState) reset() {
 		d.hybridShapes = d.hybridShapes[:0]
 	}
 	// Row-scaled columnar scratch: ceiling-only (independent of the intern
-	// streak), reclaimed when idle by sync.Pool GC.
+	// streak), reclaimed when idle by sync.Pool GC. Each backing grows on its own
+	// per-column-type demand, so gate each independently — a single check keyed on
+	// colScratchI64 would miss an oversized U64/F64/Bool backing (mirrors the
+	// encode-side fix).
 	if cap(d.colScratchI64) > maxRetainedColScratch {
-		d.colScratchI64, d.colScratchU64, d.colScratchF64, d.colScratchBool = nil, nil, nil, nil
+		d.colScratchI64 = nil
+	}
+	if cap(d.colScratchU64) > maxRetainedColScratch {
+		d.colScratchU64 = nil
+	}
+	if cap(d.colScratchF64) > maxRetainedColScratch {
+		d.colScratchF64 = nil
+	}
+	if cap(d.colScratchBool) > maxRetainedColScratch {
+		d.colScratchBool = nil
 	}
 	if cap(d.colScratchF32) > maxRetainedColScratch {
 		d.colScratchF32 = nil

@@ -155,7 +155,12 @@ func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n 
 		}
 		mean += nrm
 	}
-	plain := appendLossyVec(rows, vf.elemF32, b, &e.vecScratch)
+	plain, plainOK := appendLossyVec(rows, vf.elemF32, b, &e.vecScratch)
+	if !plainOK {
+		// Quantization saturated int32 (over-tight budget): keep the field
+		// row-major rather than ship a budget-violating lossy block.
+		return nil, false, false
+	}
 
 	elemSize := 8
 	if vf.elemF32 {
@@ -185,11 +190,13 @@ func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n 
 					seg[j] *= inv
 				}
 			}
-			dirsBlk := appendLossyVec(rows, vf.elemF32, b, &e.vecScratch)
-			polarPayload := appendNormStream(nil, norms)
-			polarPayload = append(polarPayload, dirsBlk...)
-			if len(polarPayload) < len(best) {
-				best, bestPolar = polarPayload, true
+			dirsBlk, dirsOK := appendLossyVec(rows, vf.elemF32, b, &e.vecScratch)
+			if dirsOK {
+				polarPayload := appendNormStream(nil, norms)
+				polarPayload = append(polarPayload, dirsBlk...)
+				if len(polarPayload) < len(best) {
+					best, bestPolar = polarPayload, true
+				}
 			}
 		}
 	}

@@ -18,6 +18,12 @@ type Scratch struct {
 	ransDst      []byte // transient rANS encode staging (shared)
 	coordsScalar []byte // scalar variant's final coord block (coexists with E8's)
 	coordsE8     []byte // E8 variant's final coord block
+
+	// Overflowed reports whether the chosen block's quantization saturated the
+	// int32 coordinate range (set by EncodeWith). When true the caller must not
+	// emit the lossy block — it would violate the fidelity budget — and should
+	// keep the lossless encoding instead.
+	Overflowed bool
 }
 
 // Reset prepares the scratch for the next encode, dropping any buffer that grew

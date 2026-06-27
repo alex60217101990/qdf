@@ -782,13 +782,21 @@ func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 		// than the lossless body (never-worse). Widen into the reused e.wideF64
 		// buffer so appendLossyVec's in-place NaN/Inf zeroing does not touch s.
 		e.wideF64 = toF64Into(s, e.wideF64)
-		lossy := appendLossyVec([][]float64{e.wideF64}, true, toBudget(e.vecBudget), &e.vecScratch)
+		lossy, lossyOK := appendLossyVec([][]float64{e.wideF64}, true, toBudget(e.vecBudget), &e.vecScratch)
 		start := len(e.buf)
 		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
 		if err := encodeSliceFloat32Lossless(e, s); err != nil {
 			return err
 		}
-		if len(lossy) <= len(e.buf)-start {
+		losslessBody := len(e.buf) - start
+		if !hdrBefore {
+			// Bare top-level slice: the lossless write above also emitted the stream
+			// header, which the lossy-wins branch re-emits too. Exclude it from the
+			// lossless side so the never-worse compare is body-to-body (lossy carries
+			// no header), not header-biased toward lossy.
+			losslessBody -= streamHeaderLen
+		}
+		if lossyOK && len(lossy) <= losslessBody {
 			// Lossy wins (or ties): roll back the lossless body and emit lossy.
 			// Restore the header latch, then re-emit the stream header if the
 			// lossless write had to roll it away (bare top-level slice: no header
@@ -938,13 +946,19 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 		// caller's []float64 slice. toF64Into returns s unchanged for []float64,
 		// so we must copy explicitly here rather than routing through toF64Into.
 		e.wideF64 = append(e.wideF64[:0], s...)
-		lossy := appendLossyVec([][]float64{e.wideF64}, false, toBudget(e.vecBudget), &e.vecScratch)
+		lossy, lossyOK := appendLossyVec([][]float64{e.wideF64}, false, toBudget(e.vecBudget), &e.vecScratch)
 		start := len(e.buf)
 		hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
 		if err := encodeSliceFloat64Lossless(e, s); err != nil {
 			return err
 		}
-		if len(lossy) <= len(e.buf)-start {
+		losslessBody := len(e.buf) - start
+		if !hdrBefore {
+			// See encodeSliceFloat32: exclude the stream header the bare-slice
+			// lossless write emitted so the never-worse compare is body-to-body.
+			losslessBody -= streamHeaderLen
+		}
+		if lossyOK && len(lossy) <= losslessBody {
 			// Lossy wins (or ties): roll back the lossless body and emit lossy.
 			// Restore the header latch, then re-emit the stream header if the
 			// lossless write had to roll it away (bare top-level slice: no header

@@ -162,6 +162,12 @@ type Encoder struct {
 	depth    int
 	maxDepth int
 
+	// vecBudget is the fidelity target used when OptLossyVec is active.
+	// No effect unless OptLossyVec is set. Zero value resolves to MinCosine(0.999).
+	// Placed among the 8-byte fields (it is pointer-free, 8-byte aligned) so the
+	// trailing 1-byte flags pack contiguously without a padding gap on either side.
+	vecBudget VectorBudget
+
 	// opts is the bit-mask of feature toggles. mode and qpack are
 	// derived from it at configure time so the hot path can stay on
 	// fast bool / Mode compares; the rest of the codecs (MTF, Pair,
@@ -212,10 +218,6 @@ type Encoder struct {
 	// Reset — same pattern as qpack/rans/fsst/colIndex.
 	pairPred bool
 	mtf      bool
-
-	// vecBudget is the fidelity target used when OptLossyVec is active.
-	// No effect unless OptLossyVec is set. Zero value resolves to MinCosine(0.999).
-	vecBudget VectorBudget
 
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
@@ -520,6 +522,10 @@ func (e *Encoder) SetIntern(min int, cap int) {
 		e.maxStateEntries = cap
 	}
 }
+
+// streamHeaderLen is the fixed byte length writeHeader emits: the 3 magic bytes,
+// the version byte, and the flag byte.
+const streamHeaderLen = 5
 
 func (e *Encoder) writeHeader() {
 	if e.headerOut {
@@ -919,7 +925,10 @@ func (e *Encoder) writeBytesInline(p []byte) {
 }
 
 // WriteArrayHeader writes the header for an array of n elements. The
-// caller must follow with exactly n element writes.
+// caller must follow with exactly n element writes. n must not exceed
+// math.MaxUint32 — the wire array count is a uint32, so a larger n is
+// unrepresentable and panics rather than silently truncating the count
+// (which would desync the decoder against the n bodies that follow).
 func (e *Encoder) WriteArrayHeader(n int) {
 	e.writeHeader()
 	if n < 0 {
@@ -927,6 +936,12 @@ func (e *Encoder) WriteArrayHeader(n int) {
 		// desync the decoder. Treat it as the empty header the caller's
 		// for-i<n loop would actually emit (zero iterations).
 		n = 0
+	}
+	if uint64(n) > math.MaxUint32 {
+		// The wire count is a uint32 (there is no tagArr64). Truncating would
+		// emit a count smaller than the n bodies the caller writes next, an
+		// undecodable desync; fail loud on this unrepresentable input instead.
+		panic("qdf: array length exceeds uint32 wire limit")
 	}
 	switch {
 	case n <= int(tagFixarrMask):
@@ -939,13 +954,20 @@ func (e *Encoder) WriteArrayHeader(n int) {
 }
 
 // WriteMapHeader writes the header for a map of n entries. The caller
-// must follow with exactly n key/value pairs.
+// must follow with exactly n key/value pairs. n must not exceed
+// math.MaxUint32 — the wire map count is a uint32, so a larger n is
+// unrepresentable and panics rather than silently truncating the count.
 func (e *Encoder) WriteMapHeader(n int) {
 	e.writeHeader()
 	if n < 0 {
 		// See WriteArrayHeader: a negative count narrows to a garbage byte and
 		// desyncs the decoder; emit the empty header instead.
 		n = 0
+	}
+	if uint64(n) > math.MaxUint32 {
+		// See WriteArrayHeader: the wire count is a uint32 (no tagMap64), so a
+		// larger count is unrepresentable; fail loud rather than truncate.
+		panic("qdf: map length exceeds uint32 wire limit")
 	}
 	switch {
 	case n <= math.MaxUint8:

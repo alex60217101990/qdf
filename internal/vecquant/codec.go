@@ -19,13 +19,15 @@ const (
 
 // Block is the self-contained encoded form of a set of equal-length vectors.
 type Block struct {
+	// Slices first so the GC pointer-scan range stops here instead of spanning
+	// the whole struct (the trailing scalars are pointer-free).
+	Coords  []byte // encodeCoords output over the flattened, row-major indices
+	Cosets  []byte // coset bits for VariantE8; nil for VariantScalar
 	Dim     int
 	Count   int
 	Seed    uint64
 	Delta   float64
-	Coords  []byte // encodeCoords output over the flattened, row-major indices
-	Variant uint8  // VariantScalar or VariantE8
-	Cosets  []byte // coset bits for VariantE8; nil for VariantScalar
+	Variant uint8 // VariantScalar or VariantE8
 }
 
 // e8Eligible reports whether the E8 variant is worth attempting for a padded
@@ -81,42 +83,45 @@ func rms(flat []float64) float64 {
 
 // encodeScalar runs the scalar verify-loop and returns the chosen delta plus
 // the (possibly grown) quantized coord slice so the caller can reuse it.
-func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, q []int32) (float64, []int32) {
+func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, q []int32) (float64, []int32, bool) {
 	delta := DeltaFor(b, sigma, lattice.ScalarG)
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
 	// Scalar is always emitted as the floor: tighten delta until it meets the
 	// budget, then stop. Even at the tightest tried delta it is the fallback.
+	// overflow tracks the int32 saturation of the LAST quantization (the q that
+	// is returned), so the caller can abort to lossless.
+	var overflow bool
 	for range 4 {
-		q = lattice.QuantizeScalar(flat, delta, q)
+		q, overflow = lattice.QuantizeScalar(flat, delta, q)
 		if budgetMetScalar(orig, q, pdim, dim, delta, b, row) {
 			break
 		}
 		delta *= 0.6
 	}
-	return delta, q
+	return delta, q, overflow
 }
 
 // encodeE8 runs the E8 verify-loop; ok=false if it never meets the budget.
 // Returns the chosen delta, the integer coords, and the coset bits. qDst is
 // reused as the coords backing across the verify-loop iterations (pass nil for
 // a fresh slice each call).
-func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, qDst []int32) (delta float64, coords []int32, cosets []byte, ok bool) {
+func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b Budget, row []float64, qDst []int32) (delta float64, coords []int32, cosets []byte, ok, overflow bool) {
 	delta = DeltaFor(b, sigma, lattice.E8G)
 	if delta <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
 		delta = sigma
 	}
 	coords = qDst
 	for range 4 {
-		coords, cosets = lattice.QuantizeE8(flat, delta, coords)
+		coords, cosets, overflow = lattice.QuantizeE8(flat, delta, coords)
 		if budgetMetE8(orig, coords, cosets, pdim, dim, delta, b, row) {
 			ok = true
 			break
 		}
 		delta *= 0.6
 	}
-	return delta, coords, cosets, ok
+	return delta, coords, cosets, ok, overflow
 }
 
 // budgetMetStream reconstructs one vector at a time into row (len pdim), inverse-
@@ -212,7 +217,7 @@ func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 		sigma = 1
 	}
 
-	scDelta, qs := encodeScalar(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qScalar)
+	scDelta, qs, scOver := encodeScalar(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qScalar)
 	sc.qScalar = qs
 	scCoords, zb, rb := encodeCoordsInto(qs, sc.coordsScalar, sc.zig, sc.ransDst)
 	sc.coordsScalar, sc.zig, sc.ransDst = scCoords, zb, rb
@@ -221,9 +226,12 @@ func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 		Delta: scDelta, Coords: scCoords, Variant: VariantScalar,
 	}
 	bestSize := len(scCoords)
+	// Track the chosen variant's int32 saturation so the wire layer can abort the
+	// lossy block back to lossless (scalar is the floor, so its overflow seeds it).
+	bestOver := scOver
 
 	if e8Eligible(pdim) && e8WorthTrying(b) {
-		e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qE8)
+		e8Delta, e8Coords, e8Cosets, ok, e8Over := encodeE8(vectors, flat, pdim, dim, sigma, b, sc.row, sc.qE8)
 		sc.qE8 = e8Coords
 		if ok {
 			// E8's coord block uses its own scratch buffer so it can coexist with
@@ -238,9 +246,11 @@ func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 					Dim: dim, Count: len(vectors), Seed: hadamardSeed,
 					Delta: e8Delta, Coords: e8Bytes, Variant: VariantE8, Cosets: e8Cosets,
 				}
+				bestOver = e8Over
 			}
 		}
 	}
+	sc.Overflowed = bestOver
 	return best
 }
 
@@ -263,7 +273,7 @@ func EncodeForcedE8(vectors [][]float64, b Budget) (Block, bool) {
 		sigma = 1
 	}
 	row := make([]float64, pdim)
-	e8Delta, e8Coords, e8Cosets, ok := encodeE8(vectors, flat, pdim, dim, sigma, b, row, nil)
+	e8Delta, e8Coords, e8Cosets, ok, _ := encodeE8(vectors, flat, pdim, dim, sigma, b, row, nil)
 	if !ok {
 		return Block{}, false
 	}

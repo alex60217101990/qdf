@@ -337,6 +337,67 @@ func probeDistinctU64(s []uint64, table *[qpackDictMaxDistinct + 1]uint64) (int,
 	return count, true
 }
 
+// probeDistinctIndexU64 is probeDistinctU64 that additionally yields the
+// value→index hash map (hslot holds the keys, hidx[slot] the dictionary
+// position) the encoder needs to resolve each element. Folding the index build
+// into the distinct probe lets dict encode do ONE open-addressed pass instead of
+// a probe followed by a separate buildDictIndex pass. Only the encoder needs the
+// map; the picker keeps the lighter probeDistinctU64.
+func probeDistinctIndexU64(s []uint64, table *[qpackDictMaxDistinct + 1]uint64) (count int, ok bool, hslot [qpackProbeSlots]uint64, hidx [qpackProbeSlots]int16) {
+	var used [qpackProbeSlots]bool
+	for _, v := range s {
+		h := (v * 0x9E3779B97F4A7C15) >> (64 - 7) & (qpackProbeSlots - 1)
+		seen := false
+		for used[h] {
+			if hslot[h] == v {
+				seen = true
+				break
+			}
+			h = (h + 1) & (qpackProbeSlots - 1)
+		}
+		if seen {
+			continue
+		}
+		if count >= qpackDictMaxDistinct {
+			return 0, false, hslot, hidx
+		}
+		used[h] = true
+		hslot[h] = v
+		hidx[h] = int16(count)
+		table[count] = v
+		count++
+	}
+	return count, true, hslot, hidx
+}
+
+// probeDistinctIndexI64 mirrors probeDistinctIndexU64 for signed slices.
+func probeDistinctIndexI64(s []int64, table *[qpackDictMaxDistinct + 1]int64) (count int, ok bool, hslot [qpackProbeSlots]int64, hidx [qpackProbeSlots]int16) {
+	var used [qpackProbeSlots]bool
+	for _, v := range s {
+		h := (uint64(v) * 0x9E3779B97F4A7C15) >> (64 - 7) & (qpackProbeSlots - 1)
+		seen := false
+		for used[h] {
+			if hslot[h] == v {
+				seen = true
+				break
+			}
+			h = (h + 1) & (qpackProbeSlots - 1)
+		}
+		if seen {
+			continue
+		}
+		if count >= qpackDictMaxDistinct {
+			return 0, false, hslot, hidx
+		}
+		used[h] = true
+		hslot[h] = v
+		hidx[h] = int16(count)
+		table[count] = v
+		count++
+	}
+	return count, true, hslot, hidx
+}
+
 // probeDistinctI64 mirrors probeDistinctU64 for signed slices, hashing
 // the two's-complement bit pattern.
 func probeDistinctI64(s []int64, table *[qpackDictMaxDistinct + 1]int64) (int, bool) {

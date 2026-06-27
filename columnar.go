@@ -399,36 +399,66 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 		col := &plan.cols[c]
 		switch col.kind {
 		case colKindInt, colKindUint:
-			var mn, mx uint64 = ^uint64(0), 0
 			// Distinct values bounded to 17 (cardinality > 16 disables the dict
 			// estimate) tracked in a stack array with a linear scan — no map
 			// allocation per probed column.
 			var seen [17]uint64
 			ndistinct := 0
+			// Model the column exactly the way the encoder emits it:
+			//   - row-major: WriteInt is sign-aware (uvarint for v>=0, a fixed-width
+			//     tag for negatives), WriteUint is a plain uvarint — neither zigzags.
+			//   - columnar FOR: pickI64Codec/pickU64Codec pack over the SIGNED (resp.
+			//     unsigned) min/max range. The old code zero-extended every field via
+			//     loadScalarU64, so a narrow negative (int8 -1 → 0xFF) looked like a
+			//     huge positive, corrupting both the FOR spread and the row estimate
+			//     for any signed column holding negatives.
+			isInt := col.kind == colKindInt
+			var mnU, mxU uint64 = ^uint64(0), 0
+			var mnI, mxI int64 = math.MaxInt64, math.MinInt64
 			for i := range sample {
-				v := loadScalarU64(base, plan.stride, col, i)
-				if v < mn {
-					mn = v
-				}
-				if v > mx {
-					mx = v
+				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
+				var key uint64 // dict identity (bijective either way)
+				if isInt {
+					iv := loadI64At(p, col.width)
+					if iv < mnI {
+						mnI = iv
+					}
+					if iv > mxI {
+						mxI = iv
+					}
+					key = uint64(iv)
+					rowBytes += intRowCost(iv)
+				} else {
+					uv := loadScalarU64(base, plan.stride, col, i)
+					if uv < mnU {
+						mnU = uv
+					}
+					if uv > mxU {
+						mxU = uv
+					}
+					key = uv
+					rowBytes += uvarintLen(uv)
 				}
 				if ndistinct <= 16 {
 					found := false
 					for j := 0; j < ndistinct; j++ {
-						if seen[j] == v {
+						if seen[j] == key {
 							found = true
 							break
 						}
 					}
 					if !found {
-						seen[ndistinct] = v
+						seen[ndistinct] = key
 						ndistinct++
 					}
 				}
-				rowBytes += uvarintLen(v) // row-major: one varint per value
 			}
-			spread := mx - mn
+			var spread uint64
+			if isInt {
+				spread = uint64(mxI) - uint64(mnI)
+			} else {
+				spread = mxU - mnU
+			}
 			bits := 0
 			for spread > 0 {
 				bits++
@@ -676,6 +706,12 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 		}
 		if e.colIndex {
 			end := len(e.buf)
+			// The column-index entry is a uint32; a single column body exceeding
+			// 4 GiB would truncate here and desync the decoder's skip cursor. Bail
+			// rather than emit a corrupt index (extreme: needs a >4 GiB column).
+			if end-colStart > math.MaxUint32 {
+				return ErrInvalidLength
+			}
 			binary.LittleEndian.PutUint32(e.buf[idxAt+4*c:], uint32(end-colStart))
 			colStart = end
 		}
@@ -844,6 +880,27 @@ func storeFloat32Bits(base unsafe.Pointer, stride uintptr, col *colColumn, i int
 	*(*uint32)(p) = uint32(v)
 }
 
+// intRowCost returns the row-major wire byte cost of WriteInt(v), so the
+// columnar probe scores a signed column against the same encoding the encoder
+// actually emits (uvarint for non-negatives, a fixed-width tag for negatives).
+func intRowCost(v int64) int {
+	if v >= 0 {
+		return uvarintLen(uint64(v))
+	}
+	switch {
+	case v >= -negfixintMaxAbs:
+		return 1
+	case v >= math.MinInt8:
+		return 2
+	case v >= math.MinInt16:
+		return 3
+	case v >= math.MinInt32:
+		return 5
+	default:
+		return 9
+	}
+}
+
 //go:nosplit
 func loadScalarU64(base unsafe.Pointer, stride uintptr, col *colColumn, i int) uint64 {
 	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
@@ -863,7 +920,16 @@ func loadScalarU64(base unsafe.Pointer, stride uintptr, col *colColumn, i int) u
 func loadStringField(base unsafe.Pointer, stride uintptr, col *colColumn, i int) string {
 	p := unsafe.Add(base, uintptr(i)*stride+col.offset)
 	if col.isByte {
-		return string(*(*[]byte)(p))
+		// Zero-copy view of the []byte field, mirroring the string-field case
+		// below (which already aliases the caller's backing). The returned value
+		// is consumed synchronously during encode while the source struct is live
+		// and is never retained, so aliasing is safe and avoids a heap copy per
+		// gathered cell (probe, columnar gather, and column-diff gather).
+		b := *(*[]byte)(p)
+		if len(b) == 0 {
+			return ""
+		}
+		return unsafe.String(unsafe.SliceData(b), len(b))
 	}
 	return *(*string)(p)
 }

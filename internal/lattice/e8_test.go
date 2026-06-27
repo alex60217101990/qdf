@@ -74,7 +74,7 @@ func TestQuantizeReconstructE8RoundTripErrorBound(t *testing.T) {
 	for i := range x {
 		x[i] = math.Sin(float64(i)*0.37) * 4
 	}
-	coords, cosets := QuantizeE8(x, delta, nil)
+	coords, cosets, _ := QuantizeE8(x, delta, nil)
 	got := ReconstructE8(coords, cosets, delta, len(x))
 	// E8 covering radius is sqrt(2); per-coordinate error is bounded loosely by
 	// delta*sqrt(2). Assert a comfortable bound that still catches gross errors.
@@ -95,7 +95,7 @@ func TestE8MSEBeatsScalar(t *testing.T) {
 		x[i] = math.Sin(float64(i)*0.911) + math.Cos(float64(i)*0.123)
 	}
 	// scalar
-	qs := QuantizeScalar(x, delta, nil)
+	qs, _ := QuantizeScalar(x, delta, nil)
 	rs := ReconstructScalar(qs, delta, nil)
 	var seScalar float64
 	for i := range x {
@@ -103,7 +103,7 @@ func TestE8MSEBeatsScalar(t *testing.T) {
 		seScalar += d * d
 	}
 	// e8
-	ce, cs := QuantizeE8(x, delta, nil)
+	ce, cs, _ := QuantizeE8(x, delta, nil)
 	re := ReconstructE8(ce, cs, delta, n)
 	var seE8 float64
 	for i := range x {

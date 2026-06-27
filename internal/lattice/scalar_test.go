@@ -8,7 +8,7 @@ import (
 func TestScalarRoundTripErrorBound(t *testing.T) {
 	const delta = 0.25
 	x := []float64{0, 0.1, -0.1, 1.0, -2.37, 5.5, -100.2}
-	q := QuantizeScalar(x, delta, nil)
+	q, _ := QuantizeScalar(x, delta, nil)
 	got := ReconstructScalar(q, delta, nil)
 	for i := range x {
 		if math.Abs(got[i]-x[i]) > delta/2+1e-12 {
@@ -25,7 +25,7 @@ func TestScalarMSEMatchesModel(t *testing.T) {
 	for i := range x {
 		x[i] = (float64(i%1000)/1000.0 - 0.5) * 50 // spans many cells
 	}
-	q := QuantizeScalar(x, delta, nil)
+	q, _ := QuantizeScalar(x, delta, nil)
 	got := ReconstructScalar(q, delta, nil)
 	var se float64
 	for i := range x {
