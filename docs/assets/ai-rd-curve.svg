@@ -28,8 +28,8 @@
     <text x="551" y="500">260</text>
     <text x="708" y="500">320</text>
   </g>
-  <text x="430" y="524" text-anchor="middle" font-size="14" fill="#374151">bytes / vector (lower = smaller wire)</text>
-  <text x="784" y="78" text-anchor="end" font-size="10.5" fill="#9ca3af">source: cmd/qdf-vecbench/rd.csv — go run ./cmd/qdf-vecbench -synthetic -n 2000 -dim 256</text>
+  <text x="430" y="510" text-anchor="middle" font-size="14" fill="#374151">bytes / vector (lower = smaller wire)</text>
+  <text x="80" y="534" font-size="9.5" fill="#9ca3af">source: cmd/qdf-vecbench/rd.csv — go run github.com/alex60217101990/qdf/cmd/qdf-vecbench@latest -synthetic -n 2000 -dim 256</text>
 
   <!-- qdf-lossy -->
   <polyline fill="none" stroke="#e8590c" stroke-width="3"
