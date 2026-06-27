@@ -96,6 +96,45 @@ Measured on a 1000-row string-heavy batch: **7002 → 3 allocs/op, ~−38 % B/op
 
 For a `Decoder`/`StreamDecoder` you drive yourself, use `SetNoCopy(true)`.
 
+### Memory-mapped stores (`mmap` + `WithNoCopy`)
+
+An `mmap` of a file is exactly the "owned, not-recycled" input `WithNoCopy`
+wants: decode aliases the mapped pages, so a string/`[]byte` value is read
+straight from the page cache with **zero copies** between disk and the decoded
+value.
+
+```go
+f, _ := os.Open("store.qdf")
+st, _ := f.Stat()
+data, _ := unix.Mmap(int(f.Fd()), 0, int(st.Size()), unix.PROT_READ, unix.MAP_SHARED)
+defer unix.Munmap(data) // keep the mapping alive until `out` is done
+
+var out []Record
+_ = qdf.Unmarshal(data, &out, qdf.WithNoCopy())
+```
+
+What the measurements actually show (5000-record string corpus, decode-only):
+
+| approach | time | allocs/op |
+|---|---|---|
+| `os.ReadFile` + `Unmarshal` | 2.45 ms | 10032 |
+| `os.ReadFile` + `WithNoCopy` | 2.08 ms | 5031 |
+| `mmap` + `WithNoCopy` | 2.10 ms | 5026 |
+
+The portable win is **`WithNoCopy` itself** (the string-body aliasing — ~−50 %
+allocations). For a file that comfortably fits in memory and is decoded once,
+`mmap` is a **wash** versus reading it in: the per-call `mmap`/`munmap` syscalls
+roughly cancel the avoided file→buffer copy. `mmap` earns its keep only for a
+**large store you decode partially or repeatedly** — a memory-mapped embedding
+index or columnar blob — where demand paging faults in just the touched pages
+and you never allocate a file-sized `[]byte` on the Go heap.
+
+> ⚠️ The `mmap` extends the `WithNoCopy` lifetime contract by one rule: do **not**
+> `Munmap` (or close the mapping) while any decoded value is still referenced —
+> the aliases would dangle. `unix.Mmap` is POSIX-only (`//go:build unix`); on
+> Windows use the platform mapping call. For a store that is mutated under you,
+> use `WithArena` instead.
+
 ---
 
 ## 4. Decode arena (`WithArena`)
