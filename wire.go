@@ -194,7 +194,19 @@ const (
 	//                    predicate query can decode only the blocks covering its
 	//                    matched rows. Selected only when strictly smaller than the
 	//                    whole-column codec (never-larger), so the wire never grows.
-	// 0xF1..0xF2 unassigned (reserved for a future MessagePack-style ext type).
+	tagZoneChunk = 0xF1 // Zone-chunked integer column with a min/max zonemap
+	//                    (OptZoneMap). A column is split into 256-row zones, each an
+	//                    independent QPack int sub-slice, prefixed by a uint32 offset
+	//                    table and a per-zone [min,max] zonemap. Wire:
+	//                       tag, kind(1), zoneLog(1; 8=>256), varuint(n),
+	//                       zoneCount x uint32 LE  (byte offset of each zone body),
+	//                       zoneCount x (min,max)  (zigzag/var-int per kind),
+	//                       zoneCount x <QPack int sub-slice (tag+header+body)>.
+	//                    A bound-carrying predicate (WhereRange/GE/LE/Eq) skips
+	//                    zones whose [min,max] cannot match, without decoding them.
+	//                    Opt-in size-for-query-speed trade; without OptZoneMap the
+	//                    column uses the normal codec and the wire is unchanged.
+	// 0xF2 unassigned (reserved for a future MessagePack-style ext type).
 	tagTimestamp = 0xF3
 
 	// ALP (Adaptive Lossless floating-Point, CWI 2023), decimal path,

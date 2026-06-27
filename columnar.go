@@ -733,10 +733,20 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 	case colKindInt:
 		s := gatherColI64(st.colScratchI64, base, plan.stride, col, n)
 		st.colScratchI64 = s
+		// OptZoneMap: zone-chunk the column with a min/max zonemap for predicate
+		// zone-skip (columnar-only, explicit size-for-query-speed opt-in).
+		if e.zonemap && n >= zoneChunkMinLen {
+			e.writeZoneChunkInt64(s)
+			return nil
+		}
 		return encodeSliceInt64(e, unsafe.Pointer(&s))
 	case colKindUint:
 		s := gatherColU64(st.colScratchU64, base, plan.stride, col, n)
 		st.colScratchU64 = s
+		if e.zonemap && n >= zoneChunkMinLen {
+			e.writeZoneChunkUint64(s)
+			return nil
+		}
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindFloat:
 		s := st.colScratchF64[:0]
@@ -1470,6 +1480,28 @@ func (d *Decoder) runQueryColumns(
 			continue
 		}
 		k := sh.kinds[c]
+		// Zone-skip: a referenced zone-chunked int/uint column whose every
+		// referencing leaf carries comparison bounds is decoded zone-selectively —
+		// zones whose [min,max] cannot match any leaf are skipped, and each leaf's T
+		// mask is produced directly (precompT). Needs colLens to reposition past the
+		// column afterwards.
+		if leaf := singleBoundedLeafForCol(flat, c); leaf != nil && colLens != nil &&
+			!k.isNullable() && (k == colKindInt || k == colKindUint) &&
+			d.i < len(d.buf) && d.buf[d.i] == tagZoneChunk {
+			if d.i+int(colLens[c]) > len(d.buf) {
+				return nil, nil, ErrShortBuffer
+			}
+			start := d.i
+			cv, e := d.decodeZoneChunkQuery(start, []*cnode{leaf}, n, proj)
+			if e != nil {
+				return nil, nil, e
+			}
+			if proj {
+				retained[c] = cv
+			}
+			d.i = start + int(colLens[c]) // leaf uses precompT; colCV[c] stays nil
+			continue
+		}
 		if proj && !ref && colLens != nil && !k.isNullable() &&
 			(k == colKindInt || k == colKindUint) &&
 			d.i < len(d.buf) && d.buf[d.i] == tagPackBlock {

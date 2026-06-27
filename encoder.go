@@ -219,6 +219,11 @@ type Encoder struct {
 	// reader skip columns without decoding them.
 	colIndex bool
 
+	// zonemap stores eligible columnar int columns as zone-chunked containers
+	// (tag 0xF1) with a per-zone [min,max] map for predicate zone-skip. Set from
+	// OptZoneMap (requires qpack). See qpack_zonechunk.go.
+	zonemap bool
+
 	// pairPred / mtf cache OptPairPred / OptMTF (both on in OptBalanced) so the
 	// hot Dense state-ref emit path tests a bool field instead of re-running
 	// opts.Has() several times per repeated value. Set in applyOpts, cleared in
@@ -270,6 +275,7 @@ func (e *Encoder) applyOpts(opts Options) {
 	e.gorillaFloat = e.qpack && opts.Has(OptGorillaFloat)
 	e.rans = opts.Has(OptRANS)
 	e.colIndex = opts.Has(OptColumnIndex)
+	e.zonemap = e.qpack && opts.Has(OptZoneMap)
 	e.fsst = e.qpack && opts.Has(OptFSST)
 	e.pairPred = opts.Has(OptPairPred)
 	e.mtf = opts.Has(OptMTF)
