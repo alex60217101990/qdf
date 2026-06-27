@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 540" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <rect width="860" height="540" fill="#ffffff"/>
+  <text x="430" y="34" text-anchor="middle" font-size="22" font-weight="700" fill="#1a1a2e">Recall@10 vs bytes / vector — same 2,000×256 Gaussian corpus</text>
+  <text x="430" y="56" text-anchor="middle" font-size="14" fill="#6b7280">qdf-lossy sits to the left: fewer bytes at the same recall (Pareto-better)</text>
+
+  <!-- plot frame -->
+  <rect x="80" y="80" width="700" height="400" fill="#fafafa" stroke="#d1d5db" stroke-width="1"/>
+
+  <!-- y gridlines + labels (recall 0.62..1.00) -->
+  <g font-size="12" fill="#6b7280">
+    <line x1="80" y1="40.0"  x2="780" y2="40.0"  stroke="#eceef1"/>
+    <line x1="80" y1="145.3" x2="780" y2="145.3" stroke="#eceef1"/>
+    <line x1="80" y1="250.5" x2="780" y2="250.5" stroke="#eceef1"/>
+    <line x1="80" y1="355.8" x2="780" y2="355.8" stroke="#eceef1"/>
+    <text x="72" y="44"  text-anchor="end">1.00</text>
+    <text x="72" y="149" text-anchor="end">0.90</text>
+    <text x="72" y="255" text-anchor="end">0.80</text>
+    <text x="72" y="360" text-anchor="end">0.70</text>
+    <text x="72" y="444" text-anchor="end">0.62</text>
+  </g>
+  <text x="26" y="280" text-anchor="middle" font-size="14" fill="#374151" transform="rotate(-90 26 280)">recall@10 (higher = better)</text>
+
+  <!-- x labels (bytes 80..340) -->
+  <g font-size="12" fill="#6b7280" text-anchor="middle">
+    <text x="80"  y="500">80</text>
+    <text x="237" y="500">140</text>
+    <text x="394" y="500">200</text>
+    <text x="551" y="500">260</text>
+    <text x="708" y="500">320</text>
+  </g>
+  <text x="430" y="524" text-anchor="middle" font-size="14" fill="#374151">bytes / vector (lower = smaller wire)</text>
+  <text x="784" y="78" text-anchor="end" font-size="10.5" fill="#9ca3af">source: cmd/qdf-vecbench/rd.csv — go run ./cmd/qdf-vecbench -synthetic -n 2000 -dim 256</text>
+
+  <!-- qdf-lossy -->
+  <polyline fill="none" stroke="#e8590c" stroke-width="3"
+    points="101.6,371.2 149.5,267.2 232.7,158.3 316.5,112.2 420.8,67.4 550.2,57.7 689.2,47.6"/>
+  <g fill="#e8590c">
+    <circle cx="101.6" cy="371.2" r="4.5"/><circle cx="149.5" cy="267.2" r="4.5"/>
+    <circle cx="232.7" cy="158.3" r="4.5"/><circle cx="316.5" cy="112.2" r="4.5"/>
+    <circle cx="420.8" cy="67.4" r="4.5"/><circle cx="550.2" cy="57.7" r="4.5"/>
+    <circle cx="689.2" cy="47.6" r="4.5"/>
+  </g>
+
+  <!-- naive scalar -->
+  <polyline fill="none" stroke="#1971c2" stroke-width="2.5" stroke-dasharray="2 0"
+    points="163.7,430.5 247.4,239.4 331.1,144.4 414.8,98.9 498.5,72.6 582.2,53.7 749.5,42.5"/>
+  <g fill="#1971c2">
+    <circle cx="163.7" cy="430.5" r="4"/><circle cx="247.4" cy="239.4" r="4"/>
+    <circle cx="331.1" cy="144.4" r="4"/><circle cx="414.8" cy="98.9" r="4"/>
+    <circle cx="498.5" cy="72.6" r="4"/><circle cx="582.2" cy="53.7" r="4"/>
+    <circle cx="749.5" cy="42.5" r="4"/>
+  </g>
+
+  <!-- TurboQuant rotated-scalar -->
+  <polyline fill="none" stroke="#2f9e44" stroke-width="2.5" stroke-dasharray="7 5"
+    points="184.6,432.4 268.3,236.8 352,142.3 435.7,95.4 519.4,66.1 603.1,53.7 770.5,41.7"/>
+  <g fill="#2f9e44">
+    <circle cx="184.6" cy="432.4" r="4"/><circle cx="268.3" cy="236.8" r="4"/>
+    <circle cx="352" cy="142.3" r="4"/><circle cx="435.7" cy="95.4" r="4"/>
+    <circle cx="519.4" cy="66.1" r="4"/><circle cx="603.1" cy="53.7" r="4"/>
+    <circle cx="770.5" cy="41.7" r="4"/>
+  </g>
+
+  <!-- iso-recall guide at 0.90 -->
+  <line x1="80" y1="145.3" x2="430" y2="145.3" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="430" y="129" font-size="12" fill="#374151">@ recall 0.90:  qdf ≈170 B  ·  naive 176 B  ·  TurboQuant 184 B</text>
+
+  <!-- legend -->
+  <g font-size="14">
+    <rect x="540" y="380" width="232" height="92" fill="#ffffff" stroke="#e5e7eb"/>
+    <line x1="556" y1="402" x2="586" y2="402" stroke="#e8590c" stroke-width="3"/>
+    <text x="594" y="407" fill="#1a1a2e" font-weight="600">qdf-lossy (this work)</text>
+    <line x1="556" y1="428" x2="586" y2="428" stroke="#1971c2" stroke-width="2.5"/>
+    <text x="594" y="433" fill="#374151">naive scalar quant</text>
+    <line x1="556" y1="454" x2="586" y2="454" stroke="#2f9e44" stroke-width="2.5" stroke-dasharray="7 5"/>
+    <text x="594" y="459" fill="#374151">TurboQuant rotated-scalar</text>
+  </g>
+</svg>

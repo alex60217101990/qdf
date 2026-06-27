@@ -1,0 +1,53 @@
+# Renders the qdf AI-embeddings article to GitHub Pages, triggered ONLY when the
+# article content changes — not on every push. docs/AI-EMBEDDINGS-ARTICLE.md is
+# the source of truth; docs/ai-article.html is a static shell that fetches and
+# renders it (Markdown via marked, diagrams via mermaid), so a content edit needs
+# no re-render step — this workflow just republishes the shell, the Markdown, and
+# the article's image assets.
+#
+# The site already serves the deep-dive article, the bench-trend dashboard and
+# coverage from the gh-pages branch (see docs/PAGES-SETUP.md); keep_files: true
+# preserves them. This job publishes in ~30 s and shares the gh-pages-deploy
+# concurrency group with the other publishers, so their pushes never overlap.
+name: pages-ai-article
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/AI-EMBEDDINGS-ARTICLE.md
+      - docs/ai-article.html
+      - docs/assets/**
+      - .github/workflows/pages-ai-article.yml
+
+# Least-privilege default; the publish job elevates contents to write.
+permissions:
+  contents: read
+
+concurrency:
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: render + publish AI article
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the rendered article to the gh-pages branch
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: stage AI article into ./public
+        run: |
+          set -euo pipefail
+          mkdir -p public/assets
+          cp docs/ai-article.html public/ai-article.html
+          cp docs/AI-EMBEDDINGS-ARTICLE.md public/AI-EMBEDDINGS-ARTICLE.md
+          cp docs/assets/ai-*.svg public/assets/
+
+      - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./public
+          keep_files: true
