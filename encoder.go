@@ -142,6 +142,13 @@ type Encoder struct {
 	wideI64 []int64
 	wideU64 []uint64
 
+	// blkPlanI64 / blkPlanU64 cache the per-block codec picks made while costing
+	// the per-block adaptive codec, so the emit pass reuses them instead of
+	// re-picking every block (pickI64Codec is the dominant encode cost). Reused
+	// across columns; bounded on return to the pool.
+	blkPlanI64 []blockPlanI64
+	blkPlanU64 []blockPlanU64
+
 	// minIntern is the minimum string length eligible for interning;
 	// shorter values go in line.
 	minIntern int

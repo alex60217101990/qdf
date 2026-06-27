@@ -178,7 +178,23 @@ const (
 	//                    the dense non-nil values encoded with the base kind's
 	//                    codec.
 
-	// 0xF0..0xF2 unassigned (reserved for a future MessagePack-style ext type).
+	tagPackBlock = 0xF0 // Per-block adaptive integer slice. A long int/uint
+	//                    column is split into fixed-size blocks; each block is an
+	//                    independent QPack sub-slice (FOR/Delta/RLE/dict/PFOR/raw)
+	//                    so a column whose statistics shift along its length packs
+	//                    each region optimally instead of one codec for the whole.
+	//                    Wire:
+	//                       tag, kind(1), blkLog(1; 8=>256, 10=>1024),
+	//                       varuint(n),
+	//                       nBlocks x uint32 LE  (byte offset of each block body,
+	//                                             relative to the first body),
+	//                       nBlocks x <QPack int sub-slice (tag+header+body)>.
+	//                    nBlocks = ceil(n / (1<<blkLog)); the last block holds the
+	//                    remainder. The offset table enables O(1) block seek, so a
+	//                    predicate query can decode only the blocks covering its
+	//                    matched rows. Selected only when strictly smaller than the
+	//                    whole-column codec (never-larger), so the wire never grows.
+	// 0xF1..0xF2 unassigned (reserved for a future MessagePack-style ext type).
 	tagTimestamp = 0xF3
 
 	// ALP (Adaptive Lossless floating-Point, CWI 2023), decimal path,
