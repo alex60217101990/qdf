@@ -691,6 +691,10 @@ func decodeSliceFloat64Into(d *Decoder, dst *[]float64) error {
 		*dst = vecs[0]
 		return nil
 	}
+	if t == tagZoneChunk {
+		d.i++
+		return d.readZoneChunkFloat64Into(dst)
+	}
 	if t == tagPackRaw {
 		d.i++
 		n, body, err2 := d.readPackedRawHeader(qpackKindFloat64)

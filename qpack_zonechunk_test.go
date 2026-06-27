@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"bytes"
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -138,6 +139,96 @@ func TestZoneChunkSkipCorrect(t *testing.T) {
 	}
 }
 
+// ---- float64 zone-chunk ----
+
+type zcFRow struct {
+	F   float64 // ordered predicate column
+	K   int64   // payload
+	J   int64   // low-card payload
+	Tag string  // constant string — strong columnar-win signal so the probe transposes
+}
+
+func TestZoneChunkFloat64(t *testing.T) {
+	const n = 4096
+	rng := rand.New(rand.NewSource(9))
+	rows := make([]zcFRow, n)
+	f := 0.0
+	for i := range rows {
+		f += rng.Float64() // monotonically increasing → ordered
+		v := f
+		if i%500 == 0 {
+			v = math.NaN() // sprinkle NaN — must round-trip + never match
+		}
+		rows[i] = zcFRow{F: v, K: int64(i), J: int64(i % 8), Tag: "const"}
+	}
+	b, err := Marshal(rows, OptBalanced|OptZoneMap|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Round-trip incl. NaN (bit-exact).
+	var all []zcFRow
+	if err := Unmarshal(b, &all); err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != n {
+		t.Fatalf("len %d", len(all))
+	}
+	for i := range rows {
+		if math.IsNaN(rows[i].F) {
+			if !math.IsNaN(all[i].F) || all[i].K != rows[i].K {
+				t.Fatalf("[%d] NaN row not preserved: %+v", i, all[i])
+			}
+			continue
+		}
+		if all[i] != rows[i] {
+			t.Fatalf("[%d] %+v != %+v", i, all[i], rows[i])
+		}
+	}
+
+	// Zone-skip range: result == full filter (NaN never matches), zones skipped.
+	lo, hi := rows[1001].F, rows[1099].F
+	zoneSkippedZones = 0
+	var out []zcFRow
+	if err := Unmarshal(b, &out, WhereRange("F", lo, hi), Select("F", "K", "J", "Tag")); err != nil {
+		t.Fatal(err)
+	}
+	var want []zcFRow
+	for _, r := range rows {
+		if r.F >= lo && r.F <= hi { // NaN >= lo is false → excluded, as required
+			want = append(want, r)
+		}
+	}
+	if len(out) != len(want) {
+		t.Fatalf("range len %d != %d", len(out), len(want))
+	}
+	for i := range want {
+		if out[i] != want[i] {
+			t.Fatalf("range [%d] %+v != %+v", i, out[i], want[i])
+		}
+	}
+	if zoneSkippedZones == 0 {
+		t.Fatal("float zone-skip skipped 0 zones")
+	}
+	t.Logf("float64: %d rows, %d zones skipped", len(out), zoneSkippedZones)
+
+	// WhereCmp GE on float.
+	zoneSkippedZones = 0
+	var ge []zcFRow
+	if err := Unmarshal(b, &ge, WhereCmp("F", GE, rows[3997].F), Select("F", "K", "J", "Tag")); err != nil {
+		t.Fatal(err)
+	}
+	cnt := 0
+	for _, r := range rows {
+		if r.F >= rows[3997].F {
+			cnt++
+		}
+	}
+	if len(ge) != cnt {
+		t.Fatalf("ge len %d != %d", len(ge), cnt)
+	}
+}
+
 // ---- no-flag byte-identical ----
 
 func TestZoneChunkNoFlagIdentical(t *testing.T) {
@@ -213,7 +304,7 @@ func FuzzZoneChunkDecode(f *testing.F) {
 
 func TestZoneChunkProperty(t *testing.T) {
 	rng := rand.New(rand.NewSource(123))
-	for iter := 0; iter < 100; iter++ {
+	for iter := range 100 {
 		n := 512 + rng.Intn(4000)
 		ordered := rng.Intn(2) == 0
 		rows := zcRows(n, ordered)

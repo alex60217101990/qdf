@@ -754,6 +754,13 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 			s = append(s, loadFloat64Field(base, plan.stride, col, i))
 		}
 		st.colScratchF64 = s
+		// OptZoneMap: zone-chunk with a finite min/max zonemap for predicate
+		// zone-skip (lossless per zone). Lossless regardless: a SCALAR float64
+		// column must never become lossy, even under OptLossyVec.
+		if e.zonemap && n >= zoneChunkMinLen {
+			e.writeZoneChunkFloat64(s)
+			return nil
+		}
 		// Lossless: a SCALAR float64 column must never become lossy, even under
 		// OptLossyVec (which targets genuine []float64/[]float32 VECTOR fields).
 		return encodeSliceFloat64Lossless(e, s)
@@ -1486,7 +1493,7 @@ func (d *Decoder) runQueryColumns(
 		// mask is produced directly (precompT). Needs colLens to reposition past the
 		// column afterwards.
 		if leaf := singleBoundedLeafForCol(flat, c); leaf != nil && colLens != nil &&
-			!k.isNullable() && (k == colKindInt || k == colKindUint) &&
+			!k.isNullable() && (k == colKindInt || k == colKindUint || k == colKindFloat) &&
 			d.i < len(d.buf) && d.buf[d.i] == tagZoneChunk {
 			if d.i+int(colLens[c]) > len(d.buf) {
 				return nil, nil, ErrShortBuffer

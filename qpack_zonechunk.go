@@ -1,6 +1,9 @@
 package qdf
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"math"
+)
 
 // Zone-chunked integer column with a min/max zonemap (wire tag tagZoneChunk,
 // 0xF1, OptZoneMap).
@@ -19,11 +22,27 @@ import "encoding/binary"
 // is the price of zone-skippability). Without OptZoneMap the wire is unchanged.
 
 const (
-	zoneKindInt  = 0x00
-	zoneKindUint = 0x01
+	zoneKindInt   = 0x00
+	zoneKindUint  = 0x01
+	zoneKindFloat = 0x02 // float64
 	// zoneChunkMinLen: a column shorter than two zones has nothing to chunk.
 	zoneChunkMinLen = 2 * blockSizeSmall // reuse the block codec's 256-row zone
 )
+
+// finiteMinMaxF64 returns the min and max of s over non-NaN values. ±Inf are
+// ordered and included. An all-NaN (or empty) slice yields the empty interval
+// (+Inf, -Inf), which intersects no finite predicate range — so such a zone is
+// correctly skipped (NaN never matches a comparison). Caller passes len(s) > 0.
+func finiteMinMaxF64(s []float64) (mn, mx float64) {
+	mn, mx = math.Inf(1), math.Inf(-1)
+	for _, v := range s {
+		if v != v { // NaN: builtin min/max would propagate it, so skip explicitly
+			continue
+		}
+		mn, mx = min(mn, v), max(mx, v)
+	}
+	return mn, mx
+}
 
 // ---- encode (int64) ----
 
@@ -86,6 +105,34 @@ func (e *Encoder) writeZoneChunkUint64(s []uint64) {
 	}
 }
 
+// ---- encode (float64) ----
+
+func (e *Encoder) writeZoneChunkFloat64(s []float64) {
+	e.writeHeader()
+	n := len(s)
+	zoneCount := (n + blockSizeSmall - 1) / blockSizeSmall
+	e.buf = append(e.buf, tagZoneChunk, zoneKindFloat, blkLogSmall)
+	e.buf = appendUvarint(e.buf, uint64(n))
+	offAt := len(e.buf)
+	e.buf = append(e.buf, make([]byte, 4*zoneCount)...)
+	// zonemap: per-zone finite min,max as 8-byte IEEE-754 bits (LE).
+	for i := 0; i < n; i += blockSizeSmall {
+		j := min(i+blockSizeSmall, n)
+		mn, mx := finiteMinMaxF64(s[i:j])
+		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(mn))
+		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(mx))
+	}
+	bodyStart := len(e.buf)
+	zi := 0
+	for i := 0; i < n; i += blockSizeSmall {
+		j := min(i+blockSizeSmall, n)
+		binary.LittleEndian.PutUint32(e.buf[offAt+4*zi:], uint32(len(e.buf)-bodyStart))
+		ss := s[i:j]
+		_ = encodeSliceFloat64Lossless(e, ss) // never errors for a plain []float64
+		zi++
+	}
+}
+
 // ---- decode header (shared) ----
 
 // zoneChunkHeader is the decoded geometry + zonemap of a zone-chunked column.
@@ -94,6 +141,7 @@ func (e *Encoder) writeZoneChunkUint64(s []uint64) {
 type zoneChunkHeader struct {
 	minI64, maxI64 []int64
 	minU64, maxU64 []uint64
+	minF64, maxF64 []float64
 	offBase        int // byte offset of the uint32 offset table
 	bodyStart      int // byte offset of the first zone body
 	n              int
@@ -111,7 +159,7 @@ func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
 		return h, ErrShortBuffer
 	}
 	h.kind = d.buf[d.i]
-	if h.kind != zoneKindInt && h.kind != zoneKindUint {
+	if h.kind != zoneKindInt && h.kind != zoneKindUint && h.kind != zoneKindFloat {
 		return h, ErrTypeMismatch
 	}
 	d.i++
@@ -142,8 +190,9 @@ func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
 	}
 	d.i += 4 * h.zoneCount
 
-	// zonemap (zoneCount x min,max varints)
-	if h.kind == zoneKindInt {
+	// zonemap (per-kind min,max)
+	switch h.kind {
+	case zoneKindInt:
 		h.minI64 = make([]int64, h.zoneCount)
 		h.maxI64 = make([]int64, h.zoneCount)
 		for z := 0; z < h.zoneCount; z++ {
@@ -163,7 +212,7 @@ func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
 				return h, ErrInvalidLength
 			}
 		}
-	} else {
+	case zoneKindUint:
 		h.minU64 = make([]uint64, h.zoneCount)
 		h.maxU64 = make([]uint64, h.zoneCount)
 		for z := 0; z < h.zoneCount; z++ {
@@ -182,6 +231,19 @@ func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
 			if h.minU64[z] > h.maxU64[z] {
 				return h, ErrInvalidLength
 			}
+		}
+	default: // zoneKindFloat: 8-byte min + 8-byte max per zone (IEEE-754 bits LE)
+		if d.i+16*h.zoneCount > len(d.buf) {
+			return h, ErrShortBuffer
+		}
+		h.minF64 = make([]float64, h.zoneCount)
+		h.maxF64 = make([]float64, h.zoneCount)
+		for z := 0; z < h.zoneCount; z++ {
+			h.minF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i:]))
+			h.maxF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i+8:]))
+			d.i += 16
+			// No min<=max check: an all-NaN zone stores the empty interval
+			// (+Inf, -Inf) on purpose, and NaN bounds are not ordered.
 		}
 	}
 
@@ -217,6 +279,40 @@ func (h *zoneChunkHeader) zoneLen(z int) int {
 	return h.blk
 }
 
+// ---- decode-all (float64) ----
+
+func (d *Decoder) readZoneChunkFloat64() ([]float64, error) {
+	var s []float64
+	if err := d.readZoneChunkFloat64Into(&s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (d *Decoder) readZoneChunkFloat64Into(dst *[]float64) error {
+	h, err := d.readZoneChunkHeader()
+	if err != nil {
+		return err
+	}
+	if h.kind != zoneKindFloat {
+		return ErrTypeMismatch
+	}
+	growF64(dst, h.n)
+	out := *dst
+	var tmp []float64
+	for z := range h.zoneCount {
+		d.i = h.zoneOff(d, z)
+		if err := decodeSliceFloat64Into(d, &tmp); err != nil {
+			return err
+		}
+		if len(tmp) != h.zoneLen(z) {
+			return ErrInvalidLength
+		}
+		copy(out[z*h.blk:], tmp)
+	}
+	return nil
+}
+
 // zoneSkippedZones counts zones the query path proved cannot match and did not
 // decode. Test-only instrumentation; otherwise inert.
 var zoneSkippedZones int
@@ -243,26 +339,35 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 	}
 	var cv *colVals
 	if proj {
-		if h.kind == zoneKindInt {
+		switch h.kind {
+		case zoneKindInt:
 			cv = &colVals{kind: colKindInt, i64: make([]int64, n)}
-		} else {
+		case zoneKindUint:
 			cv = &colVals{kind: colKindUint, u64: make([]uint64, n)}
+		default:
+			cv = &colVals{kind: colKindFloat, f64: make([]float64, n)}
 		}
 	}
 	for z := range h.zoneCount {
 		needed := false
 		for _, lf := range leaves {
 			// Zone z intersects the leaf's bounds iff zoneMax >= lo && zoneMin <= hi.
-			if h.kind == zoneKindInt {
+			switch h.kind {
+			case zoneKindInt:
 				if h.maxI64[z] >= lf.term.loI64 && h.minI64[z] <= lf.term.hiI64 {
 					needed = true
-					break
 				}
-			} else {
+			case zoneKindUint:
 				if h.maxU64[z] >= lf.term.loU64 && h.minU64[z] <= lf.term.hiU64 {
 					needed = true
-					break
 				}
+			default: // float: empty-interval (all-NaN) zones never intersect → skipped
+				if h.maxF64[z] >= lf.term.loF64 && h.minF64[z] <= lf.term.hiF64 {
+					needed = true
+				}
+			}
+			if needed {
+				break
 			}
 		}
 		if !needed {
@@ -276,7 +381,8 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 		}
 		base := z * h.blk
 		want := h.zoneLen(z)
-		if h.kind == zoneKindInt {
+		switch h.kind {
+		case zoneKindInt:
 			v, err := d.readQPackInt64(tg)
 			if err != nil {
 				return nil, err
@@ -296,7 +402,7 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 			if proj {
 				copy(cv.i64[base:], v)
 			}
-		} else {
+		case zoneKindUint:
 			v, err := d.readQPackUint64(tg)
 			if err != nil {
 				return nil, err
@@ -315,6 +421,26 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 			}
 			if proj {
 				copy(cv.u64[base:], v)
+			}
+		default: // float64
+			var v []float64
+			if err := decodeSliceFloat64Into(d, &v); err != nil {
+				return nil, err
+			}
+			if len(v) != want {
+				return nil, ErrInvalidLength
+			}
+			for _, lf := range leaves {
+				p := lf.term.pF64
+				m := lf.precompT
+				for r, x := range v {
+					if p(x) {
+						setBit(m, base+r)
+					}
+				}
+			}
+			if proj {
+				copy(cv.f64[base:], v)
 			}
 		}
 	}

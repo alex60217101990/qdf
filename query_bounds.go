@@ -179,7 +179,8 @@ func WhereRange[T Ordered](field string, lo, hi T) QueryOption {
 		t.pU64 = func(v uint64) bool { return v >= loU && v <= hiU }
 		t.loU64, t.hiU64, t.hasBounds = loU, hiU, true
 	case colKindFloat, colKindFloat32:
-		t.pF64 = func(v float64) bool { return v >= loF && v <= hiF }
+		t.pF64 = func(v float64) bool { return v >= loF && v <= hiF } // NaN → false
+		t.loF64, t.hiF64, t.hasBounds = loF, hiF, true
 	case colKindString:
 		t.pStr = func(v string) bool { return v >= loS && v <= hiS }
 	}
