@@ -1110,6 +1110,15 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 		*(*[]float64)(p) = v
 		return nil
 	}
+	if t == tagZoneChunk {
+		d.i++
+		v, err := d.readZoneChunkFloat64()
+		if err != nil {
+			return err
+		}
+		*(*[]float64)(p) = v
+		return nil
+	}
 	if t == tagPackGorilla {
 		d.i++
 		v, err := d.readPackedGorillaFloat64Slice()
