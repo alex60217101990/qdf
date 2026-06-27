@@ -52,3 +52,9 @@ cmd/qdf-bench/qdf-bench
 
 # qdf-vecbench RD output artifact
 cmd/qdf-vecbench/rd.csv
+
+# AI embeddings article + its assets/diagrams (local-only, do not commit)
+docs/AI-EMBEDDINGS-ARTICLE.md
+docs/assets/
+diagrams/svg/ai-*.svg
+diagrams/png/ai-*.png
