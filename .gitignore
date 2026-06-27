@@ -39,8 +39,9 @@ diagrams/render-png.sh
 medium-series
 scripts/arm64-test.sh
 *.html
-# published deep-dive article shell (tracked on purpose)
+# published article shells (tracked on purpose)
 !docs/article.html
+!docs/ai-article.html
 golangnews-submission.md
 dev-to-qdf.md
 PR_DESCRIPTION.md
@@ -53,8 +54,9 @@ cmd/qdf-bench/qdf-bench
 # qdf-vecbench RD output artifact
 cmd/qdf-vecbench/rd.csv
 
-# AI embeddings article + its assets/diagrams (local-only, do not commit)
-docs/AI-EMBEDDINGS-ARTICLE.md
-docs/assets/
+# AI embeddings article: the Markdown source + SVG assets are published to
+# GitHub Pages (see pages-ai-article.yml), so they are tracked. The rendered
+# PNG duplicates and the diagrams/ copies stay local-only.
+docs/assets/*.png
 diagrams/svg/ai-*.svg
 diagrams/png/ai-*.png
