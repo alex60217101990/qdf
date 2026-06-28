@@ -637,6 +637,55 @@ func (d *Decoder) Skip() error {
 			return err
 		}
 		return nil
+	case tagPackBlock:
+		// Block-coded int/uint column reached Skip (an unknown []int*/[]uint*
+		// field under OptBalanced — writeQPackInt64 emits 0xF0 at top level).
+		// Decode-and-discard via the real reader to advance the cursor exactly;
+		// the kind byte (after the tag) selects int vs uint.
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		switch d.buf[d.i] {
+		case blockKindInt:
+			_, err := d.readBlockInt64()
+			return err
+		case blockKindUint:
+			_, err := d.readBlockUint64()
+			return err
+		}
+		return ErrBadTag
+	case tagZoneChunk:
+		// Zone-chunked column reached Skip. Defensive: today 0xF1 is only emitted
+		// inside tagColStruct columns, but the top-level slice decoders accept it,
+		// so a future top-level emission must skip cleanly too. Decode-and-discard
+		// via the kind-selected reader.
+		d.i++
+		if d.i >= len(d.buf) {
+			return ErrShortBuffer
+		}
+		switch d.buf[d.i] {
+		case zoneKindInt:
+			_, err := d.readZoneChunkInt64()
+			return err
+		case zoneKindUint:
+			_, err := d.readZoneChunkUint64()
+			return err
+		case zoneKindFloat:
+			_, err := d.readZoneChunkFloat64()
+			return err
+		}
+		return ErrBadTag
+	case tagColVecLossy:
+		// Lossy float-vector column reached Skip (an unknown []float32/[]float64
+		// field under OptLossyVec — 0xFD at top level). The block self-describes
+		// its element kind and length; advance by the consumed byte count.
+		_, _, used, err := readLossyVec(d.buf[d.i:])
+		if err != nil {
+			return err
+		}
+		d.i += used
+		return nil
 	}
 	return ErrBadTag
 }
