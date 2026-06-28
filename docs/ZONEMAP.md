@@ -195,14 +195,17 @@ Tag `tagZoneChunk` (**0xF1**), emitted per column only under `OptZoneMap`.
 ![Zone-chunked column wire layout](assets/zonemap-wire.svg)
 
 ```
-0xF1  kind  blkLog  uvarint(n)
+0xF1  kind  zmap  blkLog  uvarint(n)
       ├ kind   : 0x00 int64 · 0x01 uint64 · 0x02 float64
+      ├ zmap   : 0x00 min/max index · 0x01 learned linear model (int/uint only)
       └ blkLog : log2(zone size) — 8 ⇒ 256-row zones
 
 uint32 offsetTable[zoneCount]      // body offset of each zone, relative to bodyStart
-zonemap[zoneCount]                 // per zone:
+zonemap                            // zmap == min/max:  per zone
       int/uint : zigzag-varint(min), zigzag-varint(max)   (variable length)
       float64  : float64bits(min), float64bits(max)       (8 + 8 bytes, LE)
+                                   // zmap == linear:   one model for the whole column
+      int/uint : float64(c), float64(d), uvarint(epsP)    (~18 bytes total)
 zone bodies[zoneCount]             // each an independent sub-slice:
       int/uint : a QPack codec picked per zone (FOR / Δ-FOR / RLE / dict / PFOR)
       float64  : a lossless float slice (a SCALAR float column never goes lossy)
@@ -210,9 +213,30 @@ zone bodies[zoneCount]             // each an independent sub-slice:
 
 `zoneCount = ⌈n / 256⌉`. The per-zone codec picks are shared with the block
 codec's planner (`blkPlanI64/U64`), so chunking does not re-run codec selection.
-There is **no never-larger gate** — chunking an already-tight ordered column is
-expected to cost a little wire; that cost *is* the price of zone-skippability,
-and it is gated behind the opt-in flag.
+The zone-chunk container itself has **no never-larger gate** — chunking an
+already-tight ordered column is expected to cost a little wire; that cost *is*
+the price of zone-skippability, and it is gated behind the opt-in flag.
+
+### Learned linear zonemap (`zmap == 0x01`)
+
+On a **sorted** int/uint column the per-zone `[min,max]` index dominates the
+wire — the body delta-codes to almost nothing while the index stays
+`O(zoneCount)` (it is 8–40 % of such a column). For these columns the whole
+index collapses to a single learned model: the row position of a value is
+`pos ≈ c·value + d` within `±epsP` positions (an ε-PLA with one segment, fit by
+least squares). A query range `[lo,hi]` then maps to the row range
+`[c·lo+d−epsP, c·hi+d+epsP]`, hence to a contiguous **zone** range — and because
+every matching row provably lands inside it, **no zone with a match is ever
+skipped** (`epsP` carries a +1 margin for float rounding; the exact per-row test
+still runs in the decoded zones).
+
+It is chosen by a **never-worse picker**: the linear model is emitted only when
+the column is monotonic, the fit holds within one zone (`epsP ≤ blk`, so skip
+stays tight), and it is strictly smaller than the min/max index — otherwise
+min/max is kept. `float64` columns always use min/max in v1. Measured: −6.7 % of
+the *whole* wire on a realistic 4-column struct with a sorted id/ts (81597 →
+76106 bytes), up to −40 % on an all-sorted column; multi-segment (irregular)
+columns are rejected by the picker and keep min/max.
 
 ---
 
@@ -227,11 +251,13 @@ Decode splits cleanly into **filter** and **projection**:
 
 ![Filter mask + selective projection](assets/zonemap-skip.svg)
 
-1. **Filter pass** (`decodeZoneChunkQuery`) — load the zonemap, and for each zone
-   test `zoneMax >= lo && zoneMin <= hi`. Zones that fail are skipped (their rows
-   stay `FALSE` in the leaf's precomputed `precompT` mask); zones that pass are
-   decoded and their rows tested by the exact per-row predicate. This produces
-   the leaf's truth mask directly.
+1. **Filter pass** (`decodeZoneChunkQuery`) — load the zonemap and decide which
+   zones can match. With the min/max index, each zone is tested
+   `zoneMax >= lo && zoneMin <= hi`; with the linear model, the predicate range
+   maps once to a contiguous zone range. Zones that cannot match are skipped
+   (their rows stay `FALSE` in the leaf's precomputed `precompT` mask); the rest
+   are decoded and tested by the exact per-row predicate. This produces the
+   leaf's truth mask directly.
 2. **Combine** — `precompT` feeds the boolean tree exactly like any other leaf
    mask; AND/OR/NOT and three-valued NULL logic are unchanged.
 3. **Projection pass** (`decodeZoneChunkSelective`) — *after* the final matched
