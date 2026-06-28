@@ -18,7 +18,7 @@ type skipDst struct{ After string } // schema evolution: Vals/UVals/Vec unknown 
 // that no longer has those fields succeeds instead of failing with ErrBadTag.
 func TestSchemaEvolutionSkipBlockLossy(t *testing.T) {
 	src := skipSrc{After: "sentinel"}
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		v := int64(i)
 		if i%50 >= 25 {
 			v = int64(i * 1000)
@@ -26,7 +26,7 @@ func TestSchemaEvolutionSkipBlockLossy(t *testing.T) {
 		src.Vals = append(src.Vals, v)
 		src.UVals = append(src.UVals, uint64(v))
 	}
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		src.Vec = append(src.Vec, float32(i)*0.5)
 	}
 
