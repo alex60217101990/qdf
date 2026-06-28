@@ -1524,6 +1524,19 @@ func (d *Decoder) runQueryColumns(
 			d.i += int(colLens[c])
 			continue
 		}
+		// Projected-only zone-chunked column: defer it too — a predicate over OTHER
+		// columns narrows the rows first, then only the zones covering matched rows
+		// are decoded (decodeZoneChunkSelective), instead of full-decoding every zone.
+		if proj && !ref && colLens != nil && !k.isNullable() &&
+			(k == colKindInt || k == colKindUint || k == colKindFloat) &&
+			d.i < len(d.buf) && d.buf[d.i] == tagZoneChunk {
+			if d.i+int(colLens[c]) > len(d.buf) {
+				return nil, nil, ErrShortBuffer
+			}
+			deferredZones = append(deferredZones, deferredBlock{c, d.i})
+			d.i += int(colLens[c])
+			continue
+		}
 		cv, e := d.decodeColumnVals(k, n, isByte(c))
 		if e != nil {
 			return nil, nil, e

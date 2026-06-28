@@ -151,9 +151,15 @@ type zoneChunkHeader struct {
 }
 
 // readZoneChunkHeader consumes the tag-less header (caller consumed the tag),
-// validates it, decodes the offset table position and the zonemap, and returns
-// the geometry. It leaves d.i at bodyStart.
-func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
+// validates it, decodes the offset table position and (when loadZonemap) the
+// per-zone min/max zonemap, and returns the geometry. It leaves d.i at bodyStart.
+//
+// Only the predicate zone-skip path needs the zonemap; the full-decode and
+// selective paths read all/matched zones regardless, so they pass loadZonemap
+// false — the zonemap bytes are still walked to locate bodyStart (the int/uint
+// entries are variable-length varints), but no slices are allocated and no
+// values are decoded.
+func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error) {
 	var h zoneChunkHeader
 	if d.i+2 > len(d.buf) {
 		return h, ErrShortBuffer
@@ -193,8 +199,10 @@ func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
 	// zonemap (per-kind min,max)
 	switch h.kind {
 	case zoneKindInt:
-		h.minI64 = make([]int64, h.zoneCount)
-		h.maxI64 = make([]int64, h.zoneCount)
+		if loadZonemap {
+			h.minI64 = make([]int64, h.zoneCount)
+			h.maxI64 = make([]int64, h.zoneCount)
+		}
 		for z := 0; z < h.zoneCount; z++ {
 			mnZ, nr := readUvarint(d.buf[d.i:])
 			if nr <= 0 {
@@ -206,15 +214,19 @@ func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
 				return h, ErrInvalidLength
 			}
 			d.i += nr2
-			h.minI64[z] = zigzagDecode64(mnZ)
-			h.maxI64[z] = zigzagDecode64(mxZ)
-			if h.minI64[z] > h.maxI64[z] {
-				return h, ErrInvalidLength
+			if loadZonemap {
+				h.minI64[z] = zigzagDecode64(mnZ)
+				h.maxI64[z] = zigzagDecode64(mxZ)
+				if h.minI64[z] > h.maxI64[z] {
+					return h, ErrInvalidLength
+				}
 			}
 		}
 	case zoneKindUint:
-		h.minU64 = make([]uint64, h.zoneCount)
-		h.maxU64 = make([]uint64, h.zoneCount)
+		if loadZonemap {
+			h.minU64 = make([]uint64, h.zoneCount)
+			h.maxU64 = make([]uint64, h.zoneCount)
+		}
 		for z := 0; z < h.zoneCount; z++ {
 			mnZ, nr := readUvarint(d.buf[d.i:])
 			if nr <= 0 {
@@ -226,24 +238,30 @@ func (d *Decoder) readZoneChunkHeader() (zoneChunkHeader, error) {
 				return h, ErrInvalidLength
 			}
 			d.i += nr2
-			h.minU64[z] = mnZ
-			h.maxU64[z] = mxZ
-			if h.minU64[z] > h.maxU64[z] {
-				return h, ErrInvalidLength
+			if loadZonemap {
+				h.minU64[z] = mnZ
+				h.maxU64[z] = mxZ
+				if h.minU64[z] > h.maxU64[z] {
+					return h, ErrInvalidLength
+				}
 			}
 		}
 	default: // zoneKindFloat: 8-byte min + 8-byte max per zone (IEEE-754 bits LE)
 		if d.i+16*h.zoneCount > len(d.buf) {
 			return h, ErrShortBuffer
 		}
-		h.minF64 = make([]float64, h.zoneCount)
-		h.maxF64 = make([]float64, h.zoneCount)
-		for z := 0; z < h.zoneCount; z++ {
-			h.minF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i:]))
-			h.maxF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i+8:]))
-			d.i += 16
-			// No min<=max check: an all-NaN zone stores the empty interval
-			// (+Inf, -Inf) on purpose, and NaN bounds are not ordered.
+		if loadZonemap {
+			h.minF64 = make([]float64, h.zoneCount)
+			h.maxF64 = make([]float64, h.zoneCount)
+			for z := 0; z < h.zoneCount; z++ {
+				h.minF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i:]))
+				h.maxF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i+8:]))
+				d.i += 16
+				// No min<=max check: an all-NaN zone stores the empty interval
+				// (+Inf, -Inf) on purpose, and NaN bounds are not ordered.
+			}
+		} else {
+			d.i += 16 * h.zoneCount
 		}
 	}
 
@@ -294,7 +312,7 @@ func (d *Decoder) readZoneChunkFloat64Into(dst *[]float64) error {
 		return err
 	}
 	defer d.ascend()
-	h, err := d.readZoneChunkHeader()
+	h, err := d.readZoneChunkHeader(false)
 	if err != nil {
 		return err
 	}
@@ -332,7 +350,7 @@ var zoneSkippedZones int
 // afterwards via the column-length index.
 func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int) error {
 	d.i = start + 1 // skip tag
-	h, err := d.readZoneChunkHeader()
+	h, err := d.readZoneChunkHeader(true)
 	if err != nil {
 		return err
 	}
@@ -441,7 +459,7 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int) error 
 // tag; matched holds the surviving row indices.
 func (d *Decoder) decodeZoneChunkSelective(start, n int, matched []int) (*colVals, error) {
 	d.i = start + 1 // skip tag
-	h, err := d.readZoneChunkHeader()
+	h, err := d.readZoneChunkHeader(false)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +544,7 @@ func (d *Decoder) readZoneChunkInt64Into(dst *[]int64) error {
 		return err
 	}
 	defer d.ascend()
-	h, err := d.readZoneChunkHeader()
+	h, err := d.readZoneChunkHeader(false)
 	if err != nil {
 		return err
 	}
@@ -568,7 +586,7 @@ func (d *Decoder) readZoneChunkUint64Into(dst *[]uint64) error {
 		return err
 	}
 	defer d.ascend()
-	h, err := d.readZoneChunkHeader()
+	h, err := d.readZoneChunkHeader(false)
 	if err != nil {
 		return err
 	}
