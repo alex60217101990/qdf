@@ -62,6 +62,25 @@ jobs:
           go version
           go env GOMODCACHE GOCACHE
 
+      # Warm every module's download cache with retries up front. A Dependabot
+      # bump misses setup-go's go.sum-keyed cache, so the first build/test would
+      # fetch the new module mid-step where a transient proxy.golang.org stream
+      # error fails the job with no retry. Pre-downloading here absorbs that flake.
+      - name: Warm module cache (all modules, retry transient errors)
+        run: |
+          for dir in . bench cmd/qdfgen cmd/qdf-bench internal/codegen_test; do
+            ok=
+            for i in 1 2 3 4 5; do
+              if ( cd "$dir" && go mod download ); then ok=1; break; fi
+              echo "go mod download in $dir failed (attempt $i/5); retrying in $((i * 5))s"
+              sleep $((i * 5))
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::go mod download in $dir failed after 5 attempts"
+              exit 1
+            fi
+          done
+
       - name: vet
         run: go vet ./...
 
@@ -137,6 +156,24 @@ jobs:
             cmd/qdfgen/go.sum
             cmd/qdf-bench/go.sum
             internal/codegen_test/go.sum
+
+      # Warm the module download cache with retries BEFORE golangci-lint.
+      # On a Dependabot bump the go.sum changes, so setup-go's cache misses and
+      # golangci-lint downloads the new module on the fly during typecheck — where
+      # a transient proxy.golang.org stream error ("INTERNAL_ERROR; received from
+      # peer") fails the whole lint with no retry. Pre-downloading here with a
+      # retry loop makes that fetch resilient; golangci-lint then reuses the warm
+      # GOMODCACHE and never touches the network.
+      - name: Warm module cache (retry transient proxy errors)
+        working-directory: ${{ matrix.working-directory }}
+        run: |
+          for i in 1 2 3 4 5; do
+            if go mod download; then exit 0; fi
+            echo "go mod download failed (attempt $i/5); retrying in $((i * 5))s"
+            sleep $((i * 5))
+          done
+          echo "::error::go mod download failed after 5 attempts (transient proxy/network)"
+          exit 1
 
       - name: golangci-lint (${{ matrix.module }})
         uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
