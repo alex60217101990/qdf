@@ -553,3 +553,50 @@ func TestZoneChunkLinearNoFalseSkip(t *testing.T) {
 		}
 	}
 }
+
+// TestZoneChunkLinearOpenEnded guards the linear-zonemap zoneRangeFor against
+// float→int overflow: an open-ended GE/LE/GT/LT bound makes the predicted
+// position overflow int64 range; without clamping in the float domain the
+// int conversion yields MinInt64 (a bogus negative zone) and silently drops
+// every matching row. Regression for the zoneRangeFor overflow bug.
+func TestZoneChunkLinearOpenEnded(t *testing.T) {
+	const n = 8192
+	rows := make([]linRow, n)
+	for i := range rows {
+		rows[i] = linRow{ID: int64(i), U: uint64(i), V: int64(i), Tag: "c"}
+	}
+	b, err := Marshal(rows, OptBalanced|OptZoneMap|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if z := firstZoneZmap(b); z != zmapLinear {
+		t.Fatalf("expected linear zmap, got 0x%02x", z)
+	}
+	check := func(name string, q QueryOption, pred func(linRow) bool) {
+		t.Helper()
+		var want int
+		for _, r := range rows {
+			if pred(r) {
+				want++
+			}
+		}
+		var out []linRow
+		if err := Unmarshal(b, &out, q, Select("ID", "U", "V", "Tag")); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(out) != want {
+			t.Fatalf("%s: got %d rows, want %d (overflow drop?)", name, len(out), want)
+		}
+		for i, r := range out {
+			if !pred(r) {
+				t.Fatalf("%s: row %d %+v fails predicate", name, i, r)
+			}
+		}
+	}
+	check("ge", WhereCmp("ID", GE, int64(5000)), func(r linRow) bool { return r.ID >= 5000 })
+	check("gt", WhereCmp("ID", GT, int64(5000)), func(r linRow) bool { return r.ID > 5000 })
+	check("le", WhereCmp("ID", LE, int64(3000)), func(r linRow) bool { return r.ID <= 3000 })
+	check("lt", WhereCmp("ID", LT, int64(3000)), func(r linRow) bool { return r.ID < 3000 })
+	check("ge-uint", WhereCmp("U", GE, uint64(5000)), func(r linRow) bool { return r.U >= 5000 })
+	check("le-uint", WhereCmp("U", LE, uint64(3000)), func(r linRow) bool { return r.U <= 3000 })
+}
