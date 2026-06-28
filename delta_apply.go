@@ -191,14 +191,21 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error
 		return ErrInvalidPatch
 	}
 	dec.i += k
+	// Reuse one addressable key/value buffer across all entries: SetMapIndex
+	// copies both into the map, so the buffers are free to be overwritten next
+	// iteration. keyDesc.decode fully overwrites keyBuf each time; valBuf MUST be
+	// reset when there is no existing value, else it would merge onto the previous
+	// entry's stale value (reused-buffer underfill).
+	keyBuf := reflect.New(keyType).Elem()
+	valBuf := reflect.New(valDesc.rType).Elem()
 	for range nUpd {
-		keyBuf := reflect.New(keyType).Elem()
 		if err := keyDesc.decode(dec, keyBuf.Addr().UnsafePointer()); err != nil {
 			return err
 		}
-		valBuf := reflect.New(valDesc.rType).Elem()
 		if existing := mv.MapIndex(keyBuf); existing.IsValid() {
 			valBuf.Set(existing) // merge target starts from the current value
+		} else {
+			valBuf.SetZero() // reset stale state from the previous iteration
 		}
 		if err := applyValue(dec, valDesc, valBuf.Addr().UnsafePointer(), depth+1); err != nil {
 			return err
@@ -212,7 +219,6 @@ func applyMap(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) error
 	}
 	dec.i += k2
 	for range nDel {
-		keyBuf := reflect.New(keyType).Elem()
 		if err := keyDesc.decode(dec, keyBuf.Addr().UnsafePointer()); err != nil {
 			return err
 		}
@@ -228,8 +234,8 @@ func applyStruct(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) er
 	}
 	dec.i++
 	nChanged, k := readUvarint(dec.buf[dec.i:])
-	if k <= 0 {
-		return ErrInvalidPatch
+	if k <= 0 || nChanged > uint64(len(dec.buf)-dec.i) {
+		return ErrInvalidPatch // one changed field needs ≥1 byte; bound like applyMap
 	}
 	dec.i += k
 	for range nChanged {

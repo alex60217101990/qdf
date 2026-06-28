@@ -448,6 +448,13 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 	}
 	cv.present = pres
 
+	// Bound the full-row backing alloc by bytes (max elem = 16, a string header),
+	// matching the main decodeNullableColumn path's checkColumnarBytes guard so a
+	// compressed row count cannot drive an oversized make([]T, n).
+	if err := checkColumnarBytes(n, 16); err != nil {
+		return cv, err
+	}
+
 	switch kind.base() {
 	case colKindInt:
 		var s []int64
