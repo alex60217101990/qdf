@@ -588,6 +588,11 @@ filtered, projected subset of a batch without first decoding the whole thing.
 The full rationale, API reference, nullable/error semantics, internals, and a
 step-by-step tutorial live in **[`docs/PREDICATE-PUSHDOWN.md`](docs/PREDICATE-PUSHDOWN.md)**.
 
+Go one level deeper with **zone maps** (`OptZoneMap`): an ordered int/uint/float64
+column is chunked into 256-row zones with a `[min,max]` summary, so a range filter
+(`WhereRange` / `WhereCmp`) **skips whole zones without decoding them** — 87–97 %
+of an ordered column. Guide: **[`docs/ZONEMAP.md`](docs/ZONEMAP.md)**.
+
 ### Structural delta (`Diff` / `Apply`)
 
 qdf can compute a **structural delta** between two values and ship only what

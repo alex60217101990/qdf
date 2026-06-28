@@ -90,6 +90,12 @@ per value**, which is what keeps a million-row scan cheap.
 With **no** query options, `Unmarshal` behaves exactly as before — passing
 zero `QueryOption`s is the plain decode path, byte-for-byte.
 
+For **range and comparison** filters there are two bound-carrying constructors,
+`WhereCmp(field, op, val)` and `WhereRange(field, lo, hi)`. They behave like
+`Where` per row, but because they expose their comparison bounds they unlock
+**zone-skip** on `OptZoneMap` columns — skipping whole row-ranges without
+decoding them. See **[ZONEMAP.md](ZONEMAP.md)**.
+
 ---
 
 ## Tutorial
@@ -332,21 +338,29 @@ The decode is **whole-column**:
    column, copy only those rows into the output `[]struct` or
    `[]map[string]any`. Wire order is preserved.
 
-The seek is **column-granular, not element-granular**: a column body is a
-single codec payload (Frame-of-Reference / bit-pack / dictionary) with no
+The seek is **column-granular, not element-granular** by default: a column body
+is a single codec payload (Frame-of-Reference / bit-pack / dictionary) with no
 per-row byte offsets, so skipping a column is a direct offset add, but skipping
 *rows within a column* still requires decoding that column whole. The win comes
 from (a) never touching the columns a row is filtered out on, and (b)
 materializing only the surviving rows of the projected columns.
 
+**`OptZoneMap` adds intra-column skipping** for ordered int/uint/float64
+columns: the column is chunked into 256-row zones with a `[min,max]` summary, so
+a range predicate skips whole zones — and projection decodes only the zones
+covering matched rows. Full guide in **[ZONEMAP.md](ZONEMAP.md)**.
+
 ---
 
 ## Limitations and roadmap
 
-- **Element-addressable seek (deferred).** Today every predicate column is
-  decoded in full before any row is tested. A finer scheme — decode only the
-  rows that survived earlier predicates — would need per-row addressing inside
-  the codec payloads. It is on the roadmap, not yet implemented.
+- **Zone-skip (delivered for ordered int/uint/float64 columns).** Plain pushdown
+  decodes every predicate column *whole* before testing a row. `OptZoneMap`
+  chunks an integer/float column into 256-row zones with a per-zone `[min,max]`
+  summary, and a range/comparison predicate (`WhereRange`, `WhereCmp`) then skips
+  whole zones whose `[min,max]` cannot match — **without decoding them** (87–97 %
+  on an ordered column). Full guide: **[ZONEMAP.md](ZONEMAP.md)**. Finer
+  element-addressable seek for non-ordered columns remains future work.
 - **Single message only.** Like the column index, pushdown applies to a
   single `Unmarshal` of a columnar `[]struct`. It is not a streaming-mode
   feature (the column index is not emitted in streaming mode).
