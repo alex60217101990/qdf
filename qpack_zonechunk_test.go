@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"math/rand"
 	"testing"
@@ -335,6 +336,73 @@ func TestZoneChunkProperty(t *testing.T) {
 			if out[i] != want[i] {
 				t.Fatalf("iter %d [%d] mismatch", iter, i)
 			}
+		}
+	}
+}
+
+// TestZoneChunkProjMatchedViaSibling guards the zone-skip projection path: a
+// projected zone-chunked column whose rows are matched via an OR/NOT sibling on
+// another column must still project the REAL value. The filter pass skips zones
+// the column's own bounds exclude, so projection must follow the final matched
+// set, not the leaf bounds. Regression for the "skipped zone projects zero" bug.
+func TestZoneChunkProjMatchedViaSibling(t *testing.T) {
+	const n = 4096
+	rows := zcRows(n, true) // ordered TS ascending; V=int64(i); U=uint64(i)*7
+	b, err := Marshal(rows, OptBalanced|OptZoneMap|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(name string, q []QueryOption, pred func(zcRow) bool) {
+		t.Helper()
+		var want []zcRow
+		for _, r := range rows {
+			if pred(r) {
+				want = append(want, r)
+			}
+		}
+		opts := append([]QueryOption{Select("TS", "U", "V")}, q...)
+		var out []zcRow
+		if err := Unmarshal(b, &out, opts...); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(out) != len(want) {
+			t.Fatalf("%s: len %d != %d", name, len(out), len(want))
+		}
+		for i := range want {
+			if out[i] != want[i] {
+				t.Fatalf("%s: [%d] %+v != %+v", name, i, out[i], want[i])
+			}
+		}
+	}
+
+	// OR: TS leaf (GE high) skips the low zones; V leaf (LE 5) matches rows 0..5
+	// which live in those skipped zones. TS must still project the real value.
+	check("or", []QueryOption{Or(WhereCmp("TS", GE, rows[4000].TS), WhereCmp("V", LE, int64(5)))},
+		func(r zcRow) bool { return r.TS >= rows[4000].TS || r.V <= 5 })
+
+	// NOT: leaf bounds intersect only the high zones, but NOT flips the match to
+	// the low zones — the projected TS column must follow the inverted match.
+	check("not", []QueryOption{Not(WhereCmp("TS", GE, rows[4000].TS))},
+		func(r zcRow) bool { return r.TS < rows[4000].TS })
+
+	// OR on the uint zone-chunked column matched via a sibling on TS.
+	check("or-uint", []QueryOption{Or(WhereCmp("U", GE, uint64(4000)*7), WhereCmp("TS", LE, rows[5].TS))},
+		func(r zcRow) bool { return r.U >= 4000*7 || r.TS <= rows[5].TS })
+}
+
+// TestZoneChunkDepthGuard verifies the zone-chunk decoders bound recursion depth
+// (a zone body can itself be a tagZoneChunk, so nested payloads must not overflow
+// the stack). At the depth cap the decoder returns ErrCycleDetected without
+// touching the buffer.
+func TestZoneChunkDepthGuard(t *testing.T) {
+	for _, fn := range []func(d *Decoder) error{
+		func(d *Decoder) error { return d.readZoneChunkInt64Into(new([]int64)) },
+		func(d *Decoder) error { return d.readZoneChunkUint64Into(new([]uint64)) },
+		func(d *Decoder) error { return d.readZoneChunkFloat64Into(new([]float64)) },
+	} {
+		d := &Decoder{maxDepth: DefaultMaxDepth, depth: DefaultMaxDepth}
+		if err := fn(d); !errors.Is(err, ErrCycleDetected) {
+			t.Fatalf("want ErrCycleDetected at depth cap, got %v", err)
 		}
 	}
 }

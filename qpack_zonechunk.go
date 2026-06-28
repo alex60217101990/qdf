@@ -290,6 +290,10 @@ func (d *Decoder) readZoneChunkFloat64() ([]float64, error) {
 }
 
 func (d *Decoder) readZoneChunkFloat64Into(dst *[]float64) error {
+	if err := d.descend(); err != nil {
+		return err
+	}
+	defer d.ascend()
 	h, err := d.readZoneChunkHeader()
 	if err != nil {
 		return err
@@ -318,35 +322,25 @@ func (d *Decoder) readZoneChunkFloat64Into(dst *[]float64) error {
 var zoneSkippedZones int
 
 // decodeZoneChunkQuery decodes only the zones of a zone-chunked column that
-// intersect at least one of the referencing leaves' bounds, evaluates each
+// intersect at least one of the referencing leaves' bounds and evaluates each
 // leaf's predicate over those zones into the leaf's precompT mask (zones that
-// cannot match are skipped — their rows stay FALSE), and, when proj is set, fills
-// a colVals of length n with the decoded zones' values (skipped zones left zero;
-// they can never be matched, so are never scattered). The column starts at byte
-// offset start (pointing at the tag); the caller repositions d.i afterwards via
-// the column-length index.
-func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj bool) (*colVals, error) {
+// cannot match are skipped — their rows stay FALSE). It is FILTER-only: it never
+// materialises projected values, because a row matched via an OR/NOT sibling can
+// live in a zone this column's bounds skipped, so projection must follow the
+// FINAL matched set (decodeZoneChunkSelective), not the leaf bounds. The column
+// starts at byte offset start (pointing at the tag); the caller repositions d.i
+// afterwards via the column-length index.
+func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int) error {
 	d.i = start + 1 // skip tag
 	h, err := d.readZoneChunkHeader()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if h.n != n {
-		return nil, ErrTypeMismatch
+		return ErrTypeMismatch
 	}
 	for _, lf := range leaves {
 		lf.precompT = newBitset(n)
-	}
-	var cv *colVals
-	if proj {
-		switch h.kind {
-		case zoneKindInt:
-			cv = &colVals{kind: colKindInt, i64: make([]int64, n)}
-		case zoneKindUint:
-			cv = &colVals{kind: colKindUint, u64: make([]uint64, n)}
-		default:
-			cv = &colVals{kind: colKindFloat, f64: make([]float64, n)}
-		}
 	}
 	for z := range h.zoneCount {
 		needed := false
@@ -377,7 +371,7 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 		d.i = h.zoneOff(d, z)
 		tg, err := d.peekTag()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		base := z * h.blk
 		want := h.zoneLen(z)
@@ -385,10 +379,10 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 		case zoneKindInt:
 			v, err := d.readQPackInt64(tg)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if len(v) != want {
-				return nil, ErrInvalidLength
+				return ErrInvalidLength
 			}
 			for _, lf := range leaves {
 				p := lf.term.pI64
@@ -399,16 +393,13 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 					}
 				}
 			}
-			if proj {
-				copy(cv.i64[base:], v)
-			}
 		case zoneKindUint:
 			v, err := d.readQPackUint64(tg)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if len(v) != want {
-				return nil, ErrInvalidLength
+				return ErrInvalidLength
 			}
 			for _, lf := range leaves {
 				p := lf.term.pU64
@@ -419,16 +410,13 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 					}
 				}
 			}
-			if proj {
-				copy(cv.u64[base:], v)
-			}
 		default: // float64
 			var v []float64
 			if err := decodeSliceFloat64Into(d, &v); err != nil {
-				return nil, err
+				return err
 			}
 			if len(v) != want {
-				return nil, ErrInvalidLength
+				return ErrInvalidLength
 			}
 			for _, lf := range leaves {
 				p := lf.term.pF64
@@ -439,9 +427,83 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int, proj b
 					}
 				}
 			}
-			if proj {
-				copy(cv.f64[base:], v)
+		}
+	}
+	return nil
+}
+
+// decodeZoneChunkSelective decodes only the zones spanning at least one matched
+// row and fills a length-n colVals with their values (rows in undecoded zones
+// stay zero — they are not matched, so are never scattered). It is the projection
+// counterpart to decodeZoneChunkQuery's filter pass: a row matched via an OR/NOT
+// sibling can fall in a zone this column's bounds skipped, so projection must
+// follow the FINAL matched set rather than the leaf bounds. start points at the
+// tag; matched holds the surviving row indices.
+func (d *Decoder) decodeZoneChunkSelective(start, n int, matched []int) (*colVals, error) {
+	d.i = start + 1 // skip tag
+	h, err := d.readZoneChunkHeader()
+	if err != nil {
+		return nil, err
+	}
+	if h.n != n {
+		return nil, ErrTypeMismatch
+	}
+	var cv *colVals
+	switch h.kind {
+	case zoneKindInt:
+		cv = &colVals{kind: colKindInt, i64: make([]int64, n)}
+	case zoneKindUint:
+		cv = &colVals{kind: colKindUint, u64: make([]uint64, n)}
+	default:
+		cv = &colVals{kind: colKindFloat, f64: make([]float64, n)}
+	}
+	need := make([]bool, h.zoneCount)
+	for _, r := range matched {
+		need[r/h.blk] = true
+	}
+	var ftmp []float64
+	for z := range h.zoneCount {
+		if !need[z] {
+			continue
+		}
+		d.i = h.zoneOff(d, z)
+		base := z * h.blk
+		want := h.zoneLen(z)
+		switch h.kind {
+		case zoneKindInt:
+			tg, err := d.peekTag()
+			if err != nil {
+				return nil, err
 			}
+			v, err := d.readQPackInt64(tg)
+			if err != nil {
+				return nil, err
+			}
+			if len(v) != want {
+				return nil, ErrInvalidLength
+			}
+			copy(cv.i64[base:], v)
+		case zoneKindUint:
+			tg, err := d.peekTag()
+			if err != nil {
+				return nil, err
+			}
+			v, err := d.readQPackUint64(tg)
+			if err != nil {
+				return nil, err
+			}
+			if len(v) != want {
+				return nil, ErrInvalidLength
+			}
+			copy(cv.u64[base:], v)
+		default: // float64
+			if err := decodeSliceFloat64Into(d, &ftmp); err != nil {
+				return nil, err
+			}
+			if len(ftmp) != want {
+				return nil, ErrInvalidLength
+			}
+			copy(cv.f64[base:], ftmp)
 		}
 	}
 	return cv, nil
@@ -458,6 +520,12 @@ func (d *Decoder) readZoneChunkInt64() ([]int64, error) {
 }
 
 func (d *Decoder) readZoneChunkInt64Into(dst *[]int64) error {
+	// A zone body could itself carry tagZoneChunk; bound the nesting so a hostile
+	// payload of nested zone chunks cannot overflow the goroutine stack.
+	if err := d.descend(); err != nil {
+		return err
+	}
+	defer d.ascend()
 	h, err := d.readZoneChunkHeader()
 	if err != nil {
 		return err
@@ -496,6 +564,10 @@ func (d *Decoder) readZoneChunkUint64() ([]uint64, error) {
 }
 
 func (d *Decoder) readZoneChunkUint64Into(dst *[]uint64) error {
+	if err := d.descend(); err != nil {
+		return err
+	}
+	defer d.ascend()
 	h, err := d.readZoneChunkHeader()
 	if err != nil {
 		return err

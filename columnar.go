@@ -1472,6 +1472,11 @@ func (d *Decoder) runQueryColumns(
 	// index (colLens) to seek past the deferred column cheaply in this pass.
 	type deferredBlock struct{ c, start int }
 	var deferred []deferredBlock
+	// Projected zone-chunked columns are deferred too: their values must follow the
+	// FINAL matched set (a row matched via an OR/NOT sibling can live in a zone this
+	// column's predicate bounds skipped), so they are filled selectively after the
+	// match is computed.
+	var deferredZones []deferredBlock
 	for c := range sh.kinds {
 		proj := isProj(c)
 		ref := referenced[c]
@@ -1499,12 +1504,12 @@ func (d *Decoder) runQueryColumns(
 				return nil, nil, ErrShortBuffer
 			}
 			start := d.i
-			cv, e := d.decodeZoneChunkQuery(start, []*cnode{leaf}, n, proj)
-			if e != nil {
+			// Filter only: produce the leaf's precompT mask via zone-skip.
+			if e := d.decodeZoneChunkQuery(start, []*cnode{leaf}, n); e != nil {
 				return nil, nil, e
 			}
 			if proj {
-				retained[c] = cv
+				deferredZones = append(deferredZones, deferredBlock{c, start})
 			}
 			d.i = start + int(colLens[c]) // leaf uses precompT; colCV[c] stays nil
 			continue
@@ -1556,6 +1561,14 @@ func (d *Decoder) runQueryColumns(
 			return nil, nil, e
 		}
 		retained[db.c] = &cv
+	}
+	// Fill projected zone-chunked columns from the matched set (see deferredZones).
+	for _, dz := range deferredZones {
+		cv, e := d.decodeZoneChunkSelective(dz.start, n, matched)
+		if e != nil {
+			return nil, nil, e
+		}
+		retained[dz.c] = cv
 	}
 	return retained, matched, nil
 }
