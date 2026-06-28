@@ -1039,6 +1039,9 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
 			return out, ErrInvalidLength
 		}
 		d.i += k3
+		if cnt64 > uint64(int(^uint(0)>>1)) {
+			return out, ErrInvalidLength // would wrap int() on a 32-bit build
+		}
 		cnt := int(cnt64)
 		if err := d.CheckLength(cnt, 1); err != nil {
 			return out, err
@@ -1791,6 +1794,9 @@ func (d *Decoder) readHybridColShape(maxN int) (int, *decColShape, error) {
 			return 0, nil, ErrInvalidLength
 		}
 		d.i += k3
+		if cnt64 > uint64(int(^uint(0)>>1)) {
+			return 0, nil, ErrInvalidLength // would wrap int() on a 32-bit build
+		}
 		cnt := int(cnt64)
 		if err := d.CheckLength(cnt, 1); err != nil {
 			return 0, nil, err
