@@ -397,10 +397,23 @@ func (d *Decoder) readBlockInt64() ([]int64, error) {
 // readBlockInt64Into is the scratch-reusing form: it grows *dst to the column
 // length and decodes every block into it. The tag is already consumed.
 func (d *Decoder) readBlockInt64Into(dst *[]int64) error {
+	// A block body could itself carry tagPackBlock or tagZoneChunk (both dispatched
+	// by readQPackInt64); bound the nesting so a hostile payload of nested blocks
+	// cannot overflow the goroutine stack.
+	if err := d.descend(); err != nil {
+		return err
+	}
+	defer d.ascend()
 	blk, n, offBase, bodyStart, nBlocks, err := d.readBlockHeader(blockKindInt)
 	if err != nil {
 		return err
 	}
+	// Bound each inner sub-block's constant-codec count to the block length so a
+	// malformed sub-block header cannot drive an oversized make() before the
+	// per-block length check rejects it (the standalone path has colMaxLen==0).
+	oldMax := d.colMaxLen
+	d.colMaxLen = blk
+	defer func() { d.colMaxLen = oldMax }()
 	growI64(dst, n)
 	out := *dst
 	for b := range nBlocks {
@@ -514,10 +527,19 @@ func (d *Decoder) readBlockUint64() ([]uint64, error) {
 }
 
 func (d *Decoder) readBlockUint64Into(dst *[]uint64) error {
+	if err := d.descend(); err != nil {
+		return err
+	}
+	defer d.ascend()
 	blk, n, offBase, bodyStart, nBlocks, err := d.readBlockHeader(blockKindUint)
 	if err != nil {
 		return err
 	}
+	// Bound each inner sub-block's constant-codec count to the block length (see
+	// readBlockInt64Into).
+	oldMax := d.colMaxLen
+	d.colMaxLen = blk
+	defer func() { d.colMaxLen = oldMax }()
 	growU64(dst, n)
 	out := *dst
 	for b := range nBlocks {

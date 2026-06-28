@@ -340,6 +340,9 @@ func decodeSliceInt64Into(d *Decoder, dst *[]int64) error {
 	case tagPackBlock:
 		d.i++
 		return d.readBlockInt64Into(dst)
+	case tagZoneChunk:
+		d.i++
+		return d.readZoneChunkInt64Into(dst)
 	}
 	// Fallback: element-by-element array decode.
 	n, err := d.ReadArrayHeader()
@@ -637,6 +640,9 @@ func decodeSliceUint64Into(d *Decoder, dst *[]uint64) error {
 	case tagPackBlock:
 		d.i++
 		return d.readBlockUint64Into(dst)
+	case tagZoneChunk:
+		d.i++
+		return d.readZoneChunkUint64Into(dst)
 	}
 	// Fallback: element-by-element array decode.
 	n, err := d.ReadArrayHeader()
@@ -684,6 +690,10 @@ func decodeSliceFloat64Into(d *Decoder, dst *[]float64) error {
 		d.i += used
 		*dst = vecs[0]
 		return nil
+	}
+	if t == tagZoneChunk {
+		d.i++
+		return d.readZoneChunkFloat64Into(dst)
 	}
 	if t == tagPackRaw {
 		d.i++

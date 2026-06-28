@@ -321,7 +321,7 @@ func decodeSliceInt(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	switch t {
-	case tagPackRaw, tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor, tagPackBlock:
+	case tagPackRaw, tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor, tagPackBlock, tagZoneChunk:
 		if unsafe.Sizeof(int(0)) == 8 {
 			var dest []int64
 			if err := decodeSliceInt64(d, unsafe.Pointer(&dest)); err != nil {
@@ -434,6 +434,8 @@ func (d *Decoder) readQPackUint64(t byte) ([]uint64, error) {
 		return d.readPackedPForUint64Slice()
 	case tagPackBlock:
 		return d.readBlockUint64()
+	case tagZoneChunk:
+		return d.readZoneChunkUint64()
 	}
 	return nil, ErrBadTag
 }
@@ -458,6 +460,8 @@ func (d *Decoder) readQPackInt64(t byte) ([]int64, error) {
 		return d.readPackedPForInt64Slice()
 	case tagPackBlock:
 		return d.readBlockInt64()
+	case tagZoneChunk:
+		return d.readZoneChunkInt64()
 	}
 	return nil, ErrBadTag
 }
@@ -589,6 +593,14 @@ func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 	case tagPackBlock:
 		d.i++
 		v, err := d.readBlockInt64()
+		if err != nil {
+			return err
+		}
+		*(*[]int64)(p) = v
+		return nil
+	case tagZoneChunk:
+		d.i++
+		v, err := d.readZoneChunkInt64()
 		if err != nil {
 			return err
 		}
@@ -769,6 +781,14 @@ func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 	case tagPackBlock:
 		d.i++
 		v, err := d.readBlockUint64()
+		if err != nil {
+			return err
+		}
+		*(*[]uint64)(p) = v
+		return nil
+	case tagZoneChunk:
+		d.i++
+		v, err := d.readZoneChunkUint64()
 		if err != nil {
 			return err
 		}
@@ -1084,6 +1104,15 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 	if t == tagPackRaw {
 		d.i++
 		v, err := d.readPackedFloat64Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]float64)(p) = v
+		return nil
+	}
+	if t == tagZoneChunk {
+		d.i++
+		v, err := d.readZoneChunkFloat64()
 		if err != nil {
 			return err
 		}

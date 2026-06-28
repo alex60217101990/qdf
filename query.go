@@ -25,7 +25,15 @@ type predTerm struct {
 	pStr  func(string) bool
 	pBool func(bool) bool
 	field string
-	want  colKind // 1-byte tail: kept last to avoid padding before the func pointers
+	// Optional comparison bounds, set by the WhereRange/GE/GT/LE/LT/Eq
+	// constructors so a zone-chunked column can skip zones whose [min,max] cannot
+	// intersect [loI64,hiI64] (int) / [loU64,hiU64] (uint). hasBounds is false for
+	// the opaque Where(func) path (no zone-skip) and for float/string in v1.
+	loI64, hiI64 int64
+	loU64, hiU64 uint64
+	loF64, hiF64 float64
+	hasBounds    bool
+	want         colKind // 1-byte tail: kept last to avoid padding before the pointers
 }
 
 // QueryOption configures a filtering/projecting Unmarshal. Construct with Where,
@@ -391,12 +399,13 @@ func matchedIndices(b []uint64, n int, dst []int) []int {
 // indexed by int, avoiding the per-node allocations and pointer hashing a
 // map[*condNode]… would cost on a small tree.
 type cnode struct {
-	term *predTerm // leaf only
-	cv   *colVals  // leaf only: decoded column values (nil until bound)
-	kids []int     // child ids (And/Or: n; Not: 1)
-	col  int       // leaf only: resolved wire column index (-1 until resolved)
-	op   condOp    // 1-byte tails kept last to avoid padding before the pointers above
-	unk  bool      // subtree can produce SQL UNKNOWN (contains a nullable leaf)
+	term     *predTerm // leaf only
+	cv       *colVals  // leaf only: decoded column values (nil until bound)
+	precompT []uint64  // leaf only: precomputed T mask from zone-skip (nil = eval normally)
+	kids     []int     // child ids (And/Or: n; Not: 1)
+	col      int       // leaf only: resolved wire column index (-1 until resolved)
+	op       condOp    // 1-byte tails kept last to avoid padding before the pointers above
+	unk      bool      // subtree can produce SQL UNKNOWN (contains a nullable leaf)
 }
 
 // flattenCond linearises the tree in pre-order (a parent always precedes its
@@ -421,6 +430,26 @@ func flattenCond(root *condNode) []cnode {
 	}
 	walk(root)
 	return flat
+}
+
+// singleBoundedLeafForCol returns the lone leaf resolved to wire column c when
+// EXACTLY ONE leaf references it and that leaf carries comparison bounds — the
+// case zone-skip handles. Multiple leaves on one column are declined (nil): each
+// leaf's bounds are decoded independently (union), so two complementary
+// half-ranges — e.g. WhereGE+WhereLE — would union to the whole domain and skip
+// nothing; expressing a range as a single WhereRange keeps the skip. Returns nil
+// for zero / multiple / unbounded leaves.
+func singleBoundedLeafForCol(flat []cnode, c int) *cnode {
+	var found *cnode
+	for i := range flat {
+		if flat[i].op == condLeaf && flat[i].col == c {
+			if found != nil || !flat[i].term.hasBounds {
+				return nil
+			}
+			found = &flat[i]
+		}
+	}
+	return found
 }
 
 // markUnknown sets unk on every node whose subtree contains a nullable leaf (a
@@ -453,6 +482,11 @@ func evalCond(flat []cnode, id, n int) (t, f []uint64) {
 	nd := &flat[id]
 	switch nd.op {
 	case condLeaf:
+		if nd.precompT != nil {
+			// Zone-skip produced this leaf's T mask directly (skipped zones are
+			// FALSE). The column is non-nullable (zone-chunk), so F is implicit.
+			return nd.precompT, nil
+		}
 		return nd.cv.evalMasks(nd.term, n)
 	case condAnd:
 		return evalAnd(flat, id, n)

@@ -344,7 +344,18 @@ const (
 	// fires unless this bit is set; never larger than the raw/lossless form.
 	OptLossyVec // bit 12
 
-	// Bits 13..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptZoneMap stores eligible columnar integer columns as zone-chunked
+	// containers (tag 0xF1): the column is split into 256-row zones, each zone
+	// independently codec-picked, prefixed by a per-zone [min,max] zonemap. A
+	// bound-carrying predicate (WhereRange / WhereGE / WhereLE / WhereEq) then
+	// skips zones that provably cannot match WITHOUT decoding them — a large
+	// speedup for range/equality queries over positionally-ordered columns
+	// (timestamps, sorted IDs). An explicit size-for-query-speed trade (chunking
+	// + zonemap cost wire), so it is opt-in; without the bit the wire is
+	// unchanged. v1 covers int/uint columns; string/float are a follow-up.
+	OptZoneMap // bit 13
+
+	// Bits 14..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.

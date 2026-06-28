@@ -733,10 +733,20 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 	case colKindInt:
 		s := gatherColI64(st.colScratchI64, base, plan.stride, col, n)
 		st.colScratchI64 = s
+		// OptZoneMap: zone-chunk the column with a min/max zonemap for predicate
+		// zone-skip (columnar-only, explicit size-for-query-speed opt-in).
+		if e.zonemap && n >= zoneChunkMinLen {
+			e.writeZoneChunkInt64(s)
+			return nil
+		}
 		return encodeSliceInt64(e, unsafe.Pointer(&s))
 	case colKindUint:
 		s := gatherColU64(st.colScratchU64, base, plan.stride, col, n)
 		st.colScratchU64 = s
+		if e.zonemap && n >= zoneChunkMinLen {
+			e.writeZoneChunkUint64(s)
+			return nil
+		}
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindFloat:
 		s := st.colScratchF64[:0]
@@ -744,6 +754,13 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 			s = append(s, loadFloat64Field(base, plan.stride, col, i))
 		}
 		st.colScratchF64 = s
+		// OptZoneMap: zone-chunk with a finite min/max zonemap for predicate
+		// zone-skip (lossless per zone). Lossless regardless: a SCALAR float64
+		// column must never become lossy, even under OptLossyVec.
+		if e.zonemap && n >= zoneChunkMinLen {
+			e.writeZoneChunkFloat64(s)
+			return nil
+		}
 		// Lossless: a SCALAR float64 column must never become lossy, even under
 		// OptLossyVec (which targets genuine []float64/[]float32 VECTOR fields).
 		return encodeSliceFloat64Lossless(e, s)
@@ -1022,6 +1039,9 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
 			return out, ErrInvalidLength
 		}
 		d.i += k3
+		if cnt64 > uint64(int(^uint(0)>>1)) {
+			return out, ErrInvalidLength // would wrap int() on a 32-bit build
+		}
 		cnt := int(cnt64)
 		if err := d.CheckLength(cnt, 1); err != nil {
 			return out, err
@@ -1455,6 +1475,11 @@ func (d *Decoder) runQueryColumns(
 	// index (colLens) to seek past the deferred column cheaply in this pass.
 	type deferredBlock struct{ c, start int }
 	var deferred []deferredBlock
+	// Projected zone-chunked columns are deferred too: their values must follow the
+	// FINAL matched set (a row matched via an OR/NOT sibling can live in a zone this
+	// column's predicate bounds skipped), so they are filled selectively after the
+	// match is computed.
+	var deferredZones []deferredBlock
 	for c := range sh.kinds {
 		proj := isProj(c)
 		ref := referenced[c]
@@ -1470,6 +1495,28 @@ func (d *Decoder) runQueryColumns(
 			continue
 		}
 		k := sh.kinds[c]
+		// Zone-skip: a referenced zone-chunked int/uint column whose every
+		// referencing leaf carries comparison bounds is decoded zone-selectively —
+		// zones whose [min,max] cannot match any leaf are skipped, and each leaf's T
+		// mask is produced directly (precompT). Needs colLens to reposition past the
+		// column afterwards.
+		if leaf := singleBoundedLeafForCol(flat, c); leaf != nil && colLens != nil &&
+			!k.isNullable() && (k == colKindInt || k == colKindUint || k == colKindFloat) &&
+			d.i < len(d.buf) && d.buf[d.i] == tagZoneChunk {
+			if d.i+int(colLens[c]) > len(d.buf) {
+				return nil, nil, ErrShortBuffer
+			}
+			start := d.i
+			// Filter only: produce the leaf's precompT mask via zone-skip.
+			if e := d.decodeZoneChunkQuery(start, []*cnode{leaf}, n); e != nil {
+				return nil, nil, e
+			}
+			if proj {
+				deferredZones = append(deferredZones, deferredBlock{c, start})
+			}
+			d.i = start + int(colLens[c]) // leaf uses precompT; colCV[c] stays nil
+			continue
+		}
 		if proj && !ref && colLens != nil && !k.isNullable() &&
 			(k == colKindInt || k == colKindUint) &&
 			d.i < len(d.buf) && d.buf[d.i] == tagPackBlock {
@@ -1477,6 +1524,19 @@ func (d *Decoder) runQueryColumns(
 				return nil, nil, ErrShortBuffer
 			}
 			deferred = append(deferred, deferredBlock{c, d.i})
+			d.i += int(colLens[c])
+			continue
+		}
+		// Projected-only zone-chunked column: defer it too — a predicate over OTHER
+		// columns narrows the rows first, then only the zones covering matched rows
+		// are decoded (decodeZoneChunkSelective), instead of full-decoding every zone.
+		if proj && !ref && colLens != nil && !k.isNullable() &&
+			(k == colKindInt || k == colKindUint || k == colKindFloat) &&
+			d.i < len(d.buf) && d.buf[d.i] == tagZoneChunk {
+			if d.i+int(colLens[c]) > len(d.buf) {
+				return nil, nil, ErrShortBuffer
+			}
+			deferredZones = append(deferredZones, deferredBlock{c, d.i})
 			d.i += int(colLens[c])
 			continue
 		}
@@ -1517,6 +1577,14 @@ func (d *Decoder) runQueryColumns(
 			return nil, nil, e
 		}
 		retained[db.c] = &cv
+	}
+	// Fill projected zone-chunked columns from the matched set (see deferredZones).
+	for _, dz := range deferredZones {
+		cv, e := d.decodeZoneChunkSelective(dz.start, n, matched)
+		if e != nil {
+			return nil, nil, e
+		}
+		retained[dz.c] = cv
 	}
 	return retained, matched, nil
 }
@@ -1726,6 +1794,9 @@ func (d *Decoder) readHybridColShape(maxN int) (int, *decColShape, error) {
 			return 0, nil, ErrInvalidLength
 		}
 		d.i += k3
+		if cnt64 > uint64(int(^uint(0)>>1)) {
+			return 0, nil, ErrInvalidLength // would wrap int() on a 32-bit build
+		}
 		cnt := int(cnt64)
 		if err := d.CheckLength(cnt, 1); err != nil {
 			return 0, nil, err

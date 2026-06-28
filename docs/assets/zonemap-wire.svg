@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 380" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <rect width="980" height="380" fill="#ffffff"/>
+  <text x="40" y="40" font-size="22" font-weight="700" fill="#1a1a2e">Zone-chunked column wire layout (tagZoneChunk 0xF1)</text>
+  <text x="40" y="62" font-size="13" fill="#9ca3af">source: qpack_zonechunk.go · OptZoneMap · 256-row zones, min/max zonemap precedes the bodies</text>
+
+  <!-- header bytes -->
+  <text x="40" y="104" font-size="14" font-weight="700" fill="#374151">header</text>
+  <rect x="40"  y="116" width="64"  height="44" rx="6" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="72"  y="139" text-anchor="middle" font-size="13" font-weight="700" fill="#312e81">0xF1</text>
+  <text x="72"  y="154" text-anchor="middle" font-size="10.5" fill="#6b7280">tag</text>
+  <rect x="108" y="116" width="64"  height="44" rx="6" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="140" y="139" text-anchor="middle" font-size="13" font-weight="700" fill="#312e81">kind</text>
+  <text x="140" y="154" text-anchor="middle" font-size="10" fill="#6b7280">int/uint/f64</text>
+  <rect x="176" y="116" width="64"  height="44" rx="6" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="208" y="139" text-anchor="middle" font-size="13" font-weight="700" fill="#312e81">blkLog</text>
+  <text x="208" y="154" text-anchor="middle" font-size="10.5" fill="#6b7280">8 ⇒ 256</text>
+  <rect x="244" y="116" width="84"  height="44" rx="6" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="286" y="139" text-anchor="middle" font-size="13" font-weight="700" fill="#312e81">uvarint n</text>
+  <text x="286" y="154" text-anchor="middle" font-size="10.5" fill="#6b7280">row count</text>
+
+  <!-- offset table -->
+  <text x="40" y="204" font-size="14" font-weight="700" fill="#374151">offset table — uint32 × zoneCount</text>
+  <rect x="40" y="216" width="288" height="40" rx="6" fill="#fff7ed" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="184" y="241" text-anchor="middle" font-size="12.5" fill="#92400e">off[0]=0 · off[1] · off[2] · … (relative to bodyStart)</text>
+
+  <!-- zonemap -->
+  <text x="360" y="204" font-size="14" font-weight="700" fill="#374151">zonemap — [min,max] per zone</text>
+  <rect x="360" y="216" width="580" height="40" rx="6" fill="#fef2f2" stroke="#f43f5e" stroke-width="1.5"/>
+  <text x="650" y="234" text-anchor="middle" font-size="12" fill="#9f1239">int/uint: zigzag-varint(min),(max)   ·   float64: float64bits(min),(max) 8+8B LE</text>
+  <text x="650" y="250" text-anchor="middle" font-size="11" fill="#be123c">the index the predicate tests — ~2–16 B/zone, built free at encode</text>
+
+  <!-- zone bodies -->
+  <text x="40" y="300" font-size="14" font-weight="700" fill="#374151">zone bodies — one independent sub-slice per 256-row zone</text>
+  <rect x="40"  y="312" width="150" height="46" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="115" y="333" text-anchor="middle" font-size="12.5" font-weight="700" fill="#166534">zone 0</text>
+  <text x="115" y="349" text-anchor="middle" font-size="10.5" fill="#6b7280">QPack / lossless f64</text>
+  <rect x="196" y="312" width="150" height="46" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="271" y="333" text-anchor="middle" font-size="12.5" font-weight="700" fill="#166534">zone 1</text>
+  <text x="271" y="349" text-anchor="middle" font-size="10.5" fill="#6b7280">codec picked per zone</text>
+  <rect x="352" y="312" width="150" height="46" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="427" y="333" text-anchor="middle" font-size="12.5" font-weight="700" fill="#166534">zone 2</text>
+  <text x="427" y="349" text-anchor="middle" font-size="10.5" fill="#6b7280">FOR/Δ-FOR/RLE/dict</text>
+  <text x="540" y="340" font-size="22" font-weight="700" fill="#9ca3af">…</text>
+  <rect x="580" y="312" width="360" height="46" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="760" y="333" text-anchor="middle" font-size="12.5" font-weight="700" fill="#166534">zone ⌈n/256⌉−1</text>
+  <text x="760" y="349" text-anchor="middle" font-size="10.5" fill="#6b7280">skipped zones here are never decoded</text>
+</svg>

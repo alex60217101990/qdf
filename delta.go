@@ -464,8 +464,11 @@ func fpHashReflect(h *maphash.Hash, v reflect.Value, depth int) {
 		binary.LittleEndian.PutUint64(b[:], acc)
 		_, _ = h.Write(b[:])
 	case reflect.Struct:
-		for _, field := range v.Fields() {
-			fpHashReflect(h, field, depth+1)
+		// NumField/Field, NOT Fields(): the range-over-func iterator allocates a
+		// heap closure per call, and this fingerprint hash recurses per struct on
+		// the delta Diff path.
+		for i := range v.NumField() {
+			fpHashReflect(h, v.Field(i), depth+1)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := range v.Len() {

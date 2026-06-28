@@ -2,9 +2,26 @@ package qdf
 
 import (
 	"bytes"
+	"errors"
 	"math/rand"
 	"testing"
 )
+
+// TestBlockDepthGuard verifies the block decoders bound recursion depth: a block
+// body could itself carry tagPackBlock/tagZoneChunk, so nested payloads must not
+// overflow the stack. At the depth cap the decoder returns ErrCycleDetected
+// without touching the buffer.
+func TestBlockDepthGuard(t *testing.T) {
+	for _, fn := range []func(d *Decoder) error{
+		func(d *Decoder) error { return d.readBlockInt64Into(new([]int64)) },
+		func(d *Decoder) error { return d.readBlockUint64Into(new([]uint64)) },
+	} {
+		d := &Decoder{maxDepth: DefaultMaxDepth, depth: DefaultMaxDepth}
+		if err := fn(d); !errors.Is(err, ErrCycleDetected) {
+			t.Fatalf("want ErrCycleDetected at depth cap, got %v", err)
+		}
+	}
+}
 
 // blockArchetypes returns int64 columns: regime-shifting ones (where the
 // per-block codec should win) and flat ones (where it must not fire / never
