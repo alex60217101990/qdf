@@ -228,8 +228,8 @@ func applyStruct(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) er
 	}
 	dec.i++
 	nChanged, k := readUvarint(dec.buf[dec.i:])
-	if k <= 0 {
-		return ErrInvalidPatch
+	if k <= 0 || nChanged > uint64(len(dec.buf)-dec.i) {
+		return ErrInvalidPatch // one changed field needs ≥1 byte; bound like applyMap
 	}
 	dec.i += k
 	for range nChanged {

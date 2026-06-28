@@ -347,10 +347,16 @@ func reconstructE8(coords []int32, cosets []byte, pdim, dim, count int, delta fl
 
 // Decode inverts the pipeline from the on-wire block.
 func (bl Block) Decode() [][]float64 {
-	if bl.Count == 0 {
+	if bl.Count <= 0 || bl.Dim <= 0 {
 		return nil
 	}
 	pdim := hadamard.NextPow2(bl.Dim)
+	// Self-defense: the wire layer bounds Count/Dim before building a Block, but
+	// guard the exported method so a direct caller's adversarial Block cannot
+	// overflow Count*pdim (int multiply) into a small/negative under-read.
+	if pdim <= 0 || bl.Count > int(^uint(0)>>1)/pdim {
+		return nil
+	}
 	q, err := decodeCoords(bl.Coords, bl.Count*pdim)
 	if err != nil {
 		return nil
