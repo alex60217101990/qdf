@@ -29,6 +29,99 @@ const (
 	zoneChunkMinLen = 2 * blockSizeSmall // reuse the block codec's 256-row zone
 )
 
+// Zonemap encoding (the byte after kind). minmax is the per-zone [min,max] index;
+// linear is a single learned model pos≈c·value+d (±epsP) over a SORTED int/uint
+// column, which collapses the whole per-zone index to ~18 bytes. The encoder
+// picks linear only when the column is monotonic, the fit holds within ~one zone
+// (so zone-skip is preserved), and the model is strictly smaller than the minmax
+// index (never-worse). See fitLinearZmap.
+const (
+	zmapMinMax = 0x00
+	zmapLinear = 0x01
+)
+
+// linearFit is a learned zonemap: the row position of a value v is predicted by
+// c*v+d within ±epsP positions. A query range [lo,hi] therefore maps to the row
+// range [c*lo+d-epsP, c*hi+d+epsP], hence to a contiguous zone range — every
+// matching row provably lands inside it, so no zone with a match is ever skipped.
+type linearFit struct {
+	c, d float64
+	epsP int
+}
+
+// fitLinearZmap fits a single line pos≈c*value+d over a monotonic non-decreasing
+// integer column (values widened to float64) and returns it iff (a) the column is
+// sorted, (b) the values are not all equal (c>0), and (c) the worst-case position
+// residual is at most blk — i.e. the model locates any value to within one zone,
+// so zone-skip stays tight. epsP carries a +1 margin to absorb float rounding in
+// the query-side re-evaluation. The caller still compares the encoded size
+// against the minmax index and keeps whichever is smaller.
+func fitLinearZmap[T int64 | uint64](s []T, blk int) (linearFit, bool) {
+	n := len(s)
+	if n < 2 {
+		return linearFit{}, false
+	}
+	// Monotonic non-decreasing? (position == rank requires a sorted column.)
+	for i := 1; i < n; i++ {
+		if s[i] < s[i-1] {
+			return linearFit{}, false
+		}
+	}
+	// Least-squares regression of position (y=i) on value (x=s[i]), in float64.
+	var sx, sy, sxx, sxy float64
+	fn := float64(n)
+	for i := range n {
+		x := float64(s[i])
+		y := float64(i)
+		sx += x
+		sy += y
+		sxx += x * x
+		sxy += x * y
+	}
+	denom := fn*sxx - sx*sx
+	if denom <= 0 { // all values equal (or degenerate) → no usable slope
+		return linearFit{}, false
+	}
+	c := (fn*sxy - sx*sy) / denom
+	d := (sy - c*sx) / fn
+	if !(c > 0) || math.IsInf(c, 0) || math.IsNaN(d) {
+		return linearFit{}, false
+	}
+	// Worst-case position residual.
+	var maxRes float64
+	for i := range n {
+		r := math.Abs(float64(i) - (c*float64(s[i]) + d))
+		if r > maxRes {
+			maxRes = r
+		}
+	}
+	epsP := int(math.Ceil(maxRes)) + 1 // +1: float-rounding margin for query re-eval
+	if epsP > blk {
+		return linearFit{}, false // fit too loose → zone-skip would degrade
+	}
+	return linearFit{c: c, d: d, epsP: epsP}, true
+}
+
+// zoneRangeFor maps a predicate value range [lo,hi] to the inclusive zone range
+// [zlo,zhi] that can contain a matching row, per the linear model. Returns
+// ok=false when the range cannot intersect the column (no zone needed).
+func (lf linearFit) zoneRangeFor(lo, hi float64, n, blk int) (zlo, zhi int, ok bool) {
+	pLo := lf.c*lo + lf.d - float64(lf.epsP)
+	pHi := lf.c*hi + lf.d + float64(lf.epsP)
+	if pHi < 0 || pLo > float64(n-1) {
+		return 0, 0, false
+	}
+	loI := int(math.Floor(pLo))
+	hiI := int(math.Floor(pHi))
+	if loI < 0 {
+		loI = 0
+	}
+	if hiI > n-1 {
+		hiI = n - 1
+	}
+	return loI / blk, hiI / blk, true
+}
+
 // finiteMinMaxF64 returns the min and max of s over non-NaN values. ±Inf are
 // ordered and included. An all-NaN (or empty) slice yields the empty interval
 // (+Inf, -Inf), which intersects no finite predicate range — so such a zone is
@@ -46,6 +139,16 @@ func finiteMinMaxF64(s []float64) (mn, mx float64) {
 
 // ---- encode (int64) ----
 
+// linearZmapBytes is the encoded size of a linear zonemap (2 float64 + epsP).
+func linearZmapBytes(f linearFit) int { return 16 + uvarintLen(uint64(f.epsP)) }
+
+func zmapByte(linear bool) byte {
+	if linear {
+		return zmapLinear
+	}
+	return zmapMinMax
+}
+
 func (e *Encoder) writeZoneChunkInt64(s []int64) {
 	e.writeHeader()
 	n := len(s)
@@ -53,16 +156,35 @@ func (e *Encoder) writeZoneChunkInt64(s []int64) {
 	e.planBlocksI64(s, blockSizeSmall) // cache per-zone codec picks (no re-pick on emit)
 	plans := e.blkPlanI64[:zoneCount]
 
-	e.buf = append(e.buf, tagZoneChunk, zoneKindInt, blkLogSmall)
+	// Pick the learned linear zonemap over per-zone min/max only when it is both
+	// valid (monotonic, tight fit) and strictly smaller (never-worse).
+	fit, linOK := fitLinearZmap(s, blockSizeSmall)
+	if linOK {
+		var mmBytes int
+		for i := 0; i < n; i += blockSizeSmall {
+			j := min(i+blockSizeSmall, n)
+			mn, mx := minMaxI64(s[i:j])
+			mmBytes += uvarintLen(zigzagEncode64(mn)) + uvarintLen(zigzagEncode64(mx))
+		}
+		linOK = linearZmapBytes(fit) < mmBytes
+	}
+
+	e.buf = append(e.buf, tagZoneChunk, zoneKindInt, zmapByte(linOK), blkLogSmall)
 	e.buf = appendUvarint(e.buf, uint64(n))
 	offAt := len(e.buf)
 	e.buf = append(e.buf, make([]byte, 4*zoneCount)...)
-	// zonemap: per-zone min,max as zigzag-varint (variable length), before bodies.
-	for i := 0; i < n; i += blockSizeSmall {
-		j := min(i+blockSizeSmall, n)
-		mn, mx := minMaxI64(s[i:j])
-		e.buf = appendUvarint(e.buf, zigzagEncode64(mn))
-		e.buf = appendUvarint(e.buf, zigzagEncode64(mx))
+	if linOK {
+		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.c))
+		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.d))
+		e.buf = appendUvarint(e.buf, uint64(fit.epsP))
+	} else {
+		// zonemap: per-zone min,max as zigzag-varint (variable length), before bodies.
+		for i := 0; i < n; i += blockSizeSmall {
+			j := min(i+blockSizeSmall, n)
+			mn, mx := minMaxI64(s[i:j])
+			e.buf = appendUvarint(e.buf, zigzagEncode64(mn))
+			e.buf = appendUvarint(e.buf, zigzagEncode64(mx))
+		}
 	}
 	bodyStart := len(e.buf)
 	zi := 0
@@ -84,15 +206,32 @@ func (e *Encoder) writeZoneChunkUint64(s []uint64) {
 	e.planBlocksU64(s, blockSizeSmall)
 	plans := e.blkPlanU64[:zoneCount]
 
-	e.buf = append(e.buf, tagZoneChunk, zoneKindUint, blkLogSmall)
+	fit, linOK := fitLinearZmap(s, blockSizeSmall)
+	if linOK {
+		var mmBytes int
+		for i := 0; i < n; i += blockSizeSmall {
+			j := min(i+blockSizeSmall, n)
+			mn, mx := minMaxU64(s[i:j])
+			mmBytes += uvarintLen(mn) + uvarintLen(mx)
+		}
+		linOK = linearZmapBytes(fit) < mmBytes
+	}
+
+	e.buf = append(e.buf, tagZoneChunk, zoneKindUint, zmapByte(linOK), blkLogSmall)
 	e.buf = appendUvarint(e.buf, uint64(n))
 	offAt := len(e.buf)
 	e.buf = append(e.buf, make([]byte, 4*zoneCount)...)
-	for i := 0; i < n; i += blockSizeSmall {
-		j := min(i+blockSizeSmall, n)
-		mn, mx := minMaxU64(s[i:j])
-		e.buf = appendUvarint(e.buf, mn)
-		e.buf = appendUvarint(e.buf, mx)
+	if linOK {
+		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.c))
+		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.d))
+		e.buf = appendUvarint(e.buf, uint64(fit.epsP))
+	} else {
+		for i := 0; i < n; i += blockSizeSmall {
+			j := min(i+blockSizeSmall, n)
+			mn, mx := minMaxU64(s[i:j])
+			e.buf = appendUvarint(e.buf, mn)
+			e.buf = appendUvarint(e.buf, mx)
+		}
 	}
 	bodyStart := len(e.buf)
 	zi := 0
@@ -111,7 +250,8 @@ func (e *Encoder) writeZoneChunkFloat64(s []float64) {
 	e.writeHeader()
 	n := len(s)
 	zoneCount := (n + blockSizeSmall - 1) / blockSizeSmall
-	e.buf = append(e.buf, tagZoneChunk, zoneKindFloat, blkLogSmall)
+	// float64 uses the per-zone min/max index only (no linear model in v1).
+	e.buf = append(e.buf, tagZoneChunk, zoneKindFloat, zmapMinMax, blkLogSmall)
 	e.buf = appendUvarint(e.buf, uint64(n))
 	offAt := len(e.buf)
 	e.buf = append(e.buf, make([]byte, 4*zoneCount)...)
@@ -142,12 +282,14 @@ type zoneChunkHeader struct {
 	minI64, maxI64 []int64
 	minU64, maxU64 []uint64
 	minF64, maxF64 []float64
-	offBase        int // byte offset of the uint32 offset table
-	bodyStart      int // byte offset of the first zone body
+	lin            linearFit // valid when zmap == zmapLinear (int/uint only)
+	offBase        int       // byte offset of the uint32 offset table
+	bodyStart      int       // byte offset of the first zone body
 	n              int
 	zoneCount      int
 	blk            int
 	kind           byte
+	zmap           byte // zmapMinMax | zmapLinear
 }
 
 // readZoneChunkHeader consumes the tag-less header (caller consumed the tag),
@@ -161,12 +303,21 @@ type zoneChunkHeader struct {
 // values are decoded.
 func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error) {
 	var h zoneChunkHeader
-	if d.i+2 > len(d.buf) {
+	if d.i+3 > len(d.buf) {
 		return h, ErrShortBuffer
 	}
 	h.kind = d.buf[d.i]
 	if h.kind != zoneKindInt && h.kind != zoneKindUint && h.kind != zoneKindFloat {
 		return h, ErrTypeMismatch
+	}
+	d.i++
+	h.zmap = d.buf[d.i]
+	// A linear zonemap is only defined for int/uint columns.
+	if h.zmap != zmapMinMax && h.zmap != zmapLinear {
+		return h, ErrBadTag
+	}
+	if h.zmap == zmapLinear && h.kind == zoneKindFloat {
+		return h, ErrBadTag
 	}
 	d.i++
 	blk, ok := blockSizeFor(d.buf[d.i])
@@ -195,6 +346,39 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 		return h, ErrShortBuffer
 	}
 	d.i += 4 * h.zoneCount
+
+	// Linear zonemap: a single model (2 float64 + epsP varint) replaces the whole
+	// per-zone min/max index. Read it (or skip its fixed bytes) and return.
+	if h.zmap == zmapLinear {
+		if d.i+16 > len(d.buf) {
+			return h, ErrShortBuffer
+		}
+		if loadZonemap {
+			h.lin.c = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i:]))
+			h.lin.d = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i+8:]))
+		}
+		d.i += 16
+		eps64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return h, ErrInvalidLength
+		}
+		d.i += nr
+		if eps64 > uint64(int(^uint(0)>>1)) {
+			return h, ErrInvalidLength
+		}
+		if loadZonemap {
+			h.lin.epsP = int(eps64)
+			// A non-finite model or non-positive slope cannot bound positions.
+			if !(h.lin.c > 0) || math.IsInf(h.lin.c, 0) || math.IsNaN(h.lin.d) || math.IsInf(h.lin.d, 0) {
+				return h, ErrInvalidLength
+			}
+		}
+		h.bodyStart = d.i
+		if err := h.validateOffsets(d); err != nil {
+			return h, err
+		}
+		return h, nil
+	}
 
 	// zonemap (per-kind min,max)
 	switch h.kind {
@@ -266,22 +450,30 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 	}
 
 	h.bodyStart = d.i
-	// Validate the offset table: offsets[0]==0, strictly increasing, in-buffer.
+	if err := h.validateOffsets(d); err != nil {
+		return h, err
+	}
+	return h, nil
+}
+
+// validateOffsets checks the offset table: offsets[0]==0, strictly increasing,
+// each in-buffer. Call after h.bodyStart is set.
+func (h *zoneChunkHeader) validateOffsets(d *Decoder) error {
 	prev := -1
 	for z := 0; z < h.zoneCount; z++ {
 		off := int(binary.LittleEndian.Uint32(d.buf[h.offBase+4*z:]))
 		if z == 0 && off != 0 {
-			return h, ErrInvalidLength
+			return ErrInvalidLength
 		}
 		if off <= prev {
-			return h, ErrInvalidLength
+			return ErrInvalidLength
 		}
 		if h.bodyStart+off > len(d.buf) {
-			return h, ErrShortBuffer
+			return ErrShortBuffer
 		}
 		prev = off
 	}
-	return h, nil
+	return nil
 }
 
 // zoneOff returns the absolute byte offset of zone z's body.
@@ -360,9 +552,38 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int) error 
 	for _, lf := range leaves {
 		lf.precompT = newBitset(n)
 	}
+	// For the linear zonemap, each leaf's value range maps once to a contiguous
+	// zone range; a zone is then needed iff it falls inside some leaf's range.
+	type zr struct {
+		zlo, zhi int
+		ok       bool
+	}
+	var lzr []zr
+	if h.zmap == zmapLinear {
+		lzr = make([]zr, len(leaves))
+		for li, lf := range leaves {
+			var lo, hi float64
+			if h.kind == zoneKindInt {
+				lo, hi = float64(lf.term.loI64), float64(lf.term.hiI64)
+			} else {
+				lo, hi = float64(lf.term.loU64), float64(lf.term.hiU64)
+			}
+			a, b, ok := h.lin.zoneRangeFor(lo, hi, h.n, h.blk)
+			lzr[li] = zr{a, b, ok}
+		}
+	}
 	for z := range h.zoneCount {
 		needed := false
-		for _, lf := range leaves {
+		for li, lf := range leaves {
+			if h.zmap == zmapLinear {
+				if lzr[li].ok && z >= lzr[li].zlo && z <= lzr[li].zhi {
+					needed = true
+				}
+				if needed {
+					break
+				}
+				continue
+			}
 			// Zone z intersects the leaf's bounds iff zoneMax >= lo && zoneMin <= hi.
 			switch h.kind {
 			case zoneKindInt:

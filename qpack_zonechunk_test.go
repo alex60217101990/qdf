@@ -406,3 +406,150 @@ func TestZoneChunkDepthGuard(t *testing.T) {
 		}
 	}
 }
+
+// firstZoneZmap returns the zmap byte of the first int/uint tagZoneChunk column
+// in buf, or 0xFF if none. Layout: tag, kind, zmap, blkLog, ...
+func firstZoneZmap(buf []byte) byte {
+	for i := 0; i+2 < len(buf); i++ {
+		if buf[i] == tagZoneChunk && (buf[i+1] == zoneKindInt || buf[i+1] == zoneKindUint) {
+			return buf[i+2]
+		}
+	}
+	return 0xFF
+}
+
+type linRow struct {
+	ID  int64  // perfectly linear → linear zmap
+	U   uint64 // perfectly linear
+	V   int64  // payload
+	Tag string // constant → strong columnar-win signal so the probe transposes
+}
+
+// TestZoneChunkLinearChosen: a perfectly linear sorted column picks the linear
+// zonemap (smaller wire) and still zone-skips with exact results.
+func TestZoneChunkLinearChosen(t *testing.T) {
+	const n = 8192
+	rows := make([]linRow, n)
+	for i := range rows {
+		rows[i] = linRow{ID: int64(1_000_000 + i*5), U: uint64(i) * 3, V: int64(i), Tag: "c"}
+	}
+	lin, err := Marshal(rows, OptBalanced|OptZoneMap|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if z := firstZoneZmap(lin); z != zmapLinear {
+		t.Fatalf("expected linear zmap on a linear column, got 0x%02x", z)
+	}
+
+	// Round-trip exact.
+	var out []linRow
+	if err := Unmarshal(lin, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != n {
+		t.Fatalf("len %d", len(out))
+	}
+	for i := range rows {
+		if out[i] != rows[i] {
+			t.Fatalf("[%d] %+v != %+v", i, out[i], rows[i])
+		}
+	}
+
+	// Range query zone-skips and returns exact rows.
+	zoneSkippedZones = 0
+	lo, hi := rows[2000].ID, rows[2050].ID
+	var q []linRow
+	if err := Unmarshal(lin, &q, WhereRange("ID", lo, hi), Select("ID", "U", "V", "Tag")); err != nil {
+		t.Fatal(err)
+	}
+	var want []linRow
+	for _, r := range rows {
+		if r.ID >= lo && r.ID <= hi {
+			want = append(want, r)
+		}
+	}
+	if len(q) != len(want) {
+		t.Fatalf("range len %d != %d", len(q), len(want))
+	}
+	for i := range want {
+		if q[i] != want[i] {
+			t.Fatalf("range [%d] %+v != %+v", i, q[i], want[i])
+		}
+	}
+	if zoneSkippedZones == 0 {
+		t.Fatal("linear zone-skip skipped no zones")
+	}
+}
+
+// TestZoneChunkLinearFallback: a non-monotonic column falls back to the min/max
+// zonemap (linear undefined for unsorted data) and stays correct.
+func TestZoneChunkLinearFallback(t *testing.T) {
+	const n = 4096
+	rng := rand.New(rand.NewSource(11))
+	rows := make([]linRow, n)
+	for i := range rows {
+		rows[i] = linRow{ID: rng.Int63n(1 << 30), U: uint64(rng.Int63n(1 << 30)), V: int64(i), Tag: "c"}
+	}
+	b, err := Marshal(rows, OptBalanced|OptZoneMap|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if z := firstZoneZmap(b); z != zmapMinMax {
+		t.Fatalf("expected minmax zmap on a random column, got 0x%02x", z)
+	}
+	var out []linRow
+	if err := Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	for i := range rows {
+		if out[i] != rows[i] {
+			t.Fatalf("[%d] %+v != %+v", i, out[i], rows[i])
+		}
+	}
+}
+
+// TestZoneChunkLinearNoFalseSkip is the key correctness guard: over many random
+// monotonic columns and random range/comparison queries, the linear zone-skip
+// result must equal a brute-force filter (no matching row is ever skipped).
+func TestZoneChunkLinearNoFalseSkip(t *testing.T) {
+	rng := rand.New(rand.NewSource(2026))
+	for iter := range 200 {
+		n := 512 + rng.Intn(8000)
+		rows := make([]linRow, n)
+		v := rng.Int63n(1000)
+		for i := range rows {
+			// monotonic non-decreasing with varied step (still often linear-fit)
+			step := int64(rng.Intn(7))
+			if rng.Intn(20) == 0 {
+				step += int64(rng.Intn(500)) // occasional jump
+			}
+			v += step
+			rows[i] = linRow{ID: v, U: uint64(v), V: int64(i), Tag: "c"}
+		}
+		b, err := Marshal(rows, OptBalanced|OptZoneMap|OptColumnIndex)
+		if err != nil {
+			t.Fatalf("iter %d: %v", iter, err)
+		}
+		lo := rows[rng.Intn(n)].ID
+		hi := lo + int64(rng.Intn(2000))
+		var got []linRow
+		if err := Unmarshal(b, &got, WhereRange("ID", lo, hi), Select("ID", "U", "V", "Tag")); err != nil {
+			t.Fatalf("iter %d: %v", iter, err)
+		}
+		var want []linRow
+		for _, r := range rows {
+			if r.ID >= lo && r.ID <= hi {
+				want = append(want, r)
+			}
+		}
+		if len(got) != len(want) {
+			t.Fatalf("iter %d zmap=0x%02x n=%d [%d,%d]: len %d != %d (FALSE SKIP?)",
+				iter, firstZoneZmap(b), n, lo, hi, len(got), len(want))
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("iter %d [%d]: %+v != %+v", iter, i, got[i], want[i])
+			}
+		}
+	}
+}
