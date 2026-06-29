@@ -216,7 +216,12 @@ func (d *Decoder) readPackedDictInt64SliceInto(dst *[]int64) error {
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx := make([]uint64, n)
+	// Reuse the shared transient unpack scratch (mirrors the non-Into sibling
+	// readPackedDictInt64Slice); idx is fully written then mapped into out.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {
@@ -516,7 +521,12 @@ func (d *Decoder) readPackedDictUint64SliceInto(dst *[]uint64) error {
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx := make([]uint64, n)
+	// Reuse the shared transient unpack scratch (mirrors the non-Into sibling
+	// readPackedDictUint64Slice); idx is fully written then mapped into out.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {
