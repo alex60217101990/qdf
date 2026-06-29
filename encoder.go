@@ -360,6 +360,7 @@ func (e *Encoder) Reset() {
 	e.rans = false
 	e.colIndex = false
 	e.fsst = false
+	e.zonemap = false
 	e.pairPred = false
 	e.mtf = false
 	e.fsstDict = nil

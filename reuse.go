@@ -48,8 +48,11 @@ func noPointersWalk(t reflect.Type) bool {
 	case reflect.Array:
 		return noPointersWalk(t.Elem())
 	case reflect.Struct:
-		for f := range t.Fields() {
-			if !noPointersWalk(f.Type) {
+		// NumField/Field, NOT the Fields() range-over-func iterator: the iterator
+		// allocates a heap closure+state per call, and this walk runs per decode
+		// (columnar reuse gate) — a modernize pass reintroduced that alloc here.
+		for i := range t.NumField() {
+			if !noPointersWalk(t.Field(i).Type) {
 				return false
 			}
 		}

@@ -408,6 +408,12 @@ func (d *Decoder) readBlockInt64Into(dst *[]int64) error {
 	if err != nil {
 		return err
 	}
+	// Bound each inner sub-block's constant-codec count to the block length so a
+	// malformed sub-block header cannot drive an oversized make() before the
+	// per-block length check rejects it (the standalone path has colMaxLen==0).
+	oldMax := d.colMaxLen
+	d.colMaxLen = blk
+	defer func() { d.colMaxLen = oldMax }()
 	growI64(dst, n)
 	out := *dst
 	for b := range nBlocks {
@@ -529,6 +535,11 @@ func (d *Decoder) readBlockUint64Into(dst *[]uint64) error {
 	if err != nil {
 		return err
 	}
+	// Bound each inner sub-block's constant-codec count to the block length (see
+	// readBlockInt64Into).
+	oldMax := d.colMaxLen
+	d.colMaxLen = blk
+	defer func() { d.colMaxLen = oldMax }()
 	growU64(dst, n)
 	out := *dst
 	for b := range nBlocks {

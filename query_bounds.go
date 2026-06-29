@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"math"
+	"reflect"
 
 	"github.com/alex60217101990/qdf/internal/bitflag"
 )
@@ -48,39 +49,59 @@ type Ordered interface {
 }
 
 // boundKind classifies a Queryable value into its column kind and the value in
-// the widened form the eval path uses. Boxing happens once, at construction.
-func boundKind(x any) (kind colKind, i int64, u uint64, f float64, s string) {
+// the widened form the eval path uses. Boxing happens once, at construction. ok
+// is false only for a value whose kind is none of int/uint/float/string — which
+// the Ordered constraint forbids, so it is a defensive guard, not a normal path.
+//
+// The concrete type switch is the fast path; a NAMED type (e.g. `type Status
+// int32`) does not match it and is resolved by the reflect fallback. Without that
+// fallback a named signed-int silently classified as colKindInt(0) with value 0,
+// turning WhereCmp/WhereRange into a `field == 0` predicate with no error.
+func boundKind(x any) (kind colKind, i int64, u uint64, f float64, s string, ok bool) {
 	switch v := x.(type) {
 	case int:
-		return colKindInt, int64(v), 0, 0, ""
+		return colKindInt, int64(v), 0, 0, "", true
 	case int8:
-		return colKindInt, int64(v), 0, 0, ""
+		return colKindInt, int64(v), 0, 0, "", true
 	case int16:
-		return colKindInt, int64(v), 0, 0, ""
+		return colKindInt, int64(v), 0, 0, "", true
 	case int32:
-		return colKindInt, int64(v), 0, 0, ""
+		return colKindInt, int64(v), 0, 0, "", true
 	case int64:
-		return colKindInt, v, 0, 0, ""
+		return colKindInt, v, 0, 0, "", true
 	case uint:
-		return colKindUint, 0, uint64(v), 0, ""
+		return colKindUint, 0, uint64(v), 0, "", true
 	case uint8:
-		return colKindUint, 0, uint64(v), 0, ""
+		return colKindUint, 0, uint64(v), 0, "", true
 	case uint16:
-		return colKindUint, 0, uint64(v), 0, ""
+		return colKindUint, 0, uint64(v), 0, "", true
 	case uint32:
-		return colKindUint, 0, uint64(v), 0, ""
+		return colKindUint, 0, uint64(v), 0, "", true
 	case uint64:
-		return colKindUint, 0, v, 0, ""
+		return colKindUint, 0, v, 0, "", true
 	case uintptr:
-		return colKindUint, 0, uint64(v), 0, ""
+		return colKindUint, 0, uint64(v), 0, "", true
 	case float32:
-		return colKindFloat32, 0, 0, float64(v), ""
+		return colKindFloat32, 0, 0, float64(v), "", true
 	case float64:
-		return colKindFloat, 0, 0, v, ""
+		return colKindFloat, 0, 0, v, "", true
 	case string:
-		return colKindString, 0, 0, 0, v
+		return colKindString, 0, 0, 0, v, true
 	}
-	return 0, 0, 0, 0, ""
+	// Named type: resolve the underlying kind via reflect.
+	switch rv := reflect.ValueOf(x); rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return colKindInt, rv.Int(), 0, 0, "", true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return colKindUint, 0, rv.Uint(), 0, "", true
+	case reflect.Float32:
+		return colKindFloat32, 0, 0, rv.Float(), "", true
+	case reflect.Float64:
+		return colKindFloat, 0, 0, rv.Float(), "", true
+	case reflect.String:
+		return colKindString, 0, 0, 0, rv.String(), true
+	}
+	return 0, 0, 0, 0, "", false
 }
 
 func leaf(t *predTerm) QueryOption { return QueryOption{node: &condNode{op: condLeaf, term: t}} }
@@ -89,7 +110,10 @@ func leaf(t *predTerm) QueryOption { return QueryOption{node: &condNode{op: cond
 // the bound-carrying form of a single comparison, enabling zone-skip on
 // OptZoneMap int/uint columns. For a two-sided range use WhereRange.
 func WhereCmp[T Ordered](field string, op CmpOp, val T) QueryOption {
-	k, vI, vU, vF, vS := boundKind(any(val))
+	k, vI, vU, vF, vS, ok := boundKind(any(val))
+	if !ok {
+		return QueryOption{node: &condNode{op: condLeaf, err: &QueryError{Op: "WhereCmp", Field: field, Err: ErrTypeMismatch}}}
+	}
 	t := &predTerm{field: field, want: k}
 	switch k {
 	case colKindInt:
@@ -168,8 +192,11 @@ func WhereCmp[T Ordered](field string, op CmpOp, val T) QueryOption {
 // WhereRange keeps rows where lo <= field <= hi (inclusive). Bound-carrying:
 // enables zone-skip on OptZoneMap int/uint columns.
 func WhereRange[T Ordered](field string, lo, hi T) QueryOption {
-	k, loI, loU, loF, loS := boundKind(any(lo))
-	_, hiI, hiU, hiF, hiS := boundKind(any(hi))
+	k, loI, loU, loF, loS, ok := boundKind(any(lo))
+	_, hiI, hiU, hiF, hiS, _ := boundKind(any(hi))
+	if !ok {
+		return QueryOption{node: &condNode{op: condLeaf, err: &QueryError{Op: "WhereRange", Field: field, Err: ErrTypeMismatch}}}
+	}
 	t := &predTerm{field: field, want: k}
 	switch k {
 	case colKindInt:

@@ -448,6 +448,13 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 	}
 	cv.present = pres
 
+	// Bound the full-row backing alloc by bytes (max elem = 16, a string header),
+	// matching the main decodeNullableColumn path's checkColumnarBytes guard so a
+	// compressed row count cannot drive an oversized make([]T, n).
+	if err := checkColumnarBytes(n, 16); err != nil {
+		return cv, err
+	}
+
 	// Decode each dense present-only base column through the pooled colScratch*
 	// buffers (mirrors decodeNullableColumn) instead of a fresh per-call slice:
 	// s is consumed synchronously into the retained `full` before the next

@@ -108,15 +108,13 @@ func fitLinearZmap[T int64 | uint64](s []T, blk int) (linearFit, bool) {
 func (lf linearFit) zoneRangeFor(lo, hi float64, n, blk int) (zlo, zhi int, ok bool) {
 	pLo := lf.c*lo + lf.d - float64(lf.epsP)
 	pHi := lf.c*hi + lf.d + float64(lf.epsP)
-	if pHi < 0 || pLo > float64(n-1) {
+	if math.IsNaN(pLo) || math.IsNaN(pHi) || pHi < 0 || pLo > float64(n-1) {
 		return 0, 0, false
 	}
-	// Clamp into the valid float position window BEFORE the int conversion. An
-	// open-ended predicate bound (±MaxInt64, set by query_bounds for GE/LE/open
-	// ranges) times a fitted slope c can push pHi past float64(MaxInt); int() of
-	// an out-of-range float yields MinInt64, which slips past an int-domain clamp
-	// and selects a negative zone range → every matching zone skipped (silent
-	// false-negative query results). Same bug-class as the minmax zoneRangeFor.
+	// Clamp to [0, n-1] in the FLOAT domain before the int conversion: an
+	// open-ended GE/LE bound makes pHi/pLo overflow int64 range, and an
+	// out-of-range float→int yields MinInt64 on amd64, which would wrap to a
+	// bogus negative zone and silently drop every matching row.
 	if pLo < 0 {
 		pLo = 0
 	}
