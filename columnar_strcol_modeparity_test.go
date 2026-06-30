@@ -17,21 +17,28 @@ import (
 // noCopy; a lifetime/aliasing bug there would surface as a value mismatch.
 func TestColumnarStringColumn_DecodeModeParity(t *testing.T) {
 	type Row struct {
-		ID   int64  `qdf:"id"`
-		Tag  string `qdf:"tag"`  // 3 distinct → dict column
-		Host string `qdf:"host"` // few distinct → dict column
-		Note string `qdf:"note"` // higher card → raw / per-value column
+		ID   int64   `qdf:"id"`
+		Tag  string  `qdf:"tag"`  // 3 distinct → dict column (pooled table/idx)
+		Host string  `qdf:"host"` // 2 distinct → dict column (different card)
+		Note string  `qdf:"note"` // higher card → raw / per-value column
+		Zone *string `qdf:"zone"` // nullable *string → exercises colStrNoPool opt-out
 	}
 	tags := []string{"alpha", "beta", "gamma"}
 	hosts := []string{"h1", "h2"}
+	zones := []string{"z-east", "z-west", "z-north"}
 	in := make([]Row, 0, 64)
 	for i := range 64 { // >= columnarMinElems(16) → columnar transpose
-		in = append(in, Row{
+		r := Row{
 			ID:   int64(i),
 			Tag:  tags[i%len(tags)],
 			Host: hosts[i%len(hosts)],
 			Note: fmt.Sprintf("note-%d-%s", i, tags[i%len(tags)]),
-		})
+		}
+		if i%4 != 0 { // some null, some present → nullable column
+			z := zones[i%len(zones)]
+			r.Zone = &z
+		}
+		in = append(in, r)
 	}
 
 	for _, opt := range []qdf.Options{qdf.OptCompression, qdf.OptBalanced | qdf.OptColumnIndex} {

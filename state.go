@@ -1074,6 +1074,11 @@ type decState struct {
 	colScratchBool []bool
 	colScratchF32  []float32 // codegen columnar float32 scatter scratch
 	colScratchStr  []string  // codegen columnar plain string scatter scratch
+	// String-dict column scratch, reused across columns. Both are transient: the
+	// dispatcher copies table[idx[i]] into the column result before reading the
+	// next column, so neither is aliased past one column read.
+	colDictTableScr []string // distinct-value table for a string-dict column
+	colDictIdxScr   []uint32 // per-row dictionary index for a string-dict column
 
 	// deltaColRows is reused storage for a sparse column's decoded ascending row
 	// indices during a tagColSlicePatch apply (delta_columnar.go).
@@ -1211,6 +1216,17 @@ func (d *decState) reset() {
 		// GC for the pooled decoder's lifetime. Sibling to d.stringValues' clear.
 		clear(d.colScratchStr[:cap(d.colScratchStr)])
 		d.colScratchStr = d.colScratchStr[:0]
+	}
+	if cap(d.colDictTableScr) > maxRetainedColScratch {
+		d.colDictTableScr = nil
+	} else {
+		// Drop retained string headers across the full backing (sibling to
+		// colScratchStr) so a prior message's dict values cannot be pinned.
+		clear(d.colDictTableScr[:cap(d.colDictTableScr)])
+		d.colDictTableScr = d.colDictTableScr[:0]
+	}
+	if cap(d.colDictIdxScr) > maxRetainedColScratch { // pointer-free, no clear
+		d.colDictIdxScr = nil
 	}
 	if cap(d.colLenScratch) > maxRetainedColScratch {
 		d.colLenScratch = nil
