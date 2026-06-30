@@ -1393,7 +1393,9 @@ func (g *gen) emitEncodeMap(w io.Writer, expr string, m *types.Map, indent strin
 	// range order — rare, and reproducing the recursive reflect comparator in
 	// generated code is not worthwhile.
 	switch g.canonicalKeyKind(m.Key()) {
-	case canonKeyOrdered, canonKeyFloat:
+	case canonKeyOrdered:
+		// Findable keys (string/int/uint): gather + sort keys, re-fetch values by
+		// index. Matches encodeMapCanonical's per-kind slices.Sort ordering.
 		ksVar := g.fresh("ks")
 		keyType := g.typeExprFromType(m.Key())
 		g.imports["slices"] = ""
@@ -1401,16 +1403,39 @@ func (g *gen) emitEncodeMap(w io.Writer, expr string, m *types.Map, indent strin
 		fmt.Fprintf(w, "%s\t\t%s := make([]%s, 0, len(%s))\n", indent, ksVar, keyType, expr)
 		fmt.Fprintf(w, "%s\t\tfor %s := range %s {\n%s\t\t\t%s = append(%s, %s)\n%s\t\t}\n",
 			indent, kVar, expr, indent, ksVar, ksVar, kVar, indent)
-		if g.canonicalKeyKind(m.Key()) == canonKeyFloat {
-			g.imports["cmp"] = ""
-			g.imports["math"] = ""
-			fmt.Fprintf(w, "%s\t\tslices.SortFunc(%s, func(a, b %s) int { return cmp.Compare(math.Float64bits(float64(a)), math.Float64bits(float64(b))) })\n",
-				indent, ksVar, keyType)
-		} else {
-			fmt.Fprintf(w, "%s\t\tslices.Sort(%s)\n", indent, ksVar)
-		}
+		fmt.Fprintf(w, "%s\t\tslices.Sort(%s)\n", indent, ksVar)
 		fmt.Fprintf(w, "%s\t\tfor _, %s := range %s {\n", indent, kVar, ksVar)
 		fmt.Fprintf(w, "%s\t\t\t%s := %s[%s]\n", indent, vVar, expr, kVar)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t} else {\n", indent, indent)
+		fmt.Fprintf(w, "%s\t\tfor %s, %s := range %s {\n", indent, kVar, vVar, expr)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t}\n", indent, indent)
+	case canonKeyFloat:
+		// Float keys: gather (key,value) PAIRS via range and sort by Float64bits.
+		// We must NOT re-fetch the value with expr[k]: a NaN key (NaN != NaN) is
+		// unfindable by map index and would yield the zero value, corrupting the
+		// entry. encodeMapCanonical's float path carries pairs for the same reason.
+		psVar := g.fresh("ps")
+		pVar := g.fresh("p")
+		keyType := g.typeExprFromType(m.Key())
+		valType := g.typeExprFromType(m.Elem())
+		pairType := fmt.Sprintf("struct{ k %s; v %s }", keyType, valType)
+		g.imports["slices"] = ""
+		g.imports["cmp"] = ""
+		g.imports["math"] = ""
+		fmt.Fprintf(w, "%s\tif e.Canonical() {\n", indent)
+		fmt.Fprintf(w, "%s\t\t%s := make([]%s, 0, len(%s))\n", indent, psVar, pairType, expr)
+		fmt.Fprintf(w, "%s\t\tfor %s, %s := range %s {\n%s\t\t\t%s = append(%s, %s{%s, %s})\n%s\t\t}\n",
+			indent, kVar, vVar, expr, indent, psVar, psVar, pairType, kVar, vVar, indent)
+		fmt.Fprintf(w, "%s\t\tslices.SortFunc(%s, func(a, b %s) int { return cmp.Compare(math.Float64bits(float64(a.k)), math.Float64bits(float64(b.k))) })\n",
+			indent, psVar, pairType)
+		fmt.Fprintf(w, "%s\t\tfor _, %s := range %s {\n", indent, pVar, psVar)
+		fmt.Fprintf(w, "%s\t\t\t%s := %s.k\n%s\t\t\t%s := %s.v\n", indent, kVar, pVar, indent, vVar, pVar)
 		if err := emitKV(indent + "\t\t\t"); err != nil {
 			return err
 		}

@@ -182,3 +182,10 @@ type GenNamedCodec struct {
 	Label GenTag `qdf:"label"`
 	N     int64  `qdf:"n"`
 }
+
+// GenFloatMap exercises the OptCanonical sorted-emit path for float-keyed maps,
+// whose canonical order is by Float64bits and whose values must be carried as
+// pairs (a NaN key is unfindable by map index).
+type GenFloatMap struct {
+	M map[float64]string `qdf:"m"`
+}
