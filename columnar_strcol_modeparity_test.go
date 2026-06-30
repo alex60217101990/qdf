@@ -24,7 +24,7 @@ func TestColumnarStringColumn_DecodeModeParity(t *testing.T) {
 	}
 	tags := []string{"alpha", "beta", "gamma"}
 	hosts := []string{"h1", "h2"}
-	var in []Row
+	in := make([]Row, 0, 64)
 	for i := range 64 { // >= columnarMinElems(16) → columnar transpose
 		in = append(in, Row{
 			ID:   int64(i),
