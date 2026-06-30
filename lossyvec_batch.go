@@ -243,6 +243,12 @@ func readNormStream(src []byte, n int) (norms []float64, used int, err error) {
 	}
 	logMin := math.Float64frombits(binary.LittleEndian.Uint64(src[0:]))
 	logMax := math.Float64frombits(binary.LittleEndian.Uint64(src[8:]))
+	if math.IsNaN(logMin) || math.IsNaN(logMax) || math.IsInf(logMin, 0) || math.IsInf(logMax, 0) {
+		// Hostile header: NaN/Inf would make span NaN (span<=0 is false for NaN)
+		// and yield math.Exp(NaN)=NaN for every decoded norm. The encoder only
+		// writes finite logMin/logMax (appendNormStream requires finite norms).
+		return nil, 0, ErrInvalidLength
+	}
 	span := logMax - logMin
 	if span <= 0 {
 		span = 1

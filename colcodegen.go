@@ -487,12 +487,17 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 	sample := min(len(cols[0]), columnarProbeSample)
 	var colBytes, rowBytes int
 	for _, strs := range cols {
+		// Clamp the per-column sample so a caller passing columns shorter than
+		// cols[0] (only possible via the exported StringColumns* entry points)
+		// cannot index out of range. Internal codegen callers pass equal-length
+		// columns, so n == sample and the estimate is byte-identical.
+		n := min(sample, len(strs))
 		var seen [columnarProbeSample]string
 		nseen := 0
 		var tableBytes, perValue, sampleChars int
 		prev := ""
 		first := true
-		for i := range sample {
+		for i := range n {
 			s := strs[i]
 			fresh := true
 			for j := 0; j < nseen; j++ {
@@ -520,7 +525,7 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 			prev = s
 			first = false
 		}
-		dictBytes := tableBytes + (sample*bitsForDistinct(nseen)+7)/8
+		dictBytes := tableBytes + (n*bitsForDistinct(nseen)+7)/8
 		best := min(perValue, dictBytes)
 		// Defer the O(chars) per-byte alphabet scan behind the cheap alpha
 		// preconditions (cardinality + average length), so low-card / short string
@@ -528,12 +533,12 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 		// scan's alphaOK/alphaCount feed only the alphaEst below). Mirrors
 		// columnarProbe.
 		if internAware &&
-			nseen*100 >= sample*alphaMinDistinctPct &&
-			sampleChars >= sample*alphaProbeMinAvgLen {
+			nseen*100 >= n*alphaMinDistinctPct &&
+			sampleChars >= n*alphaProbeMinAvgLen {
 			var alphaSeen [256]bool
 			alphaCount := 0
 			alphaOK := true
-			for i := range sample {
+			for i := range n {
 				s := strs[i]
 				for k := 0; k < len(s); k++ {
 					if !alphaSeen[s[k]] {
@@ -550,7 +555,7 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 				}
 			}
 			if alphaOK && alphaCount >= 2 {
-				alphaEst := alphaCount + sample + (sampleChars*bitsForDistinct(alphaCount)+7)/8
+				alphaEst := alphaCount + n + (sampleChars*bitsForDistinct(alphaCount)+7)/8
 				if alphaEst < best {
 					best = alphaEst
 				}

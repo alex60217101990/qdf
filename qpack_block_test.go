@@ -250,7 +250,7 @@ func TestBlockSelectiveDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	blockSelectiveBlocksDecoded = 0
+	blockSelectiveBlocksDecoded.Store(0)
 	var out []BRow
 	if err := Unmarshal(b, &out,
 		Where("Sel", func(v int64) bool { return v == 1 }),
@@ -273,14 +273,14 @@ func TestBlockSelectiveDecode(t *testing.T) {
 			t.Fatalf("[%d] = %+v != %+v", i, out[i], want[i])
 		}
 	}
-	if blockSelectiveBlocksDecoded == 0 {
+	if blockSelectiveBlocksDecoded.Load() == 0 {
 		t.Fatal("selective path did not run (Val column was not block-tagged?)")
 	}
-	if blockSelectiveBlocksDecoded > 2 {
+	if blockSelectiveBlocksDecoded.Load() > 2 {
 		t.Fatalf("selective decoded %d blocks; matched rows span only the first ~2 blocks",
-			blockSelectiveBlocksDecoded)
+			blockSelectiveBlocksDecoded.Load())
 	}
-	t.Logf("selective decoded %d block(s) for %d matched rows", blockSelectiveBlocksDecoded, len(out))
+	t.Logf("selective decoded %d block(s) for %d matched rows", blockSelectiveBlocksDecoded.Load(), len(out))
 }
 
 // TestBlockSelectiveAdversarial exercises the selective decode integration

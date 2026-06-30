@@ -1211,6 +1211,9 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					return ErrInvalidLength
 				}
 				d.i += n
+				if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+					return ErrInvalidLength
+				}
 				cnt := int(cnt64)
 				if err := d.CheckLength(cnt, 1); err != nil {
 					return err
@@ -1559,6 +1562,9 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, ErrInvalidLength
 			}
 			d.i += n
+			if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+				return nil, ErrInvalidLength
+			}
 			cnt := int(cnt64)
 			if err := d.CheckLength(cnt, 1); err != nil {
 				return nil, err

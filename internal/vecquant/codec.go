@@ -206,6 +206,7 @@ func Encode(vectors [][]float64, b Budget) Block {
 // re-encoding. Use Encode for a one-shot Block whose Coords is independent.
 func EncodeWith(vectors [][]float64, b Budget, sc *Scratch) Block {
 	if len(vectors) == 0 {
+		sc.Overflowed = false // clear any stale flag from a prior reuse of sc
 		return Block{Seed: hadamardSeed, Delta: 1, Variant: VariantScalar}
 	}
 	dim := len(vectors[0])
