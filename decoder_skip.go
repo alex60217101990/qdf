@@ -686,6 +686,73 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += used
 		return nil
+	case tagVecBatchStruct:
+		// Batched lossy vector-column ([]struct with vector fields under
+		// OptLossyVec) reached Skip. Not byte-skippable: the per-row non-batched
+		// fields can carry intern/shape state-refs, so each must be walked via
+		// d.Skip() to replay that state (a raw byte advance would desync later
+		// state-refs — same rationale as tagColStruct). The header carries the
+		// struct field count so the schemaless walk knows how many fields per row.
+		d.i++
+		n64, k := readUvarint(d.buf[d.i:])
+		if k <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += k
+		if n64 > uint64(maxColumnarElems) {
+			return ErrInvalidLength
+		}
+		n := int(n64)
+		if d.i+3 > len(d.buf) {
+			return ErrShortBuffer
+		}
+		nv := int(d.buf[d.i])
+		mask := d.buf[d.i+1]
+		polarMask := d.buf[d.i+2]
+		d.i += 3
+		if nv > 8 || polarMask&^mask != 0 { // nv fits one mask byte; polar ⊆ mask
+			return ErrBadTag
+		}
+		nf64, kf := readUvarint(d.buf[d.i:])
+		if kf <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += kf
+		// Skip each batched column block (each is self-describing in length).
+		for vi := 0; vi < nv; vi++ {
+			if mask&(1<<uint(vi)) == 0 {
+				continue
+			}
+			if polarMask&(1<<uint(vi)) != 0 {
+				_, used, err := readNormStream(d.buf[d.i:], n)
+				if err != nil {
+					return err
+				}
+				d.i += used
+			}
+			_, _, used, err := readLossyVec(d.buf[d.i:])
+			if err != nil {
+				return err
+			}
+			d.i += used
+		}
+		// Skip per-row non-batched fields, replaying their intern/shape state.
+		batched := 0
+		for m := mask; m != 0; m &= m - 1 {
+			batched++
+		}
+		perRow := int(nf64) - batched
+		if nf64 > uint64(maxColumnarElems) || perRow < 0 {
+			return ErrBadTag
+		}
+		for i := 0; i < n; i++ {
+			for j := 0; j < perRow; j++ {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}
 	return ErrBadTag
 }

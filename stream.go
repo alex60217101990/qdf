@@ -379,12 +379,15 @@ func (s *StreamDecoder) readFrameLen() (int, error) {
 func (s *StreamDecoder) fill(need int, boundary bool) error {
 	for len(s.dec.buf)-s.dec.i < need {
 		if cap(*s.buf)-len(s.dec.buf) == 0 {
-			// Grow to fit `need` in one shot (the doubling alone would take many
-			// passes for a large frame): max(cap*2+4096, current + need).
+			// Grow geometrically. We deliberately do NOT pre-size to s.dec.i+need:
+			// readFrameLen accepts any frame length below maxStreamMsg (~2 GiB), so
+			// a hostile ~5-byte length prefix could otherwise force a ~2 GiB
+			// allocation here before a single body byte is read or validated.
+			// Doubling caps the peak allocation at ~2x the bytes actually received,
+			// so a truncated or lying stream errors (ErrShortBuffer / io.EOF) after
+			// reading little, instead of OOM-ing up front. A legitimately large
+			// frame still converges in O(log need) geometric reallocations.
 			newCap := cap(*s.buf)*2 + 4096
-			if minCap := s.dec.i + need; minCap > newCap {
-				newCap = minCap
-			}
 			grown := make([]byte, len(s.dec.buf), newCap)
 			copy(grown, s.dec.buf)
 			*s.buf = grown

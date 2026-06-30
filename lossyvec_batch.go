@@ -52,6 +52,10 @@ func (e *Encoder) encodeVectorBatchStruct(td *typeDesc, base unsafe.Pointer, n i
 	e.buf = append(e.buf, tagVecBatchStruct)
 	e.buf = appendUvarint(e.buf, uint64(n))
 	e.buf = append(e.buf, byte(nv), mask, polarMask)
+	// Total struct field count: lets Skip() (schema evolution) walk the per-row
+	// non-batched fields without a typeDesc — it knows nf-popcount(mask) fields
+	// follow each row and replays their intern/shape state via d.Skip().
+	e.buf = appendUvarint(e.buf, uint64(len(td.fields)))
 	for vi := range blocks {
 		if mask&(1<<uint(vi)) != 0 {
 			e.buf = append(e.buf, blocks[vi]...)
@@ -308,8 +312,16 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 	mask := d.buf[d.i+1]
 	polarMask := d.buf[d.i+2]
 	d.i += 3
+	nf64, kf := binary.Uvarint(d.buf[d.i:])
+	if kf <= 0 {
+		return errors.New("qdf: bad vec-batch field count")
+	}
+	d.i += kf
 	if nv != len(td.vecFields) {
 		return errors.New("qdf: vec-batch shape mismatch")
+	}
+	if int(nf64) != len(td.fields) {
+		return errors.New("qdf: vec-batch field count mismatch")
 	}
 	if polarMask&^mask != 0 { // polar bit on a non-batched field would desync d.i
 		return errors.New("qdf: vec-batch polarMask not a subset of mask")

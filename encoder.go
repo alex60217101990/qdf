@@ -435,6 +435,11 @@ func (e *Encoder) resetForReuse() {
 //go:nosplit
 func (e *Encoder) ApplyOpts(opts Options) { e.applyOpts(opts) }
 
+// Canonical reports whether OptCanonical is set on this encoder. Generated
+// EncodeQDF code calls it to decide whether to emit map entries in sorted
+// (deterministic) key order, matching the reflect encoder's canonical path.
+func (e *Encoder) Canonical() bool { return e.opts.Has(OptCanonical) }
+
 // EncodeValue runs the reflect-driven Marshal pipeline on v
 // against this Encoder. Convenience for callers driving an
 // Encoder directly (e.g. with PreIntern) — equivalent to what

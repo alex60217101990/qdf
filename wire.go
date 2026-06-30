@@ -341,6 +341,7 @@ const (
 	// batched block beats raw). Layout:
 	//
 	//   0xFE, varuint(n), byte(numVecFields), byte(batchedMask), byte(polarMask),
+	//     varuint(numStructFields),
 	//     for each set batchedMask bit (vector-field order):
 	//       if polarMask bit set: <norm stream: f64 logMin, f64 logMax, n×uint16>,
 	//       <0xFD count=n block>,
@@ -351,10 +352,13 @@ const (
 	// each vector's L2 norm separately (log-domain 16-bit) plus the quantized unit
 	// direction in the block, which the decoder rescales.
 	//
+	// numStructFields is the total struct field count, so Skip() (schema
+	// evolution) can walk the n×(numStructFields-popcount(batchedMask)) per-row
+	// non-batched fields without a typeDesc, replaying their intern/shape state.
+	//
 	// Non-batched vector fields and all scalar/string fields stay row-major, so
 	// decode reconstructs each row by decoding those fields and scattering the
-	// batched vectors. Forward-compat: a decoder that does not understand 0xFE
-	// errors cleanly.
+	// batched vectors. Forward-compat: Skip() walks an unknown 0xFE field cleanly.
 	tagVecBatchStruct = 0xFE
 )
 
