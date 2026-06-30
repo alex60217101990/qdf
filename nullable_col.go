@@ -306,7 +306,11 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	// the present*sizeof(string) allocation below is not made and discarded, and
 	// add the same len(strs)==present guard every other kind has.
 	if col.kind.base() == colKindString {
+		// This path stores &strs[k] into *string fields, so strs must be a stable
+		// owned slice — not the pooled scratch a later column would overwrite.
+		d.colStrNoPool = true
 		strs, err := d.readStringColumn(present)
+		d.colStrNoPool = false
 		if err != nil {
 			return err
 		}

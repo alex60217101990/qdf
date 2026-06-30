@@ -384,9 +384,13 @@ func (d *Decoder) ReadBoolColumn(n int) ([]bool, error) {
 // colKindString decode: a dictionary / FSST / raw-slab block (tag present) goes
 // through the shared block reader; otherwise the plain per-value path reads via
 // ReadString so state-ref / MTF / repeat encodings written by the picker's
-// plain fallback resolve correctly (and share the decode intern cache). The
-// returned slice is reused scratch on the plain path; scatter before the next
-// column read.
+// plain fallback resolve correctly (and share the decode intern cache).
+//
+// The returned slice is decode-state scratch reused across the columns of one
+// struct decode (every path now pools it — see colStrScratch); it is valid only
+// until the next string-column read, so scatter it into the destination before
+// reading the next column. Every internal columnar decoder (codegen + reflect +
+// delta + nullable) drains each column this way.
 func (d *Decoder) ReadStringColumn(n int) ([]string, error) {
 	if n > 0 && d.i < len(d.buf) && isStringColumnBlockTag(d.buf[d.i]) {
 		s, err := d.readStringColumn(n)
@@ -398,11 +402,7 @@ func (d *Decoder) ReadStringColumn(n int) ([]string, error) {
 		}
 		return s, nil
 	}
-	st := d.colStateDec()
-	if cap(st.colScratchStr) < n {
-		st.colScratchStr = make([]string, n)
-	}
-	out := st.colScratchStr[:n]
+	out := d.colStrScratch(n)
 	for i := range n {
 		s, err := d.ReadString()
 		if err != nil {
@@ -410,8 +410,27 @@ func (d *Decoder) ReadStringColumn(n int) ([]string, error) {
 		}
 		out[i] = s
 	}
-	st.colScratchStr = out
 	return out, nil
+}
+
+// colStrScratch returns a length-n []string backed by the decode state's pooled
+// string-column scratch, reused across the columns of one struct decode so each
+// column does not allocate a fresh result slice. The buffer is shared, so the
+// returned slice is valid only until the NEXT string-column read; every internal
+// caller scatters its column into the destination structs before reading the
+// next column (see ReadStringColumn). The argument must only ever be used as the
+// column's RESULT slice — never as an internal table/scratch read while filling
+// it, or it would self-overwrite.
+func (d *Decoder) colStrScratch(n int) []string {
+	if d.colStrNoPool {
+		return make([]string, n) // caller retains &elem; needs a stable backing array
+	}
+	st := d.colStateDec()
+	if cap(st.colScratchStr) < n {
+		st.colScratchStr = make([]string, n)
+	}
+	st.colScratchStr = st.colScratchStr[:n]
+	return st.colScratchStr
 }
 
 // ReadTimeColumn decodes a time.Time column's two sub-columns and returns the

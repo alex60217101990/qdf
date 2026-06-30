@@ -55,7 +55,7 @@ func (d *Decoder) readStringColumnConst(n int) ([]string, error) {
 	if int(cnt64) != n {
 		return nil, ErrTypeMismatch
 	}
-	out := make([]string, n)
+	out := d.colStrScratch(n)
 	for i := range out {
 		out[i] = v
 	}

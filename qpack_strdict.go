@@ -277,7 +277,7 @@ func (d *Decoder) readStringColumn(n int) ([]string, error) {
 	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrAlpha {
 		return d.readStringColumnAlpha(n)
 	}
-	out := make([]string, n)
+	out := d.colStrScratch(n)
 	if n > 0 && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrDictFC || d.buf[d.i] == tagColStrDictQ) {
 		var (
 			table []string
