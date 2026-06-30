@@ -305,7 +305,7 @@ func (d *Decoder) readStringColumn(n int) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		out[i] = string(sb) // owned copy
+		out[i] = d.materializeStr(sb) // aliases input under noCopy / arena
 	}
 	return out, nil
 }
@@ -343,7 +343,7 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 			return nil, nil, ErrShortBuffer
 		}
 		l := int(l64)
-		table[i] = string(d.buf[d.i : d.i+l]) // owned copy
+		table[i] = d.materializeStr(d.buf[d.i : d.i+l]) // aliases input under noCopy / arena
 		d.i += l
 	}
 	n64, nr := readUvarint(d.buf[d.i:])
@@ -416,7 +416,7 @@ func (d *Decoder) readStringColumnDictQ(n int) (table []string, idx []uint32, er
 			return nil, nil, ErrShortBuffer
 		}
 		l := int(l64)
-		table[i] = string(d.buf[d.i : d.i+l]) // owned copy
+		table[i] = d.materializeStr(d.buf[d.i : d.i+l]) // aliases input under noCopy / arena
 		d.i += l
 	}
 	// QPack index block: peek the codec tag, decode, validate length and range.
