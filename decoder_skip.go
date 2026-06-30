@@ -719,7 +719,7 @@ func (d *Decoder) Skip() error {
 		}
 		d.i += kf
 		// Skip each batched column block (each is self-describing in length).
-		for vi := 0; vi < nv; vi++ {
+		for vi := range nv {
 			if mask&(1<<uint(vi)) == 0 {
 				continue
 			}
@@ -745,8 +745,8 @@ func (d *Decoder) Skip() error {
 		if nf64 > uint64(maxColumnarElems) || perRow < 0 {
 			return ErrBadTag
 		}
-		for i := 0; i < n; i++ {
-			for j := 0; j < perRow; j++ {
+		for range n {
+			for range perRow {
 				if err := d.Skip(); err != nil {
 					return err
 				}
