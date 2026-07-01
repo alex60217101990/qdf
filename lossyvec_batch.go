@@ -329,6 +329,12 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 
 	// Read each batched column's block (count=n vectors). A polar field carries a
 	// norm stream before the directions block; rescale to recover the vectors.
+	//
+	// Each readLossyVec independently caps its own reconstruction at
+	// maxColumnarBytes, but up to 8 batched columns would then allow ~8×256MB
+	// from a tiny rANS-compressed input. Bound the AGGREGATE across all columns
+	// so the batched path amplifies no more than a single columnar decode.
+	var totalVecBytes uint64
 	batched := make([][][]float64, nv)
 	for vi := range nv {
 		if mask&(1<<uint(vi)) == 0 {
@@ -353,6 +359,12 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 		}
 		if elemF32 != td.vecFields[vi].elemF32 {
 			return ErrTypeMismatch
+		}
+		if len(vecs) > 0 {
+			totalVecBytes += uint64(len(vecs)) * uint64(len(vecs[0])) * 8
+			if totalVecBytes > maxColumnarBytes {
+				return ErrInvalidLength
+			}
 		}
 		if norms != nil {
 			for i := range vecs {

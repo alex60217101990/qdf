@@ -568,17 +568,20 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		}
 		cv.s = full
 	case colKindTime:
-		var sec []int64
-		if err := decodeSliceInt64(d, unsafe.Pointer(&sec)); err != nil {
+		// Reuse the pooled colScratch buffers (sec/nsec are consumed synchronously
+		// into `full` below before return, like the other kinds above and the
+		// non-query decodeNullableColumn sibling) instead of two fresh slices.
+		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
 			return cv, err
 		}
+		sec := st.colScratchI64
 		if len(sec) != present {
 			return cv, ErrTypeMismatch
 		}
-		var nsec []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&nsec)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return cv, err
 		}
+		nsec := st.colScratchU64
 		if len(nsec) != present {
 			return cv, ErrTypeMismatch
 		}

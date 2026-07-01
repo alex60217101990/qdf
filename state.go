@@ -602,21 +602,31 @@ func (e *encState) reset() {
 	// Canonical map-key sort scratch (OptCanonical): numeric scratch is
 	// pointer-free (drop only past the ceiling); canonKeysStr holds caller
 	// string headers, so clear them to drop references across a pool recycle.
+	// canonKeysI64/U64 grow independently (a uint64-key-map workload grows
+	// canonKeysU64 while canonKeysI64 stays empty), so gate each on its own cap —
+	// a single check keyed on canonKeysI64 would never drop an oversized
+	// canonKeysU64. Both are pointer-free: drop only past the ceiling.
 	if cap(e.canonKeysI64) > maxRetainedColScratch {
-		e.canonKeysI64, e.canonKeysU64 = nil, nil
+		e.canonKeysI64 = nil
+	}
+	if cap(e.canonKeysU64) > maxRetainedColScratch {
+		e.canonKeysU64 = nil
 	}
 	if cap(e.canonKeysStr) > maxRetainedColScratch {
 		e.canonKeysStr = nil
 	} else {
-		clear(e.canonKeysStr)
+		// Clear across the FULL backing, not just len: a shorter key-set leaves a
+		// high-water tail of headers aliasing the caller's map key strings.
+		clear(e.canonKeysStr[:cap(e.canonKeysStr)])
 		e.canonKeysStr = e.canonKeysStr[:0]
 	}
 	// canonKeyVals holds reflect.Value key holders (may alias caller map keys via
-	// the exotic-kind fallback); clear to drop references across a pool recycle.
+	// the exotic-kind fallback); clear the FULL backing to drop references across
+	// a pool recycle (a shorter map leaves a stale header tail past len).
 	if cap(e.canonKeyVals) > maxRetainedColScratch {
 		e.canonKeyVals = nil
 	} else {
-		clear(e.canonKeyVals)
+		clear(e.canonKeyVals[:cap(e.canonKeyVals)])
 		e.canonKeyVals = e.canonKeyVals[:0]
 	}
 	// Canonical float-slice scratch is pointer-free: drop only past the ceiling.
@@ -633,7 +643,10 @@ func (e *encState) reset() {
 	if cap(e.colDictTable) > maxRetainedColScratch {
 		e.colDictTable = nil
 	} else {
-		clear(e.colDictTable)
+		// []string resliced via [:0] per column, so a shorter column leaves a
+		// high-water tail of headers aliasing caller strings; clear the FULL
+		// backing (mirrors the decoder's colDictTableScr reset).
+		clear(e.colDictTable[:cap(e.colDictTable)])
 		e.colDictTable = e.colDictTable[:0]
 	}
 	if cap(e.colMaskScratch) > maxRetainedColScratch {

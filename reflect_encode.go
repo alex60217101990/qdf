@@ -212,6 +212,7 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// (so non-lossy and unbatchable shapes stay byte-identical).
 		if e.opts.Has(OptLossyVec) && elem != nil && len(elem.vecFields) > 0 &&
 			n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
+			e.ifaceDepth == 0 &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
 			if done, err := e.encodeVectorBatchStruct(elem, hdr.Data, n, stride); done {
 				return err
@@ -1318,6 +1319,11 @@ func encodeIface(e *Encoder, p unsafe.Pointer) error {
 		}
 		defer func() { e.depth-- }()
 	}
+	// Mark the schemaless context: everything under a dynamic dispatch decodes via
+	// decodeAny, which cannot read a batched vector-column block. Balanced inc/dec
+	// so nested ifaces stay positive and the counter returns to 0 at the top.
+	e.ifaceDepth++
+	defer func() { e.ifaceDepth-- }()
 	return encodeReflect(e, iv)
 }
 

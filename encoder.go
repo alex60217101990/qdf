@@ -171,6 +171,13 @@ type Encoder struct {
 	depth    int
 	maxDepth int
 
+	// ifaceDepth > 0 while encoding a value reached through a dynamic (interface)
+	// field/element — a schemaless position that the decoder reads back via
+	// decodeAny. The batched lossy-vector []struct block (tagVecBatchStruct) has
+	// no decodeAny case, so encodeSlice suppresses it in this context and falls
+	// back to the columnar path (tagColStruct), which decodeAny does handle.
+	ifaceDepth int
+
 	// vecBudget is the fidelity target used when OptLossyVec is active.
 	// No effect unless OptLossyVec is set. Zero value resolves to MinCosine(0.999).
 	// Placed among the 8-byte fields (it is pointer-free, 8-byte aligned) so the
@@ -415,6 +422,7 @@ func (e *Encoder) resetForReuse() {
 		e.state.reset()
 	}
 	e.depth = 0
+	e.ifaceDepth = 0
 	if e.maxDepth == 0 {
 		e.maxDepth = DefaultMaxDepth
 	}

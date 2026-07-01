@@ -17,9 +17,17 @@ import "slices"
 func (e *Encoder) writePackedRLEUint64Slice(s []uint64) {
 	e.writeHeader()
 	n := len(s)
-	// Conservative pre-grow: 2 byte tag/kind + uvarint(n) + at most
-	// 20 bytes per run. nRuns ≤ n so the cap is bounded.
-	out := slices.Grow(e.buf, 2+10+20*n)
+	// Pre-grow by the actual run count, not n: RLE is chosen precisely for
+	// run-dominated input, so 20*n over-reserves by orders of magnitude (a single
+	// 1M-element constant run would reserve ~20MB for ~22 bytes). One extra scan
+	// (cheap next to the encode) sizes the reservation to 20 bytes per run.
+	runs := 0
+	for i := range n {
+		if i == 0 || s[i] != s[i-1] {
+			runs++
+		}
+	}
+	out := slices.Grow(e.buf, 2+10+20*runs)
 	out = append(out, tagPackRLE, qpackKindUint64)
 	out = appendUvarint(out, uint64(n))
 	if n == 0 {
@@ -48,7 +56,14 @@ func (e *Encoder) writePackedRLEUint64Slice(s []uint64) {
 func (e *Encoder) writePackedRLEInt64Slice(s []int64) {
 	e.writeHeader()
 	n := len(s)
-	out := slices.Grow(e.buf, 2+10+20*n)
+	// Pre-grow by run count, not n (see writePackedRLEUint64Slice).
+	runs := 0
+	for i := range n {
+		if i == 0 || s[i] != s[i-1] {
+			runs++
+		}
+	}
+	out := slices.Grow(e.buf, 2+10+20*runs)
 	out = append(out, tagPackRLE, qpackKindInt64)
 	out = appendUvarint(out, uint64(n))
 	if n == 0 {

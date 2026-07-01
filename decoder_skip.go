@@ -240,6 +240,9 @@ func (d *Decoder) Skip() error {
 				return ErrInvalidLength
 			}
 			d.i += n
+			if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+				return ErrInvalidLength
+			}
 			if err := d.CheckLength(int(cnt64), 1); err != nil {
 				return err
 			}
