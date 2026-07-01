@@ -71,12 +71,21 @@
   <!-- convergence flare where the rays enter the crystal -->
   <circle cx="126" cy="150" r="16" fill="url(#caustic)"/>
 
-  <!-- compressed output beam + dense packet -->
-  <g filter="url(#glow)">
-    <path d="M 186,150 L 246,150" stroke="url(#ray)" stroke-width="7" stroke-linecap="round"/>
-    <polygon points="248,139 262,150 248,161 244,150" fill="#a5f3fc"/><polygon points="248,150 262,150 248,161" fill="#3b82f6"/>
-    <circle cx="280" cy="150" r="2.6" fill="#a5f3fc" opacity="0.8"/>
+  <!-- compressed output beam → a smaller crystal receding in perspective -->
+  <path d="M 186,150 L 236,150" stroke="url(#ray)" stroke-width="6" stroke-linecap="round" filter="url(#glow)"/>
+  <ellipse cx="252" cy="150" rx="20" ry="19" fill="url(#caustic)" opacity="0.7"/>
+  <g transform="translate(252,150) scale(0.34)" opacity="0.72">
+    <polygon points="-32,-14 0,-14 0,36" fill="url(#cPavL)"/>
+    <polygon points="32,-14 0,-14 0,36" fill="url(#cPavR)"/>
+    <polygon points="-9,-14 9,-14 0,36" fill="url(#cPavC)" opacity="0.9"/>
+    <polygon points="-32,-14 32,-14 24,-8 -24,-8" fill="#bfe6fb" opacity="0.55"/>
+    <polygon points="-15,-32 -20,-14 -32,-14" fill="url(#cCrownL)"/>
+    <polygon points="15,-32 20,-14 32,-14" fill="url(#cCrownR)"/>
+    <polygon points="-15,-32 15,-32 20,-14 -20,-14" fill="url(#cTable)"/>
+    <polygon points="-15,-32 15,-32 0,-24" fill="#ffffff" opacity="0.35"/>
+    <polygon points="-15,-32 15,-32 32,-14 0,36 -32,-14" fill="none" stroke="#0a1830" stroke-width="1.6" stroke-linejoin="round"/>
   </g>
+  <circle cx="292" cy="150" r="2" fill="#a5f3fc" opacity="0.5" filter="url(#glow)"/>
   <circle cx="152" cy="150" r="30" fill="url(#caustic)"/>
 
   <!-- REALISTIC faceted brilliant-cut crystal -->
