@@ -11,27 +11,47 @@
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 
 <p align="center">
-  <img src="images/qdf-logo-new.png" alt="qdf — Quantum Density Format" width="640">
+  <img src="images/qdf-logo.svg" alt="qdf — Quick Data Format" width="560">
 </p>
 
-**Quantum-inspired data serialization format designed for ultra-fast
-and lightweight data exchange.**
+<p align="center">
+  <b>Fast, compact binary serialization for Go.</b><br>
+  <code>encoding/json</code>-style API · columnar per-column codecs · up to <b>68% smaller than Protobuf</b>, <b>6× smaller than JSON</b>
+</p>
 
-qdf gives you `encoding/json`-style ergonomics (`Marshal` / `Unmarshal` /
-`NewEncoder` / `NewDecoder`) and a compact tagged binary wire format
-with an optional inline string-interning table. The reflect path ships
-with specialised encoders for the common slice / map shapes. A
-`go:generate` tool emits reflection-free `MarshalQDF` / `UnmarshalQDF`
-methods when you need the last 10–15 %.
+qdf is a single-pass, streaming binary format with `encoding/json`
+ergonomics (`Marshal` / `Unmarshal` / `NewEncoder` / `NewDecoder`) — no
+IDL, no schema registry, types picked up from struct tags. It dedups
+repeated strings and keys inline and columnar-compresses slices of
+structs with per-column codecs (frame-of-reference, delta, RLE,
+dictionary, Gorilla XOR, FSST, rANS), so it shrinks *across* records
+where per-record formats can't. A `go:generate` tool emits
+reflection-free `MarshalQDF` / `UnmarshalQDF` for the last 10–15 %.
+
+### 5 000 Active-Directory records · one machine (i7-9750H · Go 1.26)
+
+| | wire | encode | decode |
+| --- | ---: | ---: | ---: |
+| `encoding/json` | 3 833 KB | 14.1 ms | 57.8 ms |
+| `vmihailenco/msgpack` | 3 370 KB | 8.7 ms | 16.7 ms |
+| **qdf** · `OptBalanced` (default) | **1 830 KB** | **6.6 ms** | **7.9 ms** |
+| **qdf** · `OptCompression` | **616 KB** | 32.1 ms | 13.2 ms |
+
+`OptBalanced` is smaller **and** faster than json and msgpack on every
+axis (decode ≈ 7× faster than json, ≈ 2× faster than msgpack, ~half the
+allocations). Wire is **smaller than Protobuf on every fixture** we test
+(−21 … −68 %). Full json / msgpack / protobuf / flatbuffers tables and
+the reproduction recipe: **[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
 
 ---
 
-## Where the name comes from
+## Design philosophy — from "data as bytes" to "data as a model"
 
-**Quantum Density Format** is a borrowed metaphor, not physics. A
-classical CPU cannot store qubits; what qdf borrows from quantum
-information theory is a way of thinking about repetitive structured
-data.
+qdf treats a message not as a tree to serialize byte-for-byte, but as a
+small set of distinct values plus a stream of references and residuals
+against the context already seen. (The original working name, *Quantum
+Density Format*, was a borrowed metaphor for this state/collapse view —
+not physics; the engineering below is what actually ships.)
 
 The starting observation: in a payload like
 
@@ -53,7 +73,7 @@ treat data as `tree → bytes`. qdf treats it as
 position onto one of them. The wire dialect that ships today realises
 the practical subset of that idea:
 
-| Quantum-inspired concept | What it maps to in qdf today |
+| Concept | What it maps to in qdf today |
 | ------------------------ | ---------------------------- |
 | **State set** — the discrete values a position can take. | The Dense-mode intern table. The first occurrence of a string or `[]byte` value writes it in full and assigns it a stable ID. |
 | **Wavefunction collapse** — a single observation picks one state. | Every subsequent occurrence emits a `state_ref` tag plus a varint ID. Decoding "collapses" the reference back to its stored value. |
