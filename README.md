@@ -54,6 +54,22 @@ decode. Full tables + reproduction recipe: **[docs/COMPETITIVE.md](docs/COMPETIT
 
 ---
 
+## When to use qdf
+
+| Reach for qdf when… | Consider something else when… |
+| --- | --- |
+| You batch or stream **structured records** — logs, traces, spans, metrics, events, rows — where strings and keys repeat across the batch. | You send **one tiny message at a time** with no repetition: protobuf / flatbuffers carry less fixed per-message overhead. |
+| You want **`encoding/json` ergonomics** (struct tags, no IDL, no codegen step) at a fraction of the size and decode cost. | You need a **cross-language schema contract** with generated stubs in many languages: reach for protobuf / an IDL. |
+| Your workload is **decode-heavy** and dominated by materialising strings — pair it with a decode arena / no-copy. | You need **random access into a huge mmap'd file** without decoding: flatbuffers / capnproto are built for that. |
+| You want to **filter columnar batches without a full decode** (predicate pushdown, selective columns). | You need **maximum encode throughput** on high-cardinality data with no repetition: msgpack can edge qdf on encode there. |
+| You store **AI embeddings** and can trade bit-exactness for size (lossy vector codec at a fidelity budget). | You require a **frozen, versioned wire spec today**: qdf is alpha and the format still moves (see [Status](#status)). |
+
+qdf is Go-only and pure-Go (zero dependencies). One `Unmarshal` reads any output
+`Marshal` produces regardless of the encode-side option bits, so you can turn
+codecs on later without a migration.
+
+---
+
 ## Design philosophy — from "data as bytes" to "data as a model"
 
 qdf treats a message not as a tree to serialize byte-for-byte, but as a
