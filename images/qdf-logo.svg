@@ -1,34 +1,83 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="660" height="200" viewBox="0 0 660 200" role="img" aria-label="qdf — Quick Data Format">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="260" viewBox="0 0 760 260" role="img" aria-label="qdf — Quick Data Format">
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#4f46e5"/>
-      <stop offset="1" stop-color="#06b6d4"/>
+    <radialGradient id="bg" cx="30%" cy="30%" r="90%">
+      <stop offset="0" stop-color="#141833"/>
+      <stop offset="0.55" stop-color="#0b0e1f"/>
+      <stop offset="1" stop-color="#05060d"/>
+    </radialGradient>
+    <linearGradient id="fTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.5" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#e879f9"/>
     </linearGradient>
-    <linearGradient id="word" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#4f46e5"/>
-      <stop offset="1" stop-color="#0891b2"/>
+    <linearGradient id="fRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#3730a3"/>
     </linearGradient>
+    <linearGradient id="fLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3730a3"/>
+      <stop offset="1" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.45" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softglow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
   </defs>
 
-  <!-- Icon tile -->
-  <rect x="20" y="20" width="160" height="160" rx="34" fill="url(#tile)"/>
+  <!-- Backplate -->
+  <rect x="2" y="2" width="756" height="256" rx="30" fill="url(#bg)" stroke="#2a3157" stroke-opacity="0.6"/>
 
-  <!-- Columnar bars collapsing into a dense block: per-column codecs + dedup -->
-  <g fill="#ffffff">
-    <rect x="52"  y="70"  width="16" height="76" rx="6" opacity="0.55"/>
-    <rect x="78"  y="54"  width="16" height="92" rx="6" opacity="0.72"/>
-    <rect x="104" y="86"  width="16" height="60" rx="6" opacity="0.72"/>
-    <!-- dense compressed block -->
-    <rect x="130" y="62"  width="20" height="84" rx="6"/>
+  <!-- Ambient neon glow behind the mark -->
+  <ellipse cx="150" cy="140" rx="120" ry="96" fill="#6d28d9" opacity="0.45" filter="url(#softglow)"/>
+  <ellipse cx="120" cy="120" rx="80" ry="70" fill="#0ea5e9" opacity="0.35" filter="url(#softglow)"/>
+
+  <!-- 3D isometric data stack: raw (wide) → compressed (narrow) -->
+  <g filter="url(#glow)">
+    <!-- bottom slab -->
+    <polygon points="76,150 150,181 150,205 76,174" fill="url(#fLeft)"/>
+    <polygon points="150,181 224,150 224,174 150,205" fill="url(#fRight)"/>
+    <polygon points="150,119 224,150 150,181 76,150" fill="url(#fTop)"/>
+    <polygon points="150,119 224,150 150,181 76,150" fill="none" stroke="#a5f3fc" stroke-opacity="0.9" stroke-width="1.5"/>
+    <!-- middle slab -->
+    <polygon points="98,126 150,148 150,172 98,150" fill="url(#fLeft)"/>
+    <polygon points="150,148 202,126 202,150 150,172" fill="url(#fRight)"/>
+    <polygon points="150,104 202,126 150,148 98,126" fill="url(#fTop)"/>
+    <polygon points="150,104 202,126 150,148 98,126" fill="none" stroke="#a5f3fc" stroke-opacity="0.9" stroke-width="1.5"/>
+    <!-- top slab (most compressed) -->
+    <polygon points="118,102 150,115 150,139 118,126" fill="url(#fLeft)"/>
+    <polygon points="150,115 182,102 182,126 150,139" fill="url(#fRight)"/>
+    <polygon points="150,89 182,102 150,115 118,102" fill="url(#fTop)"/>
+    <polygon points="150,89 182,102 150,115 118,102" fill="none" stroke="#e9d5ff" stroke-opacity="0.95" stroke-width="1.5"/>
+    <!-- glossy sheen on the top faces -->
+    <polygon points="150,119 224,150 150,181 76,150" fill="url(#sheen)" opacity="0.16"/>
   </g>
-  <!-- baseline -->
-  <rect x="48" y="150" width="106" height="6" rx="3" fill="#ffffff" opacity="0.85"/>
 
-  <!-- Wordmark -->
-  <text x="212" y="118" font-family="ui-sans-serif, Segoe UI, Helvetica, Arial, sans-serif"
-        font-size="96" font-weight="800" letter-spacing="-4" fill="url(#word)">qdf</text>
+  <!-- Floating accent particles -->
+  <g fill="#67e8f9">
+    <circle cx="243" cy="86" r="3" opacity="0.9"/>
+    <circle cx="62" cy="196" r="2.5" opacity="0.7"/>
+    <circle cx="236" cy="206" r="2" opacity="0.6"/>
+  </g>
+
+  <!-- Wordmark: extruded 3D + neon -->
+  <g font-family="ui-sans-serif, Segoe UI, Helvetica, Arial, sans-serif" font-weight="900" letter-spacing="-6">
+    <text x="304" y="160" font-size="128" fill="#0a0a1f" opacity="0.9">qdf</text>
+    <text x="300" y="156" font-size="128" fill="url(#word)" filter="url(#glow)">qdf</text>
+  </g>
 
   <!-- Tagline -->
-  <text x="216" y="152" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        font-size="21" letter-spacing="1.5" fill="#64748b">Quick Data Format</text>
+  <text x="306" y="196" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="21" letter-spacing="3" fill="#8b93c9">QUICK · DATA · FORMAT</text>
 </svg>
