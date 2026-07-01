@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="820" height="280" viewBox="0 0 820 280" role="img" aria-label="qdf — Quick Data Format">
   <defs>
-    <radialGradient id="bg" cx="26%" cy="28%" r="98%">
-      <stop offset="0" stop-color="#161c3d"/><stop offset="0.55" stop-color="#0a0d20"/><stop offset="1" stop-color="#04050c"/>
+    <radialGradient id="bg" cx="30%" cy="24%" r="100%">
+      <stop offset="0" stop-color="#1a2148"/><stop offset="0.5" stop-color="#0b0f26"/><stop offset="1" stop-color="#040610"/>
     </radialGradient>
     <linearGradient id="neon" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#2dd4bf"/><stop offset="0.5" stop-color="#6366f1"/><stop offset="1" stop-color="#e879f9"/>
@@ -15,18 +15,75 @@
     <linearGradient id="wFront" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#5eead4"/><stop offset="0.45" stop-color="#38bdf8"/><stop offset="1" stop-color="#c084fc"/>
     </linearGradient>
+    <linearGradient id="grid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+    <linearGradient id="fog" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b0f26" stop-opacity="0.95"/><stop offset="0.35" stop-color="#0b0f26" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="50%" cy="48%" r="62%">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/><stop offset="1" stop-color="#000000" stop-opacity="0.55"/>
+    </radialGradient>
+    <linearGradient id="horizon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0"/><stop offset="0.5" stop-color="#818cf8" stop-opacity="0.9"/><stop offset="1" stop-color="#e879f9" stop-opacity="0"/>
+    </linearGradient>
     <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
       <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
     <filter id="soft" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="22"/></filter>
+    <filter id="hglow" x="-50%" y="-400%" width="200%" height="900%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="card"><rect x="2" y="2" width="816" height="276" rx="32"/></clipPath>
   </defs>
 
   <rect x="2" y="2" width="816" height="276" rx="32" fill="url(#bg)" stroke="#2a3157" stroke-opacity="0.55"/>
 
+  <!-- 3D perspective scene -->
+  <g clip-path="url(#card)">
+    <!-- far wireframe prisms (depth) -->
+    <g stroke="#3b4a8a" stroke-opacity="0.25" fill="none" stroke-width="1">
+      <polygon points="640,70 690,58 720,78 670,90"/>
+      <polygon points="690,58 690,88 720,108 720,78"/>
+      <polygon points="120,52 150,44 168,58 138,66"/>
+    </g>
+    <!-- perspective floor grid (vanishing point at 410,168) -->
+    <g stroke="url(#grid)" stroke-opacity="0.5" stroke-width="1">
+      <!-- verticals fanning from the horizon -->
+      <line x1="410" y1="168" x2="-140" y2="290"/>
+      <line x1="410" y1="168" x2="60"  y2="290"/>
+      <line x1="410" y1="168" x2="200" y2="290"/>
+      <line x1="410" y1="168" x2="310" y2="290"/>
+      <line x1="410" y1="168" x2="410" y2="290"/>
+      <line x1="410" y1="168" x2="510" y2="290"/>
+      <line x1="410" y1="168" x2="620" y2="290"/>
+      <line x1="410" y1="168" x2="760" y2="290"/>
+      <line x1="410" y1="168" x2="960" y2="290"/>
+      <!-- horizontals, gaps widen toward the viewer -->
+      <line x1="0" y1="172" x2="820" y2="172"/>
+      <line x1="0" y1="178" x2="820" y2="178"/>
+      <line x1="0" y1="187" x2="820" y2="187"/>
+      <line x1="0" y1="200" x2="820" y2="200"/>
+      <line x1="0" y1="219" x2="820" y2="219"/>
+      <line x1="0" y1="244" x2="820" y2="244"/>
+      <line x1="0" y1="276" x2="820" y2="276"/>
+    </g>
+    <!-- fog fading the far grid into the horizon -->
+    <rect x="2" y="150" width="816" height="70" fill="url(#fog)"/>
+    <!-- glowing horizon line -->
+    <rect x="120" y="167" width="580" height="2" fill="url(#horizon)" filter="url(#hglow)"/>
+
+    <!-- depth particles (near = bigger/brighter, far = small/dim) -->
+    <g fill="#a5b4fc">
+      <circle cx="600" cy="60" r="1.6" opacity="0.5"/><circle cx="700" cy="96" r="1.4" opacity="0.4"/>
+      <circle cx="520" cy="44" r="1.2" opacity="0.35"/><circle cx="756" cy="210" r="3" opacity="0.7"/>
+      <circle cx="470" cy="236" r="2.4" opacity="0.6"/><circle cx="360" cy="60" r="1.5" opacity="0.4"/>
+    </g>
+  </g>
+
+  <!-- ambient glow behind the crystal -->
   <ellipse cx="158" cy="146" rx="120" ry="110" fill="#7c3aed" opacity="0.38" filter="url(#soft)"/>
   <ellipse cx="158" cy="146" rx="66" ry="66" fill="#0891b2" opacity="0.45" filter="url(#soft)"/>
 
-  <!-- redundant streams flow IN, converge on the crystal -->
+  <!-- redundant streams IN -->
   <g stroke="url(#neon)" stroke-width="2.4" fill="none" opacity="0.5" stroke-linecap="round">
     <path d="M 34,96  C 82,106 104,120 126,140"/>
     <path d="M 26,121 C 78,127 98,133 122,144"/>
@@ -39,12 +96,11 @@
     <circle cx="26" cy="171" r="2.6"/><circle cx="34" cy="196" r="2.6"/>
   </g>
 
-  <!-- faint energy rings behind the gem -->
   <g fill="none" opacity="0.25" filter="url(#glow)">
     <ellipse cx="158" cy="146" rx="60" ry="52" stroke="url(#neon)" stroke-width="1.6" stroke-dasharray="6 10"/>
   </g>
 
-  <!-- compressed output: beam → dense gem packet -->
+  <!-- compressed output -->
   <g filter="url(#glow)">
     <path d="M 190,146 L 252,146" stroke="url(#beam)" stroke-width="9" stroke-linecap="round"/>
     <polygon points="254,132 270,146 254,160 248,146" fill="#a5f3fc"/>
@@ -53,18 +109,14 @@
   </g>
   <circle cx="158" cy="146" r="30" fill="url(#coreglow)"/>
 
-  <!-- 3D faceted diamond (density crystal) -->
+  <!-- 3D faceted density crystal -->
   <g filter="url(#glow)" stroke="#0a0f2a" stroke-width="0.8" stroke-linejoin="round">
-    <!-- crown (top, lit) -->
     <polygon points="144,120 172,120 158,134" fill="#e0f2fe"/>
     <polygon points="144,120 128,142 158,134" fill="#7dd3fc"/>
     <polygon points="172,120 188,142 158,134" fill="#38bdf8"/>
-    <!-- girdle band -->
     <polygon points="128,142 158,134 188,142 158,150" fill="#4f46e5"/>
-    <!-- pavilion (bottom, shadow) -->
     <polygon points="128,142 158,150 158,184" fill="#3730a3"/>
     <polygon points="188,142 158,150 158,184" fill="#1e1b4b"/>
-    <!-- center highlight ridge -->
     <polygon points="158,134 161,150 158,184 155,150" fill="#ffffff" opacity="0.5"/>
     <polygon points="144,120 172,120 158,134" fill="#ffffff" opacity="0.35"/>
   </g>
@@ -86,4 +138,7 @@
   </g>
   <text x="356" y="220" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
         font-size="20" letter-spacing="6.5" fill="#8b93c9">QUICK · DATA · FORMAT</text>
+
+  <!-- vignette for depth -->
+  <rect x="2" y="2" width="816" height="276" rx="32" fill="url(#vignette)"/>
 </svg>
