@@ -240,10 +240,14 @@ func cloneMap(td *typeDesc, dst, src unsafe.Pointer, depth int) {
 		return
 	}
 	valType := td.rType.Elem()
+	// Hoist the two scratch holders out of the loop: SetMapIndex copies the value
+	// into the map, so a single reusable dstBuf is safe (2 allocs total, not 2×N).
+	// SetZero before each clone in case cloneValue underfills for this type.
+	srcBuf := reflect.New(valType)
+	dstBuf := reflect.New(valType)
 	for it := mv.MapRange(); it.Next(); {
-		srcBuf := reflect.New(valType)
 		srcBuf.Elem().Set(it.Value()) // addressable copy of the value
-		dstBuf := reflect.New(valType)
+		dstBuf.Elem().SetZero()
 		cloneValue(valDesc, dstBuf.UnsafePointer(), srcBuf.UnsafePointer(), depth+1)
 		dmv.SetMapIndex(it.Key(), dstBuf.Elem())
 	}

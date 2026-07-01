@@ -125,6 +125,43 @@ func TestVecBatchRoundTripMixed(t *testing.T) {
 	}
 }
 
+// TestVecBatchAnyFieldRoundTrip guards the schemaless (decodeAny) round trip.
+// A []struct with a vector field held in an any-typed field used to encode as a
+// batched block (tagVecBatchStruct) — which decodeAny has no case for, so the
+// value failed to decode with ErrBadTag. The encoder now suppresses the batch in
+// a dynamic-dispatch context (ifaceDepth>0) and falls back to the columnar path
+// (tagColStruct), which decodeAny reads. Regression for the any-field gap.
+func TestVecBatchAnyFieldRoundTrip(t *testing.T) {
+	type wrap struct {
+		Payload any
+	}
+	const n, dim = 32, 128
+	rows := make([]vecOnlyRow, n)
+	for i := range rows {
+		rows[i] = vecOnlyRow{Emb: sinVec32(i, dim)}
+	}
+	data, err := Marshal(wrap{Payload: rows}, OptBalanced|OptLossyVec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// Decode into the same shape: the any field routes through decodeAny.
+	var out wrap
+	if err := Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal (any field with batchable []struct must round-trip, not ErrBadTag): %v", err)
+	}
+	if out.Payload == nil {
+		t.Fatal("payload decoded nil")
+	}
+	// decodeAny materialises the []struct as a slice; assert the row count survived.
+	rv, ok := out.Payload.([]any)
+	if !ok {
+		t.Fatalf("payload type %T, want []any", out.Payload)
+	}
+	if len(rv) != n {
+		t.Fatalf("payload len %d want %d", len(rv), n)
+	}
+}
+
 // TestVecBatchSmallerThanPerRow asserts the batched path is materially smaller
 // than the per-vector (count=1) encoding the same data would otherwise produce.
 func TestVecBatchSmallerThanPerRow(t *testing.T) {

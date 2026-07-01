@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"slices"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
@@ -255,7 +256,7 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 	// negative length on a 32-bit build (which would bypass the body check and
 	// panic), mirroring the origLen guard in decodeRANS.
 	maxChars := rem * 8 / uint64(cbits)
-	if maxInt := uint64(int(^uint(0) >> 1)); maxChars > maxInt {
+	if maxInt := uint64(math.MaxInt); maxChars > maxInt {
 		maxChars = maxInt
 	}
 	var (

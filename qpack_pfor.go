@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"math/bits"
 	"slices"
 	"unsafe"
@@ -39,7 +40,7 @@ func pforPlanUnsigned(s []uint64, mn uint64, forBits int) (b int, cost int, ok b
 	// while its real output exceeded the runner-up — a never-larger violation.
 	gapLen := uvarintLen(uint64(n))
 	hdr := 3 + uvarintLen(uint64(n)) + uvarintLen(mn)
-	bestB, bestCost := -1, int(^uint(0)>>1)
+	bestB, bestCost := -1, math.MaxInt
 	suffix := 0 // number of values with width > cand, accumulated as cand descends
 	for cand := forBits - 1; cand >= 0; cand-- {
 		suffix += hist[cand+1]
@@ -125,7 +126,7 @@ func pforPlanSigned(s []int64, mn int64, forBits int) (b int, cost int, ok bool)
 	valLen := uvarintLen(maxDelta)
 	gapLen := uvarintLen(uint64(n)) // uvarint(i-prev) <= uvarint(n); see pforPlanUnsigned
 	hdr := 3 + uvarintLen(uint64(n)) + uvarintLen(zigzagEncode64(mn))
-	bestB, bestCost := -1, int(^uint(0)>>1)
+	bestB, bestCost := -1, math.MaxInt
 	suffix := 0
 	for cand := forBits - 1; cand >= 0; cand-- {
 		suffix += hist[cand+1]
@@ -221,7 +222,7 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 		// b == 0 (constant base): empty packed body, no per-element bound.
 		return nil, ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
 		return nil, ErrInvalidLength
 	}
 	n := int(n64)
@@ -312,7 +313,7 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) {
 		// b == 0 (constant base): empty packed body, no per-element bound.
 		return nil, ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
 		return nil, ErrInvalidLength
 	}
 	n := int(n64)

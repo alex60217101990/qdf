@@ -355,7 +355,7 @@ func (bl Block) Decode() [][]float64 {
 	// Self-defense: the wire layer bounds Count/Dim before building a Block, but
 	// guard the exported method so a direct caller's adversarial Block cannot
 	// overflow Count*pdim (int multiply) into a small/negative under-read.
-	if pdim <= 0 || bl.Count > int(^uint(0)>>1)/pdim {
+	if pdim <= 0 || bl.Count > math.MaxInt/pdim {
 		return nil
 	}
 	q, err := decodeCoords(bl.Coords, bl.Count*pdim)

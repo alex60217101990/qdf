@@ -505,6 +505,29 @@ func decodeSliceInt32(d *Decoder, p unsafe.Pointer) error {
 		}
 		*(*[]int32)(p) = out
 		return nil
+	case tagPackBlock, tagZoneChunk:
+		// A []int/[]int64 wire (writeQPackInt64 → tagPackBlock 0xF0, columnar
+		// writeZoneChunkInt64 → tagZoneChunk 0xF1) decoded into a []int32 field
+		// after an int→int32 schema change. Mirror decodeSliceInt64's block/
+		// zone-chunk handling (and the For/PFor case above) instead of falling
+		// through to ReadArrayHeader, which rejects these tags as ErrTypeMismatch.
+		d.i++
+		var v64 []int64
+		var err error
+		if t == tagPackBlock {
+			v64, err = d.readBlockInt64()
+		} else {
+			v64, err = d.readZoneChunkInt64()
+		}
+		if err != nil {
+			return err
+		}
+		out := make([]int32, len(v64))
+		for i, x := range v64 {
+			out[i] = int32(x)
+		}
+		*(*[]int32)(p) = out
+		return nil
 	}
 	n, err := d.ReadArrayHeader()
 	if err != nil {
@@ -693,6 +716,28 @@ func decodeSliceUint32(d *Decoder, p unsafe.Pointer) error {
 		}
 		*(*[]uint32)(p) = out
 		return nil
+	case tagPackBlock, tagZoneChunk:
+		// []uint/[]uint64 wire (writeQPackUint64 → tagPackBlock, columnar
+		// writeZoneChunkUint64 → tagZoneChunk) decoded into a []uint32 field
+		// after a uint→uint32 schema change. Mirror decodeSliceUint64 instead of
+		// falling through to ReadArrayHeader (ErrTypeMismatch on these tags).
+		d.i++
+		var v64 []uint64
+		var err error
+		if t == tagPackBlock {
+			v64, err = d.readBlockUint64()
+		} else {
+			v64, err = d.readZoneChunkUint64()
+		}
+		if err != nil {
+			return err
+		}
+		out := make([]uint32, len(v64))
+		for i, x := range v64 {
+			out[i] = uint32(x)
+		}
+		*(*[]uint32)(p) = out
+		return nil
 	}
 	n, err := d.ReadArrayHeader()
 	if err != nil {
@@ -827,10 +872,12 @@ func encodeSliceFloat32(e *Encoder, p unsafe.Pointer) error {
 	if e.opts.Has(OptCanonical) {
 		s = e.canonicalFloat32Slice(s)
 	}
-	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
+	if e.opts.Has(OptLossyVec) && e.ifaceDepth == 0 && len(s) >= lossyVecMinElems {
 		// Build the lossy block into scratch; emit it only if it is no larger
 		// than the lossless body (never-worse). Widen into the reused e.wideF64
 		// buffer so appendLossyVec's in-place NaN/Inf zeroing does not touch s.
+		// ifaceDepth==0: a lossy 0xFD block has no decodeAny case, so a vector held
+		// in a schemaless (any) position must stay lossless to round-trip.
 		e.wideF64 = toF64Into(s, e.wideF64)
 		lossy, lossyOK := appendLossyVec([][]float64{e.wideF64}, true, toBudget(e.vecBudget), &e.vecScratch)
 		start := len(e.buf)
@@ -989,11 +1036,13 @@ func encodeSliceFloat64(e *Encoder, p unsafe.Pointer) error {
 	if e.opts.Has(OptCanonical) {
 		s = e.canonicalFloat64Slice(s)
 	}
-	if e.opts.Has(OptLossyVec) && len(s) >= lossyVecMinElems {
+	if e.opts.Has(OptLossyVec) && e.ifaceDepth == 0 && len(s) >= lossyVecMinElems {
 		// Build the lossy block into scratch; emit it only if it is no larger
 		// than the lossless body (never-worse). Copy s into the reused e.wideF64
 		// buffer so appendLossyVec's in-place NaN/Inf zeroing does not touch the
 		// caller's []float64 slice. toF64Into returns s unchanged for []float64,
+		// ifaceDepth==0: a schemaless (any) vector must stay lossless (no 0xFD
+		// block) so decodeAny can read it back.
 		// so we must copy explicitly here rather than routing through toF64Into.
 		e.wideF64 = append(e.wideF64[:0], s...)
 		lossy, lossyOK := appendLossyVec([][]float64{e.wideF64}, false, toBudget(e.vecBudget), &e.vecScratch)

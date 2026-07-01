@@ -212,6 +212,7 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// (so non-lossy and unbatchable shapes stay byte-identical).
 		if e.opts.Has(OptLossyVec) && elem != nil && len(elem.vecFields) > 0 &&
 			n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
+			e.ifaceDepth == 0 &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
 			if done, err := e.encodeVectorBatchStruct(elem, hdr.Data, n, stride); done {
 				return err
@@ -869,14 +870,20 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 		keyHolder.SetIterKey(iter) // reuse holder; iter.Key() would alloc
 		setHash += internKeyHash(keyHolder.String())
 	}
-	if id, order, ok := st.mapShapeFindKeys(setHash, n); ok {
-		if len(order) == n && hasAll(order) {
-			st.lastMapShapeID, st.lastMapShapeKeys = id, order
+	// Scan EVERY shape with this (setHash, n) and verify by keys — setHash is not
+	// collision-proof. Returning only the first (setHash, n) row and declaring on
+	// a key mismatch would re-declare a colliding key-set on every encode: under
+	// two alternating sets that collide on setHash, the already-registered second
+	// set is never found again, so mapShapes grows without bound. The s.n == n
+	// filter guarantees len(s.keys) == n, so hasAll ⇒ set equality.
+	for i := range st.mapShapes {
+		s := &st.mapShapes[i]
+		if s.setHash == setHash && s.n == n && hasAll(s.keys) {
+			st.lastMapShapeID, st.lastMapShapeKeys = s.id, s.keys
 			e.buf = append(e.buf, tagMapShape)
-			e.buf = appendUvarint(e.buf, uint64(id))
-			return emitValues(order)
+			e.buf = appendUvarint(e.buf, uint64(s.id))
+			return emitValues(s.keys)
 		}
-		// collision / different key-set → declare a fresh shape below.
 	}
 
 	// Declare path (first sight of this key-set).
@@ -1196,7 +1203,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 			if n <= 0 {
 				return ErrInvalidLength
 			}
-			if shapeID > uint64(^uint32(0)) {
+			if shapeID > uint64(math.MaxUint32) {
 				return ErrUnknownStateID // would truncate on the uint32 cast below
 			}
 			d.i += n
@@ -1211,7 +1218,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					return ErrInvalidLength
 				}
 				d.i += n
-				if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+				if cnt64 > uint64(math.MaxInt) { // 32-bit: int(cnt64) would wrap before CheckLength
 					return ErrInvalidLength
 				}
 				cnt := int(cnt64)
@@ -1318,6 +1325,11 @@ func encodeIface(e *Encoder, p unsafe.Pointer) error {
 		}
 		defer func() { e.depth-- }()
 	}
+	// Mark the schemaless context: everything under a dynamic dispatch decodes via
+	// decodeAny, which cannot read a batched vector-column block. Balanced inc/dec
+	// so nested ifaces stay positive and the counter returns to 0 at the top.
+	e.ifaceDepth++
+	defer func() { e.ifaceDepth-- }()
 	return encodeReflect(e, iv)
 }
 
@@ -1548,7 +1560,7 @@ func decodeAny(d *Decoder) (any, error) {
 		if n <= 0 {
 			return nil, ErrInvalidLength
 		}
-		if shapeID > uint64(^uint32(0)) {
+		if shapeID > uint64(math.MaxUint32) {
 			return nil, ErrUnknownStateID // would truncate on the uint32 cast below
 		}
 		d.i += n
@@ -1562,7 +1574,7 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, ErrInvalidLength
 			}
 			d.i += n
-			if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+			if cnt64 > uint64(math.MaxInt) { // 32-bit: int(cnt64) would wrap before CheckLength
 				return nil, ErrInvalidLength
 			}
 			cnt := int(cnt64)

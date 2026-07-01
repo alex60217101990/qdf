@@ -348,6 +348,15 @@ func (d *Decoder) readPackedGorillaFloat64Slice() ([]float64, error) {
 		var x uint64
 		if !ctl2 {
 			mb := 64 - int(prevLZ) - int(prevTZ)
+			// A reuse-window with zero meaningful bits is malformed: a value equal
+			// to prev is encoded as ctl=0, never ctl=1/ctl2=0. In particular the
+			// initial sentinel window (prevLZ=64) gives mb=0, so a hostile stream
+			// opening with ctl=1/ctl2=0 would readBits(0)=0 and silently emit a
+			// duplicate of the previous value. The encoder guards this (a reuse
+			// window is only written once a real window exists); enforce it here.
+			if mb <= 0 {
+				return nil, ErrInvalidLength
+			}
 			mbBits, ok := br.readBits(uint8(mb))
 			if !ok {
 				return nil, ErrShortBuffer
@@ -420,6 +429,11 @@ func (d *Decoder) readPackedGorillaFloat32Slice() ([]float32, error) {
 		var x uint32
 		if !ctl2 {
 			mb := 32 - int(prevLZ) - int(prevTZ)
+			// See the float64 path: mb==0 (the initial prevLZ=32 sentinel) means a
+			// hostile ctl=1/ctl2=0 opener would silently duplicate the prior value.
+			if mb <= 0 {
+				return nil, ErrInvalidLength
+			}
 			mbBits, ok := br.readBits(uint8(mb))
 			if !ok {
 				return nil, ErrShortBuffer

@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"slices"
 	"unsafe"
 
@@ -197,7 +198,7 @@ func (d *Decoder) readPackedForHeader(expectKind byte) (bitsPer int, unsignedMin
 		// bound above does not apply. Cap an implausible standalone count.
 		return 0, 0, 0, 0, nil, ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative -> make panics
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative -> make panics
 		return 0, 0, 0, 0, nil, ErrInvalidLength
 	}
 	n = int(n64)

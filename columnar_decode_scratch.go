@@ -199,7 +199,7 @@ func (d *Decoder) readPackedDictInt64SliceInto(dst *[]int64) error {
 	if !d.colLenOK(n64) {
 		return ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(n64) would wrap negative
+	if n64 > uint64(math.MaxInt) { // 32-bit: int(n64) would wrap negative
 		return ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
@@ -268,8 +268,16 @@ func (d *Decoder) readPackedPForInt64SliceInto(dst *[]int64) error {
 	d.i += nr
 	mnU := uint64(zigzagDecode64(mz))
 	rem := uint64(len(d.buf) - d.i)
-	if b > 0 && n64 > rem*8/uint64(b) {
-		return ErrShortBuffer
+	if b > 0 {
+		if n64 > rem*8/uint64(b) {
+			return ErrShortBuffer
+		}
+	} else if n64 > qpackMaxStandaloneCount {
+		// b == 0 (constant base): empty packed body, no per-element buffer bound.
+		// colLenOK already caps n64 in a columnar context, but this Into helper is
+		// reachable via generated code, so mirror the standalone reader's ceiling
+		// defensively (no reliance on colMaxLen being set).
+		return ErrInvalidLength
 	}
 	n := int(n64)
 	bodyBytes := (n*b + 7) >> 3
@@ -512,7 +520,7 @@ func (d *Decoder) readPackedDictUint64SliceInto(dst *[]uint64) error {
 	if !d.colLenOK(n64) {
 		return ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(n64) would wrap negative
+	if n64 > uint64(math.MaxInt) { // 32-bit: int(n64) would wrap negative
 		return ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
@@ -583,8 +591,14 @@ func (d *Decoder) readPackedPForUint64SliceInto(dst *[]uint64) error {
 	}
 	d.i += nr
 	rem := uint64(len(d.buf) - d.i)
-	if b > 0 && n64 > rem*8/uint64(b) {
-		return ErrShortBuffer
+	if b > 0 {
+		if n64 > rem*8/uint64(b) {
+			return ErrShortBuffer
+		}
+	} else if n64 > qpackMaxStandaloneCount {
+		// b == 0 constant base: mirror the standalone reader's ceiling defensively
+		// (this Into helper is reachable via generated code without colMaxLen set).
+		return ErrInvalidLength
 	}
 	n := int(n64)
 	bodyBytes := (n*b + 7) >> 3

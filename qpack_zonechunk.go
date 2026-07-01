@@ -85,7 +85,10 @@ func fitLinearZmap[T int64 | uint64](s []T, blk int) (linearFit, bool) {
 	}
 	c := (fn*sxy - sx*sy) / denom
 	d := (sy - c*sx) / fn
-	if !(c > 0) || math.IsInf(c, 0) || math.IsNaN(d) {
+	// Reject any non-finite model. The decoder (readZoneChunkHeader) rejects
+	// IsInf(d) too, so emitting d=±Inf here (reachable when c*sx overflows) would
+	// write a column its own decoder refuses to read.
+	if !(c > 0) || math.IsInf(c, 0) || math.IsNaN(d) || math.IsInf(d, 0) {
 		return linearFit{}, false
 	}
 	// Worst-case position residual.
@@ -336,7 +339,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 		return h, ErrInvalidLength
 	}
 	d.i += nr
-	if !d.colLenOK(n64) || n64 == 0 || n64 > uint64(int(^uint(0)>>1)) {
+	if !d.colLenOK(n64) || n64 == 0 || n64 > uint64(math.MaxInt) {
 		return h, ErrInvalidLength
 	}
 	h.n = int(n64)
@@ -368,7 +371,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 			return h, ErrInvalidLength
 		}
 		d.i += nr
-		if eps64 > uint64(int(^uint(0)>>1)) {
+		if eps64 > uint64(math.MaxInt) {
 			return h, ErrInvalidLength
 		}
 		if loadZonemap {

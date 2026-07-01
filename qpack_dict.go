@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"slices"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
@@ -165,7 +166,7 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) {
 	if !d.colLenOK(n64) {
 		return nil, ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8/bitsPer lets n64 exceed MaxInt -> int(n64) wraps negative -> make panics
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8/bitsPer lets n64 exceed MaxInt -> int(n64) wraps negative -> make panics
 		return nil, ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
@@ -235,7 +236,7 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) {
 	if !d.colLenOK(n64) {
 		return nil, ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: rem*8/bitsPer lets n64 exceed MaxInt -> int(n64) wraps negative -> make panics
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8/bitsPer lets n64 exceed MaxInt -> int(n64) wraps negative -> make panics
 		return nil, ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {

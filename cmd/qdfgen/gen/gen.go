@@ -181,9 +181,15 @@ func pkgDir(pkg *packages.Package) string {
 type gen struct {
 	pkg *packages.Package
 
-	imports map[string]string // import path -> local name (empty = default)
-	header  bytes.Buffer      // var-block of pre-encoded field-name headers
-	body    bytes.Buffer      // function bodies
+	imports map[string]string // import path -> alias directive to emit (empty = none)
+	// importQual maps an import path to the identifier generated code uses to
+	// qualify that package's symbols. For a normal import this is the package's
+	// own name (bound by an unaliased import); on a name collision between two
+	// distinct paths it is a disambiguating alias also recorded in imports.
+	importQual map[string]string
+	qualUsed   map[string]bool // qualifiers already taken (collision detection)
+	header     bytes.Buffer    // var-block of pre-encoded field-name headers
+	body       bytes.Buffer    // function bodies
 
 	headerNames map[string]string // field-name -> generated var ident
 
@@ -213,8 +219,12 @@ const maxNestingDepth = 64
 
 func newGen(pkg *packages.Package) *gen {
 	return &gen{
-		pkg:         pkg,
-		imports:     map[string]string{"github.com/alex60217101990/qdf": ""},
+		pkg:        pkg,
+		imports:    map[string]string{"github.com/alex60217101990/qdf": ""},
+		importQual: map[string]string{"github.com/alex60217101990/qdf": "qdf"},
+		// "qdf" is emitted directly by the templates; reserve it so a same-named
+		// user package is aliased instead of colliding.
+		qualUsed:    map[string]bool{"qdf": true},
 		headerNames: map[string]string{},
 		emitted:     map[string]bool{},
 		colVarSeen:  map[string]bool{},
@@ -277,16 +287,33 @@ func (g *gen) bytes() ([]byte, error) {
 	return src, nil
 }
 
-// importAlias adds an import for the given path (if not already present) and
-// returns the local name used to qualify identifiers from it.
-func (g *gen) importAlias(path string) string {
+// importAlias registers an import for path (whose package is named pkgName) and
+// returns the identifier generated code must use to qualify that package's
+// symbols.
+//
+// The qualifier is the package's own name, NOT filepath.Base(path): those differ
+// for versioned or renamed modules (gopkg.in/yaml.v2 → package yaml, a dir named
+// "go-bar" → package bar), and a base like "yaml.v2" or "go-bar" is not even a
+// valid identifier — emitting it produced code that would not compile. An
+// unaliased import binds the package's own name, so using pkgName as the
+// qualifier is correct with no alias directive. When two distinct paths share a
+// package name, the second gets a disambiguating alias.
+func (g *gen) importAlias(path, pkgName string) string {
 	if path == g.pkg.PkgPath {
 		return ""
 	}
-	if _, ok := g.imports[path]; !ok {
-		g.imports[path] = ""
+	if q, ok := g.importQual[path]; ok {
+		return q
 	}
-	return filepath.Base(path)
+	qual, alias := pkgName, ""
+	for i := 2; g.qualUsed[qual]; i++ {
+		qual = pkgName + strconv.Itoa(i)
+		alias = qual // collision: emit an explicit alias so the qualifier binds
+	}
+	g.qualUsed[qual] = true
+	g.importQual[path] = qual
+	g.imports[path] = alias
+	return qual
 }
 
 // fieldNameVar returns (or creates) a unique var holding the pre-encoded
@@ -2003,7 +2030,7 @@ func (g *gen) typeRef(n *types.Named) string {
 	if obj.Pkg() == nil || obj.Pkg().Path() == g.pkg.PkgPath {
 		return obj.Name()
 	}
-	alias := g.importAlias(obj.Pkg().Path())
+	alias := g.importAlias(obj.Pkg().Path(), obj.Pkg().Name())
 	if alias == "" {
 		return obj.Name()
 	}
@@ -2017,7 +2044,7 @@ func (g *gen) typeExprFromType(t types.Type) string {
 		if p == nil || p.Path() == g.pkg.PkgPath {
 			return ""
 		}
-		return g.importAlias(p.Path())
+		return g.importAlias(p.Path(), p.Name())
 	}
 	return types.TypeString(t, qf)
 }
