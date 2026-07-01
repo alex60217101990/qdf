@@ -199,7 +199,7 @@ func (d *Decoder) readPackedDictInt64SliceInto(dst *[]int64) error {
 	if !d.colLenOK(n64) {
 		return ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(n64) would wrap negative
+	if n64 > uint64(math.MaxInt) { // 32-bit: int(n64) would wrap negative
 		return ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
@@ -520,7 +520,7 @@ func (d *Decoder) readPackedDictUint64SliceInto(dst *[]uint64) error {
 	if !d.colLenOK(n64) {
 		return ErrInvalidLength
 	}
-	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(n64) would wrap negative
+	if n64 > uint64(math.MaxInt) { // 32-bit: int(n64) would wrap negative
 		return ErrInvalidLength
 	}
 	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {

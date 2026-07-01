@@ -1,6 +1,9 @@
 package qdf
 
-import "slices"
+import (
+	"math"
+	"slices"
+)
 
 // Shared helpers for OptMapShape — map key-set interning. The reflect map
 // encoder (encodeStringMapShaped in reflect_encode.go) and the generated
@@ -116,7 +119,7 @@ func decodeMapStringShapeHeader(d *Decoder) ([]string, error) {
 	}
 	// Reject a shape ID that would truncate on the uint32 narrowing below: a
 	// crafted id >= 2^32 must not alias a real (id mod 2^32) shape.
-	if shapeID > uint64(^uint32(0)) {
+	if shapeID > uint64(math.MaxUint32) {
 		return nil, ErrUnknownStateID
 	}
 	d.i += sz

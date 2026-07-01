@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"reflect"
 	"unsafe"
 
@@ -78,7 +79,7 @@ func applySlice(dec *Decoder, td *typeDesc, baseP unsafe.Pointer, depth int) err
 	stride := td.rType.Elem().Size()
 	bv := reflect.NewAt(td.rType, baseP).Elem()
 
-	if newLen64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(newLen64) would truncate silently
+	if newLen64 > uint64(math.MaxInt) { // 32-bit: int(newLen64) would truncate silently
 		return ErrInvalidPatch
 	}
 	newLen := int(newLen64)

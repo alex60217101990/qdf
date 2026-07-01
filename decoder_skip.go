@@ -1,5 +1,7 @@
 package qdf
 
+import "math"
+
 // Skip advances past one value without materializing it.
 //
 // Skip recurses through nested arrays and maps, so it bounds nesting depth via
@@ -226,7 +228,7 @@ func (d *Decoder) Skip() error {
 		if n <= 0 {
 			return ErrInvalidLength
 		}
-		if shapeID > uint64(^uint32(0)) {
+		if shapeID > uint64(math.MaxUint32) {
 			return ErrUnknownStateID // would truncate on the uint32 cast below
 		}
 		d.i += n
@@ -240,7 +242,7 @@ func (d *Decoder) Skip() error {
 				return ErrInvalidLength
 			}
 			d.i += n
-			if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+			if cnt64 > uint64(math.MaxInt) { // 32-bit: int(cnt64) would wrap before CheckLength
 				return ErrInvalidLength
 			}
 			if err := d.CheckLength(int(cnt64), 1); err != nil {

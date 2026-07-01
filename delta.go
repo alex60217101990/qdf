@@ -273,7 +273,7 @@ func decompressPatchBody(body []byte) ([]byte, error) {
 	// rejects anything past the int range so the int(origLen) narrowing below
 	// cannot truncate a multi-GiB length on a 32-bit build and decode a silently
 	// short/wrong body (mirrors the rANS body bound in decoder.go).
-	if origLen > uint64(len(body))*64+(1<<20) || origLen > uint64(int(^uint(0)>>1)) {
+	if origLen > uint64(len(body))*64+(1<<20) || origLen > uint64(math.MaxInt) {
 		return nil, ErrInvalidPatch
 	}
 	out, err := rans.Decode(body[k:], int(origLen))

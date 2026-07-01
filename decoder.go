@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"reflect"
 	"unsafe"
 
@@ -326,7 +327,7 @@ func (d *Decoder) readHeaderSlow() error {
 		// rejects anything past the int range so the int(origLen) narrowing
 		// below cannot truncate a multi-GiB length on a 32-bit build and decode
 		// a silently short/wrong body.
-		if origLen > uint64(len(d.buf))*64+(1<<20) || origLen > uint64(int(^uint(0)>>1)) {
+		if origLen > uint64(len(d.buf))*64+(1<<20) || origLen > uint64(math.MaxInt) {
 			return ErrInvalidLength
 		}
 		body, err := rans.Decode(rest[k:], int(origLen))

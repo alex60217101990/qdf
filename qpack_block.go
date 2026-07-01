@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"encoding/binary"
+	"math"
 	"sync/atomic"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
@@ -337,7 +338,7 @@ func (d *Decoder) readBlockHeader(expectKind byte) (blk, n, offBase, bodyStart, 
 		return 0, 0, 0, 0, 0, ErrInvalidLength
 	}
 	d.i += nr
-	if !d.colLenOK(n64) || n64 == 0 || n64 > uint64(int(^uint(0)>>1)) {
+	if !d.colLenOK(n64) || n64 == 0 || n64 > uint64(math.MaxInt) {
 		return 0, 0, 0, 0, 0, ErrInvalidLength
 	}
 	n = int(n64)

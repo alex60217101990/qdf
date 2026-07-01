@@ -1197,7 +1197,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 			if n <= 0 {
 				return ErrInvalidLength
 			}
-			if shapeID > uint64(^uint32(0)) {
+			if shapeID > uint64(math.MaxUint32) {
 				return ErrUnknownStateID // would truncate on the uint32 cast below
 			}
 			d.i += n
@@ -1212,7 +1212,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					return ErrInvalidLength
 				}
 				d.i += n
-				if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+				if cnt64 > uint64(math.MaxInt) { // 32-bit: int(cnt64) would wrap before CheckLength
 					return ErrInvalidLength
 				}
 				cnt := int(cnt64)
@@ -1554,7 +1554,7 @@ func decodeAny(d *Decoder) (any, error) {
 		if n <= 0 {
 			return nil, ErrInvalidLength
 		}
-		if shapeID > uint64(^uint32(0)) {
+		if shapeID > uint64(math.MaxUint32) {
 			return nil, ErrUnknownStateID // would truncate on the uint32 cast below
 		}
 		d.i += n
@@ -1568,7 +1568,7 @@ func decodeAny(d *Decoder) (any, error) {
 				return nil, ErrInvalidLength
 			}
 			d.i += n
-			if cnt64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(cnt64) would wrap before CheckLength
+			if cnt64 > uint64(math.MaxInt) { // 32-bit: int(cnt64) would wrap before CheckLength
 				return nil, ErrInvalidLength
 			}
 			cnt := int(cnt64)

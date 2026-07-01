@@ -339,7 +339,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 		return h, ErrInvalidLength
 	}
 	d.i += nr
-	if !d.colLenOK(n64) || n64 == 0 || n64 > uint64(int(^uint(0)>>1)) {
+	if !d.colLenOK(n64) || n64 == 0 || n64 > uint64(math.MaxInt) {
 		return h, ErrInvalidLength
 	}
 	h.n = int(n64)
@@ -371,7 +371,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 			return h, ErrInvalidLength
 		}
 		d.i += nr
-		if eps64 > uint64(int(^uint(0)>>1)) {
+		if eps64 > uint64(math.MaxInt) {
 			return h, ErrInvalidLength
 		}
 		if loadZonemap {

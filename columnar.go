@@ -413,7 +413,7 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			//     huge positive, corrupting both the FOR spread and the row estimate
 			//     for any signed column holding negatives.
 			isInt := col.kind == colKindInt
-			var mnU, mxU uint64 = ^uint64(0), 0
+			var mnU, mxU uint64 = math.MaxUint64, 0
 			var mnI, mxI int64 = math.MaxInt64, math.MinInt64
 			for i := range sample {
 				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
@@ -492,7 +492,7 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			// Monotonic timestamps compress extremely well with Delta+FOR on sec;
 			// nsec is often 0 or small. Conservative estimate: treat like two
 			// int columns over the sample.
-			var mnSec, mxSec uint64 = ^uint64(0), 0
+			var mnSec, mxSec uint64 = math.MaxUint64, 0
 			for i := range sample {
 				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
 				t := (*time.Time)(p).UTC()
@@ -1029,7 +1029,7 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
 	if k2 <= 0 {
 		return out, ErrInvalidLength
 	}
-	if idv > uint64(^uint32(0)) {
+	if idv > uint64(math.MaxUint32) {
 		return out, ErrUnknownStateID // would truncate on the uint32 cast below
 	}
 	d.i += k2
@@ -1039,7 +1039,7 @@ func (d *Decoder) readColShape(maxN int) (colShapeRead, error) {
 			return out, ErrInvalidLength
 		}
 		d.i += k3
-		if cnt64 > uint64(int(^uint(0)>>1)) {
+		if cnt64 > uint64(math.MaxInt) {
 			return out, ErrInvalidLength // would wrap int() on a 32-bit build
 		}
 		cnt := int(cnt64)
@@ -1784,7 +1784,7 @@ func (d *Decoder) readHybridColShape(maxN int) (int, *decColShape, error) {
 	if k2 <= 0 {
 		return 0, nil, ErrInvalidLength
 	}
-	if idv > uint64(^uint32(0)) {
+	if idv > uint64(math.MaxUint32) {
 		return 0, nil, ErrUnknownStateID
 	}
 	d.i += k2
@@ -1794,7 +1794,7 @@ func (d *Decoder) readHybridColShape(maxN int) (int, *decColShape, error) {
 			return 0, nil, ErrInvalidLength
 		}
 		d.i += k3
-		if cnt64 > uint64(int(^uint(0)>>1)) {
+		if cnt64 > uint64(math.MaxInt) {
 			return 0, nil, ErrInvalidLength // would wrap int() on a 32-bit build
 		}
 		cnt := int(cnt64)
