@@ -48,7 +48,7 @@ jobs:
       # module download cache (~/go/pkg/mod), but the build cache makes
       # the biggest difference on incremental runs.
       - name: Restore build cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: |
             ~/.cache/go-build
@@ -176,7 +176,7 @@ jobs:
           exit 1
 
       - name: golangci-lint (${{ matrix.module }})
-        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: latest
           working-directory: ${{ matrix.working-directory }}
@@ -197,7 +197,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Restore build cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: ~/.cache/go-build
           key: gocache-fuzz-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum', '**/*.go') }}
@@ -207,7 +207,7 @@ jobs:
       # Persist the fuzz corpus between runs so newly discovered inputs
       # accumulate across CI builds. Restore is best-effort.
       - name: Restore fuzz corpus
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: testdata/fuzz
           key: fuzz-corpus-${{ github.sha }}
@@ -250,7 +250,7 @@ jobs:
 
       - name: Cache protoc + flatc binaries
         id: codegen-tools
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: ~/.codegen-tools/bin
           key: codegen-tools-protoc34.1-flatc25.12.19
