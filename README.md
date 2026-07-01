@@ -43,6 +43,10 @@ allocations). Wire is **smaller than Protobuf on every fixture** we test
 (−21 … −68 %). Full json / msgpack / protobuf / flatbuffers tables and
 the reproduction recipe: **[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
 
+**Deep dives:**
+[qdf — decodes less, packs harder, and lets you query the bytes](https://dev.to/alex_602/qdf-a-go-serializer-that-decodes-less-packs-harder-and-lets-you-query-the-bytes-2a39)
+· [Shrinking AI embeddings on the wire — a lossy vector codec that beats Google's TurboQuant at equal recall](https://dev.to/alex_602/shrinking-ai-embeddings-on-the-wire-a-lossy-vector-codec-that-beats-googles-turboquant-at-equal-4hme)
+
 ---
 
 ## Design philosophy — from "data as bytes" to "data as a model"
