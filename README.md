@@ -28,20 +28,25 @@ dictionary, Gorilla XOR, FSST, rANS), so it shrinks *across* records
 where per-record formats can't. A `go:generate` tool emits
 reflection-free `MarshalQDF` / `UnmarshalQDF` for the last 10–15 %.
 
-### 5 000 Active-Directory records · one machine (i7-9750H · Go 1.26)
+### Wire size on real telemetry batches · GitHub Actions `ubuntu-latest` · Go 1.26
 
-| | wire | encode | decode |
-| --- | ---: | ---: | ---: |
-| `encoding/json` | 3 833 KB | 14.1 ms | 57.8 ms |
-| `vmihailenco/msgpack` | 3 370 KB | 8.7 ms | 16.7 ms |
-| **qdf** · `OptBalanced` (default) | **1 830 KB** | **6.6 ms** | **7.9 ms** |
-| **qdf** · `OptCompression` | **616 KB** | 32.1 ms | 13.2 ms |
+| batch | `encoding/json` | protobuf | **qdf** balanced | **qdf** compression |
+| --- | ---: | ---: | ---: | ---: |
+| OTLP traces | 1 027 KB | 562 KB | **138 KB** | **130 KB** |
+| logs        |   245 KB | 156 KB |  **44 KB** |  **44 KB** |
+| RTB bids    |   559 KB | 328 KB | **244 KB** | **201 KB** |
+| events      |   123 KB |  65 KB |  **40 KB** |  **40 KB** |
+| IoT floats  |   469 KB | 208 KB | **158 KB** | **148 KB** |
 
-`OptBalanced` is smaller **and** faster than json and msgpack on every
-axis (decode ≈ 7× faster than json, ≈ 2× faster than msgpack, ~half the
-allocations). Wire is **smaller than Protobuf on every fixture** we test
-(−21 … −68 %). Full json / msgpack / protobuf / flatbuffers tables and
-the reproduction recipe: **[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
+qdf's wire is **smaller than Protobuf on every fixture (−24 … −77 %)** and
+**2.3–7.5× smaller than JSON** — it interns repeated strings and
+columnar-compresses *across* records, where per-record formats can't. On a
+real Active-Directory host dump it also decodes **≈6× faster than JSON**
+and **~1.5× faster than msgpack** at **~40 % of the allocations**, and encodes
+faster than both on telemetry-shaped batches (msgpack edges encode on some
+high-cardinality sets). Honest trade-offs: `OptCompression` spends encode CPU
+for the smallest wire, and protobuf/flatbuffers still win raw single-tiny-message
+decode. Full tables + reproduction recipe: **[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
 
 **Deep dives:**
 [qdf — decodes less, packs harder, and lets you query the bytes](https://dev.to/alex_602/qdf-a-go-serializer-that-decodes-less-packs-harder-and-lets-you-query-the-bytes-2a39)
@@ -135,42 +140,41 @@ are picked up via Go struct tags (`qdf:"name"`, falling back to
 
 ### Measured against the field
 
-On realistic batch payloads (i7-9750H · Go 1.26), qdf's wire is **smaller
-than protobuf on every fixture** — because it dedups and columnar-compresses
-across records, while json/msgpack/protobuf/flatbuffers encode each record
-independently:
+On realistic batch payloads (GitHub Actions `ubuntu-latest` · Go 1.26), qdf's
+wire is **smaller than protobuf on every fixture** — because it dedups and
+columnar-compresses across records, while json/msgpack/protobuf/flatbuffers
+encode each record independently:
 
 | wire size vs protobuf | OTLP traces | logs | RTB | events | IoT floats |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `qdf_balanced` | −57 % | −43 % | −21 % | −39 % | −24 % |
-| `qdf_compression` | **−68 %** | **−60 %** | −38 % | −39 % | −29 % |
+| `qdf_balanced` | **−75 %** | **−72 %** | −25 % | −39 % | −24 % |
+| `qdf_compression` | **−77 %** | **−72 %** | −39 % | −39 % | −29 % |
 
 It also allocates far less under load (IoT encode: `qdf_balanced` 3 allocs/op
 vs protobuf 385). Honest trade-offs: `qdf_speed` wire ≈ msgpack;
 `qdf_compression` encode trades CPU for bytes; protobuf and flatbuffers win
-raw decode throughput and single-tiny-message size. Full tables (json /
-msgpack / protobuf / flatbuffers × five fixtures, wire + memory) and the
-reproduction recipe are in **[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
+raw single-tiny-message decode. Full tables (json / msgpack / protobuf /
+flatbuffers × five fixtures, wire + memory) and the reproduction recipe are in
+**[docs/COMPETITIVE.md](docs/COMPETITIVE.md)**.
 
-A concrete head-to-head on a realistic **Active-Directory export** (5 000
-mixed `ADUser` records — unique GUID/UPN/email, occasionally-repeating
-names, moderately-repeating groups/departments; i7-9750H, same data through
-each library):
+A concrete head-to-head on a real **Active-Directory host dump** (adalanche
+`localmachine` data — unique GUID/SID identifiers alongside repeating group,
+department, and object-class strings; same data through each library, typed
+structs):
 
-| 5 000 AD users | wire | encode | decode |
-| --- | ---: | ---: | ---: |
-| `encoding/json` | 3 833 KB | 14.1 ms | 57.8 ms |
-| `msgpack` | 3 370 KB | 8.7 ms | 16.7 ms |
-| **qdf — `OptBalanced`** (default) | **1 830 KB** | **6.6 ms** | **7.9 ms** |
-| **qdf — `OptCompression`** | **616 KB** | 32.1 ms | 13.2 ms |
+| AD host dump | wire | encode | decode | decode allocs |
+| --- | ---: | ---: | ---: | ---: |
+| `encoding/json` | 532 KB | 1.5 ms | 4.9 ms | 15 851 |
+| `vmihailenco/msgpack` | 500 KB | **0.65 ms** | 1.2 ms | 13 261 |
+| **qdf — `OptBalanced`** (default) | **209 KB** | 0.77 ms | **0.79 ms** | **6 413** |
+| **qdf — `OptCompression`** | **127 KB** | 5.7 ms | 1.6 ms | **5 597** |
 
-`OptBalanced` is a clean sweep — smaller **and** faster than both json and
-msgpack on every axis (decode ≈ **7× faster than json**, ≈ 2× faster than
-msgpack; ≈ half the allocations). `OptCompression` is **6.2× smaller than
-json / 5.5× smaller than msgpack** and still decodes faster than both, paying
-encode CPU for it. The mixed-struct shape (a map + a slice field amid the
-scalars) is exactly what **hybrid columnar** (`OptCompression`) unlocks —
-without it those records would never have been transposed at all.
+`OptBalanced` is **2.5× smaller than json / 2.4× smaller than msgpack**, decodes
+**≈6× faster than json** and **~1.5× faster than msgpack**, at ~40 % of json's
+allocations. msgpack edges it on encode wall-time for this high-cardinality set
+(qdf wins encode on the telemetry fixtures above); `OptCompression` trades encode
+CPU for the smallest wire. Protobuf/flatbuffers still win raw single-message
+decode.
 
 ### Wire layout
 
@@ -248,6 +252,15 @@ go get github.com/alex60217101990/qdf
 ```
 
 Requires Go 1.26.
+
+**Runnable examples** (`go run ./examples/<name>`):
+[`telemetry`](examples/telemetry) (dedup vs json) ·
+[`query`](examples/query) (predicate pushdown) ·
+[`embeddings`](examples/embeddings) (lossy vector codec) ·
+[`streaming`](examples/streaming) (shared-dict stream) ·
+[`decodealloc`](examples/decodealloc) (arena zero-alloc decode).
+More runnable snippets — arena, no-copy, options, delta, columns — render on
+[**pkg.go.dev**](https://pkg.go.dev/github.com/alex60217101990/qdf#pkg-examples).
 
 ```go
 package main
