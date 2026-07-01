@@ -1,83 +1,90 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="260" viewBox="0 0 760 260" role="img" aria-label="qdf — Quick Data Format">
   <defs>
-    <radialGradient id="bg" cx="30%" cy="30%" r="90%">
-      <stop offset="0" stop-color="#141833"/>
-      <stop offset="0.55" stop-color="#0b0e1f"/>
-      <stop offset="1" stop-color="#05060d"/>
+    <radialGradient id="bg" cx="28%" cy="30%" r="95%">
+      <stop offset="0" stop-color="#151a38"/>
+      <stop offset="0.55" stop-color="#0a0d20"/>
+      <stop offset="1" stop-color="#04050c"/>
     </radialGradient>
-    <linearGradient id="fTop" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#22d3ee"/>
-      <stop offset="0.5" stop-color="#818cf8"/>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="0.5" stop-color="#6366f1"/>
       <stop offset="1" stop-color="#e879f9"/>
     </linearGradient>
-    <linearGradient id="fRight" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#3730a3"/>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a5f3fc"/>
+      <stop offset="1" stop-color="#e879f9"/>
     </linearGradient>
-    <linearGradient id="fLeft" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3730a3"/>
-      <stop offset="1" stop-color="#1e1b4b"/>
-    </linearGradient>
+    <radialGradient id="core" cx="42%" cy="38%" r="70%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#a5f3fc"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </radialGradient>
+    <radialGradient id="coreglow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#7dd3fc" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#7dd3fc" stop-opacity="0"/>
+    </radialGradient>
     <linearGradient id="word" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#5eead4"/>
       <stop offset="0.45" stop-color="#38bdf8"/>
       <stop offset="1" stop-color="#c084fc"/>
     </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="5" result="b"/>
+    <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softglow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="18"/>
+    <filter id="soft" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="20"/>
     </filter>
   </defs>
 
-  <!-- Backplate -->
-  <rect x="2" y="2" width="756" height="256" rx="30" fill="url(#bg)" stroke="#2a3157" stroke-opacity="0.6"/>
+  <rect x="2" y="2" width="756" height="256" rx="30" fill="url(#bg)" stroke="#2a3157" stroke-opacity="0.55"/>
 
-  <!-- Ambient neon glow behind the mark -->
-  <ellipse cx="150" cy="140" rx="120" ry="96" fill="#6d28d9" opacity="0.45" filter="url(#softglow)"/>
-  <ellipse cx="120" cy="120" rx="80" ry="70" fill="#0ea5e9" opacity="0.35" filter="url(#softglow)"/>
+  <!-- ambient glow around the core -->
+  <ellipse cx="150" cy="130" rx="110" ry="100" fill="#7c3aed" opacity="0.38" filter="url(#soft)"/>
+  <ellipse cx="150" cy="130" rx="60" ry="58" fill="#0891b2" opacity="0.45" filter="url(#soft)"/>
 
-  <!-- 3D isometric data stack: raw (wide) → compressed (narrow) -->
+  <!-- many redundant streams flow IN from the left -->
+  <g stroke="url(#neon)" stroke-width="2.4" fill="none" opacity="0.55" stroke-linecap="round">
+    <path d="M 30,86  C 76,96  96,108 120,124"/>
+    <path d="M 22,108 C 72,114 92,120 116,128"/>
+    <path d="M 20,130 C 70,130 92,130 114,130"/>
+    <path d="M 22,152 C 72,146 92,140 116,132"/>
+    <path d="M 30,174 C 76,164 96,152 120,136"/>
+  </g>
+  <g fill="#7dd3fc" opacity="0.85">
+    <circle cx="30" cy="86" r="2.6"/><circle cx="22" cy="108" r="2.6"/><circle cx="20" cy="130" r="2.6"/>
+    <circle cx="22" cy="152" r="2.6"/><circle cx="30" cy="174" r="2.6"/>
+  </g>
+
+  <!-- compression funnel: arcs opening toward the output (right) -->
+  <g fill="none" filter="url(#glow)" stroke-linecap="round">
+    <path d="M 185.2,91.4 A 46 46 0 1 0 185.2,168.6" stroke="url(#neon)" stroke-width="3" opacity="0.85"/>
+    <path d="M 175.3,108.8 A 33 33 0 1 0 175.3,151.2" stroke="url(#neon)" stroke-width="3.8"/>
+    <path d="M 166.9,125.9 A 22 22 0 1 0 166.9,134.1" stroke="#a5f3fc" stroke-width="4.6"/>
+  </g>
+
+  <!-- compressed output: bright beam → dense packet -->
   <g filter="url(#glow)">
-    <!-- bottom slab -->
-    <polygon points="76,150 150,181 150,205 76,174" fill="url(#fLeft)"/>
-    <polygon points="150,181 224,150 224,174 150,205" fill="url(#fRight)"/>
-    <polygon points="150,119 224,150 150,181 76,150" fill="url(#fTop)"/>
-    <polygon points="150,119 224,150 150,181 76,150" fill="none" stroke="#a5f3fc" stroke-opacity="0.9" stroke-width="1.5"/>
-    <!-- middle slab -->
-    <polygon points="98,126 150,148 150,172 98,150" fill="url(#fLeft)"/>
-    <polygon points="150,148 202,126 202,150 150,172" fill="url(#fRight)"/>
-    <polygon points="150,104 202,126 150,148 98,126" fill="url(#fTop)"/>
-    <polygon points="150,104 202,126 150,148 98,126" fill="none" stroke="#a5f3fc" stroke-opacity="0.9" stroke-width="1.5"/>
-    <!-- top slab (most compressed) -->
-    <polygon points="118,102 150,115 150,139 118,126" fill="url(#fLeft)"/>
-    <polygon points="150,115 182,102 182,126 150,139" fill="url(#fRight)"/>
-    <polygon points="150,89 182,102 150,115 118,102" fill="url(#fTop)"/>
-    <polygon points="150,89 182,102 150,115 118,102" fill="none" stroke="#e9d5ff" stroke-opacity="0.95" stroke-width="1.5"/>
-    <!-- glossy sheen on the top faces -->
-    <polygon points="150,119 224,150 150,181 76,150" fill="url(#sheen)" opacity="0.16"/>
+    <path d="M 172,130 L 236,130" stroke="url(#beam)" stroke-width="9" stroke-linecap="round"/>
+    <polygon points="252,130 238,116 224,130 238,144" fill="url(#core)"/>
+    <circle cx="270" cy="130" r="3.4" fill="#f0abfc"/>
+    <circle cx="284" cy="130" r="2.3" fill="#f0abfc" opacity="0.7"/>
   </g>
 
-  <!-- Floating accent particles -->
-  <g fill="#67e8f9">
-    <circle cx="243" cy="86" r="3" opacity="0.9"/>
-    <circle cx="62" cy="196" r="2.5" opacity="0.7"/>
-    <circle cx="236" cy="206" r="2" opacity="0.6"/>
+  <!-- dense core crystal -->
+  <circle cx="150" cy="130" r="24" fill="url(#coreglow)"/>
+  <g filter="url(#glow)">
+    <polygon points="150,110 168,130 150,150 132,130" fill="url(#core)"/>
+    <polygon points="150,110 150,150 132,130" fill="#c7d2fe" opacity="0.7"/>
+    <polygon points="150,110 168,130 150,130" fill="#ffffff" opacity="0.55"/>
+    <circle cx="144" cy="124" r="3" fill="#ffffff"/>
   </g>
 
-  <!-- Wordmark: extruded 3D + neon -->
+  <!-- wordmark -->
   <g font-family="ui-sans-serif, Segoe UI, Helvetica, Arial, sans-serif" font-weight="900" letter-spacing="-6">
-    <text x="304" y="160" font-size="128" fill="#0a0a1f" opacity="0.9">qdf</text>
-    <text x="300" y="156" font-size="128" fill="url(#word)" filter="url(#glow)">qdf</text>
+    <text x="326" y="158" font-size="126" fill="#090a1c" opacity="0.9">qdf</text>
+    <text x="322" y="154" font-size="126" fill="url(#word)" filter="url(#glow)">qdf</text>
   </g>
-
-  <!-- Tagline -->
-  <text x="306" y="196" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        font-size="21" letter-spacing="3" fill="#8b93c9">QUICK · DATA · FORMAT</text>
+  <text x="328" y="194" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="20" letter-spacing="4" fill="#8b93c9">QUICK · DATA · FORMAT</text>
 </svg>
