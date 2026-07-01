@@ -221,7 +221,10 @@ func (t *SymbolTable) DecompressN(codes, dst []byte, limit int) ([]byte, bool) {
 		i++
 		if c == escapeCode {
 			if i >= len(codes) {
-				break
+				// Dangling escape with no literal byte: a corrupt block. Reject
+				// rather than break-as-success, which would return a string one
+				// byte short reported as ok (matches the unknown-code branch below).
+				return dst, false
 			}
 			if len(dst) >= limit {
 				return dst, false

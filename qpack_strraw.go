@@ -138,7 +138,7 @@ func (d *Decoder) readStringColumnRaw(n int) ([]string, error) {
 		return nil, ErrShortBuffer
 	}
 	total := int(total64)
-	out := make([]string, n)
+	out := d.colStrScratch(n)
 
 	if d.noCopy {
 		for i := range n {

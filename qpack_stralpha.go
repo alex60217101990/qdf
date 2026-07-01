@@ -356,7 +356,7 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 		}
 	}
 
-	out := make([]string, n)
+	out := d.colStrScratch(n)
 	off := 0
 	if fixedLen {
 		for i := range n {

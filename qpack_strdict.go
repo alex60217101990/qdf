@@ -277,7 +277,7 @@ func (d *Decoder) readStringColumn(n int) ([]string, error) {
 	if n > 0 && d.i < len(d.buf) && d.buf[d.i] == tagColStrAlpha {
 		return d.readStringColumnAlpha(n)
 	}
-	out := make([]string, n)
+	out := d.colStrScratch(n)
 	if n > 0 && d.i < len(d.buf) && (d.buf[d.i] == tagColStrDict || d.buf[d.i] == tagColStrDictFC || d.buf[d.i] == tagColStrDictQ) {
 		var (
 			table []string
@@ -305,9 +305,32 @@ func (d *Decoder) readStringColumn(n int) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		out[i] = string(sb) // owned copy
+		out[i] = d.materializeStr(sb) // aliases input under noCopy / arena
 	}
 	return out, nil
+}
+
+// colDictTableScratch / colDictIdxScratch return reused per-column dict scratch.
+// Both are transient — the only caller (readStringColumn) copies table[idx[i]]
+// into the column result before the next column read — so reusing them across
+// columns is safe, and they are distinct buffers from the result scratch
+// (colScratchStr), so the table->result copy never self-overwrites.
+func (d *Decoder) colDictTableScratch(count int) []string {
+	st := d.colStateDec()
+	if cap(st.colDictTableScr) < count {
+		st.colDictTableScr = make([]string, count)
+	}
+	st.colDictTableScr = st.colDictTableScr[:count]
+	return st.colDictTableScr
+}
+
+func (d *Decoder) colDictIdxScratch(n int) []uint32 {
+	st := d.colStateDec()
+	if cap(st.colDictIdxScr) < n {
+		st.colDictIdxScr = make([]uint32, n)
+	}
+	st.colDictIdxScr = st.colDictIdxScr[:n]
+	return st.colDictIdxScr
 }
 
 // readStringColumnDict decodes a tagColStrDict block (tag at d.i) into a
@@ -332,7 +355,7 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 		return nil, nil, ErrBadTag
 	}
 	count := int(c64)
-	table = make([]string, count)
+	table = d.colDictTableScratch(count)
 	for i := range count {
 		l64, nr := readUvarint(d.buf[d.i:])
 		if nr <= 0 {
@@ -343,7 +366,7 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 			return nil, nil, ErrShortBuffer
 		}
 		l := int(l64)
-		table[i] = string(d.buf[d.i : d.i+l]) // owned copy
+		table[i] = d.materializeStr(d.buf[d.i : d.i+l]) // aliases input under noCopy / arena
 		d.i += l
 	}
 	n64, nr := readUvarint(d.buf[d.i:])
@@ -365,7 +388,7 @@ func (d *Decoder) readStringColumnDict(n int) (table []string, idx []uint32, err
 	bodyBytes := (n*bits + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx = make([]uint32, n)
+	idx = d.colDictIdxScratch(n)
 	// Reuse the shared transient unpack scratch (as readPackedDictUint64Slice
 	// does): tmp holds the bit-unpacked dictionary indices, fully written by
 	// Unpack below before any read, and only mapped into idx — never aliased
@@ -405,7 +428,7 @@ func (d *Decoder) readStringColumnDictQ(n int) (table []string, idx []uint32, er
 		return nil, nil, ErrBadTag
 	}
 	count := int(c64)
-	table = make([]string, count)
+	table = d.colDictTableScratch(count)
 	for i := range count {
 		l64, nr := readUvarint(d.buf[d.i:])
 		if nr <= 0 {
@@ -416,7 +439,7 @@ func (d *Decoder) readStringColumnDictQ(n int) (table []string, idx []uint32, er
 			return nil, nil, ErrShortBuffer
 		}
 		l := int(l64)
-		table[i] = string(d.buf[d.i : d.i+l]) // owned copy
+		table[i] = d.materializeStr(d.buf[d.i : d.i+l]) // aliases input under noCopy / arena
 		d.i += l
 	}
 	// QPack index block: peek the codec tag, decode, validate length and range.
@@ -430,7 +453,7 @@ func (d *Decoder) readStringColumnDictQ(n int) (table []string, idx []uint32, er
 	if len(idx64) != n {
 		return nil, nil, ErrTypeMismatch
 	}
-	idx = make([]uint32, n)
+	idx = d.colDictIdxScratch(n)
 	for i, v := range idx64 {
 		if v >= c64 {
 			return nil, nil, ErrBadTag
@@ -496,7 +519,7 @@ func (d *Decoder) readStringColumnDictFC(n int) (table []string, idx []uint32, e
 		starts[i], lens[i] = start, p+s
 		prevStart, prevLen = start, p+s
 	}
-	table = make([]string, count)
+	table = d.colDictTableScratch(count)
 	for i := range count {
 		table[i] = unsafestr.String(slab[starts[i] : starts[i]+lens[i]]) // view into the owned slab
 	}
@@ -519,7 +542,7 @@ func (d *Decoder) readStringColumnDictFC(n int) (table []string, idx []uint32, e
 	bodyBytes := (n*bits + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx = make([]uint32, n)
+	idx = d.colDictIdxScratch(n)
 	if cap(d.deltaScratch) < n {
 		d.deltaScratch = make([]uint64, n)
 	}

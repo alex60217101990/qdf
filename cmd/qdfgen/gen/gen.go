@@ -1378,16 +1378,128 @@ func (g *gen) emitEncodeMap(w io.Writer, expr string, m *types.Map, indent strin
 	fmt.Fprintf(w, "%s\te.WriteMapHeader(len(%s))\n", indent, expr)
 	kVar := g.fresh("k")
 	vVar := g.fresh("vv")
-	fmt.Fprintf(w, "%s\tfor %s, %s := range %s {\n", indent, kVar, vVar, expr)
-	if err := g.emitEncodeValue(w, kVar, m.Key(), indent+"\t\t"); err != nil {
-		return err
+	emitKV := func(in string) error {
+		if err := g.emitEncodeValue(w, kVar, m.Key(), in); err != nil {
+			return err
+		}
+		return g.emitEncodeValue(w, vVar, m.Elem(), in)
 	}
-	if err := g.emitEncodeValue(w, vVar, m.Elem(), indent+"\t\t"); err != nil {
-		return err
+	// Under OptCanonical the reflect encoder (encodeMapCanonical) emits map keys
+	// in sorted order for byte-identical output; the generated path must match or
+	// the same value serializes with a non-deterministic key order when driven by
+	// a shared canonical encoder. We replicate that ordering for the basic key
+	// kinds (string lexicographic, int/uint numeric, bool false<true, float by
+	// Float64bits). Exotic comparable keys (struct/array/interface) keep Go's map
+	// range order — rare, and reproducing the recursive reflect comparator in
+	// generated code is not worthwhile.
+	switch g.canonicalKeyKind(m.Key()) {
+	case canonKeyOrdered:
+		// Findable keys (string/int/uint): gather + sort keys, re-fetch values by
+		// index. Matches encodeMapCanonical's per-kind slices.Sort ordering.
+		ksVar := g.fresh("ks")
+		keyType := g.typeExprFromType(m.Key())
+		g.imports["slices"] = ""
+		fmt.Fprintf(w, "%s\tif e.Canonical() {\n", indent)
+		fmt.Fprintf(w, "%s\t\t%s := make([]%s, 0, len(%s))\n", indent, ksVar, keyType, expr)
+		fmt.Fprintf(w, "%s\t\tfor %s := range %s {\n%s\t\t\t%s = append(%s, %s)\n%s\t\t}\n",
+			indent, kVar, expr, indent, ksVar, ksVar, kVar, indent)
+		fmt.Fprintf(w, "%s\t\tslices.Sort(%s)\n", indent, ksVar)
+		fmt.Fprintf(w, "%s\t\tfor _, %s := range %s {\n", indent, kVar, ksVar)
+		fmt.Fprintf(w, "%s\t\t\t%s := %s[%s]\n", indent, vVar, expr, kVar)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t} else {\n", indent, indent)
+		fmt.Fprintf(w, "%s\t\tfor %s, %s := range %s {\n", indent, kVar, vVar, expr)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t}\n", indent, indent)
+	case canonKeyFloat:
+		// Float keys: gather (key,value) PAIRS via range and sort by Float64bits.
+		// We must NOT re-fetch the value with expr[k]: a NaN key (NaN != NaN) is
+		// unfindable by map index and would yield the zero value, corrupting the
+		// entry. encodeMapCanonical's float path carries pairs for the same reason.
+		psVar := g.fresh("ps")
+		pVar := g.fresh("p")
+		keyType := g.typeExprFromType(m.Key())
+		valType := g.typeExprFromType(m.Elem())
+		pairType := fmt.Sprintf("struct{ k %s; v %s }", keyType, valType)
+		g.imports["slices"] = ""
+		g.imports["cmp"] = ""
+		g.imports["math"] = ""
+		fmt.Fprintf(w, "%s\tif e.Canonical() {\n", indent)
+		fmt.Fprintf(w, "%s\t\t%s := make([]%s, 0, len(%s))\n", indent, psVar, pairType, expr)
+		fmt.Fprintf(w, "%s\t\tfor %s, %s := range %s {\n%s\t\t\t%s = append(%s, %s{%s, %s})\n%s\t\t}\n",
+			indent, kVar, vVar, expr, indent, psVar, psVar, pairType, kVar, vVar, indent)
+		fmt.Fprintf(w, "%s\t\tslices.SortFunc(%s, func(a, b %s) int { return cmp.Compare(math.Float64bits(float64(a.k)), math.Float64bits(float64(b.k))) })\n",
+			indent, psVar, pairType)
+		fmt.Fprintf(w, "%s\t\tfor _, %s := range %s {\n", indent, pVar, psVar)
+		fmt.Fprintf(w, "%s\t\t\t%s := %s.k\n%s\t\t\t%s := %s.v\n", indent, kVar, pVar, indent, vVar, pVar)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t} else {\n", indent, indent)
+		fmt.Fprintf(w, "%s\t\tfor %s, %s := range %s {\n", indent, kVar, vVar, expr)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t}\n", indent, indent)
+	case canonKeyBool:
+		keyType := g.typeExprFromType(m.Key())
+		fmt.Fprintf(w, "%s\tif e.Canonical() {\n", indent)
+		fmt.Fprintf(w, "%s\t\tfor _, %s := range [...]%s{false, true} {\n", indent, kVar, keyType)
+		fmt.Fprintf(w, "%s\t\t\t%s, ok := %s[%s]\n%s\t\t\tif !ok {\n%s\t\t\t\tcontinue\n%s\t\t\t}\n",
+			indent, vVar, expr, kVar, indent, indent, indent)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t} else {\n", indent, indent)
+		fmt.Fprintf(w, "%s\t\tfor %s, %s := range %s {\n", indent, kVar, vVar, expr)
+		if err := emitKV(indent + "\t\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t\t}\n%s\t}\n", indent, indent)
+	default:
+		fmt.Fprintf(w, "%s\tfor %s, %s := range %s {\n", indent, kVar, vVar, expr)
+		if err := emitKV(indent + "\t\t"); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s\t}\n", indent)
 	}
-	fmt.Fprintf(w, "%s\t}\n", indent)
 	fmt.Fprintf(w, "%s}\n", indent)
 	return nil
+}
+
+type canonKeyKind int
+
+const (
+	canonKeyNone canonKeyKind = iota
+	canonKeyOrdered
+	canonKeyFloat
+	canonKeyBool
+)
+
+// canonicalKeyKind classifies a map key type for OptCanonical sorted emit,
+// mirroring encodeMapCanonical's per-kind ordering. Non-basic keys (and complex)
+// return canonKeyNone (kept in map range order).
+func (g *gen) canonicalKeyKind(t types.Type) canonKeyKind {
+	b, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return canonKeyNone
+	}
+	switch b.Kind() {
+	case types.String,
+		types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr:
+		return canonKeyOrdered
+	case types.Float32, types.Float64:
+		return canonKeyFloat
+	case types.Bool:
+		return canonKeyBool
+	default:
+		return canonKeyNone
+	}
 }
 
 // ---------------------------------------------------------------------------

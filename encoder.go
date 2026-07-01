@@ -101,11 +101,6 @@ type Encoder struct {
 	// encState, so the row-major float path reuses it without needing a state.
 	alpScratch []uint64
 
-	// vecScratch reuses the lossy vector codec's rotate/row/coord buffers across
-	// encodes, retained between batches and dropped past the ceiling in
-	// resetForReuse. Mirrors alpScratch.
-	vecScratch vecquant.Scratch
-
 	// wideF64 reuses the []float32 -> []float64 widening buffer for the lossy
 	// vector codec, retained across encodes and dropped past the ceiling in
 	// resetForReuse. For f32 fields this avoids one allocation per encode;
@@ -148,6 +143,13 @@ type Encoder struct {
 	// across columns; bounded on return to the pool.
 	blkPlanI64 []blockPlanI64
 	blkPlanU64 []blockPlanU64
+
+	// vecScratch reuses the lossy vector codec's rotate/row/coord buffers across
+	// encodes, retained between batches and dropped past the ceiling in
+	// resetForReuse. Mirrors alpScratch. Placed last among the pointer-bearing
+	// fields: its embedded struct ends in a non-pointer bool (Overflowed), so
+	// trailing it keeps that byte outside the GC pointer-scan prefix.
+	vecScratch vecquant.Scratch
 
 	// minIntern is the minimum string length eligible for interning;
 	// shorter values go in line.
@@ -432,6 +434,11 @@ func (e *Encoder) resetForReuse() {
 //
 //go:nosplit
 func (e *Encoder) ApplyOpts(opts Options) { e.applyOpts(opts) }
+
+// Canonical reports whether OptCanonical is set on this encoder. Generated
+// EncodeQDF code calls it to decide whether to emit map entries in sorted
+// (deterministic) key order, matching the reflect encoder's canonical path.
+func (e *Encoder) Canonical() bool { return e.opts.Has(OptCanonical) }
 
 // EncodeValue runs the reflect-driven Marshal pipeline on v
 // against this Encoder. Convenience for callers driving an

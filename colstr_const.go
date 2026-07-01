@@ -45,7 +45,7 @@ func (d *Decoder) readStringColumnConst(n int) ([]string, error) {
 		return nil, ErrShortBuffer
 	}
 	l := int(l64)
-	v := string(d.buf[d.i : d.i+l]) // one owned copy, shared by every row
+	v := d.materializeStr(d.buf[d.i : d.i+l]) // shared by every row (aliases input under noCopy)
 	d.i += l
 	cnt64, nr := readUvarint(d.buf[d.i:])
 	if nr <= 0 {
@@ -55,7 +55,7 @@ func (d *Decoder) readStringColumnConst(n int) ([]string, error) {
 	if int(cnt64) != n {
 		return nil, ErrTypeMismatch
 	}
-	out := make([]string, n)
+	out := d.colStrScratch(n)
 	for i := range out {
 		out[i] = v
 	}

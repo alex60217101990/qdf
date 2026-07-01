@@ -963,7 +963,7 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 	if err != nil {
 		return err
 	}
-	if err := d.CheckLength(n, 1); err != nil {
+	if err := d.CheckLength(n, 5); err != nil { // each ReadFloat32 elem is 5 bytes (tag+4); bound make() by remaining/5
 		return err
 	}
 	out := make([]float32, n)
@@ -1141,7 +1141,7 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 	if err != nil {
 		return err
 	}
-	if err := d.CheckLength(n, 1); err != nil {
+	if err := d.CheckLength(n, 5); err != nil { // each ReadFloat64 elem is >=5 bytes (tag+4); bound make() by remaining/5
 		return err
 	}
 	out := make([]float64, n)

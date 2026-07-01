@@ -86,6 +86,12 @@ type Decoder struct {
 	// lifetime.
 	noCopy bool
 
+	// colStrNoPool forces colStrScratch to return a fresh owned []string instead
+	// of the reused decode-state scratch. Set only around the nullable string
+	// column read, which stores &strs[k] pointers into *string fields — those
+	// must reference a stable backing array, not the buffer the next column reuses.
+	colStrNoPool bool
+
 	headerRead bool
 
 	// colIndex records whether the header set FlagColIndex. When true a

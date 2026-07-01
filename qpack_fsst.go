@@ -137,7 +137,7 @@ func (d *Decoder) readStringColumnFSST(n int) ([]string, error) {
 	}
 
 	slab := make([]byte, 0, int(dt64))
-	out := make([]string, n)
+	out := d.colStrScratch(n)
 	for i := range n {
 		cl64, nr := readUvarint(d.buf[d.i:])
 		if nr <= 0 {

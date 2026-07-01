@@ -54,3 +54,50 @@ func TestSchemaEvolutionSkipBlockLossy(t *testing.T) {
 		t.Fatal("test data did not emit tagColVecLossy (0xFD)")
 	}
 }
+
+type vbRow struct {
+	ID   int64
+	Name string    // repeated → interned under OptShapeIntern (state-ref per row)
+	Emb  []float32 // equal length ≥ lossyVecMinElems → batched
+}
+type vbBatchSrc struct {
+	Rows  []vbRow // ≥ columnarMinElems rows w/ a batchable vector field → tagVecBatchStruct (0xFE)
+	After string  // sentinel after the skipped field
+}
+type vbBatchDst struct{ After string } // schema evolution: Rows unknown → Skip
+
+// TestSchemaEvolutionSkipVecBatchStruct guards that Skip() can advance past a
+// tagVecBatchStruct (0xFE) field — a []struct with a batched vector field under
+// OptLossyVec — including walking its per-row non-batched fields (ID, interned
+// Name) so their intern/shape state is replayed and the trailing sentinel stays
+// in sync. Before the fix Skip() fell through to ErrBadTag on 0xFE.
+func TestSchemaEvolutionSkipVecBatchStruct(t *testing.T) {
+	var src vbBatchSrc
+	src.After = "sentinel"
+	names := []string{"alpha", "beta", "gamma"}
+	for i := range 24 {
+		var r vbRow
+		r.ID = int64(i)
+		r.Name = names[i%len(names)]
+		for j := range 64 {
+			r.Emb = append(r.Emb, float32(i*64+j)*0.01)
+		}
+		src.Rows = append(src.Rows, r)
+	}
+
+	opt := OptLossyVec | OptDense | OptShapeIntern
+	b, err := Marshal(src, opt)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if bytes.IndexByte(b, tagVecBatchStruct) < 0 {
+		t.Fatal("test data did not emit tagVecBatchStruct (0xFE)")
+	}
+	var dst vbBatchDst
+	if err := Unmarshal(b, &dst); err != nil {
+		t.Fatalf("skip-decode: %v", err)
+	}
+	if dst.After != "sentinel" {
+		t.Fatalf("After=%q (cursor desync after skipping 0xFE)", dst.After)
+	}
+}

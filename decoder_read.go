@@ -208,6 +208,23 @@ func (d *Decoder) ReadString() (string, error) {
 	return string(b), nil
 }
 
+// materializeStr turns string bytes that ALIAS the input buffer into a string,
+// honoring the decoder's zero-copy / arena mode exactly like ReadString. Use it
+// at every columnar string-column materialization site whose bytes are a slice
+// of d.buf (const / per-value / dict-table / dictQ-table) so columnar decode
+// reaches the same zero-copy / arena parity as the row-major path — otherwise
+// each value pays an owned string(b) copy. The argument MUST alias d.buf (never
+// a reused scratch buffer): under noCopy the result aliases it.
+func (d *Decoder) materializeStr(b []byte) string {
+	if d.noCopy {
+		return unsafestr.String(b)
+	}
+	if d.arena != nil && len(b) > 0 {
+		return d.arena.appendStr(b)
+	}
+	return string(b)
+}
+
 // readStringBytes returns the raw bytes of a string/bin value without
 // allocating; the returned slice aliases the input buffer or the decoder
 // state table.

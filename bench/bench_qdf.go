@@ -5,23 +5,29 @@ package bench
 import (
 	"github.com/alex60217101990/qdf"
 	"time"
+	"unsafe"
 )
 
 // Pre-encoded field-name headers (fixstr / strN). Lets the hot path
 // emit a name with a single append, no per-call sizing.
 var (
 	qdfFieldHdr_entries_1   = []byte{0x87, 0x65, 0x6e, 0x74, 0x72, 0x69, 0x65, 0x73}
-	qdfFieldHdr_time_5      = []byte{0x84, 0x74, 0x69, 0x6d, 0x65}
-	qdfFieldHdr_level_6     = []byte{0x85, 0x6c, 0x65, 0x76, 0x65, 0x6c}
-	qdfFieldHdr_service_7   = []byte{0x87, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65}
-	qdfFieldHdr_host_8      = []byte{0x84, 0x68, 0x6f, 0x73, 0x74}
-	qdfFieldHdr_region_9    = []byte{0x86, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e}
-	qdfFieldHdr_trace_id_10 = []byte{0x88, 0x74, 0x72, 0x61, 0x63, 0x65, 0x5f, 0x69, 0x64}
-	qdfFieldHdr_span_id_11  = []byte{0x87, 0x73, 0x70, 0x61, 0x6e, 0x5f, 0x69, 0x64}
-	qdfFieldHdr_msg_12      = []byte{0x83, 0x6d, 0x73, 0x67}
-	qdfFieldHdr_duration_13 = []byte{0x88, 0x64, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e}
-	qdfFieldHdr_status_14   = []byte{0x86, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73}
+	qdfFieldHdr_time_35     = []byte{0x84, 0x74, 0x69, 0x6d, 0x65}
+	qdfFieldHdr_level_36    = []byte{0x85, 0x6c, 0x65, 0x76, 0x65, 0x6c}
+	qdfFieldHdr_service_37  = []byte{0x87, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65}
+	qdfFieldHdr_host_38     = []byte{0x84, 0x68, 0x6f, 0x73, 0x74}
+	qdfFieldHdr_region_39   = []byte{0x86, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e}
+	qdfFieldHdr_trace_id_40 = []byte{0x88, 0x74, 0x72, 0x61, 0x63, 0x65, 0x5f, 0x69, 0x64}
+	qdfFieldHdr_span_id_41  = []byte{0x87, 0x73, 0x70, 0x61, 0x6e, 0x5f, 0x69, 0x64}
+	qdfFieldHdr_msg_42      = []byte{0x83, 0x6d, 0x73, 0x67}
+	qdfFieldHdr_duration_43 = []byte{0x88, 0x64, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e}
+	qdfFieldHdr_status_44   = []byte{0x86, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73}
 )
+
+// Columnar shape descriptors: per element-type column names and kind
+// bytes for the monomorphized tagColStruct transpose path.
+var qdfColNames_LogEntry = []string{"time", "level", "service", "host", "region", "trace_id", "span_id", "msg", "duration", "status"}
+var qdfColKinds_LogEntry = []byte{0x05, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x02, 0x00}
 
 // MarshalQDF appends a qdf-encoded representation of v to dst and returns
 // the extended slice.
@@ -48,10 +54,72 @@ func (v *LogBatch) EncodeQDF(e *qdf.Encoder) error {
 	e.StructShape(&qdfShapeTok_LogBatch, qdfFieldHdrs_LogBatch)
 	if v.Entries == nil {
 		e.WriteNil()
+	} else if len(v.Entries) >= 16 { // columnarMinElems
+		col2 := v.Entries
+		e.WriteColStructHeader(len(col2), qdfColNames_LogEntry, qdfColKinds_LogEntry)
+		sec4 := e.ScratchInt(len(col2))
+		ns5 := e.ScratchUint(len(col2))
+		for i := range col2 {
+			t6 := col2[i].Time.UTC()
+			sec4[i] = t6.Unix()
+			ns5[i] = uint64(t6.Nanosecond())
+		}
+		if err := e.WriteTimeColumn(sec4, ns5); err != nil {
+			return err
+		}
+		c7 := e.ScratchString(len(col2))
+		for i := range col2 {
+			c7[i] = string(col2[i].Level)
+		}
+		e.WriteStringColumn(c7)
+		c8 := e.ScratchString(len(col2))
+		for i := range col2 {
+			c8[i] = string(col2[i].Service)
+		}
+		e.WriteStringColumn(c8)
+		c9 := e.ScratchString(len(col2))
+		for i := range col2 {
+			c9[i] = string(col2[i].Host)
+		}
+		e.WriteStringColumn(c9)
+		c10 := e.ScratchString(len(col2))
+		for i := range col2 {
+			c10[i] = string(col2[i].Region)
+		}
+		e.WriteStringColumn(c10)
+		c11 := e.ScratchString(len(col2))
+		for i := range col2 {
+			c11[i] = string(col2[i].TraceID)
+		}
+		e.WriteStringColumn(c11)
+		c12 := e.ScratchString(len(col2))
+		for i := range col2 {
+			c12[i] = string(col2[i].SpanID)
+		}
+		e.WriteStringColumn(c12)
+		c13 := e.ScratchString(len(col2))
+		for i := range col2 {
+			c13[i] = string(col2[i].Msg)
+		}
+		e.WriteStringColumn(c13)
+		c14 := e.ScratchFloat64(len(col2))
+		for i := range col2 {
+			c14[i] = float64(col2[i].Duration)
+		}
+		if err := e.WriteFloat64Column(c14); err != nil {
+			return err
+		}
+		c15 := e.ScratchInt(len(col2))
+		for i := range col2 {
+			c15[i] = int64(col2[i].Status)
+		}
+		if err := e.WriteIntColumn(c15); err != nil {
+			return err
+		}
 	} else {
 		e.WriteArrayHeader(len(v.Entries))
-		for i2 := range v.Entries {
-			if err := qdf.EncodeNested(e, &v.Entries[i2]); err != nil {
+		for i16 := range v.Entries {
+			if err := qdf.EncodeNested(e, &v.Entries[i16]); err != nil {
 				return err
 			}
 		}
@@ -96,17 +164,143 @@ func (v *LogBatch) decodeQDFField(d *qdf.Decoder, name string) error {
 			}
 			if isNil {
 				v.Entries = nil
-			} else {
-				n3, err := d.ReadArrayHeader()
+			} else if d.PeekColStruct() {
+				n17, names18, kinds19, err := d.ReadColStructHeader()
 				if err != nil {
 					return err
 				}
-				if err := d.CheckLength(n3, 1); err != nil {
+				if err := qdf.CheckColumnarBytes(n17, unsafe.Sizeof(*new(LogEntry))); err != nil {
 					return err
 				}
-				v.Entries = make([]LogEntry, n3)
-				for i4 := range n3 {
-					if err := qdf.DecodeNested(d, &v.Entries[i4]); err != nil {
+				v.Entries = make([]LogEntry, n17)
+				for ci20 := range names18 {
+					switch names18[ci20] {
+					case "time":
+						if kinds19[ci20] != 0x05 {
+							return qdf.ErrTypeMismatch
+						}
+						sec22, ns23, err := d.ReadTimeColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range sec22 {
+							v.Entries[i].Time = time.Unix(sec22[i], int64(ns23[i])).UTC()
+						}
+					case "level":
+						if kinds19[ci20] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
+						col24, err := d.ReadStringColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col24 {
+							v.Entries[i].Level = string(col24[i])
+						}
+					case "service":
+						if kinds19[ci20] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
+						col25, err := d.ReadStringColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col25 {
+							v.Entries[i].Service = string(col25[i])
+						}
+					case "host":
+						if kinds19[ci20] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
+						col26, err := d.ReadStringColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col26 {
+							v.Entries[i].Host = string(col26[i])
+						}
+					case "region":
+						if kinds19[ci20] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
+						col27, err := d.ReadStringColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col27 {
+							v.Entries[i].Region = string(col27[i])
+						}
+					case "trace_id":
+						if kinds19[ci20] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
+						col28, err := d.ReadStringColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col28 {
+							v.Entries[i].TraceID = string(col28[i])
+						}
+					case "span_id":
+						if kinds19[ci20] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
+						col29, err := d.ReadStringColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col29 {
+							v.Entries[i].SpanID = string(col29[i])
+						}
+					case "msg":
+						if kinds19[ci20] != 0x04 {
+							return qdf.ErrTypeMismatch
+						}
+						col30, err := d.ReadStringColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col30 {
+							v.Entries[i].Msg = string(col30[i])
+						}
+					case "duration":
+						if kinds19[ci20] != 0x02 {
+							return qdf.ErrTypeMismatch
+						}
+						col31, err := d.ReadFloat64Column(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col31 {
+							v.Entries[i].Duration = float64(col31[i])
+						}
+					case "status":
+						if kinds19[ci20] != 0x00 {
+							return qdf.ErrTypeMismatch
+						}
+						col32, err := d.ReadIntColumn(n17)
+						if err != nil {
+							return err
+						}
+						for i := range col32 {
+							v.Entries[i].Status = int(col32[i])
+						}
+					default:
+						return qdf.ErrTypeMismatch
+					}
+				}
+				d.ClearColMaxLen()
+			} else {
+				n33, err := d.ReadArrayHeader()
+				if err != nil {
+					return err
+				}
+				if err := d.CheckLength(n33, 1); err != nil {
+					return err
+				}
+				v.Entries = make([]LogEntry, n33)
+				for i34 := range n33 {
+					if err := qdf.DecodeNested(d, &v.Entries[i34]); err != nil {
 						return err
 					}
 				}
@@ -171,7 +365,7 @@ func (v *LogEntry) MarshalQDF(dst []byte) ([]byte, error) {
 }
 
 var qdfShapeTok_LogEntry byte
-var qdfFieldHdrs_LogEntry = [][]byte{qdfFieldHdr_time_5, qdfFieldHdr_level_6, qdfFieldHdr_service_7, qdfFieldHdr_host_8, qdfFieldHdr_region_9, qdfFieldHdr_trace_id_10, qdfFieldHdr_span_id_11, qdfFieldHdr_msg_12, qdfFieldHdr_duration_13, qdfFieldHdr_status_14}
+var qdfFieldHdrs_LogEntry = [][]byte{qdfFieldHdr_time_35, qdfFieldHdr_level_36, qdfFieldHdr_service_37, qdfFieldHdr_host_38, qdfFieldHdr_region_39, qdfFieldHdr_trace_id_40, qdfFieldHdr_span_id_41, qdfFieldHdr_msg_42, qdfFieldHdr_duration_43, qdfFieldHdr_status_44}
 
 // EncodeQDF writes v's fields into e. It lets a parent thread one encoder
 // through nested values instead of allocating an encoder per value.
@@ -224,83 +418,83 @@ func (v *LogEntry) decodeQDFField(d *qdf.Decoder, name string) error {
 	switch name {
 	case "time":
 		{
-			sec15, nsec16, err := d.ReadTimestamp()
+			sec45, nsec46, err := d.ReadTimestamp()
 			if err != nil {
 				return err
 			}
-			v.Time = time.Unix(sec15, int64(nsec16)).UTC()
+			v.Time = time.Unix(sec45, int64(nsec46)).UTC()
 		}
 	case "level":
 		{
-			rv17, err := d.ReadString()
+			rv47, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.Level = rv17
+			v.Level = rv47
 		}
 	case "service":
 		{
-			rv18, err := d.ReadString()
+			rv48, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.Service = rv18
+			v.Service = rv48
 		}
 	case "host":
 		{
-			rv19, err := d.ReadString()
+			rv49, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.Host = rv19
+			v.Host = rv49
 		}
 	case "region":
 		{
-			rv20, err := d.ReadString()
+			rv50, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.Region = rv20
+			v.Region = rv50
 		}
 	case "trace_id":
 		{
-			rv21, err := d.ReadString()
+			rv51, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.TraceID = rv21
+			v.TraceID = rv51
 		}
 	case "span_id":
 		{
-			rv22, err := d.ReadString()
+			rv52, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.SpanID = rv22
+			v.SpanID = rv52
 		}
 	case "msg":
 		{
-			rv23, err := d.ReadString()
+			rv53, err := d.ReadString()
 			if err != nil {
 				return err
 			}
-			v.Msg = rv23
+			v.Msg = rv53
 		}
 	case "duration":
 		{
-			rv24, err := d.ReadFloat64()
+			rv54, err := d.ReadFloat64()
 			if err != nil {
 				return err
 			}
-			v.Duration = rv24
+			v.Duration = rv54
 		}
 	case "status":
 		{
-			rv25, err := d.ReadInt()
+			rv55, err := d.ReadInt()
 			if err != nil {
 				return err
 			}
-			v.Status = int(rv25)
+			v.Status = int(rv55)
 		}
 	default:
 		if err := d.Skip(); err != nil {

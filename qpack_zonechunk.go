@@ -3,6 +3,7 @@ package qdf
 import (
 	"encoding/binary"
 	"math"
+	"sync/atomic"
 )
 
 // Zone-chunked integer column with a min/max zonemap (wire tag tagZoneChunk,
@@ -532,8 +533,9 @@ func (d *Decoder) readZoneChunkFloat64Into(dst *[]float64) error {
 }
 
 // zoneSkippedZones counts zones the query path proved cannot match and did not
-// decode. Test-only instrumentation; otherwise inert.
-var zoneSkippedZones int
+// decode. Test-only instrumentation; atomic so concurrent Decoders zone-skipping
+// on different goroutines do not race on it.
+var zoneSkippedZones atomic.Int64
 
 // decodeZoneChunkQuery decodes only the zones of a zone-chunked column that
 // intersect at least one of the referencing leaves' bounds and evaluates each
@@ -608,7 +610,7 @@ func (d *Decoder) decodeZoneChunkQuery(start int, leaves []*cnode, n int) error 
 			}
 		}
 		if !needed {
-			zoneSkippedZones++
+			zoneSkippedZones.Add(1)
 			continue
 		}
 		d.i = h.zoneOff(d, z)

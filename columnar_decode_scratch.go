@@ -199,6 +199,14 @@ func (d *Decoder) readPackedDictInt64SliceInto(dst *[]int64) error {
 	if !d.colLenOK(n64) {
 		return ErrInvalidLength
 	}
+	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(n64) would wrap negative
+		return ErrInvalidLength
+	}
+	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
+		// count == 1 ⇒ bitsPer == 0: empty index body, no per-element bound.
+		// Cap before grow (matches the non-Into sibling readPackedDictInt64Slice).
+		return ErrInvalidLength
+	}
 	n := int(n64)
 	growI64(dst, n)
 	out := *dst
@@ -216,7 +224,12 @@ func (d *Decoder) readPackedDictInt64SliceInto(dst *[]int64) error {
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx := make([]uint64, n)
+	// Reuse the shared transient unpack scratch (mirrors the non-Into sibling
+	// readPackedDictInt64Slice); idx is fully written then mapped into out.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {
@@ -499,6 +512,14 @@ func (d *Decoder) readPackedDictUint64SliceInto(dst *[]uint64) error {
 	if !d.colLenOK(n64) {
 		return ErrInvalidLength
 	}
+	if n64 > uint64(int(^uint(0)>>1)) { // 32-bit: int(n64) would wrap negative
+		return ErrInvalidLength
+	}
+	if bitsPer == 0 && n64 > qpackMaxStandaloneCount {
+		// count == 1 ⇒ bitsPer == 0: empty index body, no per-element bound.
+		// Cap before grow (matches the non-Into sibling readPackedDictUint64Slice).
+		return ErrInvalidLength
+	}
 	n := int(n64)
 	growU64(dst, n)
 	out := *dst
@@ -516,7 +537,12 @@ func (d *Decoder) readPackedDictUint64SliceInto(dst *[]uint64) error {
 	bodyBytes := (n*bitsPer + 7) >> 3
 	body := d.buf[d.i : d.i+bodyBytes]
 	d.i += bodyBytes
-	idx := make([]uint64, n)
+	// Reuse the shared transient unpack scratch (mirrors the non-Into sibling
+	// readPackedDictUint64Slice); idx is fully written then mapped into out.
+	if cap(d.deltaScratch) < n {
+		d.deltaScratch = make([]uint64, n)
+	}
+	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
 	for i, k := range idx {
 		if k >= uint64(count) {

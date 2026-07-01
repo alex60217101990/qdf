@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"encoding/binary"
+	"sync/atomic"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
 )
@@ -125,9 +126,9 @@ func blockRegimeLikelyU64(s []uint64, wholeForBits int) bool {
 var blockCodecEnabled = true
 
 // blockSelectiveBlocksDecoded counts blocks materialized by the selective decode
-// path. Test-only instrumentation (to assert untouched blocks are skipped); the
-// counter is otherwise inert.
-var blockSelectiveBlocksDecoded int
+// path. Test-only instrumentation (to assert untouched blocks are skipped);
+// atomic so concurrent Decoders running selective decode do not race on it.
+var blockSelectiveBlocksDecoded atomic.Int64
 
 // tryWriteBlockInt64 emits the smaller of the per-block form and the whole-column
 // form when the cheap gates say the block form is plausible, returning true (the
@@ -465,6 +466,13 @@ func (d *Decoder) decodeBlockColumnSelective(start int, kind colKind, n int, mat
 		log = blkLogLarge
 	}
 
+	// Tighten the sub-block allocation bound to blk for the nested codec reads
+	// (a constant sub-block otherwise inherits colMaxLen==n, the whole column).
+	// The decode-all paths (readBlockInt64Into/readBlockUint64Into) do the same.
+	oldMax := d.colMaxLen
+	d.colMaxLen = blk
+	defer func() { d.colMaxLen = oldMax }()
+
 	cv := colVals{kind: kind}
 	if kind == colKindInt {
 		cv.i64 = make([]int64, n)
@@ -480,7 +488,7 @@ func (d *Decoder) decodeBlockColumnSelective(start int, kind colKind, n int, mat
 		}
 		off := int(binary.LittleEndian.Uint32(d.buf[offBase+4*b:]))
 		d.i = bodyStart + off
-		blockSelectiveBlocksDecoded++
+		blockSelectiveBlocksDecoded.Add(1)
 		t, err := d.peekTag()
 		if err != nil {
 			return colVals{}, err

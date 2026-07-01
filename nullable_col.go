@@ -306,7 +306,11 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	// the present*sizeof(string) allocation below is not made and discarded, and
 	// add the same len(strs)==present guard every other kind has.
 	if col.kind.base() == colKindString {
+		// This path stores &strs[k] into *string fields, so strs must be a stable
+		// owned slice — not the pooled scratch a later column would overwrite.
+		d.colStrNoPool = true
 		strs, err := d.readStringColumn(present)
+		d.colStrNoPool = false
 		if err != nil {
 			return err
 		}
@@ -455,12 +459,17 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		return cv, err
 	}
 
+	// Decode each dense present-only base column through the pooled colScratch*
+	// buffers (mirrors decodeNullableColumn) instead of a fresh per-call slice:
+	// s is consumed synchronously into the retained `full` before the next
+	// column reuses the scratch, so there is no retained alias.
+	st := d.state // non-nil: readColShape initialises it before this decode
 	switch kind.base() {
 	case colKindInt:
-		var s []int64
-		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
 			return cv, err
 		}
+		s := st.colScratchI64
 		if len(s) != present {
 			return cv, ErrTypeMismatch
 		}
@@ -474,10 +483,10 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		}
 		cv.i64 = full
 	case colKindUint:
-		var s []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return cv, err
 		}
+		s := st.colScratchU64
 		if len(s) != present {
 			return cv, ErrTypeMismatch
 		}
@@ -491,10 +500,10 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		}
 		cv.u64 = full
 	case colKindFloat32:
-		var s []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return cv, err
 		}
+		s := st.colScratchU64
 		if len(s) != present {
 			return cv, ErrTypeMismatch
 		}
@@ -508,10 +517,10 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		}
 		cv.u64 = full
 	case colKindFloat:
-		var s []float64
-		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceFloat64Into(d, &st.colScratchF64); err != nil {
 			return cv, err
 		}
+		s := st.colScratchF64
 		if len(s) != present {
 			return cv, ErrTypeMismatch
 		}
@@ -525,10 +534,10 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		}
 		cv.f64 = full
 	case colKindBool:
-		var s []bool
-		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceBoolInto(d, &st.colScratchBool); err != nil {
 			return cv, err
 		}
+		s := st.colScratchBool
 		if len(s) != present {
 			return cv, ErrTypeMismatch
 		}

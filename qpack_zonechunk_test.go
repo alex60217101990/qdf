@@ -88,17 +88,17 @@ func TestZoneChunkSkipCorrect(t *testing.T) {
 	}
 	run := func(name string, q []QueryOption, pred func(zcRow) bool, wantSkip bool) {
 		t.Helper()
-		zoneSkippedZones = 0
+		zoneSkippedZones.Store(0)
 		var out []zcRow
 		opts := append([]QueryOption{Select("TS", "U", "V")}, q...)
 		if err := Unmarshal(b, &out, opts...); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		eq(name, out, filter(pred))
-		if wantSkip && zoneSkippedZones == 0 {
+		if wantSkip && zoneSkippedZones.Load() == 0 {
 			t.Fatalf("%s: expected zones skipped, got 0", name)
 		}
-		t.Logf("%s: %d rows, %d zones skipped", name, len(out), zoneSkippedZones)
+		t.Logf("%s: %d rows, %d zones skipped", name, len(out), zoneSkippedZones.Load())
 	}
 
 	run("range", []QueryOption{WhereRange("TS", loTS, hiTS)},
@@ -127,7 +127,7 @@ func TestZoneChunkSkipCorrect(t *testing.T) {
 
 	// Back-compat: opaque Where(func) over a zone-chunked column → full eval, no
 	// skip, same rows.
-	zoneSkippedZones = 0
+	zoneSkippedZones.Store(0)
 	var out []zcRow
 	if err := Unmarshal(b, &out,
 		Where("TS", func(v int64) bool { return v >= loTS && v <= hiTS }),
@@ -135,8 +135,8 @@ func TestZoneChunkSkipCorrect(t *testing.T) {
 		t.Fatal(err)
 	}
 	eq("opaque-where", out, filter(func(r zcRow) bool { return r.TS >= loTS && r.TS <= hiTS }))
-	if zoneSkippedZones != 0 {
-		t.Fatalf("opaque Where should not zone-skip, skipped %d", zoneSkippedZones)
+	if zoneSkippedZones.Load() != 0 {
+		t.Fatalf("opaque Where should not zone-skip, skipped %d", zoneSkippedZones.Load())
 	}
 }
 
@@ -189,7 +189,7 @@ func TestZoneChunkFloat64(t *testing.T) {
 
 	// Zone-skip range: result == full filter (NaN never matches), zones skipped.
 	lo, hi := rows[1001].F, rows[1099].F
-	zoneSkippedZones = 0
+	zoneSkippedZones.Store(0)
 	var out []zcFRow
 	if err := Unmarshal(b, &out, WhereRange("F", lo, hi), Select("F", "K", "J", "Tag")); err != nil {
 		t.Fatal(err)
@@ -208,13 +208,13 @@ func TestZoneChunkFloat64(t *testing.T) {
 			t.Fatalf("range [%d] %+v != %+v", i, out[i], want[i])
 		}
 	}
-	if zoneSkippedZones == 0 {
+	if zoneSkippedZones.Load() == 0 {
 		t.Fatal("float zone-skip skipped 0 zones")
 	}
-	t.Logf("float64: %d rows, %d zones skipped", len(out), zoneSkippedZones)
+	t.Logf("float64: %d rows, %d zones skipped", len(out), zoneSkippedZones.Load())
 
 	// WhereCmp GE on float.
-	zoneSkippedZones = 0
+	zoneSkippedZones.Store(0)
 	var ge []zcFRow
 	if err := Unmarshal(b, &ge, WhereCmp("F", GE, rows[3997].F), Select("F", "K", "J", "Tag")); err != nil {
 		t.Fatal(err)
@@ -285,6 +285,69 @@ func TestZoneChunkMalformed(t *testing.T) {
 			decode(good[:cut])
 		}()
 	}
+}
+
+// ---- linear-zonemap open-ended bound overflow (regression) ----
+
+// A sorted int/uint column with duplicates (value = i/4) fits the learned linear
+// zonemap with slope c≈4. An open-ended predicate bound (GE/LE/GT/LT set hi or lo
+// to ±MaxInt64 in query_bounds) then made zoneRangeFor compute pHi = c*MaxInt64 +
+// … past float64(MaxInt); int(math.Floor) of that out-of-range float yields
+// MinInt64, which slipped past the int-domain clamp and produced a negative zone
+// range → every matching zone skipped → silent false-negative results. This is the
+// linear-zonemap twin of the audit-11 minmax zoneRangeFor overflow fix.
+func TestZoneChunkLinearOpenBoundOverflow(t *testing.T) {
+	const n = 4096
+	rows := make([]zcRow, n)
+	for i := range rows {
+		rows[i] = zcRow{TS: int64(i / 4), U: uint64(i / 4), V: int64(i)} // dup runs → slope ~4
+	}
+	b, err := Marshal(rows, OptBalanced|OptZoneMap|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Guard the premise: the column must actually use the linear zonemap (zmap byte
+	// at tag+2), else this would only exercise the already-fixed minmax path.
+	idx := bytes.IndexByte(b, tagZoneChunk)
+	if idx < 0 || idx+3 >= len(b) {
+		t.Fatalf("no zone-chunk tag (idx=%d)", idx)
+	}
+	if b[idx+2] != zmapLinear {
+		t.Fatalf("zone-chunk uses zmap %#x, want linear %#x — test premise broken", b[idx+2], zmapLinear)
+	}
+
+	filter := func(pred func(zcRow) bool) []zcRow {
+		var w []zcRow
+		for _, r := range rows {
+			if pred(r) {
+				w = append(w, r)
+			}
+		}
+		return w
+	}
+	check := func(name string, q QueryOption, pred func(zcRow) bool) {
+		t.Helper()
+		var out []zcRow
+		if err := Unmarshal(b, &out, Select("TS", "U", "V"), q); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		want := filter(pred)
+		if len(out) != len(want) {
+			t.Fatalf("%s: got %d rows, want %d (linear open-bound overflow → skipped zones)", name, len(out), len(want))
+		}
+		for i := range want {
+			if out[i] != want[i] {
+				t.Fatalf("%s: [%d] %+v != %+v", name, i, out[i], want[i])
+			}
+		}
+	}
+	mid := int64(n / 4 / 2) // an in-range value
+	check("int-ge", WhereCmp("TS", GE, mid), func(r zcRow) bool { return r.TS >= mid })
+	check("int-le", WhereCmp("TS", LE, mid), func(r zcRow) bool { return r.TS <= mid })
+	check("int-gt", WhereCmp("TS", GT, mid), func(r zcRow) bool { return r.TS > mid })
+	check("int-lt", WhereCmp("TS", LT, mid), func(r zcRow) bool { return r.TS < mid })
+	check("uint-ge", WhereCmp("U", GE, uint64(mid)), func(r zcRow) bool { return r.U >= uint64(mid) })
+	check("uint-le", WhereCmp("U", LE, uint64(mid)), func(r zcRow) bool { return r.U <= uint64(mid) })
 }
 
 func FuzzZoneChunkDecode(f *testing.F) {
@@ -456,7 +519,7 @@ func TestZoneChunkLinearChosen(t *testing.T) {
 	}
 
 	// Range query zone-skips and returns exact rows.
-	zoneSkippedZones = 0
+	zoneSkippedZones.Store(0)
 	lo, hi := rows[2000].ID, rows[2050].ID
 	var q []linRow
 	if err := Unmarshal(lin, &q, WhereRange("ID", lo, hi), Select("ID", "U", "V", "Tag")); err != nil {
@@ -476,7 +539,7 @@ func TestZoneChunkLinearChosen(t *testing.T) {
 			t.Fatalf("range [%d] %+v != %+v", i, q[i], want[i])
 		}
 	}
-	if zoneSkippedZones == 0 {
+	if zoneSkippedZones.Load() == 0 {
 		t.Fatal("linear zone-skip skipped no zones")
 	}
 }

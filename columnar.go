@@ -496,7 +496,7 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			for i := range sample {
 				p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
 				t := (*time.Time)(p).UTC()
-				v := uint64(t.Unix() + (1 << 62)) // shift to unsigned for range calc
+				v := uint64(t.Unix()) + (1 << 62) // shift to unsigned for range calc (add in uint64 to avoid int64 overflow on far-future ts)
 				if v < mnSec {
 					mnSec = v
 				}
