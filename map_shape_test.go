@@ -99,20 +99,30 @@ func TestOptMapShape_Bit(t *testing.T) {
 
 func TestEncStateMapShape_Registry(t *testing.T) {
 	st := newEncState()
-	if _, _, ok := st.mapShapeFindKeys(0x1234, 2); ok {
+	// The production encoders scan st.mapShapes inline (verifying keys); mirror
+	// that (setHash, n) lookup here to exercise the registry storage/reset.
+	find := func(setHash uint64, n int) (uint32, []string, bool) {
+		for i := range st.mapShapes {
+			if s := &st.mapShapes[i]; s.setHash == setHash && s.n == n {
+				return s.id, s.keys, true
+			}
+		}
+		return 0, nil, false
+	}
+	if _, _, ok := find(0x1234, 2); ok {
 		t.Fatal("empty registry must miss")
 	}
 	keys := []string{"client", "version"} // canonical (sorted)
 	st.mapShapeRegister(0x1234, 2, keys, 7)
-	id, got, ok := st.mapShapeFindKeys(0x1234, 2)
+	id, got, ok := find(0x1234, 2)
 	if !ok || id != 7 {
 		t.Fatalf("find = (%d,%v), want (7,true)", id, ok)
 	}
 	if len(got) != 2 || got[0] != "client" || got[1] != "version" {
-		t.Fatalf("findKeys keys = %v", got)
+		t.Fatalf("find keys = %v", got)
 	}
 	// Length disambiguates a setHash collision across different set sizes.
-	if _, _, ok := st.mapShapeFindKeys(0x1234, 3); ok {
+	if _, _, ok := find(0x1234, 3); ok {
 		t.Fatal("len mismatch must miss")
 	}
 	// mapShapeRegister takes ownership of the passed slice (no defensive clone):
@@ -122,7 +132,7 @@ func TestEncStateMapShape_Registry(t *testing.T) {
 		t.Fatal("mapShapeRegister must take ownership of the passed slice (no clone)")
 	}
 	st.reset()
-	if _, _, ok := st.mapShapeFindKeys(0x1234, 2); ok {
+	if _, _, ok := find(0x1234, 2); ok {
 		t.Fatal("reset must clear the registry")
 	}
 }

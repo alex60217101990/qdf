@@ -870,14 +870,20 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 		keyHolder.SetIterKey(iter) // reuse holder; iter.Key() would alloc
 		setHash += internKeyHash(keyHolder.String())
 	}
-	if id, order, ok := st.mapShapeFindKeys(setHash, n); ok {
-		if len(order) == n && hasAll(order) {
-			st.lastMapShapeID, st.lastMapShapeKeys = id, order
+	// Scan EVERY shape with this (setHash, n) and verify by keys — setHash is not
+	// collision-proof. Returning only the first (setHash, n) row and declaring on
+	// a key mismatch would re-declare a colliding key-set on every encode: under
+	// two alternating sets that collide on setHash, the already-registered second
+	// set is never found again, so mapShapes grows without bound. The s.n == n
+	// filter guarantees len(s.keys) == n, so hasAll ⇒ set equality.
+	for i := range st.mapShapes {
+		s := &st.mapShapes[i]
+		if s.setHash == setHash && s.n == n && hasAll(s.keys) {
+			st.lastMapShapeID, st.lastMapShapeKeys = s.id, s.keys
 			e.buf = append(e.buf, tagMapShape)
-			e.buf = appendUvarint(e.buf, uint64(id))
-			return emitValues(order)
+			e.buf = appendUvarint(e.buf, uint64(s.id))
+			return emitValues(s.keys)
 		}
-		// collision / different key-set → declare a fresh shape below.
 	}
 
 	// Declare path (first sight of this key-set).

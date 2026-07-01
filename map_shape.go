@@ -70,14 +70,18 @@ func mapStringShapeOrder[V any](e *Encoder, m map[string]V) []string {
 	for k := range m {
 		setHash += internKeyHash(k) // commutative: order-independent
 	}
-	if id, order, ok := st.mapShapeFindKeys(setHash, n); ok {
-		if len(order) == n && mapHasAll(m, order) {
-			st.lastMapShapeID, st.lastMapShapeKeys = id, order
+	// Scan all (setHash, n) rows and verify by keys, not just the first: returning
+	// the first match and declaring on mismatch re-declares a colliding key-set on
+	// every encode (unbounded mapShapes growth under two alternating colliding
+	// sets). See the reflect encodeMapStringShape path for the full rationale.
+	for i := range st.mapShapes {
+		s := &st.mapShapes[i]
+		if s.setHash == setHash && s.n == n && mapHasAll(m, s.keys) {
+			st.lastMapShapeID, st.lastMapShapeKeys = s.id, s.keys
 			e.buf = append(e.buf, tagMapShape)
-			e.buf = appendUvarint(e.buf, uint64(id))
-			return order
+			e.buf = appendUvarint(e.buf, uint64(s.id))
+			return s.keys
 		}
-		// set-hash collision or different key-set → declare a fresh shape.
 	}
 	keys := make([]string, 0, n)
 	for k := range m {
