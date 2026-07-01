@@ -47,6 +47,10 @@ dev-to-qdf.md
 PR_DESCRIPTION.md
 docs/PAGES-SETUP.md
 docs/PERF-NEXT.md
+
+# Local-only promotion drafts (article/post markdown, launch notes). Never
+# committed — published to dev.to / HN / reddit by hand.
+docs/promo/
 # Claude Code local session/worktree state (never commit)
 .claude/
 cmd/qdf-bench/qdf-bench
