@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="280" viewBox="0 0 820 280" role="img" aria-label="qdf — Quick Data Format">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#03040c"/><stop offset="0.34" stop-color="#0a1030"/><stop offset="0.5" stop-color="#3b1f4e"/>
+      <stop offset="0.6" stop-color="#8a3d1a"/><stop offset="0.66" stop-color="#b45309"/><stop offset="0.72" stop-color="#3a1a0f"/><stop offset="1" stop-color="#120a08"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fde68a"/><stop offset="0.5" stop-color="#f59e0b"/><stop offset="1" stop-color="#b45309"/></radialGradient>
+    <radialGradient id="sunhaze" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#f59e0b" stop-opacity="0.7"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/></radialGradient>
+    <radialGradient id="moon" cx="42%" cy="38%" r="60%"><stop offset="0" stop-color="#e7e9ff"/><stop offset="1" stop-color="#7c86b8"/></radialGradient>
+
+    <!-- crystal facet gradients (glassy, graded) -->
+    <linearGradient id="cTable" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#f0fbff"/><stop offset="1" stop-color="#8fe3f9"/></linearGradient>
+    <linearGradient id="cCrownL" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#bde9fb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient>
+    <linearGradient id="cCrownR" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5cc6f5"/><stop offset="1" stop-color="#0e8fd6"/></linearGradient>
+    <linearGradient id="cPavL" x1="0.2" y1="0" x2="0.5" y2="1"><stop offset="0" stop-color="#2f77e6"/><stop offset="1" stop-color="#122a6b"/></linearGradient>
+    <linearGradient id="cPavR" x1="0.8" y1="0" x2="0.5" y2="1"><stop offset="0" stop-color="#1e5bd6"/><stop offset="1" stop-color="#0b1f52"/></linearGradient>
+    <linearGradient id="cPavC" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eaf7ff"/><stop offset="0.5" stop-color="#4aa8f0"/><stop offset="1" stop-color="#0a1c4d"/></linearGradient>
+    <radialGradient id="caustic" cx="50%" cy="42%" r="60%"><stop offset="0" stop-color="#7dd3fc" stop-opacity="0.95"/><stop offset="1" stop-color="#7dd3fc" stop-opacity="0"/></radialGradient>
+
+    <linearGradient id="ray" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#22d3ee" stop-opacity="0"/><stop offset="0.7" stop-color="#67e8f9" stop-opacity="0.55"/><stop offset="1" stop-color="#a5f3fc" stop-opacity="0.95"/></linearGradient>
+    <linearGradient id="wFront" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5eead4"/><stop offset="0.5" stop-color="#38bdf8"/><stop offset="1" stop-color="#a5b4fc"/></linearGradient>
+    <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#05060f" stop-opacity="0"/><stop offset="0.5" stop-color="#05060f" stop-opacity="0.55"/><stop offset="1" stop-color="#05060f" stop-opacity="0"/></linearGradient>
+    <radialGradient id="vignette" cx="50%" cy="46%" r="66%"><stop offset="0.52" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.6"/></radialGradient>
+
+    <filter id="glow" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="rayglow" x="-40%" y="-200%" width="180%" height="500%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="soft" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur stdDeviation="26"/></filter>
+    <filter id="blur6" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="spec" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2.4"/></filter>
+    <clipPath id="card"><rect x="2" y="2" width="816" height="276" rx="32"/></clipPath>
+  </defs>
+
+  <rect x="2" y="2" width="816" height="276" rx="32" fill="url(#sky)" stroke="#2a2140" stroke-opacity="0.6"/>
+
+  <g clip-path="url(#card)">
+    <ellipse cx="560" cy="60" rx="150" ry="60" fill="#7c3aed" opacity="0.18" filter="url(#soft)"/>
+    <ellipse cx="300" cy="40" rx="120" ry="46" fill="#0e7490" opacity="0.16" filter="url(#soft)"/>
+    <ellipse cx="700" cy="120" rx="120" ry="50" fill="#b45309" opacity="0.14" filter="url(#soft)"/>
+    <g fill="#eef2ff">
+      <circle cx="70" cy="34" r="1.1" opacity="0.8"/><circle cx="150" cy="70" r="0.8" opacity="0.6"/><circle cx="360" cy="30" r="1.3" opacity="0.9"/>
+      <circle cx="330" cy="86" r="0.7" opacity="0.5"/><circle cx="420" cy="46" r="1" opacity="0.7"/><circle cx="470" cy="26" r="0.8" opacity="0.6"/>
+      <circle cx="560" cy="70" r="1.2" opacity="0.85"/><circle cx="620" cy="36" r="0.7" opacity="0.5"/><circle cx="680" cy="74" r="1" opacity="0.7"/>
+      <circle cx="760" cy="44" r="1.3" opacity="0.9"/><circle cx="790" cy="96" r="0.8" opacity="0.6"/><circle cx="110" cy="100" r="0.7" opacity="0.5"/>
+      <circle cx="440" cy="92" r="0.9" opacity="0.6"/><circle cx="600" cy="104" r="0.7" opacity="0.5"/><circle cx="510" cy="112" r="0.8" opacity="0.55"/>
+    </g>
+    <circle cx="690" cy="128" r="70" fill="url(#sunhaze)"/><circle cx="690" cy="128" r="40" fill="url(#sun)"/>
+    <circle cx="236" cy="52" r="14" fill="url(#moon)" opacity="0.92"/><circle cx="286" cy="38" r="7" fill="url(#moon)" opacity="0.6"/>
+    <rect x="2" y="150" width="816" height="26" fill="#f59e0b" opacity="0.28" filter="url(#blur6)"/>
+    <path d="M -20,168 C 160,150 340,176 520,160 C 660,148 760,166 840,158 L 840,290 L -20,290 Z" fill="#7c3a12" opacity="0.55"/>
+    <path d="M -20,190 C 180,168 300,198 470,184 C 640,170 770,196 840,186 L 840,290 L -20,290 Z" fill="#4a2310" opacity="0.85"/>
+    <path d="M -20,222 C 140,200 360,232 560,214 C 700,202 780,224 840,220 L 840,290 L -20,290 Z" fill="#1c0f08"/>
+  </g>
+
+  <!-- spice-blue caustic glow behind crystal -->
+  <ellipse cx="150" cy="150" rx="92" ry="88" fill="#0891b2" opacity="0.4" filter="url(#soft)"/>
+
+  <!-- data-flow rays: tapered glowing beams, fade at source, packets in transit -->
+  <g filter="url(#rayglow)" fill="none" stroke-linecap="round">
+    <path d="M 40,102 Q 96,112 128,144" stroke="url(#ray)" stroke-width="2.4"/>
+    <path d="M 34,126 Q 92,132 124,148" stroke="url(#ray)" stroke-width="3"/>
+    <path d="M 32,150 Q 92,150 122,150" stroke="url(#ray)" stroke-width="3.2"/>
+    <path d="M 34,174 Q 92,168 124,152" stroke="url(#ray)" stroke-width="3"/>
+    <path d="M 40,198 Q 96,188 128,156" stroke="url(#ray)" stroke-width="2.4"/>
+  </g>
+  <!-- data packets travelling along the rays -->
+  <g fill="#c7f7ff">
+    <circle cx="92" cy="123" r="2.3" opacity="0.9"/><circle cx="86" cy="139" r="2.1" opacity="0.85"/>
+    <circle cx="90" cy="150" r="2.4" opacity="0.95"/><circle cx="86" cy="161" r="2.1" opacity="0.85"/><circle cx="92" cy="177" r="2.3" opacity="0.9"/>
+    <circle cx="58" cy="112" r="1.5" opacity="0.6"/><circle cx="60" cy="188" r="1.5" opacity="0.6"/>
+  </g>
+  <!-- convergence flare where the rays enter the crystal -->
+  <circle cx="126" cy="150" r="16" fill="url(#caustic)"/>
+
+  <!-- compressed output beam → a smaller crystal receding in perspective -->
+  <path d="M 186,150 L 236,150" stroke="url(#ray)" stroke-width="6" stroke-linecap="round" filter="url(#glow)"/>
+  <ellipse cx="252" cy="150" rx="20" ry="19" fill="url(#caustic)" opacity="0.7"/>
+  <g transform="translate(252,150) scale(0.34)" opacity="0.72">
+    <polygon points="-32,-14 0,-14 0,36" fill="url(#cPavL)"/>
+    <polygon points="32,-14 0,-14 0,36" fill="url(#cPavR)"/>
+    <polygon points="-9,-14 9,-14 0,36" fill="url(#cPavC)" opacity="0.9"/>
+    <polygon points="-32,-14 32,-14 24,-8 -24,-8" fill="#bfe6fb" opacity="0.55"/>
+    <polygon points="-15,-32 -20,-14 -32,-14" fill="url(#cCrownL)"/>
+    <polygon points="15,-32 20,-14 32,-14" fill="url(#cCrownR)"/>
+    <polygon points="-15,-32 15,-32 20,-14 -20,-14" fill="url(#cTable)"/>
+    <polygon points="-15,-32 15,-32 0,-24" fill="#ffffff" opacity="0.35"/>
+    <polygon points="-15,-32 15,-32 32,-14 0,36 -32,-14" fill="none" stroke="#0a1830" stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+  <circle cx="292" cy="150" r="2" fill="#a5f3fc" opacity="0.5" filter="url(#glow)"/>
+  <circle cx="152" cy="150" r="30" fill="url(#caustic)"/>
+
+  <!-- REALISTIC faceted brilliant-cut crystal -->
+  <g transform="translate(152,150)">
+    <!-- pavilion (lower) -->
+    <polygon points="-32,-14 0,-14 0,36" fill="url(#cPavL)"/>
+    <polygon points="32,-14 0,-14 0,36" fill="url(#cPavR)"/>
+    <polygon points="-9,-14 9,-14 0,36" fill="url(#cPavC)" opacity="0.9"/>
+    <!-- girdle band -->
+    <polygon points="-32,-14 32,-14 24,-8 -24,-8" fill="#bfe6fb" opacity="0.55"/>
+    <!-- crown (upper) -->
+    <polygon points="-15,-32 -20,-14 -32,-14" fill="url(#cCrownL)"/>
+    <polygon points="15,-32 20,-14 32,-14" fill="url(#cCrownR)"/>
+    <polygon points="-15,-32 15,-32 20,-14 -20,-14" fill="url(#cTable)"/>
+    <!-- table star split + inner facets -->
+    <polygon points="-15,-32 15,-32 0,-24" fill="#ffffff" opacity="0.35"/>
+    <polygon points="-20,-14 0,-24 20,-14 0,-14" fill="#dff4ff" opacity="0.45"/>
+    <!-- refraction lines -->
+    <g stroke="#eaf7ff" stroke-width="0.7" opacity="0.5"><line x1="-20" y1="-14" x2="0" y2="36"/><line x1="20" y1="-14" x2="0" y2="36"/><line x1="0" y1="-24" x2="0" y2="36"/></g>
+    <!-- rim light on the lit (left) edge -->
+    <path d="M -15,-32 L -32,-14 L 0,36" fill="none" stroke="#eaf7ff" stroke-width="1.2" opacity="0.7" stroke-linejoin="round"/>
+    <!-- outline -->
+    <polygon points="-15,-32 15,-32 32,-14 0,36 -32,-14" fill="none" stroke="#0a1830" stroke-width="1" stroke-linejoin="round"/>
+    <!-- specular highlight -->
+    <ellipse cx="-6" cy="-25" rx="7" ry="3" fill="#ffffff" opacity="0.85" filter="url(#spec)"/>
+    <!-- sparkle star -->
+    <g transform="translate(13,-15)" fill="#ffffff" filter="url(#glow)">
+      <path d="M 0,-7 L 1.3,-1.3 L 7,0 L 1.3,1.3 L 0,7 L -1.3,1.3 L -7,0 L -1.3,-1.3 Z"/>
+    </g>
+  </g>
+
+  <!-- legibility scrim + wordmark -->
+  <rect x="316" y="96" width="470" height="150" fill="url(#scrim)" filter="url(#blur6)"/>
+  <g font-family="ui-sans-serif, Segoe UI, Helvetica, Arial, sans-serif" font-weight="900" letter-spacing="-6" font-size="120">
+    <text x="356.6" y="169.2" fill="#07101f">qdf</text><text x="356.0" y="168.6" fill="#0a1628">qdf</text><text x="355.4" y="168.0" fill="#0d1c34">qdf</text>
+    <text x="354.8" y="167.4" fill="#102340">qdf</text><text x="354.2" y="166.8" fill="#132a4d">qdf</text><text x="353.6" y="166.2" fill="#16325a">qdf</text>
+    <text x="353.0" y="165.6" fill="#1a3b68">qdf</text><text x="352.4" y="165.0" fill="#1e4477">qdf</text><text x="351.8" y="164.4" fill="#234e88">qdf</text>
+    <text x="351.2" y="163.8" fill="#285799">qdf</text><text x="350.6" y="163.2" fill="#2e62ab">qdf</text>
+    <text x="350" y="162" fill="url(#wFront)" filter="url(#glow)">qdf</text>
+  </g>
+  <text x="356" y="220" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" letter-spacing="6.5" fill="#b8a58a">QUICK · DATA · FORMAT</text>
+
+  <rect x="2" y="2" width="816" height="276" rx="32" fill="url(#vignette)"/>
+</svg>
