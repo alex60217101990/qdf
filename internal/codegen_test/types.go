@@ -200,3 +200,12 @@ type GenAnyBox struct {
 	ID  int64 `qdf:"id"`
 	Val any   `qdf:"val"`
 }
+
+// GenEmbedTime embeds time.Time by value. The generator must NOT flatten it
+// (its fields are unexported — flattening yields zero fields and drops the
+// value); it must encode as one named "Time" field via the timestamp codec,
+// exactly as the reflect path does. Regression for the appendFields gate.
+type GenEmbedTime struct {
+	time.Time
+	N int64 `qdf:"n"`
+}

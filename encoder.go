@@ -266,6 +266,15 @@ type Encoder struct {
 	stateSuspended bool
 }
 
+// Suspended reports whether wire-stateful encodings (string/shape/map-shape
+// interning, the columnar shape table) are suspended — true inside a delta
+// never-larger trial (delta_keyed.go / delta_columnar.go). Generated code
+// checks it before emitting a columnar frame: WriteColStructHeader declares
+// into the shared shape table with ids the discarded trial candidate never
+// ships, so a suspended encode must fall back to the row-major body exactly
+// like the reflect columnar path (which gates on the same flag).
+func (e *Encoder) Suspended() bool { return e.stateSuspended }
+
 // applyOpts mirrors the options bitmask onto the cached mode / qpack
 // fields so hot-path checks compile to a single bool / Mode compare
 // instead of a bit-test. It is safe to call on a pooled encoder;

@@ -57,6 +57,12 @@ type typeDesc struct {
 	kind reflect.Kind
 	// marshalerKind: 0=none, 1=Marshaler interface, 2=encoding.TextMarshaler-ish (future)
 	marshalerKind uint8
+	// hasCustomDecode: the type implements Unmarshaler (the decode-half),
+	// possibly WITHOUT Marshaler — the documented asymmetric case. Columnar
+	// classification must reject such fields (classifyColKind): the columnar
+	// scatter writes field memory directly and would silently skip the user's
+	// UnmarshalQDF, diverging from the row-major path which calls it.
+	hasCustomDecode bool
 	// pod reports whether this type's memory is pointer-free (noPointers). Cached
 	// at build for the delta diff hot path (equalSliceEV/equalArrayEV/diffElems),
 	// which would otherwise call the structural noPointers walk per element.
@@ -203,6 +209,7 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 	}
 	if reflect.PointerTo(t).Implements(unmarshalerType) {
 		td.decode = decodeUnmarshaler(t)
+		td.hasCustomDecode = true
 	}
 	if td.encode != nil && td.decode != nil {
 		return nil
