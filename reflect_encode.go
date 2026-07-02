@@ -1629,6 +1629,33 @@ func decodeAny(d *Decoder) (any, error) {
 		// decode. Materialise into the matching typed slice (the values
 		// round-trip; the int codecs widen to 64-bit on the wire).
 		return decodeAnyPackedSlice(d)
+	case tagPackBlock:
+		// A long int/uint slice encoded with the per-block adaptive codec.
+		// Emitted by writeQPackInt64/Uint64 for any []int/[]int64/[]uint/[]uint64
+		// (no ifaceDepth gate), so it can reach decodeAny through an any /
+		// map[K]any value / any-typed field; without this case that failed with
+		// ErrBadTag. The block-kind byte after the tag selects int64 vs uint64
+		// (a namespace disjoint from decodeAnyPackedSlice's qpackKind byte, so
+		// it cannot share that path). decodeSliceInt64/Uint64 re-peek the tag.
+		if d.i+1 >= len(d.buf) {
+			return nil, ErrShortBuffer
+		}
+		switch d.buf[d.i+1] {
+		case blockKindInt:
+			var s []int64
+			if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+				return nil, err
+			}
+			return s, nil
+		case blockKindUint:
+			var s []uint64
+			if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+				return nil, err
+			}
+			return s, nil
+		default:
+			return nil, ErrBadTag
+		}
 	}
 	return nil, ErrBadTag
 }
