@@ -12,7 +12,10 @@
 // decode, UTF-8 validation, intern-table hashing).
 package qdf
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 func encodeSliceFloat32Impl(e *Encoder, s []float32) error {
 	n := len(s)
@@ -20,6 +23,7 @@ func encodeSliceFloat32Impl(e *Encoder, s []float32) error {
 	if n == 0 {
 		return nil
 	}
+	e.buf = slices.Grow(e.buf, n*5) // tag + 4-byte body per element
 	for i := 0; i < n; i++ {
 		e.buf = appendU32(append(e.buf, tagFloat32), math.Float32bits(s[i]))
 	}
@@ -32,6 +36,7 @@ func encodeSliceFloat64Impl(e *Encoder, s []float64) error {
 	if n == 0 {
 		return nil
 	}
+	e.buf = slices.Grow(e.buf, n*9) // tag + 8-byte body per element
 	for i := 0; i < n; i++ {
 		e.buf = appendU64(append(e.buf, tagFloat64), math.Float64bits(s[i]))
 	}
