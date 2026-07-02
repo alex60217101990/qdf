@@ -219,14 +219,18 @@ d.i++
 	},
 }
 
-// kindAny — generic any value. Dispatches through the reflect path
-// so heterogeneous values keep round-trip parity with the existing
-// reflect encoder.
+// kindAny — generic any value. Dispatches through encodeIface (not
+// encodeReflect) so the value is encoded in a dynamic-dispatch context:
+// encodeIface raises e.ifaceDepth, which suppresses the lossy-vector /
+// batched-struct codecs (gated on ifaceDepth==0). A map[K]any value is always
+// read back via decodeAny, which cannot decode a tagColVecLossy (0xFD) or
+// tagVecBatchStruct (0xFE) block, so those tags must never be emitted here.
+// This matches the []any element path (encodeSliceAny → encodeIface).
 var kindAny = kind{
 	suffix: "Any",
 	goType: "any",
 	writeBlock: func(v string) string {
-		return fmt.Sprintf("if err := encodeReflect(e, %s); err != nil {\nreturn err\n}", v)
+		return fmt.Sprintf("if err := encodeIface(e, unsafe.Pointer(&%s)); err != nil {\nreturn err\n}", v)
 	},
 	readBlock: func(v string) string {
 		return fmt.Sprintf("%s, err := decodeAny(d)\nif err != nil {\nreturn err\n}", v)
