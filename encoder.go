@@ -144,6 +144,13 @@ type Encoder struct {
 	blkPlanI64 []blockPlanI64
 	blkPlanU64 []blockPlanU64
 
+	// zoneMM caches the per-zone (min,max) pairs — already reduced to their
+	// uvarint payload (zigzag for int64, raw for uint64) — computed while
+	// costing the min/max zonemap against the linear one in writeZoneChunk*.
+	// When the linear map wins it is unused; when it loses the emit pass reuses
+	// these instead of a second minMaxI64/minMaxU64 scan. Reused across columns.
+	zoneMM []uint64
+
 	// vecScratch reuses the lossy vector codec's rotate/row/coord buffers across
 	// encodes, retained between batches and dropped past the ceiling in
 	// resetForReuse. Mirrors alpScratch. Placed last among the pointer-bearing

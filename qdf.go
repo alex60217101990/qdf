@@ -431,6 +431,9 @@ func putEnc(enc *Encoder, pool *sync.Pool) {
 	if cap(enc.blkPlanU64) > maxRetainedWideScratch {
 		enc.blkPlanU64 = nil
 	}
+	if cap(enc.zoneMM) > maxRetainedWideScratch {
+		enc.zoneMM = nil
+	}
 	pool.Put(enc)
 }
 

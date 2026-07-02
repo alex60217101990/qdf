@@ -167,13 +167,20 @@ func (e *Encoder) writeZoneChunkInt64(s []int64) {
 	// Pick the learned linear zonemap over per-zone min/max only when it is both
 	// valid (monotonic, tight fit) and strictly smaller (never-worse).
 	fit, linOK := fitLinearZmap(s, blockSizeSmall)
+	// zmm holds the per-zone zigzag(min),zigzag(max) payload, computed here only
+	// when the linear map is a candidate; reused by the else branch below so the
+	// min/max pass runs once even when the linear map loses the never-worse test.
+	zmm := e.zoneMM[:0]
 	if linOK {
 		var mmBytes int
 		for i := 0; i < n; i += blockSizeSmall {
 			j := min(i+blockSizeSmall, n)
 			mn, mx := minMaxI64(s[i:j])
-			mmBytes += uvarintLen(zigzagEncode64(mn)) + uvarintLen(zigzagEncode64(mx))
+			zmn, zmx := zigzagEncode64(mn), zigzagEncode64(mx)
+			zmm = append(zmm, zmn, zmx)
+			mmBytes += uvarintLen(zmn) + uvarintLen(zmx)
 		}
+		e.zoneMM = zmm
 		linOK = linearZmapBytes(fit) < mmBytes
 	}
 
@@ -181,12 +188,18 @@ func (e *Encoder) writeZoneChunkInt64(s []int64) {
 	e.buf = appendUvarint(e.buf, uint64(n))
 	offAt := len(e.buf)
 	e.buf = append(e.buf, make([]byte, 4*zoneCount)...)
-	if linOK {
+	switch {
+	case linOK:
 		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.c))
 		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.d))
 		e.buf = appendUvarint(e.buf, uint64(fit.epsP))
-	} else {
-		// zonemap: per-zone min,max as zigzag-varint (variable length), before bodies.
+	case len(zmm) == 2*zoneCount:
+		// zonemap: per-zone min,max as zigzag-varint, reusing the pass above.
+		for _, z := range zmm {
+			e.buf = appendUvarint(e.buf, z)
+		}
+	default:
+		// linear was never a candidate: single min/max pass here.
 		for i := 0; i < n; i += blockSizeSmall {
 			j := min(i+blockSizeSmall, n)
 			mn, mx := minMaxI64(s[i:j])
@@ -215,13 +228,18 @@ func (e *Encoder) writeZoneChunkUint64(s []uint64) {
 	plans := e.blkPlanU64[:zoneCount]
 
 	fit, linOK := fitLinearZmap(s, blockSizeSmall)
+	// zmm holds the per-zone min,max payload (raw uvarint), reused by the else
+	// branch so the min/max pass runs once when the linear map loses.
+	zmm := e.zoneMM[:0]
 	if linOK {
 		var mmBytes int
 		for i := 0; i < n; i += blockSizeSmall {
 			j := min(i+blockSizeSmall, n)
 			mn, mx := minMaxU64(s[i:j])
+			zmm = append(zmm, mn, mx)
 			mmBytes += uvarintLen(mn) + uvarintLen(mx)
 		}
+		e.zoneMM = zmm
 		linOK = linearZmapBytes(fit) < mmBytes
 	}
 
@@ -229,11 +247,16 @@ func (e *Encoder) writeZoneChunkUint64(s []uint64) {
 	e.buf = appendUvarint(e.buf, uint64(n))
 	offAt := len(e.buf)
 	e.buf = append(e.buf, make([]byte, 4*zoneCount)...)
-	if linOK {
+	switch {
+	case linOK:
 		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.c))
 		e.buf = binary.LittleEndian.AppendUint64(e.buf, math.Float64bits(fit.d))
 		e.buf = appendUvarint(e.buf, uint64(fit.epsP))
-	} else {
+	case len(zmm) == 2*zoneCount:
+		for _, z := range zmm {
+			e.buf = appendUvarint(e.buf, z)
+		}
+	default:
 		for i := 0; i < n; i += blockSizeSmall {
 			j := min(i+blockSizeSmall, n)
 			mn, mx := minMaxU64(s[i:j])
