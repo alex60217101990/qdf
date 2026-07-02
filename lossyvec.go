@@ -245,6 +245,14 @@ func readLossyVec(src []byte) (vectors [][]float64, elemF32 bool, used int, err 
 	var cosets []byte
 	if variant == vecquant.VariantE8 {
 		pdim := nextPow2Int(int(dim))
+		// E8 quantizes in 8-D blocks; ReconstructE8 walks nb = n/8 blocks and
+		// silently leaves the tail zero when n is not a multiple of 8. The honest
+		// encoder only emits E8 at pdim>=16 (e8Eligible), so a pdim<8 block can
+		// only come from a corrupt/hostile wire — reject it so E8 decode fails
+		// closed instead of returning partially zero-filled vectors.
+		if pdim%8 != 0 {
+			return nil, false, 0, errors.New("qdf: E8 requires pdim multiple of 8")
+		}
 		blocks := int(count) * pdim / 8
 		wantCoset := (blocks + 7) / 8
 		cs, used2, cerr := vecquant.ReadCosets(src[off:], wantCoset)
