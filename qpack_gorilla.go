@@ -270,6 +270,9 @@ func (d *Decoder) readPackedGorillaHeader(expectKind byte) (n int, firstU64 uint
 	if rem := uint64(len(d.buf) - d.i); n64 > rem*8+1 {
 		return 0, 0, nil, ErrShortBuffer
 	}
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative -> make panics
+		return 0, 0, nil, ErrInvalidLength
+	}
 	n = int(n64)
 	if n == 0 {
 		return n, 0, nil, nil
