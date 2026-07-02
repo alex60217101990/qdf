@@ -36,3 +36,20 @@ func TestBatchSlabEmptyStr(t *testing.T) {
 		t.Fatalf("zero handle = %q, want empty", got)
 	}
 }
+
+func TestBatchSlabBytesAndGrow(t *testing.T) {
+	s := newBatchSlab()
+	off, ln := s.append([]byte{1, 2, 3})
+	if got := s.bytes(Bytes{off: off, len: ln}); len(got) != 3 || got[0] != 1 || got[2] != 3 {
+		t.Fatalf("bytes = %v", got)
+	}
+	if got := s.bytes(Bytes{}); got != nil {
+		t.Fatalf("zero Bytes handle = %v, want nil", got)
+	}
+	// grow reserves capacity; earlier offsets stay valid afterwards.
+	s.grow(1 << 16)
+	if got := s.bytes(Bytes{off: off, len: ln}); len(got) != 3 || got[1] != 2 {
+		t.Fatalf("bytes after grow = %v", got)
+	}
+	s.release()
+}
