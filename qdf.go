@@ -153,7 +153,7 @@
 //
 //	func MarshalT[T any](v T, opts Options) ([]byte, error)
 //	func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error)
-//	func UnmarshalT[T any](data []byte) (T, error)
+//	func UnmarshalT[T any](data []byte, out *T) error
 //
 // Structural delta — patch / merge two values, key-matched slices, and
 // content-addressed baselines for state-sync streams (files: delta.go,
