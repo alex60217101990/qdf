@@ -127,6 +127,15 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	// wire-stateless column body wins — else the next shape id desyncs
 	// (ErrUnknownStateID). Mirrors diffKeyedSlice.
 	shapeStart := st.shapeCount
+	// colShape/hybridShape tables are a SEPARATE id-space (id = table position).
+	// A codegen marshaler reached through the positional trial (a nested
+	// columnar-eligible []struct field) declares entries via WriteColStructHeader
+	// with no stateSuspended gate; when the column body wins, those declaration
+	// bytes are truncated with the positional segment, so the entries must be
+	// truncated too — a surviving entry would make a LATER encode of the same
+	// shape emit a state-ref to an id the decoder never saw (ErrUnknownStateID).
+	colShapeStart := len(st.colShapeNames)
+	hybridShapeStart := len(st.hybridShapeNames)
 
 	// Build the positional body into enc.buf first (the comparison baseline).
 	posStart := len(enc.buf)
@@ -218,6 +227,20 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 		// discarded positional trial's declarations (column body declares none, so
 		// this resolves to shapeStart; the general form mirrors diffKeyedSlice).
 		st.shapeCount = shapeStart + (st.shapeCount - shapeAfterPos)
+		// Truncate colShape/hybridShape entries the discarded positional trial
+		// declared: their wire declarations were just truncated with the
+		// positional segment, so a surviving table entry would let a later encode
+		// of the same shape emit a state-ref the decoder cannot resolve. The kept
+		// column body declares none, so everything past the snapshot belongs to
+		// the discarded candidate.
+		if len(st.colShapeNames) > colShapeStart {
+			st.colShapeNames = st.colShapeNames[:colShapeStart]
+			st.colShapeKinds = st.colShapeKinds[:colShapeStart]
+		}
+		if len(st.hybridShapeNames) > hybridShapeStart {
+			st.hybridShapeNames = st.hybridShapeNames[:hybridShapeStart]
+			st.hybridShapeKinds = st.hybridShapeKinds[:hybridShapeStart]
+		}
 	} else {
 		// Positional wins; restore lastID to its post-positional value so it
 		// tracks the bytes the decoder will actually read.
@@ -636,6 +659,14 @@ func applySparseColumn(dec *Decoder, plan *columnarPlan, col *colColumn, base un
 			return ErrInvalidPatch
 		}
 		dec.i += kg
+		// A legitimate gap never exceeds n (j==0: idx=gap<n; j>0: idx=prev+gap<n
+		// with prev>=0 → gap<n). Reject larger values BEFORE the int() narrowing:
+		// a huge uint64 gap wraps int(gap) negative, and prev+int(gap) can land
+		// back inside [0,n) BELOW prev — passing the range check while silently
+		// breaking the ascending/no-duplicate row-index invariant.
+		if gap > uint64(n) {
+			return ErrInvalidPatch
+		}
 		var idx int
 		if j == 0 {
 			idx = int(gap)

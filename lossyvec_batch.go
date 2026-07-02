@@ -257,6 +257,14 @@ func readNormStream(src []byte, n int) (norms []float64, used int, err error) {
 	if span <= 0 {
 		span = 1
 	}
+	// Finite header values can still overflow math.Exp: the largest exponent
+	// produced below is logMin+span (q=65535), and the honest encoder never
+	// writes a log-norm above log(MaxFloat64) (~709.78) because it logs finite
+	// norms. Reject anything past that so a hostile header cannot decode to
+	// +Inf norms (which would silently corrupt every denormalized vector).
+	if logMin+span > math.Log(math.MaxFloat64) {
+		return nil, 0, ErrInvalidLength
+	}
 	norms = make([]float64, n)
 	off := 16
 	for i := range n {

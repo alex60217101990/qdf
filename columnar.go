@@ -2057,8 +2057,15 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 // cursor-advancing half of decodeColumnInto without the store/scatter step.
 func (d *Decoder) skipColumnValue(kind colKind, n int) error {
 	if kind.isNullable() {
-		_, err := d.decodeNullableColumnAny(kind, n)
-		return err
+		// Skip = mask + dense sub-column of the present values. Reuse the
+		// non-nullable arms below for the dense part instead of
+		// decodeNullableColumnAny, which boxes every present value into a
+		// []any just to be discarded (n allocs per skipped nullable column).
+		_, present, err := d.readNullableMask(n)
+		if err != nil {
+			return err
+		}
+		return d.skipColumnValue(kind.base(), present)
 	}
 	switch kind {
 	case colKindInt:
@@ -2607,6 +2614,13 @@ func decodeHybridColumnarAny(d *Decoder) (any, error) {
 func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok bool) {
 	if fd.marshalerKind != 0 {
 		return 0, 0, false, false // custom marshaler → row-major
+	}
+	if fd.hasCustomDecode {
+		// Decode-half-only Unmarshaler (the documented asymmetric case): the
+		// columnar scatter writes field memory directly, silently skipping the
+		// user's UnmarshalQDF — row-major calls it. Keep such fields row-major
+		// so both paths agree.
+		return 0, 0, false, false
 	}
 	// time.Time is a struct that has its own scalar codec (encodeTime/decodeTime).
 	// It must be detected before the generic struct fall-through so it gets

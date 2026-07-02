@@ -279,6 +279,9 @@ func (d *Decoder) readPackedPForInt64SliceInto(dst *[]int64) error {
 		// defensively (no reliance on colMaxLen being set).
 		return ErrInvalidLength
 	}
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8/b lets n64 exceed MaxInt -> int(n64) wraps negative
+		return ErrInvalidLength
+	}
 	n := int(n64)
 	bodyBytes := (n*b + 7) >> 3
 	if d.i+bodyBytes > len(d.buf) {
@@ -600,6 +603,9 @@ func (d *Decoder) readPackedPForUint64SliceInto(dst *[]uint64) error {
 		// (this Into helper is reachable via generated code without colMaxLen set).
 		return ErrInvalidLength
 	}
+	if n64 > uint64(math.MaxInt) { // 32-bit: rem*8/b lets n64 exceed MaxInt -> int(n64) wraps negative
+		return ErrInvalidLength
+	}
 	n := int(n64)
 	bodyBytes := (n*b + 7) >> 3
 	if d.i+bodyBytes > len(d.buf) {
@@ -819,6 +825,9 @@ func decodeSliceBoolInto(d *Decoder, dst *[]bool) error {
 		}
 		if n64 > uint64(len(d.buf)-d.i)*8 {
 			return ErrShortBuffer
+		}
+		if n64 > uint64(math.MaxInt) { // 32-bit: rem*8 lets n64 exceed MaxInt -> int(n64) wraps negative
+			return ErrInvalidLength
 		}
 		n := int(n64)
 		nBytes := (n + 7) >> 3

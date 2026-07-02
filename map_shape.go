@@ -136,6 +136,9 @@ func decodeMapStringShapeHeader(d *Decoder) ([]string, error) {
 			return nil, ErrInvalidLength
 		}
 		d.i += sz
+		if cnt64 > uint64(math.MaxInt) { // 32-bit: int(cnt64) would wrap negative
+			return nil, ErrInvalidLength
+		}
 		cnt := int(cnt64)
 		if err := d.CheckLength(cnt, 1); err != nil {
 			return nil, err

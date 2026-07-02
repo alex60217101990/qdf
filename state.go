@@ -509,6 +509,10 @@ func (e *encState) reset() {
 	if cap(e.mapShapes) > maxRetainedShapeCap && release {
 		e.mapShapes = nil
 	} else {
+		// Each binding holds keys []string aliasing caller strings; a bare [:0]
+		// leaves those headers live in the backing array and pins the strings
+		// until overwritten. Clear the FULL backing first (mirrors colDictTable).
+		clear(e.mapShapes[:cap(e.mapShapes)])
 		e.mapShapes = e.mapShapes[:0]
 	}
 	e.lastMapShapeID = 0

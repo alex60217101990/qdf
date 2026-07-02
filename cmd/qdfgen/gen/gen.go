@@ -434,7 +434,15 @@ func appendFields(out []fieldInfo, s *types.Struct, prefix string) []fieldInfo {
 		f := s.Field(i)
 		tag := s.Tag(i)
 		if f.Embedded() {
-			if st, ok := f.Type().Underlying().(*types.Struct); ok {
+			// Flatten an embedded value-struct EXCEPT a type that carries its own
+			// value codec — time.Time or a MarshalQDF/UnmarshalQDF implementor.
+			// Its fields are unexported (time.Time) or its wire form is opaque,
+			// so flattening yields zero exported fields and silently drops the
+			// value on round-trip. Fall through to the regular field path so the
+			// type's own codec applies as one named field, exactly mirroring the
+			// reflect path's appendStructFields gate.
+			if st, ok := f.Type().Underlying().(*types.Struct); ok &&
+				!isTimeTime(f.Type()) && !hasQDFCodecMethod(f.Type()) {
 				// Honor a "-" tag on the embedded field itself.
 				if _, skip := wireKey(f.Name(), tag); skip {
 					continue
@@ -442,7 +450,8 @@ func appendFields(out []fieldInfo, s *types.Struct, prefix string) []fieldInfo {
 				out = appendFields(out, st, prefix+f.Name()+".")
 				continue
 			}
-			// Embedded pointer/interface/etc.: regular field path below.
+			// Embedded pointer/interface/time.Time/codec-carrying struct:
+			// regular field path below.
 		}
 		if !f.Exported() {
 			continue
@@ -1195,7 +1204,12 @@ func (g *gen) emitEncodeColumnarSlice(w io.Writer, expr string, elem types.Type,
 	s := g.fresh("col")
 	fmt.Fprintf(w, "%sif %s == nil {\n", indent, expr)
 	fmt.Fprintf(w, "%s\te.WriteNil()\n", indent)
-	fmt.Fprintf(w, "%s} else if len(%s) >= 16 { // columnarMinElems\n", indent, expr)
+	// !e.Suspended(): inside a delta never-larger trial the columnar frame's
+	// shape declaration would enter the shared shape table while its wire bytes
+	// may be discarded with the losing candidate — a later ref would dangle
+	// (ErrUnknownStateID). Fall back to the row-major body, exactly like the
+	// reflect columnar path gates on the same flag.
+	fmt.Fprintf(w, "%s} else if len(%s) >= 16 && !e.Suspended() { // columnarMinElems\n", indent, expr)
 	fmt.Fprintf(w, "%s\t%s := %s\n", indent, s, expr)
 	if plan.stringOnly() {
 		// Probe a sample of ALL string columns and let StringColumnsBeneficial make
