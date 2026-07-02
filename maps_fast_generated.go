@@ -1695,7 +1695,7 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
-			if err := encodeReflect(e, v); err != nil {
+			if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 				return err
 			}
 		}
@@ -1723,7 +1723,7 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 		for _, sk := range keys {
 			v := m[sk]
 			e.WriteString(sk)
-			if err := encodeReflect(e, v); err != nil {
+			if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 				return err
 			}
 		}
@@ -1731,7 +1731,7 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 	}
 	for k, v := range m {
 		e.WriteString(k)
-		if err := encodeReflect(e, v); err != nil {
+		if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 			return err
 		}
 	}
@@ -2048,7 +2048,7 @@ func encodeMapIntAny(e *Encoder, p unsafe.Pointer) error {
 			k := int(sk)
 			v := m[k]
 			e.WriteInt(int64(k))
-			if err := encodeReflect(e, v); err != nil {
+			if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 				return err
 			}
 		}
@@ -2056,7 +2056,7 @@ func encodeMapIntAny(e *Encoder, p unsafe.Pointer) error {
 	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
-		if err := encodeReflect(e, v); err != nil {
+		if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 			return err
 		}
 	}
@@ -2275,7 +2275,7 @@ func encodeMapInt64Any(e *Encoder, p unsafe.Pointer) error {
 		for _, sk := range keys {
 			v := m[sk]
 			e.WriteInt(int64(sk))
-			if err := encodeReflect(e, v); err != nil {
+			if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 				return err
 			}
 		}
@@ -2283,7 +2283,7 @@ func encodeMapInt64Any(e *Encoder, p unsafe.Pointer) error {
 	}
 	for k, v := range m {
 		e.WriteInt(int64(k))
-		if err := encodeReflect(e, v); err != nil {
+		if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 			return err
 		}
 	}
@@ -2501,7 +2501,7 @@ func encodeMapUint64Any(e *Encoder, p unsafe.Pointer) error {
 		for _, sk := range keys {
 			v := m[sk]
 			e.WriteUint(uint64(sk))
-			if err := encodeReflect(e, v); err != nil {
+			if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 				return err
 			}
 		}
@@ -2509,7 +2509,7 @@ func encodeMapUint64Any(e *Encoder, p unsafe.Pointer) error {
 	}
 	for k, v := range m {
 		e.WriteUint(uint64(k))
-		if err := encodeReflect(e, v); err != nil {
+		if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
 			return err
 		}
 	}
