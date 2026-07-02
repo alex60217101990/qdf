@@ -189,3 +189,14 @@ type GenNamedCodec struct {
 type GenFloatMap struct {
 	M map[float64]string `qdf:"m"`
 }
+
+// GenAnyBox exercises the generated any-field path. The generator routes an
+// `any` field through the encoder's dynamic entry point; that entry MUST mark a
+// schemaless context (ifaceDepth>0) so a []float32/[]float64 or batchable
+// []struct held in Val does not emit an OptLossyVec tagColVecLossy (0xFD) /
+// tagVecBatchStruct (0xFE) block — decodeAny (used for any values) cannot read
+// those. Regression fixture for the codegen EncodeValue-vs-EncodeAny gap.
+type GenAnyBox struct {
+	ID  int64 `qdf:"id"`
+	Val any   `qdf:"val"`
+}

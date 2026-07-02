@@ -461,6 +461,36 @@ func (e *Encoder) Canonical() bool { return e.opts.Has(OptCanonical) }
 // the pool-backed Marshal does internally.
 func (e *Encoder) EncodeValue(v any) error { return encodeReflect(e, v) }
 
+// EncodeAny encodes v as a value reached through a dynamic (interface/any)
+// position — the codegen entry point for any-typed struct fields and container
+// elements (qdfgen emits this for `any` fields). Unlike EncodeValue (a
+// top-level, typed-on-decode entry point), it marks the encode as schemaless by
+// raising e.ifaceDepth, exactly as the reflect encoder's []any / map[K]any path
+// does via encodeIface. That suppresses codecs whose blocks only decode on the
+// typed path — OptLossyVec's tagColVecLossy (0xFD) and tagVecBatchStruct (0xFE)
+// — because a value reached through an any is read back via decodeAny, which
+// has no case for them. Without this, a codegen `any` field holding a
+// []float32/[]float64 or a batchable []struct emitted an undecodable block.
+func (e *Encoder) EncodeAny(v any) error {
+	if v == nil {
+		e.WriteNil()
+		return nil
+	}
+	// Bound recursion through the dynamic dispatch (mirrors encodeIface): an
+	// any-typed field can form a cycle the static *T guard does not see.
+	if e.maxDepth != 0 {
+		e.depth++
+		if e.depth > e.maxDepth {
+			e.depth--
+			return ErrCycleDetected
+		}
+		defer func() { e.depth-- }()
+	}
+	e.ifaceDepth++
+	defer func() { e.ifaceDepth-- }()
+	return encodeReflect(e, v)
+}
+
 // PreIntern registers the given strings against the encoder's
 // intern table up front. Subsequent WriteString / WriteBytes
 // calls that pass the SAME backing string header (i.e. the same

@@ -739,7 +739,11 @@ func (g *gen) emitEncodeValue(w io.Writer, expr string, t types.Type, indent str
 		// runtime reflect encoder for that one field. A method interface cannot
 		// be reconstructed on decode, so it is still rejected.
 		if tt.NumMethods() == 0 {
-			fmt.Fprintf(w, "%sif err := e.EncodeValue(%s); err != nil {\n%s\treturn err\n%s}\n", indent, expr, indent, indent)
+			// EncodeAny (not EncodeValue) marks a schemaless context (ifaceDepth>0):
+			// an any field is read back via decodeAny, which cannot decode the
+			// OptLossyVec tagColVecLossy/tagVecBatchStruct blocks that EncodeValue
+			// would let fire at ifaceDepth==0.
+			fmt.Fprintf(w, "%sif err := e.EncodeAny(%s); err != nil {\n%s\treturn err\n%s}\n", indent, expr, indent, indent)
 			return nil
 		}
 		return fmt.Errorf("non-empty interface fields are not supported by qdfgen")
