@@ -159,6 +159,19 @@ across realistic corpora.
 
 ---
 
+## A fifth, different-axis lever: pointer-free held results (`UnmarshalBatch`)
+
+The four levers above all cut the **decode-time copy**. If what you actually
+hold afterwards is the cost — a cache or index that keeps decoded rows alive
+across many GC cycles — the lever is [`qdf.UnmarshalBatch[T]`](BATCH-HANDLES.md):
+it changes *what the result is made of* (pointer-free `qdf.Str`/`qdf.Bytes`/
+`qdf.Time` handles into one slab) so a held `[]T` is GC-noscan, instead of
+changing how the string bytes get copied. See
+**[`docs/BATCH-HANDLES.md`](BATCH-HANDLES.md)** for the type rules, internals,
+and measured numbers (3.89× cheaper held-GC scan, ~1.8× faster decode).
+
+---
+
 ## Combining
 
 These compose: a subset struct with `[N]byte` id fields, decoded with

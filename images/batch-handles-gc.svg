@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 300" width="520" height="300" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="520" height="300" fill="#ffffff"/>
+
+  <text x="260" y="24" text-anchor="middle" font-size="14" font-weight="700" fill="#222533">GC scan time per cycle — 256 held 1000-row batches</text>
+  <text x="260" y="41" text-anchor="middle" font-size="10.5" fill="#57596b">BenchmarkBatchHeldGC, i7-9750H, ns/op per runtime.GC() (median of 5 runs)</text>
+
+  <!-- axes -->
+  <line x1="70" y1="240" x2="470" y2="240" stroke="#222533" stroke-width="1.2"/>
+  <line x1="70" y1="70" x2="70" y2="240" stroke="#222533" stroke-width="1.2"/>
+
+  <!-- y gridlines + labels (scale: 0 to 950us, 907us max bar) -->
+  <g stroke="#eceef2" stroke-width="1">
+    <line x1="70" y1="240" x2="470" y2="240"/>
+    <line x1="70" y1="197" x2="470" y2="197"/>
+    <line x1="70" y1="154" x2="470" y2="154"/>
+    <line x1="70" y1="111" x2="470" y2="111"/>
+    <line x1="70" y1="70"  x2="470" y2="70"/>
+  </g>
+  <g font-size="9.5" fill="#57596b" text-anchor="end">
+    <text x="64" y="243">0</text>
+    <text x="64" y="200">225 µs</text>
+    <text x="64" y="157">450 µs</text>
+    <text x="64" y="114">675 µs</text>
+    <text x="64" y="74">900 µs</text>
+  </g>
+
+  <!-- bars: strings 907261 ns, handles 233389 ns; scale max ~950us at y=70 -->
+  <!-- bar height px = value/950000 * 170 -->
+
+  <!-- strings bar: 907261/950000*170 = 162.3 -->
+  <rect x="150" y="77.7" width="90" height="162.3" fill="#d64ba8" opacity="0.88" rx="2"/>
+  <text x="195" y="67" text-anchor="middle" font-size="11" font-weight="700" fill="#222533">907 µs</text>
+  <text x="195" y="257" text-anchor="middle" font-size="10.5" fill="#222533">[]struct</text>
+  <text x="195" y="270" text-anchor="middle" font-size="10.5" fill="#222533">(strings)</text>
+
+  <!-- handles bar: 233389/950000*170 = 41.8 -->
+  <rect x="300" y="198.2" width="90" height="41.8" fill="#1abc9c" opacity="0.9" rx="2"/>
+  <text x="345" y="188" text-anchor="middle" font-size="11" font-weight="700" fill="#222533">233 µs</text>
+  <text x="345" y="257" text-anchor="middle" font-size="10.5" fill="#222533">Batch[T]</text>
+  <text x="345" y="270" text-anchor="middle" font-size="10.5" fill="#222533">(handles)</text>
+
+  <!-- delta annotation -->
+  <g>
+    <line x1="240" y1="90" x2="300" y2="90" stroke="#5b4bd6" stroke-width="1" stroke-dasharray="3,2"/>
+    <rect x="395" y="120" width="100" height="30" rx="4" fill="#f1eefc" stroke="#5b4bd6" stroke-width="1"/>
+    <text x="445" y="139" text-anchor="middle" font-size="12" font-weight="700" fill="#5b4bd6">3.89× less</text>
+  </g>
+
+  <text x="260" y="292" text-anchor="middle" font-size="9.5" fill="#57596b">y axis: ns/op per runtime.GC() call · x axis: held-result representation</text>
+</svg>

@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360" width="600" height="360" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="600" height="360" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="300" y="24" text-anchor="middle" font-size="14" font-weight="700" fill="#222533">held []T in memory: pointer-dense vs pointer-free</text>
+
+  <!-- Divider -->
+  <line x1="300" y1="36" x2="300" y2="336" stroke="#e2e2e8" stroke-width="1"/>
+
+  <!-- ===================== LEFT: []struct with strings ===================== -->
+  <text x="150" y="54" text-anchor="middle" font-size="12.5" font-weight="700" fill="#d64ba8">[]struct{ Name string, ... }</text>
+
+  <!-- row boxes -->
+  <g font-size="10" fill="#222533">
+    <rect x="34" y="66" width="120" height="26" rx="3" fill="#ffffff" stroke="#d64ba8" stroke-width="1.4"/>
+    <text x="42" y="83">row0: id, *Name ──┐</text>
+
+    <rect x="34" y="100" width="120" height="26" rx="3" fill="#ffffff" stroke="#d64ba8" stroke-width="1.4"/>
+    <text x="42" y="117">row1: id, *Name ──┐</text>
+
+    <rect x="34" y="134" width="120" height="26" rx="3" fill="#ffffff" stroke="#d64ba8" stroke-width="1.4"/>
+    <text x="42" y="151">row2: id, *Name ──┐</text>
+
+    <rect x="34" y="168" width="120" height="26" rx="3" fill="#ffffff" stroke="#d64ba8" stroke-width="1.4"/>
+    <text x="42" y="185">row3: id, *Name ──┐</text>
+  </g>
+
+  <!-- scattered string heap objects, each pointer flies to a different spot -->
+  <g font-size="9.5" fill="#222533">
+    <rect x="205" y="60" width="66" height="20" rx="3" fill="#fdeef7" stroke="#d64ba8" stroke-width="1"/>
+    <text x="238" y="73" text-anchor="middle">"alpha"</text>
+
+    <rect x="235" y="118" width="60" height="20" rx="3" fill="#fdeef7" stroke="#d64ba8" stroke-width="1"/>
+    <text x="265" y="131" text-anchor="middle">"beta"</text>
+
+    <rect x="200" y="176" width="66" height="20" rx="3" fill="#fdeef7" stroke="#d64ba8" stroke-width="1"/>
+    <text x="233" y="189" text-anchor="middle">"gamma"</text>
+
+    <rect x="240" y="234" width="60" height="20" rx="3" fill="#fdeef7" stroke="#d64ba8" stroke-width="1"/>
+    <text x="270" y="247" text-anchor="middle">"delta"</text>
+  </g>
+
+  <!-- pointer arrows, scattered / non-adjacent targets -->
+  <g stroke="#d64ba8" stroke-width="1.2" fill="none" marker-end="url(#arrowPink)">
+    <path d="M154,79 C178,79 178,70 203,70"/>
+    <path d="M154,113 C200,113 210,128 233,128"/>
+    <path d="M154,147 C185,147 190,186 198,186"/>
+    <path d="M154,181 C195,181 210,244 238,244"/>
+  </g>
+
+  <!-- GC scan annotation -->
+  <g>
+    <rect x="30" y="270" width="240" height="46" rx="4" fill="#fff5fa" stroke="#d64ba8" stroke-width="1"/>
+    <text x="150" y="288" text-anchor="middle" font-size="10.5" font-weight="700" fill="#d64ba8">GC scans every pointer,</text>
+    <text x="150" y="303" text-anchor="middle" font-size="10.5" font-weight="700" fill="#d64ba8">every mark phase</text>
+  </g>
+  <text x="150" y="332" text-anchor="middle" font-size="9.5" fill="#57596b">N rows → N scattered string objects, N pointers walked</text>
+
+  <!-- ===================== RIGHT: Batch[T] + slab ===================== -->
+  <text x="450" y="54" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1abc9c">Batch[T]: Rows[] + one slab</text>
+
+  <!-- rows box with {off,len} cells -->
+  <g font-size="9.5" fill="#222533">
+    <rect x="334" y="66" width="150" height="26" rx="3" fill="#ffffff" stroke="#1abc9c" stroke-width="1.4"/>
+    <text x="340" y="83">id  {off:0,  len:5}</text>
+
+    <rect x="334" y="100" width="150" height="26" rx="3" fill="#ffffff" stroke="#1abc9c" stroke-width="1.4"/>
+    <text x="340" y="117">id  {off:5,  len:4}</text>
+
+    <rect x="334" y="134" width="150" height="26" rx="3" fill="#ffffff" stroke="#1abc9c" stroke-width="1.4"/>
+    <text x="340" y="151">id  {off:9,  len:5}</text>
+
+    <rect x="334" y="168" width="150" height="26" rx="3" fill="#ffffff" stroke="#1abc9c" stroke-width="1.4"/>
+    <text x="340" y="185">id  {off:14, len:5}</text>
+  </g>
+  <text x="409" y="204" text-anchor="middle" font-size="9" fill="#57596b">qdf.Str — 8 bytes, zero pointers</text>
+
+  <!-- one contiguous slab bar -->
+  <rect x="334" y="222" width="150" height="30" rx="3" fill="#e8fbf7" stroke="#1abc9c" stroke-width="1.6"/>
+  <line x1="358" y1="222" x2="358" y2="252" stroke="#1abc9c" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="382" y1="222" x2="382" y2="252" stroke="#1abc9c" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="411" y1="222" x2="411" y2="252" stroke="#1abc9c" stroke-width="1" stroke-dasharray="2,2"/>
+  <text x="346" y="241" text-anchor="middle" font-size="8" fill="#0e8a72">alpha</text>
+  <text x="370" y="241" text-anchor="middle" font-size="8" fill="#0e8a72">beta</text>
+  <text x="396" y="241" text-anchor="middle" font-size="8" fill="#0e8a72">gamma</text>
+  <text x="447" y="241" text-anchor="middle" font-size="8" fill="#0e8a72">delta</text>
+  <text x="409" y="266" text-anchor="middle" font-size="9.5" fill="#222533">one []byte slab (batchSlab.buf)</text>
+
+  <!-- small offset arrows from cells to slab positions -->
+  <g stroke="#5b4bd6" stroke-width="1" fill="none" stroke-dasharray="3,2" marker-end="url(#arrowIndigo)">
+    <path d="M360,92 C360,150 346,150 346,220"/>
+    <path d="M400,126 C400,160 370,160 370,220"/>
+    <path d="M420,160 C420,170 396,170 396,220"/>
+    <path d="M440,194 C440,200 447,200 447,220"/>
+  </g>
+
+  <!-- GC-skip annotation -->
+  <g>
+    <rect x="330" y="270" width="240" height="46" rx="4" fill="#e8fbf7" stroke="#1abc9c" stroke-width="1"/>
+    <text x="450" y="288" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0e8a72">0 pointers — GC skips the</text>
+    <text x="450" y="303" text-anchor="middle" font-size="10.5" font-weight="700" fill="#0e8a72">whole region</text>
+  </g>
+  <text x="450" y="332" text-anchor="middle" font-size="9.5" fill="#57596b">N rows, 1 slab, one noscan object each</text>
+
+  <!-- markers -->
+  <defs>
+    <marker id="arrowPink" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#d64ba8"/>
+    </marker>
+    <marker id="arrowIndigo" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#5b4bd6"/>
+    </marker>
+  </defs>
+</svg>
