@@ -122,10 +122,22 @@ func appendBatchFields(p *batchPlan, t reflect.Type, base uintptr, path string) 
 		if path != "" {
 			fieldPath = path + "." + sf.Name
 		}
-		// Mirror the encoder's embedded flattening (appendStructFields):
-		// anonymous value-structs flatten unless they carry their own codec.
+		// Mirror the encoder's embedded flattening (appendStructFields,
+		// reflect_desc.go): an anonymous value-struct flattens unless the type
+		// carries its own value codec — time.Time or a Marshaler/Unmarshaler
+		// implementor (the SAME interface rule the encoder applies; Str/Bytes/
+		// Time fall out of it via the handle-type checks below when they reach
+		// the regular field path). A `qdf:"-"`/`json:"-"` tag on the embedded
+		// field itself opts the whole nested block out, exactly like the
+		// encoder — without this the plan's field set diverges from the wire.
 		if sf.Anonymous && sf.Type.Kind() == reflect.Struct &&
-			sf.Type != strType && sf.Type != bytesType && sf.Type != timeType2 {
+			sf.Type != strType && sf.Type != bytesType && sf.Type != timeType2 &&
+			sf.Type != timeTimeRT &&
+			!reflect.PointerTo(sf.Type).Implements(reflect.TypeFor[Marshaler]()) &&
+			!reflect.PointerTo(sf.Type).Implements(reflect.TypeFor[Unmarshaler]()) {
+			if _, skip := wireFieldKey(sf); skip {
+				continue
+			}
 			if err := appendBatchFields(p, sf.Type, base+sf.Offset, path); err != nil {
 				return err
 			}

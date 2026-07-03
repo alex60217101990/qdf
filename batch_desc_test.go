@@ -73,3 +73,26 @@ func TestBatchPlanCached(t *testing.T) {
 		t.Fatal("plan not cached")
 	}
 }
+
+type bpEmbSkipInner struct {
+	X int64 `qdf:"x"`
+}
+
+type bpEmbSkip struct {
+	bpEmbSkipInner `qdf:"-"`
+	Y int64 `qdf:"y"`
+}
+
+// TestBatchPlanEmbeddedSkipTag: a `qdf:"-"` tag on an anonymous embedded
+// field opts the whole nested block out, exactly as the encoder's
+// appendStructFields does — without the skip the plan's field set diverges
+// from the wire (spurious X the encoder never emits).
+func TestBatchPlanEmbeddedSkipTag(t *testing.T) {
+	p, err := batchPlanOf(reflect.TypeFor[bpEmbSkip]())
+	if err != nil {
+		t.Fatalf("bpEmbSkip: %v", err)
+	}
+	if len(p.fields) != 1 || p.fields[0].name != "y" {
+		t.Fatalf("fields = %+v, want exactly [y]", p.fields)
+	}
+}
