@@ -28,6 +28,13 @@ type Time struct {
 type Batch[T any] struct {
 	Rows []T
 	slab *batchSlab
+	// epoch is the slab's generation at decode time, captured so debug/race
+	// builds can detect a handle resolved after Release (which bumps
+	// slab.epoch and returns the slab to the pool for reuse by an unrelated
+	// decode). Always present so Batch's layout is build-tag independent;
+	// the production resolve path never reads it (see batch_check_prod.go),
+	// so it costs one word and one store, never a branch.
+	epoch uint32
 }
 
 // UnmarshalBatch decodes data into a pointer-free Batch. T must contain only
@@ -62,14 +69,22 @@ func UnmarshalBatch[T any](data []byte, opts ...QueryOption) (Batch[T], error) {
 	if n > 0 {
 		rows = unsafe.Slice((*T)(rowsPtr), n)
 	}
-	return Batch[T]{Rows: rows, slab: slab}, nil
+	return Batch[T]{Rows: rows, slab: slab, epoch: slab.epoch}, nil
 }
 
-// Str resolves a string handle produced by this batch's decode.
-func (b *Batch[T]) Str(h Str) string { return b.slab.str(h) }
+// Str resolves a string handle produced by this batch's decode. Debug/race
+// builds verify the slab is still the one that produced h before resolving
+// (see batch_check_debug.go); production builds inline checkEpoch to nothing.
+func (b *Batch[T]) Str(h Str) string {
+	b.slab.checkEpoch(b.epoch)
+	return b.slab.str(h)
+}
 
 // BytesOf resolves a bytes handle. The view aliases the slab: valid until Release.
-func (b *Batch[T]) BytesOf(h Bytes) []byte { return b.slab.bytes(h) }
+func (b *Batch[T]) BytesOf(h Bytes) []byte {
+	b.slab.checkEpoch(b.epoch)
+	return b.slab.bytes(h)
+}
 
 // TimeOf converts a pointer-free Time to time.Time (UTC).
 func (b *Batch[T]) TimeOf(h Time) time.Time {
