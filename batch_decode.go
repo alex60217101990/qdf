@@ -295,6 +295,14 @@ func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rows func
 // this path does not handle — bail to the mirror fallback, which replays the
 // original bytes through the reference decoder.
 func batchReadColShape(d *Decoder, plan *batchPlan, slab *batchSlab) (n, nCols int, colLens []uint32, err error) {
+	// Init decoder state unconditionally, exactly like readColShape: the
+	// downstream scatter helpers dereference d.state scratch. Today a
+	// tagColStruct wire implies FlagDense (whose header path inits state), but
+	// that is an incidental invariant — keep the explicit init so a future
+	// non-Dense columnar wire cannot nil-panic here.
+	if d.state == nil {
+		d.state = newDecState()
+	}
 	d.i++ // consume tagColStruct (caller peeked it)
 	n64, k := readUvarint(d.buf[d.i:])
 	if k <= 0 {
@@ -331,7 +339,6 @@ func batchReadColShape(d *Decoder, plan *batchPlan, slab *batchSlab) (n, nCols i
 	}
 	fidx := slab.shapeFidx[:nCols]
 	kinds := slab.shapeKinds[:nCols]
-	slab.shapeFidx, slab.shapeKinds = fidx, kinds
 	for c := range nCols {
 		s, err := d.readStringBytes() // view into d.buf; matched, never kept
 		if err != nil {
