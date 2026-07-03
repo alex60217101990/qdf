@@ -4,8 +4,8 @@ import "testing"
 
 func TestBatchSlabAppendResolve(t *testing.T) {
 	s := newBatchSlab()
-	off1, ln1 := s.append([]byte("hello"))
-	off2, ln2 := s.append([]byte("world!"))
+	off1, ln1, _ := s.append([]byte("hello"))
+	off2, ln2, _ := s.append([]byte("world!"))
 	if got := s.str(Str{off: off1, len: ln1}); got != "hello" {
 		t.Fatalf("str1 = %q", got)
 	}
@@ -17,7 +17,7 @@ func TestBatchSlabAppendResolve(t *testing.T) {
 	for i := range big {
 		big[i] = byte(i)
 	}
-	s.append(big)
+	_, _, _ = s.append(big)
 	if got := s.str(Str{off: off1, len: ln1}); got != "hello" {
 		t.Fatalf("str1 after grow = %q", got)
 	}
@@ -39,7 +39,7 @@ func TestBatchSlabEmptyStr(t *testing.T) {
 
 func TestBatchSlabBytesAndGrow(t *testing.T) {
 	s := newBatchSlab()
-	off, ln := s.append([]byte{1, 2, 3})
+	off, ln, _ := s.append([]byte{1, 2, 3})
 	if got := s.bytes(Bytes{off: off, len: ln}); len(got) != 3 || got[0] != 1 || got[2] != 3 {
 		t.Fatalf("bytes = %v", got)
 	}

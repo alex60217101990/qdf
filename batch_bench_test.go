@@ -72,7 +72,7 @@ func BenchmarkBatchSteadyState(b *testing.B) {
 	}
 }
 
-// BenchmarkBatchHeldGC is the 5.2x gate: hold K live decode results across a
+// BenchmarkBatchHeldGC is the 3.89x gate: hold K live decode results across a
 // runtime.GC() scan and compare pointer-free Batch handles against
 // pointer-dense []batSrc (real strings, one *string-header per Name field).
 // The GC's mark phase must scan every pointer-containing word in the heap;

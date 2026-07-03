@@ -98,7 +98,9 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func
 
 	rowsBase := rows(n)
 
-	batchCopyRows(plan, slab, mirrorBase, rowsBase, n)
+	if err := batchCopyRows(plan, slab, mirrorBase, rowsBase, n); err != nil {
+		return 0, err
+	}
 
 	return n, nil
 }
@@ -107,7 +109,7 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func
 // plan.mirror.Size() bytes apart) into rowsBase (n rows of plan.stride
 // bytes each), writing scalars via memmove, strings/bytes into slab (as
 // Str/Bytes handles), and qdf.Time from time.Time.
-func batchCopyRows(plan *batchPlan, slab *batchSlab, mirrorPtr, rowsBase unsafe.Pointer, n int) {
+func batchCopyRows(plan *batchPlan, slab *batchSlab, mirrorPtr, rowsBase unsafe.Pointer, n int) error {
 	mirrorStride := plan.mirror.Size()
 	for i := range n {
 		src := unsafe.Add(mirrorPtr, uintptr(i)*mirrorStride)
@@ -118,11 +120,17 @@ func batchCopyRows(plan *batchPlan, slab *batchSlab, mirrorPtr, rowsBase unsafe.
 			switch f.kind {
 			case bfStr:
 				s := *(*string)(sf)
-				off, ln := slab.append(unsafe.Slice(unsafe.StringData(s), len(s)))
+				off, ln, err := slab.append(unsafe.Slice(unsafe.StringData(s), len(s)))
+				if err != nil {
+					return err
+				}
 				*(*Str)(df) = Str{off: off, len: ln}
 			case bfBytes:
 				b := *(*[]byte)(sf)
-				off, ln := slab.append(b)
+				off, ln, err := slab.append(b)
+				if err != nil {
+					return err
+				}
 				*(*Bytes)(df) = Bytes{off: off, len: ln}
 			case bfTime:
 				t := *(*time.Time)(sf)
@@ -133,6 +141,7 @@ func batchCopyRows(plan *batchPlan, slab *batchSlab, mirrorPtr, rowsBase unsafe.
 			}
 		}
 	}
+	return nil
 }
 
 // scalarKindSize returns the byte width of a scalar batchField, matching
@@ -629,7 +638,10 @@ func readStringColumnHandles(d *Decoder, n int, slab *batchSlab, out []Str) erro
 			return err
 		}
 		v := strs[0]
-		off, ln := slab.append(unsafe.Slice(unsafe.StringData(v), len(v)))
+		off, ln, err := slab.append(unsafe.Slice(unsafe.StringData(v), len(v)))
+		if err != nil {
+			return err
+		}
 		h := Str{off: off, len: ln}
 		for i := range n {
 			out[i] = h
@@ -658,7 +670,10 @@ func readStringColumnHandles(d *Decoder, n int, slab *batchSlab, out []Str) erro
 		defer putDictHandleScratch(th)
 		for k := range table {
 			v := table[k]
-			off, ln := slab.append(unsafe.Slice(unsafe.StringData(v), len(v)))
+			off, ln, err := slab.append(unsafe.Slice(unsafe.StringData(v), len(v)))
+			if err != nil {
+				return err
+			}
 			th[k] = Str{off: off, len: ln}
 		}
 		for i := range n {
@@ -680,7 +695,10 @@ func readStringColumnHandles(d *Decoder, n int, slab *batchSlab, out []Str) erro
 		}
 		for i := range n {
 			v := strs[i]
-			off, ln := slab.append(unsafe.Slice(unsafe.StringData(v), len(v)))
+			off, ln, err := slab.append(unsafe.Slice(unsafe.StringData(v), len(v)))
+			if err != nil {
+				return err
+			}
 			out[i] = Str{off: off, len: ln}
 		}
 		return nil
