@@ -46,8 +46,9 @@ tested API.
 
 ### The measured story
 
-Numbers below are from `batch_bench_test.go` (`.superpowers/sdd/task-7-report.md`),
-Intel i7-9750H, `-count=5`, medians, no thermal-throttle contamination
+Numbers below are from `batch_bench_test.go` — reproduce with
+`go test -run '^$' -bench 'BenchmarkBatch' -benchmem -count=5` —
+Intel i7-9750H, medians of 5 runs, no thermal-throttle contamination
 observed (≤4% spread across runs). All three numbers are cited verbatim —
 no rounding up.
 
