@@ -443,6 +443,19 @@ Works on both the reflect path and codegen types (the generated
 `UnmarshalQDFOpts` threads the flag through nested struct decodes). It composes
 with `Select`/`Where`.
 
+### Holding the decoded result: `qdf.UnmarshalBatch[T]`
+
+`WithNoCopy` and `WithArena` (see [`ARENA.md`](ARENA.md)) both speed up the
+decode *copy*. If you **hold** the result — a cache, an index, anything alive
+across many GC cycles — the relevant choice is a third, orthogonal one:
+`qdf.UnmarshalBatch[T]` decodes into a `Batch[T]` whose `string`/`[]byte`/
+`time.Time` fields are pointer-free `qdf.Str`/`qdf.Bytes`/`qdf.Time` handles,
+so the held `[]T` is GC-noscan instead of costing one pointer scan per string
+field per row on every mark phase. It trades a stricter type contract on `T`
+(scalars and handle types only) for that scan-cost removal. See
+[`docs/BATCH-HANDLES.md`](BATCH-HANDLES.md) for the full type rules and
+measured numbers.
+
 ---
 
 ## Anti-patterns

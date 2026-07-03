@@ -814,7 +814,11 @@ collector must scan on every mark phase — the strings, not the struct count,
 drive GC pause cost. `UnmarshalBatch[T]` decodes into a pointer-free `Batch[T]`
 instead: string/`[]byte`/`time.Time` fields become 8-byte `qdf.Str` /
 `qdf.Bytes` / `qdf.Time` handles (offsets into one pooled slab), so `T` itself
-is GC-noscan.
+is GC-noscan. See **[`docs/BATCH-HANDLES.md`](docs/BATCH-HANDLES.md)** for the
+full type-rules table, the columnar/mirror decode internals, and the memory
+layout below.
+
+<img src="images/batch-handles-layout.svg" alt="Pointer-dense []struct with strings vs pointer-free Batch[T] with a slab" width="560">
 
 ```go
 type Row struct {

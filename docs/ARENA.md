@@ -269,6 +269,20 @@ pool immediately. If the wire buffer is **long-lived and owned** (an mmap'd
 file), `WithNoCopy` is strictly cheaper. See the `WithNoCopy` godoc for its full
 contract.
 
+**Neither removes the pointer.** Both `WithArena` and `WithNoCopy` still hand
+back real `string`/`time.Time` values — an arena-backed string is still a
+string header (pointer + length) as far as the garbage collector is
+concerned, just one that happens to point into a bump block instead of an
+individually-allocated object. A `[]T` you **hold** across many GC cycles
+still costs one pointer scan per string field per row, arena or not. If that
+held-scan cost is what you're optimizing (a cache, a long-lived index, not
+just the decode itself), see [`qdf.UnmarshalBatch[T]`](BATCH-HANDLES.md): it
+removes the string header entirely — `qdf.Str`/`qdf.Bytes`/`qdf.Time` are
+offset/length pairs into a slab, so the held `[]T` is GC-noscan. Different
+tradeoff, different constraint (`T`'s fields are restricted to scalars and
+handle types), and orthogonal to the arena/no-copy choice above, which is
+about the decode-time copy, not the held-result shape.
+
 ---
 
 ## Internals
