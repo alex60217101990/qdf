@@ -806,6 +806,43 @@ Measured, decode into a pre-sized target (i7-9750H):
 | string-bearing telemetry `[]struct` | 393,924 → 229,948 (**−42 %**) | ~−9 % |
 | `[]struct{map[string]string}` (256×16) | 341,000 → 25,000 (**−92 %**) | ~−17 % |
 
+### Pointer-free batches (`qdf.Str` handles)
+
+A decoded `[]struct{ Name string, ... }` you **hold** (a cache, an in-memory
+index, anything alive across GC cycles) makes every `Name` a pointer the
+collector must scan on every mark phase — the strings, not the struct count,
+drive GC pause cost. `UnmarshalBatch[T]` decodes into a pointer-free `Batch[T]`
+instead: string/`[]byte`/`time.Time` fields become 8-byte `qdf.Str` /
+`qdf.Bytes` / `qdf.Time` handles (offsets into one pooled slab), so `T` itself
+is GC-noscan.
+
+```go
+type Row struct {
+    ID   int64   `qdf:"id"`
+    Name qdf.Str `qdf:"name"`
+}
+b, err := qdf.UnmarshalBatch[Row](data)
+defer b.Release() // recycles the slab; Rows/handles are invalid after this
+for _, r := range b.Rows {
+    fmt.Println(r.ID, b.Str(r.Name))
+}
+```
+
+Measured (i7-9750H, 1000-row columnar batch): holding 256 decoded batches
+across a `runtime.GC()` scan is **3.89× cheaper** than holding `[]struct` with
+real strings; decode itself is **~1.8× faster** than plain `Unmarshal` (handle
+resolution is lazy — `Str` is never materialized unless you call `b.Str`);
+steady-state decode+`Release` is **2 allocs/op**.
+
+Use it for **held batches** — caches, streaming pipelines that decode-process-
+`Release`-reuse in a loop. For a **one-shot decode** you unmarshal once and
+discard, plain `Unmarshal` is simpler and the pointer-free win doesn't apply.
+`T` must be strictly pointer-free (no slices/maps/pointers/nested named
+structs — rejected at the first call with a clear error). Debug builds
+(`-race` or `-tags qdfdebug`) panic on a stale handle used after `Release`; in
+production builds use-after-`Release` is undefined, the same documented
+contract as `WithNoCopy`.
+
 ### Lossy vector codec (`OptLossyVec`)
 
 `[]float32` and `[]float64` embedding fields can be compressed with a

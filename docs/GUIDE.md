@@ -1021,6 +1021,19 @@ use-after-free that the race detector does **not** catch. Safe only for
 caller-owned, long-lived, immutable input (mmap, a file read into memory,
 batch analytics). When in doubt, use the default copying decode.
 
+### Pointer-free batches (`qdf.UnmarshalBatch`)
+
+For batches you **hold** rather than decode-and-discard, `UnmarshalBatch[T]`
+is a different lever than `WithNoCopy`/`WithArena` above: instead of changing
+*how* string bytes are copied, it changes *what T is made of*. String/
+`[]byte`/`time.Time` fields become pointer-free `qdf.Str`/`qdf.Bytes`/
+`qdf.Time` handles (offsets into one pooled slab), so a held `[]T` is
+GC-noscan — the collector skips it entirely on every mark phase instead of
+walking a string pointer per row. See the
+**[README's "Pointer-free batches" section](../README.md#pointer-free-batches-qdfstr-handles)**
+for the API, the measured numbers (3.89× cheaper held-GC scan, ~1.8× faster
+decode, 2 allocs/op steady state), and when to use it vs plain `Unmarshal`.
+
 ---
 
 ## Performance characteristics
