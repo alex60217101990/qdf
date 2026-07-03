@@ -38,11 +38,6 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 		return false
 	}
 
-	rawTotal := 0
-	for _, s := range strs {
-		rawTotal += len(s)
-	}
-
 	// A pre-trained dictionary (FSSTDict.Marshal) skips the per-batch training,
 	// which is the dominant FSST encode cost; otherwise train on this column.
 	tbl := e.fsstDict
@@ -81,7 +76,9 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 		size += uvarintLen(uint64(cl)) + cl
 	}
 	// Never-larger baseline: raw per-value bytes + one framing byte each.
-	if size >= rawTotal+n {
+	// decompTotal is the sum of len(s) over strs (accumulated in the encode
+	// loop above), identical to a separate raw-total pass.
+	if size >= decompTotal+n {
 		return false
 	}
 

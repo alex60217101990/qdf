@@ -15,8 +15,13 @@ import (
 // slice (whose len/cap words are non-pointer) follows, and the non-pointer
 // scalars (schemaFP/keyOff) plus the 1-byte tails trail.
 type typeDesc struct {
-	rType   reflect.Type
-	elem    *typeDesc     // slice/array/map-value/ptr
+	rType reflect.Type
+	elem  *typeDesc // slice/array/map-value/ptr
+	// fpElem is the element descriptor for a primitive-slice fast-path type
+	// (installSliceFastPath leaves elem nil so hashDesc/schemaFP stay unchanged
+	// and delta patches keep their on-wire schema fingerprint). fpHash reads it
+	// instead of re-resolving via descOf (a sync.Map load) on every call.
+	fpElem  *typeDesc
 	colPlan *columnarPlan // non-nil on a []struct whose element is columnar-eligible
 
 	// encode is the specialized encoder for this type. It receives a pointer
@@ -278,6 +283,12 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		} else if enc, dec, ok := installSliceFastPath(t); ok {
 			td.encode = enc
 			td.decode = dec
+			// Resolve the element descriptor for fpHash's value-fingerprint fast
+			// path WITHOUT touching td.elem (which hashDesc folds into the
+			// on-wire schemaFP). Non-fatal: fpHash falls back to descOf if nil.
+			if el, e := descBuild(t.Elem(), ctx); e == nil {
+				td.fpElem = el
+			}
 		} else {
 			elem, err := descBuild(t.Elem(), ctx)
 			if err != nil {

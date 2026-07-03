@@ -342,6 +342,9 @@ func fpHash(h *maphash.Hash, td *typeDesc, p unsafe.Pointer, depth int) {
 		}
 		elem := td.elem
 		if elem == nil {
+			elem = td.fpElem // primitive-slice fast path: resolved at build
+		}
+		if elem == nil {
 			elem, _ = descOf(td.rType.Elem())
 		}
 		stride := td.rType.Elem().Size()

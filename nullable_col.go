@@ -658,48 +658,53 @@ func (d *Decoder) decodeNullableColumnAny(kind colKind, n int) ([]any, error) {
 			}
 		}
 	}
+	// POD dense sub-columns decode into the pooled d.state scratch (like
+	// decodeColumnVals): the values are boxed into out by value inside scatter,
+	// so reusing the backing across calls carries no aliasing hazard. String
+	// and time stay on their own materialization paths.
+	st := d.state
 	switch kind.base() {
 	case colKindInt:
-		var s []int64
-		if err := decodeSliceInt64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
 			return nil, err
 		}
+		s := st.colScratchI64
 		if len(s) != present {
 			return nil, ErrTypeMismatch
 		}
 		scatter(func(i, k int) { out[i] = s[k] })
 	case colKindUint:
-		var s []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return nil, err
 		}
+		s := st.colScratchU64
 		if len(s) != present {
 			return nil, ErrTypeMismatch
 		}
 		scatter(func(i, k int) { out[i] = s[k] })
 	case colKindFloat32:
-		var s []uint64
-		if err := decodeSliceUint64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return nil, err
 		}
+		s := st.colScratchU64
 		if len(s) != present {
 			return nil, ErrTypeMismatch
 		}
 		scatter(func(i, k int) { out[i] = math.Float32frombits(uint32(s[k])) })
 	case colKindFloat:
-		var s []float64
-		if err := decodeSliceFloat64(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceFloat64Into(d, &st.colScratchF64); err != nil {
 			return nil, err
 		}
+		s := st.colScratchF64
 		if len(s) != present {
 			return nil, ErrTypeMismatch
 		}
 		scatter(func(i, k int) { out[i] = s[k] })
 	case colKindBool:
-		var s []bool
-		if err := decodeSliceBool(d, unsafe.Pointer(&s)); err != nil {
+		if err := decodeSliceBoolInto(d, &st.colScratchBool); err != nil {
 			return nil, err
 		}
+		s := st.colScratchBool
 		if len(s) != present {
 			return nil, ErrTypeMismatch
 		}
