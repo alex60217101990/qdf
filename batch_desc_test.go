@@ -80,7 +80,7 @@ type bpEmbSkipInner struct {
 
 type bpEmbSkip struct {
 	bpEmbSkipInner `qdf:"-"`
-	Y int64 `qdf:"y"`
+	Y              int64 `qdf:"y"`
 }
 
 // TestBatchPlanEmbeddedSkipTag: a `qdf:"-"` tag on an anonymous embedded
