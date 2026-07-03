@@ -34,19 +34,35 @@ type Batch[T any] struct {
 // scalars, qdf.Str, qdf.Bytes and qdf.Time fields (see batchPlanOf); string
 // bodies land in one pooled slab. Call Release when done to recycle the slab
 // and the Rows backing — afterwards Rows and every handle are invalid.
-func UnmarshalBatch[T any](data []byte, opts ...QueryOption) (*Batch[T], error) {
+//
+// Batch is returned BY VALUE (4 words: a slice header + a slab pointer): the
+// generic Batch[T] header itself cannot be pooled (its type is instantiated
+// per T), so the only way to avoid an allocation for it on every decode is to
+// never heap-allocate it in the first place. Returned by value it is built on
+// the caller's stack (or inlined into their struct); (*Batch[T]).Release
+// stays a pointer receiver so it can still nil out the fields of an
+// addressable local (`b, _ := UnmarshalBatch[T](...); defer b.Release()`).
+func UnmarshalBatch[T any](data []byte, opts ...QueryOption) (Batch[T], error) {
 	plan, err := batchPlanOf(reflect.TypeFor[T]())
 	if err != nil {
-		return nil, err
+		return Batch[T]{}, err
 	}
 	slab := newBatchSlab()
-	var rows []T
-	n, err := unmarshalBatchCore(data, plan, slab, unsafe.Pointer(&rows), opts...)
+	var rowsPtr unsafe.Pointer
+	takeRows := func(n int) unsafe.Pointer {
+		rowsPtr = slab.takeRows(n * int(plan.stride))
+		return rowsPtr
+	}
+	n, err := unmarshalBatchCore(data, plan, slab, takeRows, opts...)
 	if err != nil {
 		slab.release()
-		return nil, err
+		return Batch[T]{}, err
 	}
-	return &Batch[T]{Rows: rows[:n], slab: slab}, nil
+	var rows []T
+	if n > 0 {
+		rows = unsafe.Slice((*T)(rowsPtr), n)
+	}
+	return Batch[T]{Rows: rows, slab: slab}, nil
 }
 
 // Str resolves a string handle produced by this batch's decode.

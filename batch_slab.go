@@ -10,8 +10,9 @@ import (
 // survive growth (only base moves). Pooled: Release returns it for reuse and
 // bumps epoch so debug builds can catch stale handles.
 type batchSlab struct {
-	buf   []byte
-	epoch uint32
+	buf     []byte
+	rowsBuf []byte // rows backing (see takeRows); NOT part of buf, never grow-copied
+	epoch   uint32
 }
 
 const batchSlabInitCap = 4096
@@ -44,6 +45,35 @@ func (s *batchSlab) grow(n int) {
 		copy(nb, s.buf)
 		s.buf = nb
 	}
+}
+
+// takeRows returns a pointer to a ZEROED nbytes-long region backing the
+// caller's []T (the generic wrapper builds the view via unsafe.Slice). The
+// region is pooled ON THE SLAB across decodes: if the slab's previous rowsBuf
+// already has enough capacity it is resliced and cleared in place; otherwise
+// a fresh (already-zeroed) []byte is allocated. Zeroing on the reuse branch
+// matters for correctness, not just hygiene: wire fields the columnar/mirror
+// path never touches (schema evolution — a plan field absent from this
+// message) must read back as the zero value, exactly like a fresh make would
+// produce.
+//
+// GC-safety: rowsBuf is a []byte (noscan) reused as the backing store for
+// []T. This is only safe because T is validated pointer-free by batchPlanOf
+// (scalars, qdf.Str, qdf.Bytes, qdf.Time only) — the GC never needs to scan
+// it. The unsafe.Slice view the wrapper builds over this region must not
+// outlive Release: once the slab is pooled, the next decode may reslice and
+// overwrite rowsBuf in place (same contract as buf/handles).
+func (s *batchSlab) takeRows(nbytes int) unsafe.Pointer {
+	if nbytes == 0 {
+		return nil
+	}
+	if cap(s.rowsBuf) >= nbytes {
+		s.rowsBuf = s.rowsBuf[:nbytes]
+		clear(s.rowsBuf)
+	} else {
+		s.rowsBuf = make([]byte, nbytes)
+	}
+	return unsafe.Pointer(unsafe.SliceData(s.rowsBuf))
 }
 
 func (s *batchSlab) base() unsafe.Pointer {
