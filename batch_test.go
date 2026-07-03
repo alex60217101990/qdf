@@ -136,3 +136,32 @@ func TestUnmarshalBatchTruncated(t *testing.T) {
 		}()
 	}
 }
+
+// TestUnmarshalBatchZoneMapWire: OptZoneMap wraps int/uint/float columns in
+// zone-chunk blocks (tagZoneChunk) inside tagColStruct; the batch fast path
+// consumes them through the shared *Into readers, which dispatch that tag.
+// Guards option-interaction: batch result must equal the reference decode.
+func TestUnmarshalBatchZoneMapWire(t *testing.T) {
+	src := make([]batSrc, 600) // > zoneChunkMinLen rows -> zone-chunk eligible
+	for i := range src {
+		src[i] = batSrc{ID: int64(i), Name: "n", Val: float64(i)}
+	}
+	data, err := Marshal(src, OptBalanced|OptDense|OptShapeIntern|OptZoneMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := UnmarshalBatch[batDoc](data)
+	if err != nil {
+		t.Fatalf("batch decode of OptZoneMap wire: %v", err)
+	}
+	defer b.Release()
+	var ref []batSrc
+	if err := Unmarshal(data, &ref); err != nil {
+		t.Fatal(err)
+	}
+	for i := range ref {
+		if b.Rows[i].ID != ref[i].ID || b.Rows[i].Val != ref[i].Val {
+			t.Fatalf("row %d diverges from reference decode", i)
+		}
+	}
+}
