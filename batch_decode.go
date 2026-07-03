@@ -136,8 +136,7 @@ func batchCopyRows(plan *batchPlan, slab *batchSlab, mirrorPtr, rowsBase unsafe.
 				t := *(*time.Time)(sf)
 				*(*Time)(df) = Time{Sec: t.Unix(), Nsec: uint32(t.Nanosecond())}
 			default: // bfScalar
-				scalarSize := scalarKindSize(f.scalarKind)
-				copy(unsafe.Slice((*byte)(df), scalarSize), unsafe.Slice((*byte)(sf), scalarSize))
+				copy(unsafe.Slice((*byte)(df), f.width), unsafe.Slice((*byte)(sf), f.width))
 			}
 		}
 	}
@@ -488,9 +487,25 @@ func scatterBatchScalar(d *Decoder, base unsafe.Pointer, stride, off uintptr, sk
 		if len(s) != n {
 			return ErrTypeMismatch
 		}
-		w := scalarKindSize(sk)
-		for i := range n {
-			storeIntWidth(unsafe.Add(base, uintptr(i)*stride+off), w, s[i])
+		// Width-specialized loops: hoisting the switch out of the per-element
+		// path removes a branch+call per cell (the column's width never varies).
+		switch w := scalarKindSize(sk); w {
+		case 1: // int8
+			for i := range n {
+				*(*int8)(unsafe.Add(base, uintptr(i)*stride+off)) = int8(s[i])
+			}
+		case 2: // int16
+			for i := range n {
+				*(*int16)(unsafe.Add(base, uintptr(i)*stride+off)) = int16(s[i])
+			}
+		case 4: // int32
+			for i := range n {
+				*(*int32)(unsafe.Add(base, uintptr(i)*stride+off)) = int32(s[i])
+			}
+		default: // 8: int, int64
+			for i := range n {
+				*(*int64)(unsafe.Add(base, uintptr(i)*stride+off)) = s[i]
+			}
 		}
 	case colKindUint:
 		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
@@ -500,9 +515,23 @@ func scatterBatchScalar(d *Decoder, base unsafe.Pointer, stride, off uintptr, sk
 		if len(s) != n {
 			return ErrTypeMismatch
 		}
-		w := scalarKindSize(sk)
-		for i := range n {
-			storeUintWidth(unsafe.Add(base, uintptr(i)*stride+off), w, s[i])
+		switch w := scalarKindSize(sk); w {
+		case 1: // uint8/byte
+			for i := range n {
+				*(*uint8)(unsafe.Add(base, uintptr(i)*stride+off)) = uint8(s[i])
+			}
+		case 2: // uint16
+			for i := range n {
+				*(*uint16)(unsafe.Add(base, uintptr(i)*stride+off)) = uint16(s[i])
+			}
+		case 4: // uint32
+			for i := range n {
+				*(*uint32)(unsafe.Add(base, uintptr(i)*stride+off)) = uint32(s[i])
+			}
+		default: // 8: uint, uint64, uintptr
+			for i := range n {
+				*(*uint64)(unsafe.Add(base, uintptr(i)*stride+off)) = s[i]
+			}
 		}
 	case colKindFloat:
 		if err := decodeSliceFloat64Into(d, &st.colScratchF64); err != nil {
@@ -541,39 +570,6 @@ func scatterBatchScalar(d *Decoder, base unsafe.Pointer, stride, off uintptr, sk
 		return ErrTypeMismatch
 	}
 	return nil
-}
-
-// storeIntWidth / storeUintWidth write a decoded 64-bit column value into a
-// struct field of the given byte width w (= field.Type.Size(), the same
-// dispatch scatterColI64/scatterColU64 in columnar.go use). The switch is on
-// the field's size in BYTES, not a wire tag.
-//
-//go:nosplit
-func storeIntWidth(p unsafe.Pointer, w uintptr, v int64) {
-	switch w {
-	case 1: // int8
-		*(*int8)(p) = int8(v)
-	case 2: // int16
-		*(*int16)(p) = int16(v)
-	case 4: // int32
-		*(*int32)(p) = int32(v)
-	default: // 8: int, int64
-		*(*int64)(p) = v
-	}
-}
-
-//go:nosplit
-func storeUintWidth(p unsafe.Pointer, w uintptr, v uint64) {
-	switch w {
-	case 1: // uint8/byte
-		*(*uint8)(p) = uint8(v)
-	case 2: // uint16
-		*(*uint16)(p) = uint16(v)
-	case 4: // uint32 (also float32 bit patterns)
-		*(*uint32)(p) = uint32(v)
-	default: // 8: uint, uint64, uintptr, float64 bits
-		*(*uint64)(p) = v
-	}
 }
 
 // strHandleScratchPool pools []Str backing arrays so per-column handle scatter

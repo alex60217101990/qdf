@@ -32,6 +32,9 @@ func FuzzUnmarshalBatch(f *testing.F) {
 			return
 		}
 		for i := range b.Rows {
+			// NOT dead code: resolving every handle is the fuzz oracle — under
+			// -race / -tags qdfdebug the slab resolve bounds-checks the handle
+			// and panics on any out-of-slab offset a hostile wire produced.
 			_ = b.Str(b.Rows[i].Name)
 			_ = b.TimeOf(b.Rows[i].At)
 		}
