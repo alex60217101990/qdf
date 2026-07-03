@@ -165,3 +165,44 @@ func TestUnmarshalBatchZoneMapWire(t *testing.T) {
 		}
 	}
 }
+
+// batNarrow exercises every scalar width the batch scatter dispatches on
+// (storeIntWidth/storeUintWidth cases 1/2/4/8, float32, bool) — the committed
+// fixtures above only cover int64/float64, so a width-dispatch regression
+// would otherwise go undetected.
+type batNarrow struct {
+	I8  int8    `qdf:"i8"`
+	I16 int16   `qdf:"i16"`
+	I32 int32   `qdf:"i32"`
+	U8  uint8   `qdf:"u8"`
+	U16 uint16  `qdf:"u16"`
+	U32 uint32  `qdf:"u32"`
+	F32 float32 `qdf:"f32"`
+	OK  bool    `qdf:"ok"`
+	I64 int64   `qdf:"i64"`
+}
+
+func TestUnmarshalBatchNarrowWidths(t *testing.T) {
+	src := make([]batNarrow, 64) // columnar-eligible
+	for i := range src {
+		src[i] = batNarrow{
+			I8: int8(i - 32), I16: int16(i * 100), I32: int32(i * 100_000),
+			U8: uint8(i), U16: uint16(i * 200), U32: uint32(i * 1_000_000),
+			F32: float32(i) * 0.5, OK: i%3 == 0, I64: int64(i) << 40,
+		}
+	}
+	data, err := Marshal(src, OptBalanced|OptDense|OptShapeIntern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := UnmarshalBatch[batNarrow](data)
+	if err != nil {
+		t.Fatalf("batch: %v", err)
+	}
+	defer b.Release()
+	for i := range src {
+		if b.Rows[i] != src[i] {
+			t.Fatalf("row %d: %+v != %+v", i, b.Rows[i], src[i])
+		}
+	}
+}
