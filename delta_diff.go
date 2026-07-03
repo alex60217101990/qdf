@@ -320,7 +320,9 @@ func diffElemsPositional(enc *Encoder, elem *typeDesc, stride uintptr,
 	// (resolved by diffSlice/diffArray); guard defensively against an unresolved
 	// descriptor.
 	pod := elem != nil && elem.pod
-	var entries []int
+	// The appended tail [minLen,newLen) is always emitted, so reserve at least
+	// that many up front; byte-identical, saves a realloc round on growth.
+	entries := make([]int, 0, newLen-minLen)
 	for i := range minLen {
 		oP := unsafe.Add(oldData, uintptr(i)*stride)
 		nP := unsafe.Add(newData, uintptr(i)*stride)

@@ -651,6 +651,8 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 					valBytes += 4
 				case colKindBool:
 					valBytes++
+				case colKindTime:
+					valBytes += 12 // 8-byte sec + up to 4-byte nsec, matches the non-nullable time estimate
 				}
 			}
 			rowBytes += sample + valBytes
@@ -2302,14 +2304,25 @@ func decodeColumnarAny(d *Decoder) (any, error) {
 		// dropped rather than boxed into the row maps.
 		store := want
 		if sh.kinds[c].isNullable() {
+			if !store {
+				// Skip path: consume the mask + dense body to keep the cursor in
+				// sync without boxing every present value into []any just to drop
+				// it (mirrors the no-box skip in skipColumnValue).
+				_, present, err := d.readNullableMask(n)
+				if err != nil {
+					return nil, err
+				}
+				if err := d.skipColumnValue(sh.kinds[c].base(), present); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			vals, err := d.decodeNullableColumnAny(sh.kinds[c], n)
 			if err != nil {
 				return nil, err
 			}
-			if store {
-				for i := range n {
-					out[i].(map[string]any)[name] = vals[i]
-				}
+			for i := range n {
+				out[i].(map[string]any)[name] = vals[i]
 			}
 			continue
 		}

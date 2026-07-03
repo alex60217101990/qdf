@@ -134,7 +134,13 @@ func batchCopyRows(plan *batchPlan, slab *batchSlab, mirrorPtr, rowsBase unsafe.
 				*(*Bytes)(df) = Bytes{off: off, len: ln}
 			case bfTime:
 				t := *(*time.Time)(sf)
-				*(*Time)(df) = Time{Sec: t.Unix(), Nsec: uint32(t.Nanosecond())}
+				// A schema-absent time field decodes to Go's zero time.Time;
+				// converting it would write a large-negative Sec, diverging from
+				// the columnar fast path (which leaves the zeroed rows region as
+				// Time{0,0}). Guard the zero case so both paths agree.
+				if !t.IsZero() {
+					*(*Time)(df) = Time{Sec: t.Unix(), Nsec: uint32(t.Nanosecond())}
+				}
 			default: // bfScalar
 				copy(unsafe.Slice((*byte)(df), f.width), unsafe.Slice((*byte)(sf), f.width))
 			}
