@@ -76,8 +76,8 @@ type mirrorSlot struct {
 var batchPlans sync.Map
 
 var (
-	strType    = reflect.TypeFor[Str]()
-	bytesType  = reflect.TypeFor[Bytes]()
+	strType   = reflect.TypeFor[Str]()
+	bytesType = reflect.TypeFor[Bytes]()
 	timeType2 = reflect.TypeFor[Time]()
 
 	mirrorStringType = reflect.TypeFor[string]()
