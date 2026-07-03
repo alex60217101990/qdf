@@ -6,8 +6,6 @@ import (
 	"sync"
 	"time"
 	"unsafe"
-
-	"github.com/alex60217101990/qdf/internal/reflectutil"
 )
 
 // errBatchNeedFallback is an internal sentinel: decodeBatchColumnar returns it
@@ -16,9 +14,16 @@ import (
 // ORIGINAL data through the reflect mirror fallback, which handles every wire.
 var errBatchNeedFallback = errors.New("qdf: batch columnar fallback")
 
-// unmarshalBatchCore decodes data into rowsOut (a *[]T, viewed generically:
+// unmarshalBatchCore decodes data into a T-rows region obtained from rows(n):
 // the core never names T, all row writes go through unsafe offsets computed
-// from plan.stride/plan.fields).
+// from plan.stride/plan.fields. rows is a closure over
+// (*batchSlab).takeRows(n*plan.stride) supplied by the generic wrapper —
+// the core learns n internally (from the columnar header, or from the
+// mirror slice length) and calls rows(n) exactly once to get the backing
+// pointer, which the wrapper then wraps into []T via unsafe.Slice. This
+// keeps the pooled-rows-backing decision (takeRows) out of the core (which
+// cannot name T) while letting both decode paths hand it their own
+// early-known n.
 //
 // Fast path: a pure columnar container (tagColStruct) is decoded straight
 // into the T rows + slab by decodeBatchColumnar — no mirror, no per-row
@@ -33,12 +38,11 @@ var errBatchNeedFallback = errors.New("qdf: batch columnar fallback")
 // normal decoder needs no new wire logic. Then one copy pass per row scatters
 // each mirror row into a T row (memmove of scalar bytes) plus the slab
 // (string/bytes bodies, rewritten as Str/Bytes handles) and converts qdf.Time.
-// unmarshalBatchCore decodes data into rows. The opts parameter is reserved:
-// arena/noCopy are deliberately inert here — the slab supersedes both (it owns
-// every byte a handle points into), and no current QueryOption applies. Kept
-// in the signature so the public UnmarshalBatch contract does not change when
-// a batch-relevant option lands.
-func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rowsOut unsafe.Pointer, _ ...QueryOption) (int, error) {
+// The opts parameter is reserved: arena/noCopy are deliberately inert here —
+// the slab supersedes both (it owns every byte a handle points into), and no
+// current QueryOption applies. Kept in the signature so the public
+// UnmarshalBatch contract does not change when a batch-relevant option lands.
+func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer, _ ...QueryOption) (int, error) {
 
 	// --- Columnar fast path -------------------------------------------------
 	// Attempt a pure-columnar decode on a pooled decoder. On success the T
@@ -46,7 +50,7 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rowsOut u
 	// non-columnar wire) drop through to the mirror path, which re-decodes the
 	// ORIGINAL data from scratch (so a rANS-wrapped or hybrid payload is parsed
 	// cleanly regardless of how far the attempt advanced).
-	if n, ok, err := tryDecodeBatchColumnar(data, plan, slab, rowsOut); ok {
+	if n, ok, err := tryDecodeBatchColumnar(data, plan, slab, rows); ok {
 		return n, err
 	}
 
@@ -62,7 +66,7 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rowsOut u
 
 	n := mv.Len()
 	if n == 0 {
-		*(*sliceHeader)(rowsOut) = sliceHeader{}
+		rows(0)
 		return 0, nil
 	}
 
@@ -87,10 +91,9 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rowsOut u
 	}
 	slab.grow(need)
 
-	reflectutil.MakeSlice(reflect.SliceOf(plan.rt), n, rowsOut)
-	rows := reflectutil.SliceData(reflect.SliceOf(plan.rt), rowsOut)
+	rowsBase := rows(n)
 
-	batchCopyRows(plan, slab, mirrorBase, rows, n)
+	batchCopyRows(plan, slab, mirrorBase, rowsBase, n)
 
 	return n, nil
 }
@@ -151,7 +154,7 @@ func scalarKindSize(k reflect.Kind) uintptr {
 // ok=false to signal "not the fast path, use the mirror fallback": for a
 // non-columnar tag, a header/peek error, or the errBatchNeedFallback sentinel.
 // A real decode error (ok=true, err!=nil) is surfaced to the caller.
-func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rowsOut unsafe.Pointer) (n int, ok bool, err error) {
+func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer) (n int, ok bool, err error) {
 	d := decPool.Get().(*Decoder)
 	d.buf = data
 	d.i = 0
@@ -185,7 +188,7 @@ func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rowsO
 	if perr != nil || tag != tagColStruct {
 		return 0, false, nil // non-columnar wire → mirror fallback
 	}
-	n, derr := decodeBatchColumnar(d, plan, slab, rowsOut)
+	n, derr := decodeBatchColumnar(d, plan, slab, rows)
 	if derr != nil {
 		if errors.Is(derr, errBatchNeedFallback) {
 			return 0, false, nil // nullable column → mirror fallback re-decodes original
@@ -196,17 +199,18 @@ func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rowsO
 }
 
 // decodeBatchColumnar decodes a pure columnar (tagColStruct) payload straight
-// into the T rows (rowsOut, a *[]T) plus the slab, with no reflect mirror and
-// no per-row string allocation. It mirrors decodeColumnar's reading discipline
-// (readColShape bounds, colMaxLen, checkColumnarBytes, per-kind dispatch) but
-// scatters into batch fields via unsafe offsets and materializes string bodies
-// into the slab as Str/Bytes handles.
+// into the T rows (obtained from rows(n), see unmarshalBatchCore) plus the
+// slab, with no reflect mirror and no per-row string allocation. It mirrors
+// decodeColumnar's reading discipline (readColShape bounds, colMaxLen,
+// checkColumnarBytes, per-kind dispatch) but scatters into batch fields via
+// unsafe offsets and materializes string bodies into the slab as Str/Bytes
+// handles.
 //
 // A nullable wire column is out of scope in v1 (a pointer-free T cannot map
 // one anyway): the shape is validated up front and, if any column is nullable,
 // errBatchNeedFallback is returned BEFORE any column body is consumed so the
 // caller can cleanly re-decode via the mirror path.
-func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rowsOut unsafe.Pointer) (int, error) {
+func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer) (int, error) {
 	cs, err := d.readColShape(0)
 	if err != nil {
 		return 0, err
@@ -231,19 +235,17 @@ func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rowsOut u
 		return 0, err
 	}
 
-	// Allocate the T rows. T is guaranteed pointer-free (batchPlanOf rejects any
-	// pointer/handle-carrying field), so a plain noscan []byte block is a valid
-	// backing for []T: the GC never scans it and the sliceHeader.Data keeps it
-	// alive. This is one alloc with no reflect boxing (vs the mirror path's
-	// reflect.MakeSlice + SliceData), which the columnar fast path needs to stay
-	// inside its handful-of-allocs budget.
+	// Obtain the T rows backing via the wrapper's takeRows closure. T is
+	// guaranteed pointer-free (batchPlanOf rejects any pointer/handle-carrying
+	// field), so a plain noscan []byte region is a valid backing for []T: the
+	// GC never scans it. Steady-state (slab reused across decodes) this is a
+	// cap-reuse + clear, not an allocation — the columnar fast path needs to
+	// stay inside its handful-of-allocs budget.
 	if n == 0 {
-		*(*sliceHeader)(rowsOut) = sliceHeader{}
+		rows(0)
 		return 0, nil
 	}
-	backing := make([]byte, n*int(plan.stride))
-	base := unsafe.Pointer(unsafe.SliceData(backing))
-	*(*sliceHeader)(rowsOut) = sliceHeader{Data: base, Len: n, Cap: n}
+	base := rows(n)
 
 	for c := range sh.kinds {
 		f := batchFieldByName(plan, sh.names[c])
