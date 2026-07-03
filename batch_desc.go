@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 // batchFieldKind classifies how a batchField's bytes are interpreted when
@@ -48,10 +49,22 @@ type batchPlan struct {
 	mirror    reflect.Type
 	mirrorOff []uintptr // parallel to fields: byte offset within mirror
 
-	// mirrorSlicePtr pools *[]mirror values (via reflect.New(SliceOf(mirror)))
-	// so repeated UnmarshalBatch calls for the same T don't reallocate the
-	// reflect.Value machinery every call.
+	// mirrorSlicePtr pools *mirrorSlot values so repeated UnmarshalBatch calls
+	// for the same T neither reallocate the *[]mirror box nor touch
+	// reflect.Value on the hot path (the slot caches the raw slice-header
+	// pointer alongside the any box Unmarshal needs).
 	mirrorSlicePtr sync.Pool
+}
+
+// mirrorSlot pairs the pooled *[]mirror box (handed to Unmarshal as any) with
+// its raw pointer, so the fallback path reads/writes the slice header directly
+// through *sliceHeader instead of reflect.ValueOf(...).Elem()/Index/UnsafeAddr
+// per decode. reflect.New runs only in the pool's New (cold, amortized); the
+// hot path is reflection-free, which also keeps it neutral across the
+// qdf_reflect2 build-tag split (no runtime reflect.Value in either mode).
+type mirrorSlot struct {
+	box any            // *[]mirror — the Unmarshal target
+	ptr unsafe.Pointer // same value as a raw pointer to the slice header
 }
 
 // batchPlans caches reflect.Type -> *batchPlan (success) or error (failure),
@@ -109,8 +122,10 @@ func buildBatchMirror(p *batchPlan) error {
 	for i := range p.fields {
 		p.mirrorOff[i] = mirror.Field(i).Offset
 	}
+	sliceT := reflect.SliceOf(mirror)
 	p.mirrorSlicePtr.New = func() any {
-		return reflect.New(reflect.SliceOf(mirror)).Interface()
+		rv := reflect.New(sliceT)
+		return &mirrorSlot{box: rv.Interface(), ptr: unsafe.Pointer(rv.Pointer())}
 	}
 	return nil
 }

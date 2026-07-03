@@ -1,7 +1,9 @@
 package qdf
 
 import (
+	"encoding/binary"
 	"errors"
+	"math"
 	"reflect"
 	"sync"
 	"time"
@@ -54,23 +56,26 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func
 		return n, err
 	}
 
-	mirrorPtr := plan.mirrorSlicePtr.Get()
-	defer plan.mirrorSlicePtr.Put(mirrorPtr)
+	slot := plan.mirrorSlicePtr.Get().(*mirrorSlot)
+	defer plan.mirrorSlicePtr.Put(slot)
 
-	mv := reflect.ValueOf(mirrorPtr).Elem()
-	mv.SetLen(0)
+	// Direct slice-header access instead of reflect.ValueOf/Elem/Index — the
+	// slot caches the raw pointer, so the hot path is reflection-free (and
+	// therefore identical under both reflect and qdf_reflect2 builds).
+	hdr := (*sliceHeader)(slot.ptr)
+	hdr.Len = 0
 
-	if err := Unmarshal(data, mirrorPtr); err != nil {
+	if err := Unmarshal(data, slot.box); err != nil {
 		return 0, err
 	}
 
-	n := mv.Len()
+	n := hdr.Len
 	if n == 0 {
 		rows(0)
 		return 0, nil
 	}
 
-	mirrorBase := unsafe.Pointer(mv.Index(0).UnsafeAddr())
+	mirrorBase := hdr.Data
 	mirrorStride := plan.mirror.Size()
 
 	// Sum string/bytes body lengths up front so the slab grows exactly once
@@ -211,19 +216,18 @@ func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rows 
 // errBatchNeedFallback is returned BEFORE any column body is consumed so the
 // caller can cleanly re-decode via the mirror path.
 func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer) (int, error) {
-	cs, err := d.readColShape(0)
+	n, nCols, colLens, err := batchReadColShape(d, plan, slab)
 	if err != nil {
 		return 0, err
 	}
-	n := cs.n
-	sh := cs.sh
-	colLens := cs.colLens
 
 	// Validate the shape up front: any nullable column bails to the mirror
 	// fallback before we consume a single column body (partial consumption is
 	// harmless — the caller re-decodes the original data from scratch).
-	for c := range sh.kinds {
-		if sh.kinds[c].isNullable() {
+	kinds := slab.shapeKinds[:nCols]
+	fidx := slab.shapeFidx[:nCols]
+	for c := range kinds {
+		if kinds[c].isNullable() {
 			return 0, errBatchNeedFallback
 		}
 	}
@@ -247,9 +251,8 @@ func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rows func
 	}
 	base := rows(n)
 
-	for c := range sh.kinds {
-		f := batchFieldByName(plan, sh.names[c])
-		if f == nil {
+	for c := range kinds {
+		if fidx[c] < 0 {
 			// Column present on the wire but not in the plan → skip its body
 			// (forward compat). With no colIndex we must fully decode it to
 			// keep the cursor in sync; with an index we can seek past it.
@@ -260,12 +263,13 @@ func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rows func
 				d.i += int(colLens[c])
 				continue
 			}
-			if err := d.skipColumnValue(sh.kinds[c], n); err != nil {
+			if err := d.skipColumnValue(kinds[c], n); err != nil {
 				return 0, err
 			}
 			continue
 		}
-		if err := scatterBatchColumn(d, plan, slab, base, f, sh.kinds[c], n); err != nil {
+		f := &plan.fields[fidx[c]]
+		if err := scatterBatchColumn(d, plan, slab, base, f, kinds[c], n); err != nil {
 			return 0, err
 		}
 	}
@@ -274,15 +278,103 @@ func decodeBatchColumnar(d *Decoder, plan *batchPlan, slab *batchSlab, rows func
 	return n, nil
 }
 
-// batchFieldByName returns the plan field whose wire key equals name, or nil.
-// Linear scan over a small (<=64) field set — no map on the hot path.
-func batchFieldByName(plan *batchPlan, name string) *batchField {
-	for i := range plan.fields {
-		if plan.fields[i].name == name {
-			return &plan.fields[i]
+// batchReadColShape is the batch fast path's zero-alloc replacement for
+// readColShape's inline-declaration branch. The generic reader materializes
+// []string names + []colKind and registers the shape on the decoder state —
+// per-message allocations a batch decode pays on every independent payload.
+// Batch already knows every field name from the plan, so each wire column
+// name is matched as a raw []byte view (string compare against a []byte does
+// not allocate) and recorded as a plan-field index in slab scratch:
+// slab.shapeFidx[c] (or -1 when the column is not in the plan) and
+// slab.shapeKinds[c]. Reading discipline (bounds, MaxInt clauses, colIndex
+// lens) mirrors readColShape exactly.
+//
+// A shape REFERENCE (id != 0) cannot resolve here: the pooled decoder's state
+// is reset per batch decode and a single top-level columnar payload declares
+// its shape inline, so a reference is either hostile or a multi-block wire
+// this path does not handle — bail to the mirror fallback, which replays the
+// original bytes through the reference decoder.
+func batchReadColShape(d *Decoder, plan *batchPlan, slab *batchSlab) (n, nCols int, colLens []uint32, err error) {
+	d.i++ // consume tagColStruct (caller peeked it)
+	n64, k := readUvarint(d.buf[d.i:])
+	if k <= 0 {
+		return 0, 0, nil, ErrInvalidLength
+	}
+	d.i += k
+	n = int(n64)
+	if err := checkColumnarN(n); err != nil {
+		return 0, 0, nil, err
+	}
+	idv, k2 := readUvarint(d.buf[d.i:])
+	if k2 <= 0 {
+		return 0, 0, nil, ErrInvalidLength
+	}
+	if idv != 0 {
+		return 0, 0, nil, errBatchNeedFallback
+	}
+	d.i += k2
+	cnt64, k3 := readUvarint(d.buf[d.i:])
+	if k3 <= 0 {
+		return 0, 0, nil, ErrInvalidLength
+	}
+	d.i += k3
+	if cnt64 > uint64(math.MaxInt) { // 32-bit: int() would wrap negative
+		return 0, 0, nil, ErrInvalidLength
+	}
+	nCols = int(cnt64)
+	if err := d.CheckLength(nCols, 1); err != nil {
+		return 0, 0, nil, err
+	}
+	if cap(slab.shapeFidx) < nCols {
+		slab.shapeFidx = make([]int16, nCols)
+		slab.shapeKinds = make([]colKind, nCols)
+	}
+	fidx := slab.shapeFidx[:nCols]
+	kinds := slab.shapeKinds[:nCols]
+	slab.shapeFidx, slab.shapeKinds = fidx, kinds
+	for c := range nCols {
+		s, err := d.readStringBytes() // view into d.buf; matched, never kept
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		if d.i >= len(d.buf) {
+			return 0, 0, nil, ErrShortBuffer
+		}
+		kinds[c] = colKind(d.buf[d.i])
+		d.i++
+		fidx[c] = -1
+		for i := range plan.fields {
+			if plan.fields[i].name == string(s) { // no alloc: compare only
+				fidx[c] = int16(i)
+				break
+			}
 		}
 	}
-	return nil
+	// colIndex lens: same pooled read as readColShape.
+	if d.colIndex {
+		if d.i+4*nCols > len(d.buf) {
+			return 0, 0, nil, ErrShortBuffer
+		}
+		if d.state == nil {
+			d.state = newDecState()
+		}
+		if cap(d.state.colLenScratch) >= nCols {
+			colLens = d.state.colLenScratch[:nCols]
+		} else {
+			colLens = make([]uint32, nCols)
+		}
+		d.state.colLenScratch = colLens
+		var sum uint64
+		for c := range nCols {
+			colLens[c] = binary.LittleEndian.Uint32(d.buf[d.i+4*c:])
+			sum += uint64(colLens[c])
+		}
+		d.i += 4 * nCols
+		if sum > uint64(len(d.buf)-d.i) {
+			return 0, 0, nil, ErrShortBuffer
+		}
+	}
+	return n, nCols, colLens, nil
 }
 
 // scatterBatchColumn decodes one wire column of the given kind and scatters it

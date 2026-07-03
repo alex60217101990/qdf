@@ -43,9 +43,10 @@ func TestBatchSteadyStateZeroAlloc(t *testing.T) {
 		}
 		b.Release()
 	})
-	// Measured ~8 (see budget note above); the columnar fast path's inline
-	// per-message shape declaration is the floor, not rows/slab pooling.
-	if allocs > 10 {
-		t.Fatalf("steady-state allocs = %v, want <= 10 (rows/slab pooling regressed?)", allocs)
+	// Measured 2 after the zero-alloc shape reader (batchReadColShape matches
+	// column names against the plan as []byte views instead of materializing
+	// []string + per-name copies) plus pooled rows/slab. Allow slack of 1.
+	if allocs > 3 {
+		t.Fatalf("steady-state allocs = %v, want <= 3 (rows/slab/shape pooling regressed?)", allocs)
 	}
 }
