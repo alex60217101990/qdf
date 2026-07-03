@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"sync"
 	"unsafe"
 )
@@ -33,15 +34,27 @@ func newBatchSlab() *batchSlab {
 	return s
 }
 
+// maxBatchSlabBytes caps the slab so a Str/Bytes handle's uint32 offset can
+// never wrap: past 4 GiB `uint32(len(s.buf))` would silently truncate and
+// handles would resolve to the wrong bytes with no error (the debug bounds
+// check cannot catch a wrapped-but-in-range offset). Reaching the cap needs
+// a >4 GiB input payload — reject it like every other decode bound instead
+// of corrupting.
+const maxBatchSlabBytes = math.MaxUint32
+
 // append copies b into the slab and returns its (offset, length). The zero
 // handle (0,0) is reserved for the empty string: appends never return len 0.
-func (s *batchSlab) append(b []byte) (off, ln uint32) {
+// Errors when the slab would exceed maxBatchSlabBytes (uint32 handle space).
+func (s *batchSlab) append(b []byte) (off, ln uint32, err error) {
 	if len(b) == 0 {
-		return 0, 0
+		return 0, 0, nil
+	}
+	if uint64(len(s.buf))+uint64(len(b)) > maxBatchSlabBytes {
+		return 0, 0, ErrInvalidLength
 	}
 	off = uint32(len(s.buf))
 	s.buf = append(s.buf, b...)
-	return off, uint32(len(b))
+	return off, uint32(len(b)), nil
 }
 
 // grow reserves n more bytes of capacity up front (bulk paths).

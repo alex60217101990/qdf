@@ -206,3 +206,30 @@ func TestUnmarshalBatchNarrowWidths(t *testing.T) {
 		}
 	}
 }
+
+// TestUnmarshalBatchColIndexWire: an OptColumnIndex payload sets FlagColIndex
+// in the header; the batch shape reader then consumes the per-column length
+// table and uses index seeks to skip not-in-plan columns. Keeps the colIndex
+// branches of batchReadColShape/decodeBatchColumnar covered (a deep review
+// once mis-flagged them as dead — they are live via the header flag).
+func TestUnmarshalBatchColIndexWire(t *testing.T) {
+	src := mkBatSrc(64)
+	data, err := Marshal(src, OptBalanced|OptDense|OptShapeIntern|OptColumnIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := UnmarshalBatch[batDoc](data)
+	if err != nil {
+		t.Fatalf("colindex wire: %v", err)
+	}
+	defer b.Release()
+	var ref []batSrc
+	if err := Unmarshal(data, &ref); err != nil {
+		t.Fatal(err)
+	}
+	for i := range ref {
+		if b.Str(b.Rows[i].Name) != ref[i].Name || b.Rows[i].ID != ref[i].ID {
+			t.Fatalf("row %d diverges", i)
+		}
+	}
+}

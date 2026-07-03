@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 	"unsafe"
 )
 
@@ -79,8 +78,7 @@ var batchPlans sync.Map
 var (
 	strType    = reflect.TypeFor[Str]()
 	bytesType  = reflect.TypeFor[Bytes]()
-	timeType2  = reflect.TypeFor[Time]()
-	timeTimeRT = reflect.TypeFor[time.Time]()
+	timeType2 = reflect.TypeFor[Time]()
 
 	mirrorStringType = reflect.TypeFor[string]()
 	mirrorBytesType  = reflect.TypeFor[[]byte]()
@@ -107,7 +105,7 @@ func buildBatchMirror(p *batchPlan) error {
 		case bfBytes:
 			ft = mirrorBytesType
 		case bfTime:
-			ft = timeTimeRT
+			ft = timeType
 		default: // bfScalar
 			ft = scalarKindType(f.scalarKind)
 			if ft == nil {
@@ -256,7 +254,7 @@ func appendBatchFields(p *batchPlan, t reflect.Type, base uintptr, path string) 
 		// encoder — without this the plan's field set diverges from the wire.
 		if sf.Anonymous && sf.Type.Kind() == reflect.Struct &&
 			sf.Type != strType && sf.Type != bytesType && sf.Type != timeType2 &&
-			sf.Type != timeTimeRT &&
+			sf.Type != timeType &&
 			!reflect.PointerTo(sf.Type).Implements(reflect.TypeFor[Marshaler]()) &&
 			!reflect.PointerTo(sf.Type).Implements(reflect.TypeFor[Unmarshaler]()) {
 			if _, skip := wireFieldKey(sf); skip {
@@ -282,7 +280,7 @@ func appendBatchFields(p *batchPlan, t reflect.Type, base uintptr, path string) 
 			bf.kind = bfBytes
 		case timeType2:
 			bf.kind = bfTime
-		case timeTimeRT:
+		case timeType:
 			return fmt.Errorf("qdf: batch type: field %s is time.Time — use qdf.Time", fieldPath)
 		default:
 			switch k := sf.Type.Kind(); k {
@@ -344,7 +342,7 @@ func validateBatchElem(t reflect.Type, path string) error {
 	switch t {
 	case strType, bytesType, timeType2:
 		return nil
-	case timeTimeRT:
+	case timeType:
 		return fmt.Errorf("qdf: batch type: field %s is time.Time — use qdf.Time", path)
 	}
 	switch k := t.Kind(); k {

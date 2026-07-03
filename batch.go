@@ -83,7 +83,9 @@ func (b *Batch[T]) Str(h Str) string {
 	return b.slab.str(h)
 }
 
-// BytesOf resolves a bytes handle. The view aliases the slab: valid until Release.
+// BytesOf resolves a bytes handle. The view aliases the slab: valid until
+// Release. An empty wire value resolves to nil (not a non-nil empty slice) —
+// the usual qdf empty-slice normalization.
 func (b *Batch[T]) BytesOf(h Bytes) []byte {
 	b.slab.checkEpoch(b.epoch)
 	return b.slab.bytes(h)
