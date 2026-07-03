@@ -26,8 +26,11 @@ type Time struct {
 // Batch is a pointer-free decode result: Rows carries handle/scalar structs
 // (GC never scans them), the slab owns every byte the handles reference.
 type Batch[T any] struct {
-	Rows []T
+	// Field order is GC-scan-tuned (fieldalignment): pointer-bearing fields
+	// lead so the scanned prefix is 16 bytes, not 32. Access is by name;
+	// declaration order is not part of the API.
 	slab *batchSlab
+	Rows []T
 	// epoch is the slab's generation at decode time, captured so debug/race
 	// builds can detect a handle resolved after Release (which bumps
 	// slab.epoch and returns the slab to the pool for reuse by an unrelated

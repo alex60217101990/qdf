@@ -59,7 +59,7 @@ func TestBatchPlanRejects(t *testing.T) {
 	}
 	type badTime struct {
 		T2 struct{ Sec int64 }
-		TT interface{}
+		TT any
 	}
 	if _, err := batchPlanOf(reflect.TypeFor[badTime]()); err == nil {
 		t.Fatal("interface field must be rejected")

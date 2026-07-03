@@ -123,7 +123,7 @@ func TestUnmarshalBatchTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for cut := 0; cut < len(data); cut++ {
+	for cut := range len(data) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

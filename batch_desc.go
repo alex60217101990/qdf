@@ -34,8 +34,9 @@ type batchField struct {
 // same wire field order the normal encoder uses for the equivalent struct
 // (flattened embedded, tag-named) — see appendBatchFields.
 type batchPlan struct {
+	// Pointer-bearing fields lead, scalars trail (fieldalignment: trims the
+	// GC-scanned prefix 128 -> 104 bytes). Constructed with named fields only.
 	rt     reflect.Type
-	stride uintptr
 	fields []batchField
 
 	// mirror is a runtime-built struct type with the same field names/tags
@@ -54,6 +55,9 @@ type batchPlan struct {
 	// reflect.Value on the hot path (the slot caches the raw slice-header
 	// pointer alongside the any box Unmarshal needs).
 	mirrorSlicePtr sync.Pool
+
+	// stride is rt.Size() — scalar tail (see the field-order note above).
+	stride uintptr
 }
 
 // mirrorSlot pairs the pooled *[]mirror box (handed to Unmarshal as any) with
@@ -237,8 +241,7 @@ func wireFieldKey(sf reflect.StructField) (string, bool) {
 // v1 — they complicate the columnar scatter. Flatten them (embed instead of
 // name) or drop them; this may be revisited in a later phase.
 func appendBatchFields(p *batchPlan, t reflect.Type, base uintptr, path string) error {
-	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
+	for sf := range t.Fields() {
 		fieldPath := sf.Name
 		if path != "" {
 			fieldPath = path + "." + sf.Name
@@ -321,8 +324,7 @@ func appendBatchFields(p *batchPlan, t reflect.Type, base uintptr, path string) 
 // the caller's error names the actual offending nested field
 // (e.g. "In.M") rather than the outer struct field.
 func validateBatchStruct(t reflect.Type, path string) error {
-	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
+	for sf := range t.Fields() {
 		fieldPath := path + "." + sf.Name
 		if !sf.IsExported() {
 			continue
