@@ -12,7 +12,13 @@ import (
 type batchSlab struct {
 	buf     []byte
 	rowsBuf []byte // rows backing (see takeRows); NOT part of buf, never grow-copied
-	epoch   uint32
+	// Shape scratch for the columnar fast path's zero-alloc shape reader
+	// (batchReadColShape): per wire column, the matched plan-field index (-1 =
+	// not in plan → skip) and the wire colKind. Reused across decodes with the
+	// slab; capacity-managed, never aliased past a decode.
+	shapeFidx  []int16
+	shapeKinds []colKind
+	epoch      uint32
 }
 
 const batchSlabInitCap = 4096
