@@ -38,7 +38,7 @@ whole backing array in O(1), regardless of row count. Every byte a handle
 refers to lives in one contiguous `[]byte` slab owned by the `Batch`, itself
 a single scannable allocation.
 
-![Left: []struct with strings, pointers scattered across the heap, GC scans every one. Right: Batch[T] rows with {offset,length} handles into one contiguous slab, zero pointers, GC skips the region.](../images/batch-handles-layout.svg)
+![Left: []struct with strings, pointers scattered across the heap, GC scans every one. Right: Batch[T] rows with {offset,length} handles into one contiguous slab, zero pointers, GC skips the region.](assets/batch-handles-layout.svg)
 
 This is the same "pointer-free result" idea noted in earlier decode-alloc
 research (offset-handles vs pointer-dense `[]Struct`) turned into a concrete,
@@ -67,8 +67,7 @@ Three separate claims, three separate benchmarks:
    wall-clock per `runtime.GC()` than holding the same data as
    `[]struct{...string...}`. (An earlier, unrelated probe — retained-bytes,
    not scan-time, different corpus — reported "5.2×"; that number measures a
-   different thing and is not this benchmark's result. See *Concerns* in the
-   task-7 report if you go looking for it.)
+   different thing and is not this benchmark's result.)
 2. **~1.8× faster decode**, not just parity: `10,967` vs `19,859` ns/op. This
    is not a scan-time effect — it is `Str` resolution being **lazy**. The
    handles path never materializes a Go string for a field you don't call
@@ -77,7 +76,7 @@ Three separate claims, three separate benchmarks:
    floor once the slab and rows backing are being recycled by their
    `sync.Pool`s — see *How it works* below.
 
-![Bar chart: GC scan time per cycle, 907 microseconds for held strings versus 233 microseconds for held handles, 3.89x reduction.](../images/batch-handles-gc.svg)
+![Bar chart: GC scan time per cycle, 907 microseconds for held strings versus 233 microseconds for held handles, 3.89x reduction.](assets/batch-handles-gc.svg)
 
 ---
 

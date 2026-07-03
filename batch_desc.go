@@ -22,8 +22,9 @@ const (
 // batchField describes one wire-visible field of a batch-eligible struct:
 // its wire key, byte offset within the struct, and how to interpret it.
 type batchField struct {
-	name       string // wire key
-	off        uintptr
+	name       string  // wire key
+	off        uintptr // byte offset within T
+	width      uintptr // scalar byte width (field.Type.Size()); valid when kind == bfScalar
 	kind       batchFieldKind
 	scalarKind reflect.Kind // valid when kind == bfScalar
 }
@@ -288,7 +289,7 @@ func appendBatchFields(p *batchPlan, t reflect.Type, base uintptr, path string) 
 				reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 				reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
 				reflect.Float32, reflect.Float64:
-				bf.kind, bf.scalarKind = bfScalar, k
+				bf.kind, bf.scalarKind, bf.width = bfScalar, k, sf.Type.Size()
 			case reflect.Struct:
 				// nested pointer-free struct: flatten is NOT applied to named
 				// (non-anonymous) fields on the wire; they are nested values.

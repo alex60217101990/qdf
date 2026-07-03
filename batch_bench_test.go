@@ -23,7 +23,7 @@ func BenchmarkBatchDecode(b *testing.B) {
 
 	b.Run("handles", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			bat, err := UnmarshalBatch[batDoc](data)
 			if err != nil {
 				b.Fatal(err)
@@ -34,7 +34,7 @@ func BenchmarkBatchDecode(b *testing.B) {
 
 	b.Run("strings", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			var out []batSrc
 			if err := Unmarshal(data, &out); err != nil {
 				b.Fatal(err)
@@ -47,7 +47,7 @@ func BenchmarkBatchDecode(b *testing.B) {
 // the shape a server request handler runs in once slab pools are warm. Gate:
 // steady-state allocs/op <= 2 (the value-return Batch[T] header build plus
 // the Rows slice header — both stack-resident in the caller in real use; the
-// benchmark's own escape to the interface{} b.N loop keeps the count small
+// benchmark's own escape to the benchmark loop keeps the count small
 // but nonzero).
 func BenchmarkBatchSteadyState(b *testing.B) {
 	src := mkBatSrc(benchBatchRows)
@@ -63,7 +63,7 @@ func BenchmarkBatchSteadyState(b *testing.B) {
 	warm.Release()
 
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		bat, err := UnmarshalBatch[batDoc](data)
 		if err != nil {
 			b.Fatal(err)
@@ -85,13 +85,16 @@ func BenchmarkBatchHeldGC(b *testing.B) {
 	b.Run("handles", func(b *testing.B) {
 		held := make([]Batch[batDoc], K)
 		for i := range held {
-			held[i], _ = UnmarshalBatch[batDoc](data)
+			var err error
+			if held[i], err = UnmarshalBatch[batDoc](data); err != nil {
+				b.Fatal(err)
+			}
 		}
-		b.ResetTimer()
-		for range b.N {
+		// b.Loop() excludes the setup above and the Release teardown below
+		// from the timed region — no manual Reset/StopTimer needed.
+		for b.Loop() {
 			runtime.GC()
 		}
-		b.StopTimer()
 		for i := range held {
 			held[i].Release()
 		}
@@ -99,10 +102,11 @@ func BenchmarkBatchHeldGC(b *testing.B) {
 	b.Run("strings", func(b *testing.B) {
 		held := make([][]batSrc, K)
 		for i := range held {
-			_ = Unmarshal(data, &held[i])
+			if err := Unmarshal(data, &held[i]); err != nil {
+				b.Fatal(err)
+			}
 		}
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			runtime.GC()
 		}
 		runtime.KeepAlive(held)

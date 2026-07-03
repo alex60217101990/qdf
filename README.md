@@ -818,7 +818,7 @@ is GC-noscan. See **[`docs/BATCH-HANDLES.md`](docs/BATCH-HANDLES.md)** for the
 full type-rules table, the columnar/mirror decode internals, and the memory
 layout below.
 
-<img src="images/batch-handles-layout.svg" alt="Pointer-dense []struct with strings vs pointer-free Batch[T] with a slab" width="560">
+<img src="docs/assets/batch-handles-layout.svg" alt="Pointer-dense []struct with strings vs pointer-free Batch[T] with a slab" width="560">
 
 ```go
 type Row struct {
