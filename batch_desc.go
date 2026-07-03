@@ -36,6 +36,22 @@ type batchPlan struct {
 	rt     reflect.Type
 	stride uintptr
 	fields []batchField
+
+	// mirror is a runtime-built struct type with the same field names/tags
+	// as rt, with handle types swapped back to their decodable wire
+	// counterparts: Str->string, Bytes->[]byte, Time->time.Time. Scalars are
+	// unchanged. The normal reflect-driven Unmarshal decodes into
+	// []mirror; the fallback copy pass (batch_decode.go) then scatters each
+	// mirror row into a T row plus slab bytes. Since batchPlanOf only
+	// accepts flat (non-nested) field sets, mirror's field offsets align
+	// 1:1 with plan.fields via mirrorOff.
+	mirror    reflect.Type
+	mirrorOff []uintptr // parallel to fields: byte offset within mirror
+
+	// mirrorSlicePtr pools *[]mirror values (via reflect.New(SliceOf(mirror)))
+	// so repeated UnmarshalBatch calls for the same T don't reallocate the
+	// reflect.Value machinery every call.
+	mirrorSlicePtr sync.Pool
 }
 
 // batchPlans caches reflect.Type -> *batchPlan (success) or error (failure),
@@ -48,7 +64,93 @@ var (
 	bytesType  = reflect.TypeFor[Bytes]()
 	timeType2  = reflect.TypeFor[Time]()
 	timeTimeRT = reflect.TypeFor[time.Time]()
+
+	mirrorStringType = reflect.TypeFor[string]()
+	mirrorBytesType  = reflect.TypeFor[[]byte]()
 )
+
+// buildBatchMirror builds p.mirror (a reflect.StructOf mirroring p.fields
+// with handle types swapped for their decodable counterparts) and
+// p.mirrorOff (each mirror field's byte offset, parallel to p.fields).
+//
+// Field names cannot reuse the source type's Go names: p.fields may combine
+// fields flattened from anonymous-embedded structs (see appendBatchFields),
+// so their original Go identifiers can collide or be unexported through the
+// embedding path. Instead each mirror field gets a synthetic exported name
+// (F0, F1, ...) carrying a `qdf:"<wire-name>"` tag — the same wire-key
+// resolution the normal decoder already applies, so the mirror decodes the
+// identical wire regardless of how T's fields were declared.
+func buildBatchMirror(p *batchPlan) error {
+	sf := make([]reflect.StructField, len(p.fields))
+	for i, f := range p.fields {
+		var ft reflect.Type
+		switch f.kind {
+		case bfStr:
+			ft = mirrorStringType
+		case bfBytes:
+			ft = mirrorBytesType
+		case bfTime:
+			ft = timeTimeRT
+		default: // bfScalar
+			ft = scalarKindType(f.scalarKind)
+			if ft == nil {
+				return fmt.Errorf("qdf: batch type %s: field %s: unsupported scalar kind %s", p.rt, f.name, f.scalarKind)
+			}
+		}
+		sf[i] = reflect.StructField{
+			Name: fmt.Sprintf("F%d", i),
+			Type: ft,
+			Tag:  reflect.StructTag(fmt.Sprintf(`qdf:%q`, f.name)),
+		}
+	}
+	mirror := reflect.StructOf(sf)
+	p.mirror = mirror
+	p.mirrorOff = make([]uintptr, len(p.fields))
+	for i := range p.fields {
+		p.mirrorOff[i] = mirror.Field(i).Offset
+	}
+	p.mirrorSlicePtr.New = func() any {
+		return reflect.New(reflect.SliceOf(mirror)).Interface()
+	}
+	return nil
+}
+
+// scalarKindType maps a reflect.Kind (as recorded in batchField.scalarKind)
+// back to its reflect.Type, for building the mirror struct's scalar fields.
+func scalarKindType(k reflect.Kind) reflect.Type {
+	switch k {
+	case reflect.Bool:
+		return reflect.TypeFor[bool]()
+	case reflect.Int:
+		return reflect.TypeFor[int]()
+	case reflect.Int8:
+		return reflect.TypeFor[int8]()
+	case reflect.Int16:
+		return reflect.TypeFor[int16]()
+	case reflect.Int32:
+		return reflect.TypeFor[int32]()
+	case reflect.Int64:
+		return reflect.TypeFor[int64]()
+	case reflect.Uint:
+		return reflect.TypeFor[uint]()
+	case reflect.Uint8:
+		return reflect.TypeFor[uint8]()
+	case reflect.Uint16:
+		return reflect.TypeFor[uint16]()
+	case reflect.Uint32:
+		return reflect.TypeFor[uint32]()
+	case reflect.Uint64:
+		return reflect.TypeFor[uint64]()
+	case reflect.Uintptr:
+		return reflect.TypeFor[uintptr]()
+	case reflect.Float32:
+		return reflect.TypeFor[float32]()
+	case reflect.Float64:
+		return reflect.TypeFor[float64]()
+	default:
+		return nil
+	}
+}
 
 // batchPlanOf returns the cached batchPlan for t, validating and building it
 // on first use. t must be a struct type that is entirely pointer-free:
@@ -69,6 +171,10 @@ func batchPlanOf(t reflect.Type) (*batchPlan, error) {
 		return nil, err
 	}
 	if err := appendBatchFields(p, t, 0, ""); err != nil {
+		batchPlans.Store(t, err)
+		return nil, err
+	}
+	if err := buildBatchMirror(p); err != nil {
 		batchPlans.Store(t, err)
 		return nil, err
 	}
