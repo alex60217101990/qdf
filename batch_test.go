@@ -113,3 +113,26 @@ func TestUnmarshalBatchRowMajor(t *testing.T) {
 		}
 	}
 }
+
+// TestUnmarshalBatchTruncated: every truncation of a valid columnar payload
+// must return an error, never panic (the bare tag index in
+// readStringColumnHandles panicked on truncated input before the guard).
+func TestUnmarshalBatchTruncated(t *testing.T) {
+	src := mkBatSrc(64)
+	data, err := Marshal(src, OptBalanced|OptDense|OptShapeIntern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for cut := 0; cut < len(data); cut++ {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic at truncation %d: %v", cut, r)
+				}
+			}()
+			if b, err := UnmarshalBatch[batDoc](data[:cut]); err == nil {
+				b.Release()
+			}
+		}()
+	}
+}

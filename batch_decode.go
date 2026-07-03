@@ -33,12 +33,12 @@ var errBatchNeedFallback = errors.New("qdf: batch columnar fallback")
 // normal decoder needs no new wire logic. Then one copy pass per row scatters
 // each mirror row into a T row (memmove of scalar bytes) plus the slab
 // (string/bytes bodies, rewritten as Str/Bytes handles) and converts qdf.Time.
-func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rowsOut unsafe.Pointer, opts ...QueryOption) (int, error) {
-	// opts: arena/noCopy are accepted but ignored — the slab supersedes both
-	// (it owns every byte a handle points into; there is nothing for an
-	// arena or a no-copy alias to usefully do here). No opts are forwarded
-	// to Unmarshal.
-	_ = opts
+// unmarshalBatchCore decodes data into rows. The opts parameter is reserved:
+// arena/noCopy are deliberately inert here — the slab supersedes both (it owns
+// every byte a handle points into), and no current QueryOption applies. Kept
+// in the signature so the public UnmarshalBatch contract does not change when
+// a batch-relevant option lands.
+func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rowsOut unsafe.Pointer, _ ...QueryOption) (int, error) {
 
 	// --- Columnar fast path -------------------------------------------------
 	// Attempt a pure-columnar decode on a pooled decoder. On success the T
@@ -508,6 +508,12 @@ func putPooledStrScratch(pool *sync.Pool, s []Str) {
 func readStringColumnHandles(d *Decoder, n int, slab *batchSlab, out []Str) error {
 	if n == 0 {
 		return nil
+	}
+	if d.i >= len(d.buf) {
+		// n > 0 with no bytes left: truncated/hostile input. Without this the
+		// bare tag index below panics — the reference decodeColumnInto guards
+		// every entry the same way (public API must error, never panic).
+		return ErrShortBuffer
 	}
 	tag := d.buf[d.i]
 	switch tag {
