@@ -433,16 +433,21 @@ func scatterBatchScalar(d *Decoder, base unsafe.Pointer, stride, off uintptr, sk
 	return nil
 }
 
+// storeIntWidth / storeUintWidth write a decoded 64-bit column value into a
+// struct field of the given byte width w (= field.Type.Size(), the same
+// dispatch scatterColI64/scatterColU64 in columnar.go use). The switch is on
+// the field's size in BYTES, not a wire tag.
+//
 //go:nosplit
 func storeIntWidth(p unsafe.Pointer, w uintptr, v int64) {
 	switch w {
-	case 1:
+	case 1: // int8
 		*(*int8)(p) = int8(v)
-	case 2:
+	case 2: // int16
 		*(*int16)(p) = int16(v)
-	case 4:
+	case 4: // int32
 		*(*int32)(p) = int32(v)
-	default:
+	default: // 8: int, int64
 		*(*int64)(p) = v
 	}
 }
@@ -450,13 +455,13 @@ func storeIntWidth(p unsafe.Pointer, w uintptr, v int64) {
 //go:nosplit
 func storeUintWidth(p unsafe.Pointer, w uintptr, v uint64) {
 	switch w {
-	case 1:
+	case 1: // uint8/byte
 		*(*uint8)(p) = uint8(v)
-	case 2:
+	case 2: // uint16
 		*(*uint16)(p) = uint16(v)
-	case 4:
+	case 4: // uint32 (also float32 bit patterns)
 		*(*uint32)(p) = uint32(v)
-	default:
+	default: // 8: uint, uint64, uintptr, float64 bits
 		*(*uint64)(p) = v
 	}
 }
