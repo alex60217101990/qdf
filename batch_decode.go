@@ -56,11 +56,11 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func
 		return n, err
 	}
 
-	// Row-major-direct fast path: detects a plain row-major struct-slice wire
-	// (an array header, as opposed to the tagColStruct/tagHybridColStruct
-	// container tags) but this skeleton always returns ok=false — the direct
-	// decode body ships in a follow-up change, so behavior here is unchanged
-	// (falls through to the mirror fallback below).
+	// Row-major-direct fast path: a plain row-major struct-slice wire (an array
+	// header, as opposed to the tagColStruct/tagHybridColStruct container tags)
+	// is decoded straight into the T rows + slab — no mirror, no per-row owned
+	// string. Any other wire (hybrid, batched-vector, tagNil, …) returns
+	// ok=false and drops through to the mirror fallback below.
 	if n, ok, err := tryDecodeBatchRowMajor(data, plan, slab, rows); ok {
 		return n, err
 	}
@@ -235,13 +235,25 @@ func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rows 
 // never array-header tags, so checking "is this an array-header tag" alone
 // is sufficient to rule them both out — no need to peek past the outer tag.
 //
-// This is presently a SKELETON: detection runs, but the function always
-// returns ok=false ("not this fast path, use the mirror fallback"), so
-// unmarshalBatchCore's behavior is unchanged. A follow-up change gives it a
-// direct decode body (mirroring decodeBatchColumnar's contract: ok=true on
-// success or hard error, ok=false only for a non-row-major wire).
+// On detection it decodes the array of per-row structs directly into the T
+// rows (obtained from rows(n)) plus the slab, with NO reflect mirror and NO
+// per-row owned-string allocation: each row is read via ReadStructHeader
+// (shape-interned or plain map) and every wire field is matched by name
+// against plan.fields and scattered through unsafe offsets, mirroring the
+// generated DecodeQDF discipline. String/bytes bodies alias the input buffer
+// (noCopy) and are copied once into the slab as Str/Bytes handles.
 //
-//nolint:unparam // plan/slab/rows are unused by this detection-only skeleton; a follow-up change adds the decode body that consumes them (signature is fixed now to match that body's contract).
+// Contract (same as tryDecodeBatchColumnar's real-decode branch):
+//   - ok=false, nil → not this fast path (non-array-header tag, or a peek
+//     error before any byte is consumed) → the caller's mirror fallback
+//     re-decodes the ORIGINAL data.
+//   - ok=true, nil → decoded successfully.
+//   - ok=true, err → a hard decode error AFTER the header was consumed. The
+//     cursor is spent, so the caller must NOT fall back to the mirror (that
+//     would double-decode); the error is surfaced. Every d.Read* error is
+//     propagated and a per-field wire/plan type mismatch surfaces as the
+//     value reader's ErrTypeMismatch — the outer array tag proves nothing
+//     about the element types, so nothing is scattered without validation.
 func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer) (n int, ok bool, err error) {
 	d := decPool.Get().(*Decoder)
 	d.buf = data
@@ -281,12 +293,199 @@ func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows 
 		return 0, false, nil // columnar / hybrid / tagNil / anything else → mirror fallback
 	}
 
-	// Detected a row-major struct-slice wire. plan/slab/rows are threaded
-	// through only for parity with tryDecodeBatchColumnar's signature — this
-	// skeleton proves detection compiles and the unmarshalBatchCore wiring is
-	// inert; a follow-up change adds the direct decode body that consumes
-	// them for real.
-	return 0, false, nil
+	// Detected a row-major struct-slice wire. From here every error is HANDLED
+	// (ok=true): ReadArrayHeader consumes the peeked array tag, so the cursor is
+	// spent and a mid-stream fall back to the mirror would double-decode.
+	n, err = d.ReadArrayHeader()
+	if err != nil {
+		return 0, true, err
+	}
+	// Bound the OUTPUT allocation like the columnar path: a hostile array count
+	// must not drive a huge rows(n) region. ReadArrayHeader already rejects a
+	// count over the remaining bytes (each element is a struct header >= 1
+	// byte); this additionally caps n*stride at maxColumnarBytes.
+	if err = checkColumnarBytes(n, plan.stride); err != nil {
+		return 0, true, err
+	}
+	if n == 0 {
+		rows(0)
+		return 0, true, nil
+	}
+	base := rows(n)
+
+	// Plan fields absent from a row keep their zero value: takeRows hands back
+	// a zeroed region, so a field never scattered stays Time{0,0}/0/"" — the
+	// same schema-evolution semantics as the columnar and mirror paths.
+	for i := range n {
+		rowDst := unsafe.Add(base, uintptr(i)*plan.stride)
+		names, plainN, shaped, herr := d.ReadStructHeader()
+		if herr != nil {
+			return 0, true, herr
+		}
+		if shaped {
+			// Shape-interned struct: values follow positionally in names order,
+			// no per-value key on the wire.
+			for _, name := range names {
+				nb := unsafe.Slice(unsafe.StringData(name), len(name))
+				if ferr := scatterBatchRowMajorField(d, plan, slab, rowDst, nb); ferr != nil {
+					return 0, true, ferr
+				}
+			}
+			continue
+		}
+		// Plain map: plainN (key, value) pairs. The key bytes alias the input;
+		// comparing them against a plan-field name (string(b) == name) does not
+		// allocate.
+		for range plainN {
+			kb, kerr := d.ReadStringBytes()
+			if kerr != nil {
+				return 0, true, kerr
+			}
+			if ferr := scatterBatchRowMajorField(d, plan, slab, rowDst, kb); ferr != nil {
+				return 0, true, ferr
+			}
+		}
+	}
+	return n, true, nil
+}
+
+// batchPlanFieldByName returns the plan field whose wire key equals name, or
+// nil when name is not a plan field (a forward-compat wire field to skip). The
+// name argument aliases the input buffer / an interned shape name; the
+// string(name) == f.name comparison is compiled to a zero-alloc byte compare.
+func batchPlanFieldByName(plan *batchPlan, name []byte) *batchField {
+	for i := range plan.fields {
+		if plan.fields[i].name == string(name) {
+			return &plan.fields[i]
+		}
+	}
+	return nil
+}
+
+// scatterBatchRowMajorField reads one wire field value for the row at rowDst,
+// matched by name against plan.fields, and scatters it through the field's
+// unsafe offset. An unmatched name is skipped (forward compat). Type safety is
+// enforced by the value reader: ReadInt/ReadUint/ReadFloat*/ReadBool/
+// ReadTimestamp/ReadString each return ErrTypeMismatch when the wire tag does
+// not match the field's expected kind, so a mismatched element cannot scatter
+// garbage — the outer array-header tag never implies the element types.
+func scatterBatchRowMajorField(d *Decoder, plan *batchPlan, slab *batchSlab, rowDst unsafe.Pointer, name []byte) error {
+	f := batchPlanFieldByName(plan, name)
+	if f == nil {
+		return d.Skip() // wire field not in plan → skip its single value
+	}
+	dst := unsafe.Add(rowDst, f.off)
+	switch f.kind {
+	case bfStr:
+		// noCopy → s aliases the input buffer; slab.append copies it (the sole
+		// owner), so the alias never escapes.
+		s, err := d.ReadString()
+		if err != nil {
+			return err
+		}
+		off, ln, err := slab.append(unsafe.Slice(unsafe.StringData(s), len(s)))
+		if err != nil {
+			return err
+		}
+		*(*Str)(dst) = Str{off: off, len: ln}
+	case bfBytes:
+		// A nil []byte encodes as tagNil (distinct from an empty bin); the mirror
+		// path (decodeBytes → decodeNilSlice) consumes it as a nil slice. Mirror
+		// that: consume the tag and leave the zeroed handle (BytesOf resolves
+		// Bytes{0,0} to nil), matching batchCopyRows which stores (0,0) for both
+		// a nil and an empty []byte.
+		t, terr := d.peekTag()
+		if terr != nil {
+			return terr
+		}
+		if t == tagNil {
+			d.i++
+			return nil
+		}
+		b, err := d.ReadBytes() // noCopy → aliases input; copied into the slab
+		if err != nil {
+			return err
+		}
+		off, ln, err := slab.append(b)
+		if err != nil {
+			return err
+		}
+		*(*Bytes)(dst) = Bytes{off: off, len: ln}
+	case bfTime:
+		// The wire carries sec/nsec directly (unlike the mirror path, which
+		// decodes a Go time.Time and must guard its zero value): a schema-absent
+		// time is never read here — it stays the zeroed Time{0,0} takeRows left,
+		// matching the columnar path.
+		sec, nsec, err := d.ReadTimestamp()
+		if err != nil {
+			return err
+		}
+		*(*Time)(dst) = Time{Sec: sec, Nsec: nsec}
+	default: // bfScalar
+		return scatterBatchRowMajorScalar(d, dst, f.scalarKind)
+	}
+	return nil
+}
+
+// scatterBatchRowMajorScalar reads one scalar value per the field's Go kind and
+// stores it width-narrowed at dst, reusing scatterBatchScalar's width-store
+// logic for a single value. The chosen reader validates the wire tag: a wire
+// value whose type does not match sk yields ErrTypeMismatch instead of a
+// silent reinterpretation of the bits.
+func scatterBatchRowMajorScalar(d *Decoder, dst unsafe.Pointer, sk reflect.Kind) error {
+	switch sk {
+	case reflect.Bool:
+		v, err := d.ReadBool()
+		if err != nil {
+			return err
+		}
+		*(*bool)(dst) = v
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v, err := d.ReadInt()
+		if err != nil {
+			return err
+		}
+		switch scalarKindSize(sk) {
+		case 1: // int8
+			*(*int8)(dst) = int8(v)
+		case 2: // int16
+			*(*int16)(dst) = int16(v)
+		case 4: // int32
+			*(*int32)(dst) = int32(v)
+		default: // 8: int, int64
+			*(*int64)(dst) = v
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		v, err := d.ReadUint()
+		if err != nil {
+			return err
+		}
+		switch scalarKindSize(sk) {
+		case 1: // uint8/byte
+			*(*uint8)(dst) = uint8(v)
+		case 2: // uint16
+			*(*uint16)(dst) = uint16(v)
+		case 4: // uint32
+			*(*uint32)(dst) = uint32(v)
+		default: // 8: uint, uint64, uintptr
+			*(*uint64)(dst) = v
+		}
+	case reflect.Float32:
+		v, err := d.ReadFloat32()
+		if err != nil {
+			return err
+		}
+		*(*float32)(dst) = v
+	case reflect.Float64:
+		v, err := d.ReadFloat64()
+		if err != nil {
+			return err
+		}
+		*(*float64)(dst) = v
+	default:
+		return ErrTypeMismatch
+	}
+	return nil
 }
 
 // decodeBatchColumnar decodes a pure columnar (tagColStruct) payload straight
