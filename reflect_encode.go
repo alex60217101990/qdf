@@ -1641,7 +1641,21 @@ func decodeAny(d *Decoder) (any, error) {
 		return decodeHybridColumnarAny(d)
 	case tagTimestamp:
 		sec, nsec, err := d.ReadTimestamp()
-		return time.Unix(sec, int64(nsec)).UTC(), err
+		if err != nil {
+			return nil, err
+		}
+		t := time.Unix(sec, int64(nsec)).UTC()
+		// The zero time.Time (unset time fields) repeats heavily in real data
+		// and boxes to a 24-byte heap value; share one immutable box for it.
+		// A single IsZero() branch — no table — so non-zero timestamps (the
+		// high-cardinality case) pay nothing.
+		if t.IsZero() && d.state != nil {
+			if d.state.zeroTimeBox == nil {
+				d.state.zeroTimeBox = t
+			}
+			return d.state.zeroTimeBox, nil
+		}
+		return t, nil
 	case tagPackBool:
 		// A bool slice encoded under OptQPack. Decode into a typed []bool.
 		var s []bool

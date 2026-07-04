@@ -1061,6 +1061,14 @@ type decState struct {
 	// Sharing an immutable boxed scalar across map/slice slots is safe.
 	boxValues []any
 
+	// zeroTimeBox caches the boxed `any` of the zero time.Time (the value
+	// unset time fields — DeletedAt, ExpiresAt, … — decode to en masse). It is
+	// a universal, immutable constant, so it is boxed once and shared across
+	// every occurrence AND across decodes on this pooled state (never reset):
+	// one alloc replaces N. decodeAny gates on time.IsZero(), a single cheap
+	// branch, so non-zero timestamps pay nothing.
+	zeroTimeBox any
+
 	// LRU mirror of encState's. Decoder maintains the same MTF chain
 	// the encoder did so tagStateMTF + rank resolves to the same ID.
 	// See encState.lruLink for the packing layout.
