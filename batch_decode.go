@@ -56,6 +56,15 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func
 		return n, err
 	}
 
+	// Row-major-direct fast path: detects a plain row-major struct-slice wire
+	// (an array header, as opposed to the tagColStruct/tagHybridColStruct
+	// container tags) but this skeleton always returns ok=false — the direct
+	// decode body ships in a follow-up change, so behavior here is unchanged
+	// (falls through to the mirror fallback below).
+	if n, ok, err := tryDecodeBatchRowMajor(data, plan, slab, rows); ok {
+		return n, err
+	}
+
 	slot := plan.mirrorSlicePtr.Get().(*mirrorSlot)
 	defer plan.mirrorSlicePtr.Put(slot)
 
@@ -215,6 +224,69 @@ func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rows 
 		return 0, true, derr
 	}
 	return n, true, nil
+}
+
+// tryDecodeBatchRowMajor sets up a pooled decoder exactly like
+// tryDecodeBatchColumnar and peeks the top tag to DETECT a pure row-major
+// struct-slice wire: a plain array header (the tagFixarr range, tagArr16, or
+// tagArr32 — the same tag set ReadArrayHeader accepts) whose elements are
+// struct-headers, as opposed to the tagColStruct (columnar) or
+// tagHybridColStruct (hybrid) container tags. Those two container tags are
+// never array-header tags, so checking "is this an array-header tag" alone
+// is sufficient to rule them both out — no need to peek past the outer tag.
+//
+// This is presently a SKELETON: detection runs, but the function always
+// returns ok=false ("not this fast path, use the mirror fallback"), so
+// unmarshalBatchCore's behavior is unchanged. A follow-up change gives it a
+// direct decode body (mirroring decodeBatchColumnar's contract: ok=true on
+// success or hard error, ok=false only for a non-row-major wire).
+//
+//nolint:unparam // plan/slab/rows are unused by this detection-only skeleton; a follow-up change adds the decode body that consumes them (signature is fixed now to match that body's contract).
+func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer) (n int, ok bool, err error) {
+	d := decPool.Get().(*Decoder)
+	d.buf = data
+	d.i = 0
+	d.depth = 0
+	d.headerRead = false
+	d.mode = Fast
+	d.colIndex = false
+	d.colMaxLen = 0
+	// noCopy mirrors tryDecodeBatchColumnar's setup: any string reads this
+	// path eventually does must alias-then-copy into the slab, never
+	// materialize an owned per-value string.
+	d.noCopy = true
+	d.arena = nil
+	d.selectFields = nil
+	d.query = nil
+	if d.state != nil {
+		d.state.reset()
+	}
+	defer func() {
+		d.buf = nil
+		d.colMaxLen = 0
+		d.noCopy = false
+		decPool.Put(d)
+	}()
+
+	tag, perr := d.peekTag()
+	if perr != nil {
+		return 0, false, nil // header/peek error: let the mirror re-decode and surface it
+	}
+
+	// isRowMajor is true only for a plain array-header tag. tagColStruct and
+	// tagHybridColStruct are distinct, non-array-header tag values, so this
+	// single check is enough to exclude both.
+	isRowMajor := tag >= tagFixarr && tag <= tagFixarr|tagFixarrMask || tag == tagArr16 || tag == tagArr32
+	if !isRowMajor {
+		return 0, false, nil // columnar / hybrid / tagNil / anything else → mirror fallback
+	}
+
+	// Detected a row-major struct-slice wire. plan/slab/rows are threaded
+	// through only for parity with tryDecodeBatchColumnar's signature — this
+	// skeleton proves detection compiles and the unmarshalBatchCore wiring is
+	// inert; a follow-up change adds the direct decode body that consumes
+	// them for real.
+	return 0, false, nil
 }
 
 // decodeBatchColumnar decodes a pure columnar (tagColStruct) payload straight
