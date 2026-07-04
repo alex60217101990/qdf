@@ -65,6 +65,19 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func
 		return n, err
 	}
 
+	return unmarshalBatchMirror(data, plan, slab, rows)
+}
+
+// unmarshalBatchMirror is unmarshalBatchCore's fallback strategy, factored out
+// so it can be driven directly — bypassing both fast-path attempts above — by
+// a benchmark control that measures what EVERY wire paid before the row-major-
+// direct fast path existed (Phase A's baseline) without needing to check out
+// an earlier commit. unmarshalBatchCore's normal call path reaches it only
+// after both tryDecodeBatchColumnar and tryDecodeBatchRowMajor return ok=false
+// (hybrid, batched-vector, tagNil, a nullable columnar column, or — for the
+// benchmark control — a row-major wire decoded on purpose without the direct
+// path).
+func unmarshalBatchMirror(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer) (int, error) {
 	slot := plan.mirrorSlicePtr.Get().(*mirrorSlot)
 	defer plan.mirrorSlicePtr.Put(slot)
 
@@ -300,10 +313,22 @@ func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows 
 	if err != nil {
 		return 0, true, err
 	}
-	// Bound the OUTPUT allocation like the columnar path: a hostile array count
-	// must not drive a huge rows(n) region. ReadArrayHeader already rejects a
-	// count over the remaining bytes (each element is a struct header >= 1
-	// byte); this additionally caps n*stride at maxColumnarBytes.
+	// Bound n by the INPUT before it drives any allocation: ReadArrayHeader's
+	// tagArr32 arm already rejects a count over the remaining bytes, but its
+	// tagArr16 arm does not (only 2 header bytes are checked, not the claimed
+	// count) — a 3-byte hostile wire can claim up to 65535 rows with zero
+	// bytes left to decode them from. Each row is a struct header of >= 1 wire
+	// byte, so CheckLength(n, 1) rejects that up front, matching the row-major
+	// reflect decoder's identical guard (emitDecodeSliceRowMajorBody,
+	// cmd/qdfgen/gen/gen.go) and go-fuzz-oom-triage's "bound every decode
+	// allocation by the input" rule.
+	if err := d.CheckLength(n, 1); err != nil {
+		return 0, true, err
+	}
+	// Bound the OUTPUT allocation like the columnar path: a wide-struct T with
+	// a still-plausible (input-bounded) n could otherwise amplify a modest
+	// wire into a very large rows(n) region; this caps n*stride at
+	// maxColumnarBytes on top of the input-proportional guard above.
 	if err = checkColumnarBytes(n, plan.stride); err != nil {
 		return 0, true, err
 	}
