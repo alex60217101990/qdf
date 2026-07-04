@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // TestValueInternRoundTrip exercises the decode-side boxed-any value cache
@@ -91,6 +92,33 @@ func TestValueInternArena(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, src) {
 			t.Fatalf("arena round-trip mismatch:\n got=%#v\nwant=%#v", got, src)
+		}
+	}
+}
+
+// TestZeroTimeShared verifies the shared zero-time box: a map/slice with many
+// zero time.Time values (unset fields) round-trips exactly while boxing the
+// zero once. Non-zero times are unaffected.
+func TestZeroTimeShared(t *testing.T) {
+	src := map[string]any{
+		"created": time.Unix(1_700_000_000, 0).UTC(),
+		"deleted": time.Time{},
+		"expires": time.Time{},
+		"seen":    time.Time{},
+		"updated": time.Unix(1_700_000_500, 7).UTC(),
+	}
+	src["events"] = []any{time.Time{}, time.Unix(1_700_000_001, 0).UTC(), time.Time{}, time.Time{}}
+	for _, opt := range []Options{OptSpeed, OptBalanced} {
+		data, err := Marshal(src, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, src) {
+			t.Fatalf("opt=%d zero-time round-trip mismatch:\n got=%#v\nwant=%#v", opt, got, src)
 		}
 	}
 }
