@@ -78,6 +78,18 @@ Three separate claims, three separate benchmarks:
 
 ![Bar chart: GC scan time per cycle, 907 microseconds for held strings versus 233 microseconds for held handles, 3.89x reduction.](assets/batch-handles-gc.svg)
 
+Two further decode-path wins land on the shapes the columnar numbers above
+don't cover — each is its own benchmark (same i7-9750H):
+
+| Decode path | Before | After | Repro |
+|---|---|---|---|
+| **Row-major** batch (1000 rows) — small-n or a string-heavy struct the columnar probe drops to row-major | 1000 allocs, ~156 µs (mirror) | **0 allocs, ~115 µs** | `-bench BenchmarkBatchRowMajorDecode` |
+| **FSST** string column (1000 rows) — decompress straight into the slab | 111,925 B, 14 allocs, ~138 µs | **29,864 B, 13 allocs, ~105 µs** | `-bench BenchmarkBatchFSSTDecode` |
+
+The row-major path removes the per-row string allocation the reflect mirror
+paid (1000 → 0); the FSST path removes the decompress scratch buffer and one
+copy pass (−82 KB/op, −24 %). Both are in *How it works* below.
+
 ---
 
 ## Quick start
@@ -152,9 +164,10 @@ struct needs one, flatten it (embed instead of name) or split it out.
 
 ## How it works
 
-`UnmarshalBatch` has two decode strategies. Both populate the same `Batch[T]`
-result; which one runs depends on the wire shape, not on anything the caller
-chooses.
+`UnmarshalBatch` has three decode strategies — two allocation-free fast paths
+(one per wire shape it decodes directly) and a correctness-first fallback. All
+populate the same `Batch[T]` result; which one runs depends on the wire shape,
+not on anything the caller chooses.
 
 ### 1. Columnar fast path (the common case)
 
@@ -192,10 +205,24 @@ referencing another block, `decodeBatchColumnar` decodes **directly into the
      something a plain `Unmarshal` into `[]string` cannot give you (every row
      still gets its own Go string, even if the runtime string data happens
      to be shared).
-   - **Everything else** (`tagColStrRaw`, FSST, alpha, or per-row inline
-     strings) has no such structure to exploit: `readStringColumnHandles`
-     decodes each value via the general string-column machinery and copies
-     its bytes into the slab, one `slab.append` per row.
+   - **FSST** (`tagColStrFSST`) — the bytes are compressed, so they can't be
+     aliased and *must* be decompressed. `readStringColumnFSSTInto`
+     decompresses each row **straight onto the slab's backing** (the FSST
+     decoder appends in place), so the column is materialized with **no
+     intermediate scratch buffer and no second copy** — the temp
+     `make([]byte, decompressedTotal)` the general path used to allocate, plus
+     one full copy pass, are gone. On a 1000-row FSST column that is one fewer
+     alloc and **−82 KB/op** (≈ −73 % of the decode's bytes), −24 % wall-clock.
+     Every bound the general FSST reader enforces (decompressed-size caps,
+     per-row compressed-length checks, the slab's `uint32` offset guard) is
+     preserved, so a hostile column still errors rather than over-allocating.
+   - **Everything else** (`tagColStrRaw`, alpha, or per-row inline strings)
+     has no such structure to exploit: `readStringColumnHandles` decodes each
+     value via the general string-column machinery and copies its bytes into
+     the slab, one `slab.append` per row. (Raw/inline already alias the wire
+     under `noCopy`, so that single copy is the necessary one; `alpha`, which
+     still decompresses into a temp, is the one remaining direct-into-slab
+     candidate — not yet wired in.)
 
    All of this runs with the pooled decoder's `noCopy` mode on
    (`tryDecodeBatchColumnar` sets `d.noCopy = true`): every intermediate
@@ -212,13 +239,45 @@ referencing another block, `decodeBatchColumnar` decodes **directly into the
    consuming bytes, the caller can cleanly re-decode from the start via the
    fallback path below — no partial-decode state to unwind.
 
-### 2. Mirror fallback (row-major, hybrid, or nullable wire)
+### 2. Row-major-direct fast path
 
-Anything the fast path doesn't handle — row-major wire, a hybrid
-columnar/row-major payload, a batched-vector column, or a columnar payload
-with a nullable column — falls back to a **correctness-first** strategy that
-reuses the existing reflect-driven decoder instead of teaching the batch path
-every wire variant:
+Not every batch is columnar. A slice below `columnarMinElems` rows, or one
+encoded without `OptDense`, is a plain **row-major** struct-slice (an array
+header whose elements are struct headers). More subtly, a struct with a
+dominant high-cardinality string column that doesn't compress fails the
+columnar gain gate (`columnarMinGainPct`) and the encoder drops the *whole
+struct* to row-major even under `OptDense` — so string/bytes-heavy record
+types (logs, events, audit rows) routinely land here.
+
+`tryDecodeBatchRowMajor` decodes such a wire **straight into the `T` rows and
+the slab**, the row-major analogue of the columnar fast path:
+
+1. **Detection.** The top tag is one of the array-header tags
+   (`isRowMajorArrayTag`) — distinct from `tagColStruct`/`tagHybridColStruct`,
+   so a single tag check routes the wire without peeking further. The row
+   count is bounded by the input (`CheckLength(n, 1)` — each row is ≥ 1 wire
+   byte) before any allocation, and by `n * sizeof(T)` before `takeRows`.
+2. **Per-row scatter.** For each row it reads the struct header and, per
+   field, matches the wire key against the plan and writes the value directly
+   into `base + i*stride + field.offset`: scalars are a width-switched store,
+   `qdf.Str`/`qdf.Bytes` decode under `noCopy` and materialize into the slab
+   as handles, `qdf.Time` reads its sec/nsec directly. Every value reader
+   validates its own wire tag, so a name match never scatters a wrong-typed
+   value — a malformed wire errors (it does **not** silently fall through to
+   the mirror mid-stream, which would double-decode).
+
+This replaces what used to be the mirror path's single largest client: a
+row-major batch that once paid a full reflect `Unmarshal` into a `[]mirror`
+(**one owned string alloc per row**) plus a copy pass now decodes with **0
+allocs** and ~1.36× less wall-clock (`BatchRowMajorDecode`: 1000 allocs → 0).
+No code generation, so every batch caller gets it.
+
+### 3. Mirror fallback (hybrid, batched-vector, or nullable wire)
+
+Anything neither fast path handles — a hybrid columnar/row-major payload, a
+batched-vector column, or a columnar payload with a nullable column — falls
+back to a **correctness-first** strategy that reuses the existing
+reflect-driven decoder instead of teaching the batch path every wire variant:
 
 1. `batchPlanOf` built a **mirror type**: a `reflect.StructOf` with the same
    wire field names/tags as `T`, but with `qdf.Str`→`string`,
@@ -236,15 +295,16 @@ every wire variant:
 
 The mirror path pays for one intermediate `[]mirror` decode most of what a
 plain `Unmarshal` would, plus the copy pass — it exists so `UnmarshalBatch`
-never has a wire shape it silently can't handle, not to be fast. Real traffic
-above `columnarMinElems` rows under `OptDense` takes the columnar fast path;
-the mirror path is what makes small batches, row-major wire, and future wire
-extensions correct without extending the fast path's scope.
+never has a wire shape it silently can't handle, not to be fast. Columnar and
+row-major wires — the overwhelming majority of real batch traffic — take one
+of the two direct fast paths above; the mirror path is what keeps hybrid,
+nullable, batched-vector, and future wire extensions correct without extending
+either fast path's scope.
 
 ### Pooled slab + rows: how `Release` gets you to 2 allocs/op
 
-Both paths draw their memory from two `sync.Pool`-backed structures owned by
-`batchSlab`:
+All three paths draw their memory from two `sync.Pool`-backed structures owned
+by `batchSlab`:
 
 - **`buf []byte`** — the string/bytes slab itself. Handles store *offsets*,
   not pointers, so growing the buffer (`append`, which may reallocate) does
