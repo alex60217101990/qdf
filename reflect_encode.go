@@ -1417,6 +1417,31 @@ func isStringKeyTag(tag byte) bool {
 	return false
 }
 
+// readStringRefAny reads a string that arrived as a back-REFERENCE to an
+// already-interned value (tagStateRef / MTF / pair / repeat — the caller
+// dispatches on the tag) and returns it boxed into an `any`, reusing ONE shared
+// box per value: the box is cached in decState.boxValues keyed by the same
+// state id, so every later reference returns it with zero allocation. This is
+// the dominant win on repetitive dynamic data (map[string]any). It is called
+// ONLY for reference tags — inline / first-occurrence strings box directly in
+// decodeAny and never reach here, so high-cardinality data pays no overhead
+// (its values never become references). Gated on !noCopy so the cached box
+// matches the shared stringValues string (under noCopy ReadString returns an
+// input-aliased view, boxed directly as before).
+func (d *Decoder) readStringRefAny() (any, error) {
+	if d.noCopy || d.state == nil {
+		return d.ReadString()
+	}
+	s, err := d.ReadString()
+	if err != nil {
+		return nil, err
+	}
+	if box, ok := d.state.getBoxStr(d.state.lastID, d.arena); ok {
+		return box, nil
+	}
+	return s, nil
+}
+
 func decodeAny(d *Decoder) (any, error) {
 	if err := d.descend(); err != nil {
 		return nil, err
@@ -1466,9 +1491,12 @@ func decodeAny(d *Decoder) (any, error) {
 		return d.ReadFloat32()
 	case tagFloat64:
 		return d.ReadFloat64()
-	case tagStr8, tagStr16, tagStr32, tagInternStr, tagStateRef,
-		tagStateRepeat, tagStateMTF, tagStatePair:
+	case tagStr8, tagStr16, tagStr32, tagInternStr:
+		// Inline / first-occurrence string: box directly, zero cache overhead.
 		return d.ReadString()
+	case tagStateRef, tagStateRepeat, tagStateMTF, tagStatePair:
+		// Back-reference to an interned value → return the shared cached box.
+		return d.readStringRefAny()
 	case tagBin8, tagBin16, tagBin32, tagInternBin:
 		return d.ReadBytes()
 	case tagArr16, tagArr32:
