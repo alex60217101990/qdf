@@ -376,3 +376,171 @@ func (d *Decoder) readStringColumnAlpha(n int) ([]string, error) {
 	}
 	return out, nil
 }
+
+// readStringColumnAlphaInto decodes a tagColStrAlpha column (tag at d.i) DIRECTLY
+// into the batch slab, writing a per-row Str handle into out[0:n]. It mirrors
+// readStringColumnAlpha's header parse and body-unpack verbatim, but unpacks the
+// alphabet characters straight onto the slab's backing instead of a fresh
+// make([]byte, totalChars) scratch, and emits (off,len) handles instead of
+// []string views — eliminating the temp allocation and the second copy the
+// general readStringColumnHandles path pays for an alpha column. Every bound
+// readStringColumnAlpha enforces is preserved (alphabet range, totalChars/body
+// caps, per-row length re-scan), plus the slab's uint32 offset-overflow guard
+// before the reservation. readStringColumnAlpha itself is unchanged — the reflect
+// Unmarshal path still uses it.
+func (d *Decoder) readStringColumnAlphaInto(n int, bs *batchSlab, out []Str) error {
+	d.i++ // consume tagColStrAlpha
+	a64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return ErrInvalidLength
+	}
+	d.i += nr
+	if a64 < 2 || a64 > qpackStrAlphaMaxAlphabet {
+		return ErrBadTag
+	}
+	a := int(a64)
+	if a > len(d.buf)-d.i {
+		return ErrShortBuffer
+	}
+	alphabet := d.buf[d.i : d.i+a]
+	d.i += a
+
+	n64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return ErrInvalidLength
+	}
+	d.i += nr
+	if int(n64) != n {
+		return ErrTypeMismatch
+	}
+	if d.i >= len(d.buf) {
+		return ErrShortBuffer
+	}
+	flags := d.buf[d.i]
+	d.i++
+	fixedLen := flags&1 != 0
+	cbits := bitsForDistinct(a)
+
+	rem := uint64(len(d.buf) - d.i)
+	maxChars := rem * 8 / uint64(cbits)
+	if maxInt := uint64(math.MaxInt); maxChars > maxInt {
+		maxChars = maxInt
+	}
+	var (
+		totalChars int
+		fixedL     int
+		lenStart   int
+	)
+	if fixedLen {
+		l64, k := readUvarint(d.buf[d.i:])
+		if k <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += k
+		tc := uint64(n) * l64
+		if l64 != 0 && tc/l64 != uint64(n) {
+			return ErrInvalidLength
+		}
+		if tc > maxChars {
+			return ErrShortBuffer
+		}
+		totalChars = int(tc)
+		fixedL = int(l64)
+	} else {
+		lenStart = d.i
+		var tc uint64
+		for range n {
+			l64, k := readUvarint(d.buf[d.i:])
+			if k <= 0 {
+				return ErrInvalidLength
+			}
+			d.i += k
+			tc += l64
+			if tc > maxChars {
+				return ErrShortBuffer
+			}
+		}
+		totalChars = int(tc)
+	}
+
+	bodyBytes := int((uint64(totalChars)*uint64(cbits) + 7) >> 3)
+	if bodyBytes > len(d.buf)-d.i {
+		return ErrShortBuffer
+	}
+	body := d.buf[d.i : d.i+bodyBytes]
+	d.i += bodyBytes
+
+	// Reserve totalChars on the slab's backing and unpack straight into it. The
+	// uint32 offset-overflow guard (matching slab.append/maxBatchSlabBytes) runs
+	// BEFORE the reservation so a direct write can never wrap a handle offset.
+	base := len(bs.buf)
+	if uint64(base)+uint64(totalChars) > maxBatchSlabBytes {
+		return ErrInvalidLength
+	}
+	bs.grow(totalChars)
+	dst := bs.buf[base : base+totalChars]
+	if cbits == 4 {
+		if a64 == 16 {
+			bitpack.DecodeHex4(dst, body, (*[16]byte)(alphabet))
+		} else {
+			full := totalChars &^ 1
+			k := 0
+			for ; k < full; k += 2 {
+				b := body[k>>1]
+				lo, hi := b&0xf, b>>4
+				if uint64(lo) >= a64 || uint64(hi) >= a64 {
+					return ErrBadTag
+				}
+				dst[k] = alphabet[lo]
+				dst[k+1] = alphabet[hi]
+			}
+			if k < totalChars {
+				lo := body[k>>1] & 0xf
+				if uint64(lo) >= a64 {
+					return ErrBadTag
+				}
+				dst[k] = alphabet[lo]
+			}
+		}
+	} else {
+		if cap(d.deltaScratch) < totalChars {
+			d.deltaScratch = make([]uint64, totalChars)
+		}
+		codes := d.deltaScratch[:totalChars]
+		bitpack.Unpack(codes, body, cbits)
+		for k, c := range codes {
+			if c >= a64 {
+				return ErrBadTag
+			}
+			dst[k] = alphabet[c]
+		}
+	}
+
+	// Commit the unpacked bytes onto the slab and emit per-row handles.
+	bs.buf = bs.buf[:base+totalChars]
+	off := 0
+	if fixedLen {
+		for i := range n {
+			if fixedL == 0 {
+				out[i] = Str{}
+				continue
+			}
+			out[i] = Str{off: uint32(base + off), len: uint32(fixedL)}
+			off += fixedL
+		}
+	} else {
+		j := lenStart
+		for i := range n {
+			l64, k := readUvarint(d.buf[j:])
+			j += k
+			l := int(l64)
+			if l == 0 {
+				out[i] = Str{}
+				continue
+			}
+			out[i] = Str{off: uint32(base + off), len: uint32(l)}
+			off += l
+		}
+	}
+	return nil
+}

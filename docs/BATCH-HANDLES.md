@@ -85,10 +85,12 @@ don't cover — each is its own benchmark (same i7-9750H):
 |---|---|---|---|
 | **Row-major** batch (1000 rows) — small-n or a string-heavy struct the columnar probe drops to row-major | 1000 allocs, ~156 µs (mirror) | **0 allocs, ~115 µs** | `-bench BenchmarkBatchRowMajorDecode` |
 | **FSST** string column (1000 rows) — decompress straight into the slab | 111,925 B, 14 allocs, ~138 µs | **29,864 B, 13 allocs, ~105 µs** | `-bench BenchmarkBatchFSSTDecode` |
+| **Alpha** string column (1000 × 16-char hex) — unpack straight into the slab | 16,445 B, 2 allocs, ~24 µs | **24 B, 1 alloc, ~15 µs** | `-bench BenchmarkBatchAlphaDecode` |
 
 The row-major path removes the per-row string allocation the reflect mirror
-paid (1000 → 0); the FSST path removes the decompress scratch buffer and one
-copy pass (−82 KB/op, −24 %). Both are in *How it works* below.
+paid (1000 → 0); the FSST and alpha paths each remove a decode scratch buffer
+and one copy pass (−82 KB / −16 KB per op, −24 % / −37 %). All are in *How it
+works* below.
 
 ---
 
@@ -216,13 +218,16 @@ referencing another block, `decodeBatchColumnar` decodes **directly into the
      Every bound the general FSST reader enforces (decompressed-size caps,
      per-row compressed-length checks, the slab's `uint32` offset guard) is
      preserved, so a hostile column still errors rather than over-allocating.
-   - **Everything else** (`tagColStrRaw`, alpha, or per-row inline strings)
-     has no such structure to exploit: `readStringColumnHandles` decodes each
-     value via the general string-column machinery and copies its bytes into
-     the slab, one `slab.append` per row. (Raw/inline already alias the wire
-     under `noCopy`, so that single copy is the necessary one; `alpha`, which
-     still decompresses into a temp, is the one remaining direct-into-slab
-     candidate — not yet wired in.)
+   - **Alpha** (`tagColStrAlpha`, the restricted-alphabet packer used for
+     hex/ID columns) unpacks its characters straight onto the slab's backing
+     the same way (`readStringColumnAlphaInto`) — again no temp scratch, no
+     second copy. On a 1000-row 16-char hex column that is one fewer alloc,
+     **−16 KB/op**, −37 %.
+   - **Everything else** (`tagColStrRaw` or per-row inline strings) has no such
+     structure to exploit: `readStringColumnHandles` decodes each value via the
+     general string-column machinery and copies its bytes into the slab, one
+     `slab.append` per row. Raw/inline already alias the wire under `noCopy`,
+     so that single copy is the necessary one — nothing to eliminate.
 
    All of this runs with the pooled decoder's `noCopy` mode on
    (`tryDecodeBatchColumnar` sets `d.noCopy = true`): every intermediate
