@@ -69,14 +69,13 @@ func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func
 }
 
 // unmarshalBatchMirror is unmarshalBatchCore's fallback strategy, factored out
-// so it can be driven directly — bypassing both fast-path attempts above — by
-// a benchmark control that measures what EVERY wire paid before the row-major-
-// direct fast path existed (Phase A's baseline) without needing to check out
-// an earlier commit. unmarshalBatchCore's normal call path reaches it only
-// after both tryDecodeBatchColumnar and tryDecodeBatchRowMajor return ok=false
-// (hybrid, batched-vector, tagNil, a nullable columnar column, or — for the
-// benchmark control — a row-major wire decoded on purpose without the direct
-// path).
+// so it can also be driven directly — bypassing both fast-path attempts above —
+// by a benchmark control that measures the reflect-mirror cost of a wire the
+// direct paths would otherwise handle. unmarshalBatchCore's normal call path
+// reaches it only after both tryDecodeBatchColumnar and tryDecodeBatchRowMajor
+// return ok=false (hybrid, batched-vector, tagNil, a nullable columnar column,
+// or — for the benchmark control — a row-major wire decoded on purpose without
+// the direct path).
 func unmarshalBatchMirror(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer) (int, error) {
 	slot := plan.mirrorSlicePtr.Get().(*mirrorSlot)
 	defer plan.mirrorSlicePtr.Put(slot)

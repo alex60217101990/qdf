@@ -259,8 +259,8 @@ func BenchmarkBatchRowMajorDecode(b *testing.B) {
 // bypassing tryDecodeBatchColumnar/tryDecodeBatchRowMajor entirely. It mirrors
 // UnmarshalBatch's structure (batch.go) exactly but calls the mirror strategy
 // directly — the benchmark control for BenchmarkBatchRowMajorDecodeMirror,
-// reproducing exactly what a row-major wire paid before Phase A added the
-// direct fast path (A2's measured baseline).
+// reproducing what a row-major wire costs through the reflect-mirror fallback
+// instead of the direct fast path.
 func unmarshalBatchForceMirror[T any](data []byte) (Batch[T], error) {
 	plan, err := batchPlanOf(reflect.TypeFor[T]())
 	if err != nil {
@@ -287,8 +287,9 @@ func unmarshalBatchForceMirror[T any](data []byte) (Batch[T], error) {
 // BenchmarkBatchRowMajorDecodeMirror is BenchmarkBatchRowMajorDecode's control:
 // the IDENTICAL row-major wire, forced through the mirror fallback via
 // unmarshalBatchForceMirror instead of tryDecodeBatchRowMajor. benchstat-diffing
-// this against BenchmarkBatchRowMajorDecode is the Phase-A gate measurement,
-// reproducible in-repo without checking out a pre-Phase-A commit.
+// this against BenchmarkBatchRowMajorDecode isolates the direct path's win (the
+// per-row string allocation and copy the reflect mirror pays), reproducible
+// in-repo without checking out an earlier commit.
 func BenchmarkBatchRowMajorDecodeMirror(b *testing.B) {
 	src := mkBatSrc(1000)
 	data, err := Marshal(src, OptBalanced&^OptDense)
