@@ -1050,6 +1050,17 @@ type decState struct {
 	// alloc.
 	stringValues []string
 
+	// boxValues is the interface-boxing analogue of stringValues, indexed
+	// by the same intern id and grown in lockstep (one nil placeholder per
+	// record). decodeAny boxes a repeated string's `any(s)` exactly once and
+	// caches it here; every later state-ref / MTF / pair / repeat occurrence
+	// of that value returns the shared box with zero allocation. A unique
+	// (never-referenced) string arrives inline with lastID == lruInvalidID and
+	// never touches this cache, so high-cardinality payloads pay no lookup
+	// overhead — the wire's own intern encoding is the adaptivity signal.
+	// Sharing an immutable boxed scalar across map/slice slots is safe.
+	boxValues []any
+
 	// LRU mirror of encState's. Decoder maintains the same MTF chain
 	// the encoder did so tagStateMTF + rank resolves to the same ID.
 	// See encState.lruLink for the packing layout.
@@ -1119,6 +1130,7 @@ func newDecState() *decState {
 	d := &decState{
 		values:       make([][]byte, 0, 64),
 		stringValues: make([]string, 0, 64),
+		boxValues:    make([]any, 0, 64),
 		lruHead:      lruInvalidID,
 		lastID:       lruInvalidID,
 	}
@@ -1148,6 +1160,7 @@ func (d *decState) reset() {
 	if cap(d.values) > maxRetainedIDs && release {
 		d.values = nil
 		d.stringValues = nil
+		d.boxValues = nil
 	} else {
 		// Retain the backing, but clear() first: d.values entries are []byte
 		// aliasing the previous message's input (wire) buffer, and
@@ -1158,8 +1171,10 @@ func (d *decState) reset() {
 		// encoder's colScratchStr treatment. memclr only, no allocation.
 		clear(d.values)
 		clear(d.stringValues)
+		clear(d.boxValues)
 		d.values = d.values[:0]
 		d.stringValues = d.stringValues[:0]
+		d.boxValues = d.boxValues[:0]
 	}
 	d.lastID = lruInvalidID
 	d.lruHead = lruInvalidID
@@ -1394,6 +1409,7 @@ func (d *decState) append(b []byte) uint32 {
 	id := uint32(len(d.values))
 	d.values = append(d.values, b)
 	d.stringValues = append(d.stringValues, "")
+	d.boxValues = append(d.boxValues, nil)
 	d.lruAddFresh(id)
 	return id
 }
@@ -1438,4 +1454,26 @@ func (d *decState) getString(id uint32, arena *Arena) (string, bool) {
 	}
 	d.stringValues[id] = s
 	return s, true
+}
+
+// getBoxStr returns the string at id boxed into an `any`, cached so repeated
+// occurrences of the same interned value share ONE box (zero alloc after the
+// first). Called only when the string arrived as an intern/state reference
+// (lastID valid) — a unique inline string never reaches here, so the boxing
+// cache never adds overhead on high-cardinality data. The shared box is
+// immutable, so handing it to many map/slice slots is safe.
+func (d *decState) getBoxStr(id uint32, arena *Arena) (any, bool) {
+	if id >= uint32(len(d.boxValues)) {
+		return nil, false
+	}
+	if b := d.boxValues[id]; b != nil {
+		return b, true
+	}
+	s, ok := d.getString(id, arena)
+	if !ok {
+		return nil, false
+	}
+	box := any(s)
+	d.boxValues[id] = box
+	return box, true
 }
