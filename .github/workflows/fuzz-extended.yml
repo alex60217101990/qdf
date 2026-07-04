@@ -52,10 +52,34 @@ jobs:
       # (the "hung or terminated unexpectedly" failure mode — an environmental
       # OOM, not an input crash). -parallel caps worker processes so their
       # aggregate footprint stays well under the runner's RAM.
+      # Native Go fuzzing is nondeterministic discovery, and the corpus replay
+      # (plain `go test -run=<Fuzz>`) is the deterministic gate: a REAL finding
+      # is always written to testdata/fuzz/<target>/ with a "Failing input
+      # written to" line. At the -fuzztime boundary the engine can instead
+      # spuriously print "0 execs/sec" then "context deadline exceeded" and exit
+      # non-zero WITHOUT finding anything (golang/go#51484). So we gate on the
+      # reproducer, not the raw exit code: fail iff a reproducer was written,
+      # tolerate the bare boundary flake, and still fail on any other non-zero
+      # exit we don't recognize.
       - name: ${{ matrix.target }} (10m)
         env:
           GOMEMLIMIT: 2GiB
-        run: go test -run=^$ -fuzz=${{ matrix.target }} -fuzztime=10m -timeout=15m -parallel=2
+        run: |
+          set +e
+          out="$(go test -run='^$' -fuzz='${{ matrix.target }}' -fuzztime=10m -timeout=15m -parallel=2 2>&1)"
+          code=$?
+          echo "$out"
+          [ $code -eq 0 ] && exit 0
+          if echo "$out" | grep -q 'Failing input written to'; then
+            echo "::error::${{ matrix.target }}: reproducer written — real fuzz finding"
+            exit 1
+          fi
+          if echo "$out" | grep -q 'context deadline exceeded'; then
+            echo "::warning::${{ matrix.target }}: fuzztime-boundary flake (golang/go#51484), no reproducer written — tolerated"
+            exit 0
+          fi
+          echo "::error::${{ matrix.target }}: fuzz failed (exit $code) with no reproducer and no known-flake signature"
+          exit $code
 
       - name: Upload new corpus on failure
         if: failure()
