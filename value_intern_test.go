@@ -67,3 +67,30 @@ func TestValueInternRepeatedDecodes(t *testing.T) {
 		}
 	}
 }
+
+// TestValueInternArena exercises the boxed-any value cache under WithArena: the
+// cached box holds an arena-materialized string shared across many map/slice
+// slots, so a repeated value must round-trip exactly. Also guards the arena is
+// threaded correctly through getBoxStr (readStringRefAny passes d.arena).
+func TestValueInternArena(t *testing.T) {
+	cats := []string{"aaaa", "bbbb", "aaaa", "cccc", "aaaa", "bbbb"}
+	src := map[string]any{}
+	for i := range 300 {
+		src[fmt.Sprintf("k%03d", i)] = cats[i%len(cats)]
+	}
+	src["nested"] = []any{"aaaa", "cccc", "aaaa", "aaaa"}
+	data, err := Marshal(src, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 20 {
+		a := NewArena()
+		var got map[string]any
+		if err := Unmarshal(data, &got, WithArena(a)); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, src) {
+			t.Fatalf("arena round-trip mismatch:\n got=%#v\nwant=%#v", got, src)
+		}
+	}
+}
