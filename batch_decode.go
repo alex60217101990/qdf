@@ -982,11 +982,16 @@ func readStringColumnHandles(d *Decoder, n int, slab *batchSlab, out []Str) erro
 			out[i] = th[j]
 		}
 		return nil
+	case tagColStrFSST:
+		// FSST decompresses straight into the slab (no temp scratch + no second
+		// copy). readStringColumnFSSTInto mirrors readStringColumnFSST's header
+		// parse and every bounds guard verbatim.
+		return readStringColumnFSSTInto(d, n, slab, out)
 	default:
-		// tagColStrRaw / FSST / alpha / per-row inline: reuse the general
-		// materializer, then copy each body into the slab (distinct strings,
-		// so there is no dedup to lose). readStringColumn's result aliases
-		// decoder scratch — copy before it is recycled by the next column.
+		// tagColStrRaw / alpha / per-row inline: reuse the general materializer,
+		// then copy each body into the slab (distinct strings, so there is no
+		// dedup to lose). readStringColumn's result aliases decoder scratch —
+		// copy before it is recycled by the next column.
 		strs, err := d.readStringColumn(n)
 		if err != nil {
 			return err

@@ -158,3 +158,93 @@ func (d *Decoder) readStringColumnFSST(n int) ([]string, error) {
 	}
 	return out, nil
 }
+
+// readStringColumnFSSTInto decodes a tagColStrFSST block (tag at d.i) DIRECTLY
+// into the batch slab, writing a per-row Str handle into out[0:n]. It mirrors
+// readStringColumnFSST's header parse and EVERY bounds guard verbatim (the
+// dt64 caps, per-row compressed-length checks, and DecompressN's absolute-length
+// limit), but instead of a temp scratch buffer it decompresses each row straight
+// onto slab.buf — DecompressN appends in place — eliminating the ~dt64-byte temp
+// alloc and the redundant second copy the general readStringColumnHandles path
+// pays for FSST columns.
+//
+// Bounds parity is load-bearing here (this is decompress + unsafe slab writes):
+// the slab reservation is bounded by dt64, which is itself bounded by the input;
+// the slab's uint32 offset overflow guard (maxBatchSlabBytes, matching
+// slab.append) is honored BEFORE any reservation. A malformed/hostile column
+// errors — never OOM, never OOB write into the slab.
+func readStringColumnFSSTInto(d *Decoder, n int, slab *batchSlab, out []Str) error {
+	d.i++ // consume tagColStrFSST
+	tbl, used, err := fsst.UnmarshalSymbolTable(d.buf[d.i:])
+	if err != nil {
+		return err
+	}
+	d.i += used
+
+	n64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return ErrInvalidLength
+	}
+	d.i += nr
+	if int(n64) != n {
+		return ErrTypeMismatch
+	}
+
+	dt64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return ErrInvalidLength
+	}
+	d.i += nr
+	rem := uint64(len(d.buf) - d.i)
+	if dt64 > rem*fsstMaxDecompPerByte {
+		return ErrShortBuffer
+	}
+	// Hard cap: decompTotal must not exceed maxColumnarElems * maxSymLen (8).
+	// This prevents a hostile varint from driving a huge slab reservation.
+	if dt64 > uint64(maxColumnarElems)*8 {
+		return ErrShortBuffer
+	}
+
+	// Honor the slab's uint32 offset cap BEFORE reserving: the reserved region
+	// grows slab.buf by dt64, and a Str handle's offset must fit uint32. This is
+	// the same overflow guard slab.append enforces (maxBatchSlabBytes) — a direct
+	// write that would exceed it errors instead of silently wrapping the offset.
+	base := len(slab.buf)
+	if uint64(base)+dt64 > maxBatchSlabBytes {
+		return ErrInvalidLength
+	}
+	// Reserve dt64 bytes ONCE so per-row DecompressN appends land in place with
+	// no mid-column reallocation (offsets stay stable). limit is the ABSOLUTE
+	// len(dst) cap DecompressN enforces; base+dt64 mirrors readStringColumnFSST's
+	// int(dt64) cap on a slab that started empty.
+	slab.grow(int(dt64))
+	limit := base + int(dt64)
+	for i := range n {
+		cl64, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return ErrInvalidLength
+		}
+		d.i += nr
+		if cl64 > uint64(len(d.buf)-d.i) {
+			return ErrShortBuffer
+		}
+		cl := int(cl64)
+		start := len(slab.buf)
+		var ok bool
+		// Bounded decode: never let slab.buf grow past base+dt64, so a malformed
+		// row cannot trigger a transient over-allocation or an OOB slab write.
+		slab.buf, ok = tbl.DecompressN(d.buf[d.i:d.i+cl], slab.buf, limit)
+		if !ok {
+			return ErrShortBuffer
+		}
+		d.i += cl
+		ln := len(slab.buf) - start
+		if ln == 0 {
+			// Match slab.append's empty-string convention: the zero handle.
+			out[i] = Str{}
+			continue
+		}
+		out[i] = Str{off: uint32(start), len: uint32(ln)}
+	}
+	return nil
+}
