@@ -1,9 +1,11 @@
 package qdf
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -57,6 +59,32 @@ func TestBatchRowMajorDirectParity(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestBatchRowMajorHostileLength is the A2-review hardening regression
+// (go-fuzz-oom-triage bug class): a tiny 3-byte wire claims a tagArr16 (0xD3)
+// array header of n=65535 backed by ZERO remaining bytes. Unlike ReadArrayHeader's
+// tagArr32 arm, its tagArr16 arm does not bound n against the remaining
+// buffer (only the 2 header bytes are checked, not the claimed count) — before
+// the CheckLength(n, 1) guard, checkColumnarBytes(n, plan.stride) was the only
+// bound left, and it caps the OUTPUT allocation at 256 MB, not at the input
+// size: n=65535 * batDoc's ~40-byte stride is ~2.6 MB, far under that ceiling,
+// so rows(65535) would actually run — a transient multi-MB allocation driven
+// by a 3-byte hostile input — before the first ReadStructHeader (0 bytes left)
+// finally errors. CheckLength(n, 1) now rejects it immediately, before rows(n)
+// is ever called.
+func TestBatchRowMajorHostileLength(t *testing.T) {
+	// tagArr16 = 0xD3 (wire.go); readU16 is little-endian, but 0xff/0xff makes
+	// the byte order irrelevant here: n = 65535.
+	hostile := []byte{0xd3, 0xff, 0xff}
+	b, err := UnmarshalBatch[batDoc](hostile)
+	if err == nil {
+		b.Release()
+		t.Fatal("expected an error for a hostile 65535-row header backed by 0 bytes, got nil")
+	}
+	if !errors.Is(err, ErrShortBuffer) {
+		t.Fatalf("error = %v, want ErrShortBuffer", err)
 	}
 }
 
@@ -224,5 +252,193 @@ func BenchmarkBatchRowMajorDecode(b *testing.B) {
 			b.Fatalf("decode: %v", err)
 		}
 		bb.Release()
+	}
+}
+
+// unmarshalBatchForceMirror decodes data via ONLY unmarshalBatchMirror,
+// bypassing tryDecodeBatchColumnar/tryDecodeBatchRowMajor entirely. It mirrors
+// UnmarshalBatch's structure (batch.go) exactly but calls the mirror strategy
+// directly — the benchmark control for BenchmarkBatchRowMajorDecodeMirror,
+// reproducing exactly what a row-major wire paid before Phase A added the
+// direct fast path (A2's measured baseline).
+func unmarshalBatchForceMirror[T any](data []byte) (Batch[T], error) {
+	plan, err := batchPlanOf(reflect.TypeFor[T]())
+	if err != nil {
+		return Batch[T]{}, err
+	}
+	slab := newBatchSlab()
+	var rowsPtr unsafe.Pointer
+	takeRows := func(n int) unsafe.Pointer {
+		rowsPtr = slab.takeRows(n * int(plan.stride))
+		return rowsPtr
+	}
+	n, err := unmarshalBatchMirror(data, plan, slab, takeRows)
+	if err != nil {
+		slab.release()
+		return Batch[T]{}, err
+	}
+	var rows []T
+	if n > 0 {
+		rows = unsafe.Slice((*T)(rowsPtr), n)
+	}
+	return Batch[T]{Rows: rows, slab: slab, epoch: slab.epoch}, nil
+}
+
+// BenchmarkBatchRowMajorDecodeMirror is BenchmarkBatchRowMajorDecode's control:
+// the IDENTICAL row-major wire, forced through the mirror fallback via
+// unmarshalBatchForceMirror instead of tryDecodeBatchRowMajor. benchstat-diffing
+// this against BenchmarkBatchRowMajorDecode is the Phase-A gate measurement,
+// reproducible in-repo without checking out a pre-Phase-A commit.
+func BenchmarkBatchRowMajorDecodeMirror(b *testing.B) {
+	src := mkBatSrc(1000)
+	data, err := Marshal(src, OptBalanced&^OptDense)
+	if err != nil {
+		b.Fatalf("Marshal: %v", err)
+	}
+	if bb, err := unmarshalBatchForceMirror[batDoc](data); err != nil {
+		b.Fatalf("warm: %v", err)
+	} else {
+		bb.Release()
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		bb, err := unmarshalBatchForceMirror[batDoc](data)
+		if err != nil {
+			b.Fatalf("decode: %v", err)
+		}
+		bb.Release()
+	}
+}
+
+// hybSrc mirrors batSrc's 4 columnar-eligible fields and adds Extra, a
+// map field: classifyColKind (columnar.go) has no case for reflect.Map (its
+// switch covers Int/Uint/Float32/Float64/Bool/String/Slice-of-byte only, and
+// falls to `default: return 0, 0, false, false` for anything else), so Extra
+// is always residual while ID/Name/Val/At stay columnar-eligible —
+// buildColumnarPlan (columnar.go) then produces a HYBRID plan (residual !=
+// nil), not a pure one. This is the realistic hybrid trigger buildColumnarPlan
+// itself documents ("mostly-scalar struct with one map/slice field", AD/log/
+// RTB records) — the same shape TestHybridResidualLongerThanRowCount exercises
+// for the general (non-batch) decode path.
+//
+// batDoc (batch_test.go) is used AS-IS for T: it has no Extra field at all, so
+// decoding into it is unambiguous schema evolution ("a residual wire field the
+// target struct lacks" — decodeHybridColumnar's own documented behavior,
+// columnar.go) rather than the OTHER residual-matching case decodeHybridColumnar
+// implements (a wire-residual field whose name DOES match a target field, but
+// the target's OWN classification of that field disagrees with the wire's —
+// e.g. a batch mirror's plain-scalar reconstruction of a source field the
+// encoder classified residual for an unrelated reason, such as a per-field
+// custom Marshaler on the SOURCE struct only). decodeHybridColumnar matches a
+// wire-residual field by NAME AND by the TARGET's OWN classification
+// (findResidual only searches plan.residual), not by name alone, so that other
+// case decodes as the target's zero value instead of an error — batDoc sidesteps
+// it entirely by simply not declaring the field, which is the shape every
+// batch-eligible T is restricted to anyway (batchPlanOf rejects the map/slice/
+// custom-Marshaler types that could ever trigger the mismatched case).
+type hybSrc struct {
+	Extra map[string]int `qdf:"extra"`
+	At    time.Time      `qdf:"at"`
+	Name  string         `qdf:"name"`
+	ID    int64          `qdf:"id"`
+	Val   float64        `qdf:"val"`
+}
+
+func mkHybSrc(n int) []hybSrc {
+	out := make([]hybSrc, n)
+	for i := range out {
+		out[i] = hybSrc{
+			ID:    int64(i),
+			Name:  []string{"alpha", "beta", "gamma"}[i%3],
+			Val:   float64(i) * 1.5,
+			At:    time.Unix(1_700_000_000+int64(i), 500).UTC(),
+			Extra: map[string]int{"i": i}, // residual: batDoc has no matching field
+		}
+	}
+	return out
+}
+
+// TestBatchHybridFallback proves the mirror fallback still fires — and stays
+// correct — for the ONE non-row-major/non-pure-columnar wire a batch-eligible
+// T can actually encode: tagHybridColStruct.
+//
+// Reachability accounting for every wire shape NEITHER tryDecodeBatchColumnar
+// NOR tryDecodeBatchRowMajor claims (batch_decode.go):
+//
+//   - Hybrid (tagHybridColStruct): REACHABLE — this test. Requires a
+//     columnar-INELIGIBLE field (classifyColKind, columnar.go) alongside at
+//     least one eligible one. hybSrc's Extra (map[string]int) field is exactly
+//     that; a batch-eligible T (scalars + Str/Bytes/Time only, per
+//     batchPlanOf/appendBatchFields, batch_desc.go) simply never declares the
+//     residual field, which is fine — schema evolution already handles a wire
+//     field the target lacks.
+//   - Nullable column: UNREACHABLE for a legitimately-typed Batch[T] wire —
+//     no test needed. A nullable column requires a *U source field
+//     (buildColumnarPlan's `if fd.kind == reflect.Pointer` branch, columnar.go);
+//     appendBatchFields (batch_desc.go) rejects ANY pointer field on T outright
+//     (`case reflect.Map, reflect.Pointer, reflect.Interface, reflect.Chan,
+//     reflect.Func: return fmt.Errorf(...not pointer-free...)`), so
+//     batchPlanOf fails before UnmarshalBatch touches a single wire byte for
+//     any T with a matching pointer field — there is no batch-eligible T a
+//     nullable-column wire could legitimately decode into. (The existing,
+//     separate errBatchNeedFallback guard in decodeBatchColumnar already
+//     defends a HOSTILE columnar wire that merely declares a nullable column
+//     under a matching field name — pre-existing, out of this task's scope.)
+//   - Batched-vector (tagVecBatchStruct): UNREACHABLE — no test needed. Per
+//     wire.go's tag doc it requires a []float32/[]float64 struct field;
+//     appendBatchFields's `case reflect.Slice: return fmt.Errorf(...is a
+//     slice — use qdf.Bytes...)` rejects every slice field except via the
+//     Bytes handle ([]byte only), so batchPlanOf fails before decode for any T
+//     with a vector field — no batch-eligible T can pair with this wire.
+func TestBatchHybridFallback(t *testing.T) {
+	const n = 64 // >= columnarMinElems
+	src := mkHybSrc(n)
+	data, err := Marshal(src, OptBalanced|OptDense|OptShapeIntern)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	d := &Decoder{buf: data}
+	tag, err := d.peekTag()
+	if err != nil {
+		t.Fatalf("peekTag: %v", err)
+	}
+	if tag != tagHybridColStruct {
+		t.Fatalf("expected a tagHybridColStruct wire (%#x), got tag %#x — the columnar probe did not choose hybrid for this fixture", tagHybridColStruct, tag)
+	}
+
+	// Whitebox: neither fast path claims a hybrid wire — unmarshalBatchCore
+	// must fall through to unmarshalBatchMirror.
+	plan, err := batchPlanOf(reflect.TypeFor[batDoc]())
+	if err != nil {
+		t.Fatalf("batchPlanOf: %v", err)
+	}
+	slab := newBatchSlab()
+	defer slab.release()
+	rows := func(m int) unsafe.Pointer { return slab.takeRows(m * int(plan.stride)) }
+	if _, ok, _ := tryDecodeBatchColumnar(data, plan, slab, rows); ok {
+		t.Fatal("tryDecodeBatchColumnar: ok = true, want false (a hybrid wire is not this fast path)")
+	}
+	if _, ok, _ := tryDecodeBatchRowMajor(data, plan, slab, rows); ok {
+		t.Fatal("tryDecodeBatchRowMajor: ok = true, want false (a hybrid wire is not this fast path)")
+	}
+
+	b, err := UnmarshalBatch[batDoc](data)
+	if err != nil {
+		t.Fatalf("UnmarshalBatch: %v", err)
+	}
+	defer b.Release()
+	if len(b.Rows) != n {
+		t.Fatalf("rows = %d, want %d", len(b.Rows), n)
+	}
+	for i, r := range b.Rows {
+		want := src[i]
+		if r.ID != want.ID || b.Str(r.Name) != want.Name || r.Val != want.Val {
+			t.Fatalf("row %d = %+v (name=%q), want id=%d name=%q val=%v",
+				i, r, b.Str(r.Name), want.ID, want.Name, want.Val)
+		}
+		if !b.TimeOf(r.At).Equal(want.At) {
+			t.Fatalf("row %d time = %v, want %v", i, b.TimeOf(r.At), want.At)
+		}
 	}
 }
