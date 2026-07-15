@@ -73,28 +73,33 @@ func (e *Encoder) writePackedPForUint64Slice(s []uint64, mn uint64, b int) {
 	body := out[start : start+bodyBytes]
 	// Zero-initialize body bytes since PackChunk may read-modify-write on byte boundaries
 	clear(body)
+	// Collect exceptions during the pack pass so no second O(n) scan of s is
+	// needed. excPos stores pre-computed relative positions (i+j - prev); excDelta
+	// stores the corresponding delta values. Both slices reuse e.pforExcPos /
+	// e.pforExcDelta across calls — same lifecycle as alpScratch.
+	excPos := e.pforExcPos[:0]
+	excDelta := e.pforExcDelta[:0]
+	prev := 0
 	var chunk [64]uint64
-	excN := 0
 	for i := 0; i < n; i += len(chunk) {
 		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
 			d := v - mn
 			chunk[j] = d & mask
 			if pforIsException(d, b) {
-				excN++ // counted in the pack pass — same d=v-mn, no second scan
+				excPos = append(excPos, uint64(i+j-prev))
+				excDelta = append(excDelta, d)
+				prev = i + j
 			}
 		}
 		bitpack.PackChunk(body, chunk[:end-i], b, i)
 	}
-	out = appendUvarint(out, uint64(excN))
-	prev := 0
-	for i, v := range s {
-		d := v - mn
-		if pforIsException(d, b) {
-			out = appendUvarint(out, uint64(i-prev))
-			out = appendUvarint(out, d)
-			prev = i
-		}
+	e.pforExcPos = excPos
+	e.pforExcDelta = excDelta
+	out = appendUvarint(out, uint64(len(excPos)))
+	for i, rp := range excPos {
+		out = appendUvarint(out, rp)
+		out = appendUvarint(out, excDelta[i])
 	}
 	e.buf = out
 }
@@ -162,28 +167,30 @@ func (e *Encoder) writePackedPForInt64Slice(s []int64, mn int64, b int) {
 	body := out[start : start+bodyBytes]
 	// Zero-initialize body bytes since PackChunk may read-modify-write on byte boundaries
 	clear(body)
+	// Collect exceptions during the pack pass (same pattern as the uint64 writer).
+	excPos := e.pforExcPos[:0]
+	excDelta := e.pforExcDelta[:0]
+	prev := 0
 	var chunk [64]uint64
-	excN := 0
 	for i := 0; i < n; i += len(chunk) {
 		end := min(i+len(chunk), n)
 		for j, v := range s[i:end] {
 			d := uint64(v) - mnU
 			chunk[j] = d & mask
 			if pforIsException(d, b) {
-				excN++ // folded into the pack pass (same delta, no second scan)
+				excPos = append(excPos, uint64(i+j-prev))
+				excDelta = append(excDelta, d)
+				prev = i + j
 			}
 		}
 		bitpack.PackChunk(body, chunk[:end-i], b, i)
 	}
-	out = appendUvarint(out, uint64(excN))
-	prev := 0
-	for i, v := range s {
-		d := uint64(v) - mnU
-		if pforIsException(d, b) {
-			out = appendUvarint(out, uint64(i-prev))
-			out = appendUvarint(out, d)
-			prev = i
-		}
+	e.pforExcPos = excPos
+	e.pforExcDelta = excDelta
+	out = appendUvarint(out, uint64(len(excPos)))
+	for i, rp := range excPos {
+		out = appendUvarint(out, rp)
+		out = appendUvarint(out, excDelta[i])
 	}
 	e.buf = out
 }
