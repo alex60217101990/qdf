@@ -875,19 +875,11 @@ func scatterBatchScalar(d *Decoder, base unsafe.Pointer, stride, off uintptr, sk
 	return nil
 }
 
-// strHandleScratchPool pools []Str backing arrays so per-column handle scatter
-// does not allocate on repeat decodes. dictHandleScratchPool is a SEPARATE pool
-// for the dict-table handle slice: the dict arm holds an out-scratch drawn from
-// the first pool while it also needs a table-handle scratch, and drawing both
-// from one pool would force a fresh alloc for the second (each pool caches one
-// per P).
+// dictHandleScratchPool pools []Str backing arrays for the dict-table handle slice.
 var (
-	strHandleScratchPool  = sync.Pool{New: func() any { s := make([]Str, 0, 64); return &s }}
 	dictHandleScratchPool = sync.Pool{New: func() any { s := make([]Str, 0, 64); return &s }}
 )
 
-func getStrHandleScratch(n int) []Str  { return getPooledStrScratch(&strHandleScratchPool, n) }
-func putStrHandleScratch(s []Str)      { putPooledStrScratch(&strHandleScratchPool, s) }
 func getDictHandleScratch(n int) []Str { return getPooledStrScratch(&dictHandleScratchPool, n) }
 func putDictHandleScratch(s []Str)     { putPooledStrScratch(&dictHandleScratchPool, s) }
 
