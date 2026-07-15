@@ -214,11 +214,6 @@ type encState struct {
 	canonKeysStr []string
 	canonKeysI64 []int64
 	canonKeysU64 []uint64
-	// Canonical sorted map-key holders for the delta map-patch emit
-	// (delta_diff.go canonSortedMapKeys). Holds reflect.Value key holders in
-	// sorted order; cleared on reset to drop references to caller map keys (the
-	// exotic-kind fallback aliases rv.MapKeys()).
-	canonKeyVals []reflect.Value
 	// Canonical float-slice normalization scratch (OptCanonical): when a
 	// []float64/[]float32 contains -0.0 or NaN, the normalized copy lands here
 	// (never mutating the caller's slice). Pointer-free, adaptive retention.
@@ -623,15 +618,6 @@ func (e *encState) reset() {
 		// high-water tail of headers aliasing the caller's map key strings.
 		clear(e.canonKeysStr[:cap(e.canonKeysStr)])
 		e.canonKeysStr = e.canonKeysStr[:0]
-	}
-	// canonKeyVals holds reflect.Value key holders (may alias caller map keys via
-	// the exotic-kind fallback); clear the FULL backing to drop references across
-	// a pool recycle (a shorter map leaves a stale header tail past len).
-	if cap(e.canonKeyVals) > maxRetainedColScratch {
-		e.canonKeyVals = nil
-	} else {
-		clear(e.canonKeyVals[:cap(e.canonKeyVals)])
-		e.canonKeyVals = e.canonKeyVals[:0]
 	}
 	// Canonical float-slice scratch is pointer-free: drop only past the ceiling.
 	// canonFloat64/canonFloat32 grow independently (a dirty []float32 workload
