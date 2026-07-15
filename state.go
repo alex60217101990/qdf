@@ -1095,6 +1095,7 @@ type decState struct {
 	colScratchBool []bool
 	colScratchF32  []float32 // codegen columnar float32 scatter scratch
 	colScratchStr  []string  // codegen columnar plain string scatter scratch
+	colStrHandles  []Str     // string column handle scratch (mirrors colScratchI64 pattern)
 	// String-dict column scratch, reused across columns. Both are transient: the
 	// dispatcher copies table[idx[i]] into the column result before reading the
 	// next column, so neither is aliased past one column read.
@@ -1241,6 +1242,11 @@ func (d *decState) reset() {
 		// GC for the pooled decoder's lifetime. Sibling to d.stringValues' clear.
 		clear(d.colScratchStr[:cap(d.colScratchStr)])
 		d.colScratchStr = d.colScratchStr[:0]
+	}
+	if cap(d.colStrHandles) > maxRetainedColScratch { // pointer-free (Str={off,len uint32}), no clear
+		d.colStrHandles = nil
+	} else {
+		d.colStrHandles = d.colStrHandles[:0]
 	}
 	if cap(d.colDictTableScr) > maxRetainedColScratch {
 		d.colDictTableScr = nil

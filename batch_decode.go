@@ -707,8 +707,10 @@ func scatterBatchColumn(d *Decoder, plan *batchPlan, slab *batchSlab, base unsaf
 		if kind != colKindString {
 			return ErrTypeMismatch
 		}
-		out := getStrHandleScratch(n)
-		defer putStrHandleScratch(out)
+		if cap(st.colStrHandles) < n {
+			st.colStrHandles = make([]Str, n)
+		}
+		out := st.colStrHandles[:n]
 		if err := readStringColumnHandles(d, n, slab, out); err != nil {
 			return err
 		}
