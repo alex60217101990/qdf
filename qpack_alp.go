@@ -86,7 +86,8 @@ func alpChooseExp(s []float64) int {
 	const sampleN = 32
 	sample := s
 	if len(s) > sampleN {
-		sample = make([]float64, 0, sampleN)
+		var sampleBuf [sampleN]float64
+		sample = sampleBuf[:0]
 		step := len(s) / sampleN
 		for i := 0; i < len(s); i += step {
 			sample = append(sample, s[i])
@@ -244,7 +245,8 @@ func alpChooseExpF32(s []float32) int {
 	const sampleN = 32
 	sample := s
 	if len(s) > sampleN {
-		sample = make([]float32, 0, sampleN)
+		var sampleBuf [sampleN]float32
+		sample = sampleBuf[:0]
 		step := len(s) / sampleN
 		for i := 0; i < len(s); i += step {
 			sample = append(sample, s[i])
