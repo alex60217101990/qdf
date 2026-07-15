@@ -155,8 +155,20 @@ func packBits12(out []byte, vals []uint64) { Pack(out, vals, 12) }
 func packBits14(out []byte, vals []uint64) { Pack(out, vals, 14) }
 func packBits20(out []byte, vals []uint64) { Pack(out, vals, 20) }
 
+//go:noescape
+func packBoolsNEON8(src *bool, dst *byte)
+
+// PackBoolsLSB writes n booleans from src as ceil(n/8) bytes into dst,
+// LSB-first (bool i → bit (i%8) of dst[i/8]). dst must have length
+// ceil(n/8) and be cleared. With qdf_simd on arm64, blocks of 8 go
+// through a NEON kernel that packs 8 bools per VLD1+VMUL+VADDV cycle;
+// the tail (n%8) uses a scalar loop.
 func PackBoolsLSB(dst []byte, src []bool, n int) {
-	for i := range n {
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		packBoolsNEON8(&src[i], &dst[i>>3])
+	}
+	for ; i < n; i++ {
 		if src[i] {
 			dst[i>>3] |= 1 << uint(i&7)
 		}

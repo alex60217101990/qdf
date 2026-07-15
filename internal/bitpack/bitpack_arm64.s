@@ -118,6 +118,38 @@ loop_v2:
 done_v2:
 	RET
 
+// packBoolWeights: bit-position weights for packing 8 bools → 1 byte.
+// In memory (little-endian) this is [0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80]
+// so VLD1 into B8 loads weight[i] = 1<<i into lane i.
+DATA packBoolWeights<>+0(SB)/8, $0x8040201008040201
+GLOBL packBoolWeights<>(SB), RODATA|NOPTR, $8
+
+// func packBoolsNEON8(src *bool, dst *byte)
+// Packs 8 bools from src[0..7] into one byte at *dst, LSB-first:
+//   bool[i] → bit i of *dst.
+// Strategy: load 8 bool bytes, AND with 1 to isolate the LSB per lane,
+// multiply each lane by its bit-position weight (1,2,4,8,16,32,64,128),
+// horizontally sum all 8 lanes → single byte, store to *dst.
+// Caller guarantees len(src) >= 8 and *dst is zero-initialized.
+//
+// Instructions not in Go's arm64 assembler are WORD-encoded:
+//   WORD $0x0E229C00 = MUL  V0.8B, V0.8B, V2.8B
+//   WORD $0x0E31B803 = ADDV B3, V0.8B            (result → B3 = V3.B[0])
+//   WORD $0x0D000023 = ST1  {V3.B}[0], [X1]      (store B3 to *R1)
+TEXT ·packBoolsNEON8(SB),NOSPLIT,$0-16
+	MOVD src+0(FP), R0
+	MOVD dst+8(FP), R1
+	MOVD $packBoolWeights<>(SB), R2
+	VLD1 (R0), [V0.B8]              // V0[i] = src[i] (bool byte, 0 or 1)
+	VLD1 (R2), [V2.B8]              // V2[i] = 1<<i  (bit-position weights)
+	MOVD $1, R2
+	VDUP R2, V1.B8                  // V1 = [1,1,1,1,1,1,1,1] (LSB mask)
+	VAND V0.B8, V1.B8, V0.B8       // V0[i] &= 1 (sanitize non-canonical bools)
+	WORD $0x0E229C00                // MUL  V0.8B, V0.8B, V2.8B
+	WORD $0x0E31B803                // ADDV B3, V0.8B   → B3 = packed byte
+	WORD $0x0D000023                // ST1  {V3.B}[0], [X1] → *R1 = B3
+	RET
+
 // func decodeHex4NEON(dst []byte, src []byte, lut *[16]byte, blocks int)
 //
 // Expands a 4-bit nibble stream src into bytes via the 16-entry lut, two output
