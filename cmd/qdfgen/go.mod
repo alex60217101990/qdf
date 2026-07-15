@@ -1,6 +1,6 @@
 module github.com/alex60217101990/qdf/cmd/qdfgen
 
-go 1.26
+go 1.26.5
 
 require golang.org/x/tools v0.48.0
 
