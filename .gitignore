@@ -64,3 +64,6 @@ cmd/qdf-vecbench/rd.csv
 docs/assets/*.png
 diagrams/svg/ai-*.svg
 diagrams/png/ai-*.png
+
+.memsearch
+.remember
