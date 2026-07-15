@@ -152,6 +152,10 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 	pe := alpPow10[plan.d]
 	ie := alpInv10[plan.d]
 
+	// Acquire exception-index scratch. Populated during the pack pass so the
+	// exception-emit phase below never needs a second O(n) re-scan of s.
+	excIdx := e.alpExcScratch[:0]
+
 	if plan.width > 0 {
 		// Pack I_i - forMin; exceptions occupy a 0 slot. Reuse pooled scratch
 		// instead of a per-call make; clear is REQUIRED because exception slots
@@ -166,6 +170,8 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 			I := int64(math.RoundToEven(v * pe))
 			if math.Float64bits(float64(I)*ie) == math.Float64bits(v) {
 				packed[i] = uint64(I - plan.forMin)
+			} else {
+				excIdx = append(excIdx, i) // collect exception index for emit below
 			}
 		}
 		bodyBytes := (int(plan.width)*n + 7) / 8
@@ -175,19 +181,30 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 		// make([]byte, bodyBytes) here would alloc + zero a throwaway slice).
 		out = out[:base+bodyBytes]
 		bitpack.Pack(out[base:base+bodyBytes], packed, int(plan.width))
-	}
-
-	// Exception list. The plan already counted exceptions, so when there are
-	// none (the common case for clean quantized telemetry) skip the second
-	// full RoundToEven re-scan of every element entirely.
-	out = appendUvarint(out, uint64(plan.exc))
-	if plan.exc > 0 {
+	} else if plan.exc > 0 {
+		// plan.width == 0: all non-exception values share the same mantissa
+		// (constant column). No pack body, but still collect exception indices
+		// for the emit pass below.
 		for i, v := range s {
 			I := int64(math.RoundToEven(v * pe))
 			if math.Float64bits(float64(I)*ie) != math.Float64bits(v) {
-				out = appendUvarint(out, uint64(i))
-				out = appendU64(out, math.Float64bits(v))
+				excIdx = append(excIdx, i)
 			}
+		}
+	}
+
+	// Save scratch back for the next call (avoids re-alloc when the exception
+	// count is stable across batches).
+	e.alpExcScratch = excIdx
+
+	// Exception list. When there are no exceptions (the common case for clean
+	// quantized telemetry) the guard skips the emit entirely. Otherwise emit
+	// from the collected index scratch — no second O(n) re-scan of s.
+	out = appendUvarint(out, uint64(plan.exc))
+	if len(excIdx) > 0 {
+		for _, i := range excIdx {
+			out = appendUvarint(out, uint64(i))
+			out = appendU64(out, math.Float64bits(s[i]))
 		}
 	}
 	e.buf = out
@@ -306,6 +323,9 @@ func (e *Encoder) writePackedALPFloat32Slice(s []float32, plan alpFloatPlan) {
 	pe := alpPow10[plan.d]
 	ie := alpInv10[plan.d]
 
+	// Acquire exception-index scratch (shared with float64 path; reset to [:0]).
+	excIdx := e.alpExcScratch[:0]
+
 	if plan.width > 0 {
 		if cap(e.alpScratch) < n {
 			e.alpScratch = make([]uint64, n)
@@ -315,6 +335,8 @@ func (e *Encoder) writePackedALPFloat32Slice(s []float32, plan alpFloatPlan) {
 		for i, v := range s {
 			if I, ok := alpMantissaF32(v, pe, ie); ok {
 				packed[i] = uint64(I - plan.forMin)
+			} else {
+				excIdx = append(excIdx, i) // collect exception index for emit below
 			}
 		}
 		bodyBytes := (int(plan.width)*n + 7) / 8
@@ -324,17 +346,24 @@ func (e *Encoder) writePackedALPFloat32Slice(s []float32, plan alpFloatPlan) {
 		// make([]byte, bodyBytes) here would alloc + zero a throwaway slice).
 		out = out[:base+bodyBytes]
 		bitpack.Pack(out[base:base+bodyBytes], packed, int(plan.width))
-	}
-
-	// See the float64 path: skip the second full re-scan when the plan found no
-	// exceptions (the common clean-telemetry case).
-	out = appendUvarint(out, uint64(plan.exc))
-	if plan.exc > 0 {
+	} else if plan.exc > 0 {
+		// plan.width == 0: constant column with exceptions — collect indices.
 		for i, v := range s {
 			if _, ok := alpMantissaF32(v, pe, ie); !ok {
-				out = appendUvarint(out, uint64(i))
-				out = appendU32(out, math.Float32bits(v))
+				excIdx = append(excIdx, i)
 			}
+		}
+	}
+
+	// Save scratch back for the next call.
+	e.alpExcScratch = excIdx
+
+	// Exception list: emit from collected index scratch — no second O(n) re-scan.
+	out = appendUvarint(out, uint64(plan.exc))
+	if len(excIdx) > 0 {
+		for _, i := range excIdx {
+			out = appendUvarint(out, uint64(i))
+			out = appendU32(out, math.Float32bits(s[i]))
 		}
 	}
 	e.buf = out

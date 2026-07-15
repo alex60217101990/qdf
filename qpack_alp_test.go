@@ -172,6 +172,43 @@ func containsTag(b []byte, tag byte) bool {
 	return false
 }
 
+// alpFixtureWithExceptions returns a 1024-element quantized slice with ~5%
+// non-representable values (NaN, ±Inf, -0.0) so BenchmarkWritePackedALPExc
+// exercises the exception-collection and exception-emit paths.
+func alpFixtureWithExceptions() []float64 {
+	s := alpFixtureQuantized()
+	// Scatter exceptions at fixed positions so the benchmark is deterministic.
+	for i := 0; i < len(s); i += 20 {
+		switch i % 60 {
+		case 0:
+			s[i] = math.NaN()
+		case 20:
+			s[i] = math.Inf(1)
+		case 40:
+			s[i] = math.Copysign(0, -1)
+		}
+	}
+	return s
+}
+
+// BenchmarkWritePackedALPExc measures the ALP float64 encode path on data
+// that contains exceptions (~5% non-representable values). This is the hot
+// path Task 9 optimises: the pre-Task-9 baseline re-scanned all n elements a
+// second time to locate exceptions; head collects them during the first pass.
+func BenchmarkWritePackedALPExc(b *testing.B) {
+	s := alpFixtureWithExceptions()
+	plan, _, ok := alpPlanFloat64(s)
+	if !ok {
+		b.Skip("ALP not applicable for fixture")
+	}
+	e := NewEncoderWith(OptCompression)
+	b.ReportAllocs()
+	for b.Loop() {
+		e.buf = e.buf[:0]
+		e.writePackedALPFloat64Slice(s, plan)
+	}
+}
+
 func TestALPSkip(t *testing.T) {
 	s := alpFixtureQuantized()
 	e := NewEncoderWith(OptCompression)
