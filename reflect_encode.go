@@ -678,8 +678,10 @@ func (e *Encoder) gatherStringKeys(rv reflect.Value) (keys []string, pooled bool
 		pooled = true
 	}
 	it := rv.MapRange()
+	kv := reflect.New(rv.Type().Key()).Elem() // one alloc total; SetIterKey reuses it in-place
 	for it.Next() {
-		buf = append(buf, it.Key().String())
+		kv.SetIterKey(it)
+		buf = append(buf, kv.String())
 	}
 	slices.Sort(buf)
 	if pooled {
@@ -696,8 +698,10 @@ func (e *Encoder) gatherIntKeys(rv reflect.Value) (keys []int64, pooled bool) {
 		pooled = true
 	}
 	it := rv.MapRange()
+	kv := reflect.New(rv.Type().Key()).Elem() // one alloc total; SetIterKey reuses it in-place
 	for it.Next() {
-		buf = append(buf, it.Key().Int())
+		kv.SetIterKey(it)
+		buf = append(buf, kv.Int())
 	}
 	slices.Sort(buf)
 	if pooled {
@@ -714,8 +718,10 @@ func (e *Encoder) gatherUintKeys(rv reflect.Value) (keys []uint64, pooled bool) 
 		pooled = true
 	}
 	it := rv.MapRange()
+	kv := reflect.New(rv.Type().Key()).Elem() // one alloc total; SetIterKey reuses it in-place
 	for it.Next() {
-		buf = append(buf, it.Key().Uint())
+		kv.SetIterKey(it)
+		buf = append(buf, kv.Uint())
 	}
 	slices.Sort(buf)
 	if pooled {
