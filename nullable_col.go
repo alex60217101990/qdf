@@ -271,8 +271,12 @@ func (d *Decoder) readNullableMask(n int) (mask []byte, present int, err error) 
 	}
 	mask = d.buf[d.i : d.i+maskBytes]
 	d.i += maskBytes
-	for _, b := range mask {
-		present += bits.OnesCount8(b)
+	i := 0
+	for ; i+8 <= maskBytes; i += 8 {
+		present += bits.OnesCount64(*(*uint64)(unsafe.Pointer(&mask[i])))
+	}
+	for ; i < maskBytes; i++ {
+		present += bits.OnesCount8(mask[i])
 	}
 	// Reject a mangled bitmap. A valid encoder only sets bits for present rows
 	// in [0,n), so the last byte's padding bits (positions [n%8, 8)) are always
@@ -445,11 +449,11 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 		return cv, err
 	}
 	pres := newBitset(n)
-	for i := range n {
-		if mask[i>>3]&(1<<uint(i&7)) != 0 {
-			setBit(pres, i)
-		}
-	}
+	maskBytes := (n + 7) >> 3
+	// mask (LSB-first within byte) and pres (LSB-first within uint64 word) are
+	// binary-identical on little-endian: row i lives at bit i&7 of byte i>>3 and
+	// at bit i&63 of word i>>6 — the same bit position in the same 8-byte group.
+	copy(unsafe.Slice((*byte)(unsafe.Pointer(&pres[0])), maskBytes), mask[:maskBytes])
 	cv.present = pres
 
 	// Bound the full-row backing alloc by bytes (max elem = 16, a string header),
