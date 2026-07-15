@@ -8,7 +8,7 @@ package bufpool
 
 import (
 	"sync"
-	"sync/atomic"
+	"unsafe"
 )
 
 const (
@@ -40,10 +40,15 @@ func init() {
 	}
 }
 
-var rrCounter atomic.Uint32
-
+// shardIndex returns a shard index derived from the caller's goroutine stack
+// address. Different goroutines have different stack bases, so this distributes
+// across shards without any atomic operation.
 func shardIndex() uint32 {
-	return rrCounter.Add(1) & (numShards - 1)
+	var hint uintptr
+	// Goroutine stacks are allocated in 8 KiB (1<<13) granules; shifting by 13
+	// discards the intra-frame bits and uses the goroutine-specific part of the
+	// address. The lower bits of the shifted value are then masked to numShards-1.
+	return uint32(uintptr(unsafe.Pointer(&hint))>>13) & (numShards - 1)
 }
 
 // Get returns a *[]byte with cap >= hint and length 0. Anything larger
