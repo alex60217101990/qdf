@@ -1,6 +1,9 @@
 package qdf
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func benchDeltaRec() ([]fuzzRec, []fuzzRec) {
 	old := make([]fuzzRec, 1000)
@@ -76,4 +79,28 @@ func BenchmarkDiffApply(b *testing.B) {
 			_ = Apply(&base, patchNoFP)
 		}
 	})
+}
+
+// BenchmarkDiffKeyed measures Diff on a keyed slice with n > keyedLinearMax
+// (32), exercising the hasDupNewKeys map path. Before the pool patch every
+// call allocates a fresh bucket array for the seen-map; after, enc.newKeyIdx
+// is reused across calls.
+func BenchmarkDiffKeyed(b *testing.B) {
+	type E struct {
+		ID  string `qdf:"id,key"`
+		Val int
+	}
+	const n = 50 // > keyedLinearMax (32) → triggers map path in hasDupNewKeys
+	old := make([]E, n)
+	neu := make([]E, n)
+	for i := range n {
+		old[i] = E{ID: fmt.Sprintf("key-%d", i), Val: i}
+		neu[i] = old[i]
+	}
+	neu[n-1].Val = 9999 // one field change so the patch is non-trivial
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = Diff(old, neu, OptBalanced)
+	}
 }

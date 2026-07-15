@@ -70,7 +70,23 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 
 	lookup, dup, release := buildKeyLookup(&enc.keyIdx, &enc.keyIdxBusy, oldKeyAt, oh.Len)
 	defer release()
-	if dup || hasDupNewKeys(newKeyAt, nh.Len) {
+	// Thread a reusable scratch map into hasDupNewKeys so calls with
+	// n > keyedLinearMax reuse existing bucket storage instead of
+	// heap-allocating per call. Fall back to nil (fresh alloc inside
+	// hasDupNewKeys) when busy due to a nested keyed-slice diff.
+	var newKeyScratch map[string]struct{}
+	if !enc.newKeyIdxBusy && nh.Len > keyedLinearMax {
+		enc.newKeyIdxBusy = true
+		if enc.newKeyIdx == nil {
+			enc.newKeyIdx = make(map[string]struct{}, nh.Len)
+		}
+		newKeyScratch = enc.newKeyIdx
+		defer func() {
+			clear(newKeyScratch)
+			enc.newKeyIdxBusy = false
+		}()
+	}
+	if dup || hasDupNewKeys(newKeyAt, nh.Len, newKeyScratch) {
 		// Ambiguous identity → positional fallback. diffValue already wrote opMerge;
 		// diffSlice writes its own tagSlicePatch body, so apply dispatches correctly.
 		return diffSlice(enc, td, oldP, newP, depth)
@@ -419,7 +435,7 @@ func lookupGet(l keyLookup, keyAt func(int) string, n int, key string) (int, boo
 	return 0, false
 }
 
-func hasDupNewKeys(keyAt func(int) string, n int) bool {
+func hasDupNewKeys(keyAt func(int) string, n int, scratch map[string]struct{}) bool {
 	if n <= keyedLinearMax {
 		for i := range n {
 			ki := keyAt(i)
@@ -431,7 +447,10 @@ func hasDupNewKeys(keyAt func(int) string, n int) bool {
 		}
 		return false
 	}
-	seen := make(map[string]struct{}, n)
+	seen := scratch
+	if seen == nil {
+		seen = make(map[string]struct{}, n)
+	}
 	for i := range n {
 		k := keyAt(i)
 		if _, ok := seen[k]; ok {
