@@ -1895,8 +1895,28 @@ func encodeReflect(e *Encoder, v any) error {
 	if err != nil {
 		return err
 	}
-	// Value passed by-value: must copy to an addressable location to take
-	// unsafe.Pointer of. One allocation.
+	// Value passed by-value: need an addressable location for unsafe.Pointer.
+	// For struct and array types larger than a pointer, the interface boxing at
+	// the call site already allocated a heap copy and eface.data IS that copy.
+	// We extract it directly to skip reflect.New. This removes one alloc per
+	// Marshal(structVal) for all structs that are not "direct interface" types.
+	//
+	// Direct-interface structs (size == ptrSize with exactly one pointer field,
+	// e.g. struct{M map[K]V}) store the pointer value itself in eface.data, not
+	// a pointer to the struct — so the trick is unsafe for them. Size > ptrSize
+	// is a sufficient condition to rule them out on all platforms.
+	//
+	// Safety: the data pointer is valid for the lifetime of v (the any parameter
+	// stays alive until encodeReflect returns), and td.encode does not retain p.
+	if k := t.Kind(); (k == reflect.Struct || k == reflect.Array) &&
+		uintptr(t.Size()) > unsafe.Sizeof(unsafe.Pointer(nil)) {
+		type eface struct {
+			_ unsafe.Pointer
+			p unsafe.Pointer
+		}
+		return td.encode(e, (*eface)(unsafe.Pointer(&v)).p)
+	}
+	// Fallback: named scalar types, small structs, and direct-interface structs.
 	ptr := reflect.New(t)
 	ptr.Elem().Set(rv)
 	return td.encode(e, unsafe.Pointer(ptr.Pointer()))
