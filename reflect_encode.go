@@ -1033,6 +1033,12 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 			*(*unsafe.Pointer)(p) = nil
 			return nil
 		}
+		// Reuse the existing heap object when the pointer field is already
+		// non-nil.  Go has a non-moving GC: the raw pointer is stable; the
+		// GC updates p (the pointer-to-pointer), not the pointed-to memory.
+		if existing := *(*unsafe.Pointer)(p); existing != nil {
+			return elem.decode(d, existing)
+		}
 		// Allocate via reflect for GC-safety.
 		nv := reflect.New(t.Elem())
 		if err := elem.decode(d, unsafe.Pointer(nv.Elem().UnsafeAddr())); err != nil {
