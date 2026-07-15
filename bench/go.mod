@@ -12,7 +12,7 @@ require (
 require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
 
 replace github.com/alex60217101990/qdf => ../
