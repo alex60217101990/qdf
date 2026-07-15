@@ -286,23 +286,50 @@ var errBadTable = errors.New("fsst: malformed symbol table")
 // bytes consumed. All lengths are validated against b before any use; never
 // panics on malformed input.
 func UnmarshalSymbolTable(b []byte) (*SymbolTable, int, error) {
+	t := &SymbolTable{}
+	n, err := UnmarshalInto(b, t)
+	if err != nil {
+		return nil, 0, err
+	}
+	return t, n, nil
+}
+
+// Reset clears t's symbol and index data while retaining backing allocations,
+// making t safe to reuse via UnmarshalInto from a sync.Pool.
+func (t *SymbolTable) Reset() {
+	t.symbols = t.symbols[:0]
+	t.cands = t.cands[:0]
+	t.first = [257]int32{}
+}
+
+// UnmarshalInto parses a symbol table from b into t, reusing t's existing
+// slice backing arrays. It is equivalent to UnmarshalSymbolTable but avoids
+// the intermediate [][]byte allocation, making it suitable for pooled callers.
+// Returns the number of bytes consumed from b.
+func UnmarshalInto(b []byte, t *SymbolTable) (int, error) {
 	cnt, n := binary.Uvarint(b)
 	if n <= 0 || cnt > maxSymbols {
-		return nil, 0, errBadTable
+		return 0, errBadTable
 	}
 	off := n
-	raw := make([][]byte, 0, cnt)
+	t.Reset()
 	for range cnt {
 		if off >= len(b) {
-			return nil, 0, errBadTable
+			return 0, errBadTable
 		}
 		l := int(b[off])
 		off++
 		if l < 1 || l > maxSymLen || off+l > len(b) {
-			return nil, 0, errBadTable
+			return 0, errBadTable
 		}
-		raw = append(raw, b[off:off+l])
+		var s symbol
+		src := b[off : off+l]
+		s.len = uint8(l)
+		copy(s.bytes[:], src)
+		s.val, s.mask = packVal(src)
+		t.symbols = append(t.symbols, s)
 		off += l
 	}
-	return newSymbolTable(raw), off, nil
+	t.buildIndex()
+	return off, nil
 }

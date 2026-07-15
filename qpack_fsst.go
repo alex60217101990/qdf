@@ -26,6 +26,12 @@ const (
 // call (the source of the OptCompression encode-allocation regression).
 var fsstBuilderPool = sync.Pool{New: func() any { return fsst.NewBuilder() }}
 
+// fsstTablePool reuses SymbolTable objects across per-column decodes. Each
+// pooled table retains its symbols/cands backing arrays; UnmarshalInto resets
+// them and refills in-place, avoiding the three allocations that a fresh
+// newSymbolTable call would otherwise make.
+var fsstTablePool = sync.Pool{New: func() any { return &fsst.SymbolTable{} }}
+
 // tryWriteStringColumnFSST trains an FSST table on strs, compresses them, and
 // emits a tagColStrFSST block — but only when the block is strictly smaller
 // than the raw per-value size (sum(len)+n framing). It is invoked only after
@@ -103,7 +109,9 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 // before allocation.
 func (d *Decoder) readStringColumnFSST(n int) ([]string, error) {
 	d.i++ // consume tagColStrFSST
-	tbl, used, err := fsst.UnmarshalSymbolTable(d.buf[d.i:])
+	tbl := fsstTablePool.Get().(*fsst.SymbolTable)
+	defer fsstTablePool.Put(tbl)
+	used, err := fsst.UnmarshalInto(d.buf[d.i:], tbl)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +183,9 @@ func (d *Decoder) readStringColumnFSST(n int) ([]string, error) {
 // errors — never OOM, never OOB write into the slab.
 func readStringColumnFSSTInto(d *Decoder, n int, slab *batchSlab, out []Str) error {
 	d.i++ // consume tagColStrFSST
-	tbl, used, err := fsst.UnmarshalSymbolTable(d.buf[d.i:])
+	tbl := fsstTablePool.Get().(*fsst.SymbolTable)
+	defer fsstTablePool.Put(tbl)
+	used, err := fsst.UnmarshalInto(d.buf[d.i:], tbl)
 	if err != nil {
 		return err
 	}
