@@ -180,10 +180,79 @@ func packBits32(out []byte, vals []uint64) {
 	}
 }
 
-func packBits10(out []byte, vals []uint64) { Pack(out, vals, 10) }
-func packBits12(out []byte, vals []uint64) { Pack(out, vals, 12) }
-func packBits14(out []byte, vals []uint64) { Pack(out, vals, 14) }
-func packBits20(out []byte, vals []uint64) { Pack(out, vals, 20) }
+// --- variable-width NEON pack kernels (10/12/14/20-bit) ---
+//
+// Each width uses a NEON kernel that processes 4 values (2 for 20-bit) per
+// iteration: load 4 uint64 into two 128-bit registers, VAND to mask the live
+// bits, SSHL to shift each lane to its bit-stream position (per-lane shift
+// amounts are pre-loaded from a DATA table), VORR to OR the two halves, EXT
+// to swap the two 64-bit lanes, VORR again to produce the fully-packed 64-bit
+// word in lane 0, UMOV to move it to a GP register, and byte-granular stores.
+// The n%4 (or n%2) tail is handled by the scalar accumulator Pack.
+
+//go:noescape
+func packBits10NEON(out []byte, vals []uint64, groups int)
+
+//go:noescape
+func packBits12NEON(out []byte, vals []uint64, groups int)
+
+//go:noescape
+func packBits14NEON(out []byte, vals []uint64, groups int)
+
+//go:noescape
+func packBits20NEON(out []byte, vals []uint64, pairs int)
+
+// packBits10 packs the low 10 bits of each val LSB-first into out. NEON
+// processes 4 values (40 bits = 5 bytes) per iteration; the n%4 tail is scalar.
+func packBits10(out []byte, vals []uint64) {
+	n := len(vals)
+	groups := n / 4
+	if groups > 0 {
+		packBits10NEON(out, vals, groups)
+	}
+	if rem := n % 4; rem > 0 {
+		Pack(out[groups*5:], vals[groups*4:], 10)
+	}
+}
+
+// packBits12 packs the low 12 bits of each val LSB-first into out. NEON
+// processes 4 values (48 bits = 6 bytes) per iteration; the n%4 tail is scalar.
+func packBits12(out []byte, vals []uint64) {
+	n := len(vals)
+	groups := n / 4
+	if groups > 0 {
+		packBits12NEON(out, vals, groups)
+	}
+	if rem := n % 4; rem > 0 {
+		Pack(out[groups*6:], vals[groups*4:], 12)
+	}
+}
+
+// packBits14 packs the low 14 bits of each val LSB-first into out. NEON
+// processes 4 values (56 bits = 7 bytes) per iteration; the n%4 tail is scalar.
+func packBits14(out []byte, vals []uint64) {
+	n := len(vals)
+	groups := n / 4
+	if groups > 0 {
+		packBits14NEON(out, vals, groups)
+	}
+	if rem := n % 4; rem > 0 {
+		Pack(out[groups*7:], vals[groups*4:], 14)
+	}
+}
+
+// packBits20 packs the low 20 bits of each val LSB-first into out. NEON
+// processes 2 values (40 bits = 5 bytes) per iteration; the n%2 tail is scalar.
+func packBits20(out []byte, vals []uint64) {
+	n := len(vals)
+	pairs := n / 2
+	if pairs > 0 {
+		packBits20NEON(out, vals, pairs)
+	}
+	if n%2 != 0 {
+		Pack(out[pairs*5:], vals[pairs*2:], 20)
+	}
+}
 
 //go:noescape
 func packBoolsNEON8(src *bool, dst *byte)
