@@ -185,3 +185,106 @@ loop_dh4:
 
 done_dh4:
 	RET
+
+// func packBits8NEON(out []byte, vals []uint64, n int)
+//
+// Packs the low byte of each of n uint64 values into n contiguous bytes of
+// out. n must be a multiple of 8. Caller ensures len(out) >= n and
+// len(vals) >= n.
+//
+// Strategy: load 8 uint64s (64 bytes) into V0-V3, then apply a three-step
+// XTN (extract-narrow) chain to reduce each 64-bit lane to 8 bits:
+//   Step 1: XTN/XTN2  V4.2S←V0.2D, V4.4S←V1.2D  (64→32-bit per lane)
+//           XTN/XTN2  V5.2S←V2.2D, V5.4S←V3.2D
+//   Step 2: XTN/XTN2  V6.4H←V4.4S, V6.8H←V5.4S  (32→16-bit per lane)
+//   Step 3: XTN       V7.8B←V6.8H                 (16→8-bit per lane)
+// Store 8 result bytes; repeat.
+//
+// XTN/XTN2 are WORD-encoded (not named in Go's arm64 assembler):
+//   XTN  Vd.2S, Vn.2D  → 0x0EA128XX  (size=10, Q=0)
+//   XTN2 Vd.4S, Vn.2D  → 0x4EA128XX  (size=10, Q=1)
+//   XTN  Vd.4H, Vn.4S  → 0x0E6128XX  (size=01, Q=0)
+//   XTN2 Vd.8H, Vn.4S  → 0x4E6128XX  (size=01, Q=1)
+//   XTN  Vd.8B, Vn.8H  → 0x0E2128XX  (size=00, Q=0)
+// where XX = Rn[4:0]<<5 | Rd[4:0].
+TEXT ·packBits8NEON(SB), NOSPLIT, $0-56
+	MOVD out_base+0(FP), R1
+	MOVD vals_base+24(FP), R0
+	MOVD n+48(FP), R2
+
+loop_pk8:
+	CBZ  R2, done_pk8
+	VLD1 (R0), [V0.D2, V1.D2, V2.D2, V3.D2] // load 8 uint64 (64 bytes)
+	ADD  $64, R0
+	WORD $0x0EA12804 // XTN  V4.2S, V0.2D  (Rn=V0=0,  Rd=V4=4)
+	WORD $0x4EA12824 // XTN2 V4.4S, V1.2D  (Rn=V1=1,  Rd=V4=4)
+	WORD $0x0EA12845 // XTN  V5.2S, V2.2D  (Rn=V2=2,  Rd=V5=5)
+	WORD $0x4EA12865 // XTN2 V5.4S, V3.2D  (Rn=V3=3,  Rd=V5=5)
+	WORD $0x0E612886 // XTN  V6.4H, V4.4S  (Rn=V4=4,  Rd=V6=6)
+	WORD $0x4E6128A6 // XTN2 V6.8H, V5.4S  (Rn=V5=5,  Rd=V6=6)
+	WORD $0x0E2128C7 // XTN  V7.8B, V6.8H  (Rn=V6=6,  Rd=V7=7)
+	VST1 [V7.B8], (R1)                       // store 8 bytes
+	ADD  $8, R1
+	SUB  $8, R2
+	B    loop_pk8
+
+done_pk8:
+	RET
+
+// func packBits16NEON(out []byte, vals []uint64, n int)
+//
+// Packs the low 2 bytes (LE) of each of n uint64 values into 2*n contiguous
+// bytes of out. n must be a multiple of 8. Caller ensures len(out) >= 2*n and
+// len(vals) >= n.
+//
+// Strategy: same XTN chain as packBits8NEON but stops after the 32→16-bit
+// step — V6.H8 already holds 8 little-endian uint16 values (16 bytes total).
+TEXT ·packBits16NEON(SB), NOSPLIT, $0-56
+	MOVD out_base+0(FP), R1
+	MOVD vals_base+24(FP), R0
+	MOVD n+48(FP), R2
+
+loop_pk16:
+	CBZ  R2, done_pk16
+	VLD1 (R0), [V0.D2, V1.D2, V2.D2, V3.D2] // load 8 uint64 (64 bytes)
+	ADD  $64, R0
+	WORD $0x0EA12804 // XTN  V4.2S, V0.2D
+	WORD $0x4EA12824 // XTN2 V4.4S, V1.2D
+	WORD $0x0EA12845 // XTN  V5.2S, V2.2D
+	WORD $0x4EA12865 // XTN2 V5.4S, V3.2D
+	WORD $0x0E612886 // XTN  V6.4H, V4.4S
+	WORD $0x4E6128A6 // XTN2 V6.8H, V5.4S  → V6 = 8 × uint16 (16 bytes)
+	VST1 [V6.B16], (R1)                      // store 16 bytes
+	ADD  $16, R1
+	SUB  $8, R2
+	B    loop_pk16
+
+done_pk16:
+	RET
+
+// func packBits32NEON(out []byte, vals []uint64, n int)
+//
+// Packs the low 4 bytes (LE) of each of n uint64 values into 4*n contiguous
+// bytes of out. n must be a multiple of 4. Caller ensures len(out) >= 4*n and
+// len(vals) >= n.
+//
+// Strategy: load 4 uint64s into V0-V1 (32 bytes), apply a single XTN step
+// to produce V2.S4 holding 4 little-endian uint32 values (16 bytes), store.
+TEXT ·packBits32NEON(SB), NOSPLIT, $0-56
+	MOVD out_base+0(FP), R1
+	MOVD vals_base+24(FP), R0
+	MOVD n+48(FP), R2
+
+loop_pk32:
+	CBZ  R2, done_pk32
+	VLD1 (R0), [V0.D2, V1.D2]               // load 4 uint64 (32 bytes)
+	ADD  $32, R0
+	WORD $0x0EA12802 // XTN  V2.2S, V0.2D  (Rn=V0=0, Rd=V2=2)
+	WORD $0x4EA12822 // XTN2 V2.4S, V1.2D  (Rn=V1=1, Rd=V2=2) → V2 = 4 × uint32
+	VST1 [V2.B16], (R1)                      // store 16 bytes
+	ADD  $16, R1
+	SUB  $4, R2
+	B    loop_pk32
+
+done_pk32:
+	RET
