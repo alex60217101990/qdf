@@ -288,3 +288,234 @@ loop_pk32:
 
 done_pk32:
 	RET
+
+// -----------------------------------------------------------------------
+// Variable-width pack kernels: 10 / 12 / 14 / 20-bit
+//
+// Strategy: for each group of 4 values (2 for 20-bit) load them into two
+// 128-bit NEON registers (one for 20-bit), mask each lane, then shift each
+// lane to its bit-stream offset using SSHL with a pre-loaded per-lane shift
+// vector. VORR combines the two halves; EXT rotates lanes so the upper 64-bit
+// lane falls into lane 0; a second VORR produces the fully-packed 64-bit word
+// in lane 0; UMOV extracts it to a GP register; byte-granular stores write
+// the result. The n%4 (or n%2) tail is handled by the scalar Pack in Go.
+//
+// WORD-encoded NEON instructions (not natively named in Go's arm64 assembler):
+//
+//   SSHL Vd.2D, Vn.2D, Vm.2D  — signed shift left each lane by Vm lane amount
+//     encoding: 0 Q 0 01110 11 1 Vm 0100 01 Vn Rd  (Q=1, size=11=D)
+//     SSHL V0.2D, V0.2D, V6.2D  → WORD $0x4EE64400
+//     SSHL V1.2D, V1.2D, V7.2D  → WORD $0x4EE74421
+//
+//   VORR Vd.16B, Vn.16B, Vm.16B  — bitwise OR (vector ORR)
+//     encoding: 0 Q 0 01110 10 1 Rm 000111 Rn Rd  (Q=1)
+//     VORR V2.16B, V1.16B, V0.16B  (Rd=V2, Rn=V1, Rm=V0)  → WORD $0x4EA01C22
+//     VORR V2.16B, V2.16B, V3.16B  (Rd=V2, Rn=V2, Rm=V3)  → WORD $0x4EA31C42
+//     VORR V0.16B, V0.16B, V1.16B  (Rd=V0, Rn=V0, Rm=V1)  → WORD $0x4EA11C00
+//
+//   EXT Vd.16B, Vn.16B, Vm.16B, #8  — extract/rotate by 8 bytes
+//     encoding: 0 Q 1 01110 00 0 Rm 0 1000 0 Rn Rd  (Q=1)
+//     EXT V3.16B, V2.16B, V2.16B, #8  (Rd=V3, Rn=V2, Rm=V2)  → WORD $0x6E024043
+//     EXT V1.16B, V0.16B, V0.16B, #8  (Rd=V1, Rn=V0, Rm=V0)  → WORD $0x6E004001
+//
+//   UMOV Xd, Vn.D[0]  — unsigned move lane 0 to GP register (Q=1, imm5=10000)
+//     encoding: 0 1 001110 000 10000 001111 1 Rn Rd
+//     UMOV X3, V2.D[0]  → WORD $0x4E103C43
+//     UMOV X3, V0.D[0]  → WORD $0x4E103C03
+// -----------------------------------------------------------------------
+
+// Shift-amount tables: per-lane left-shift amounts for each bit width.
+// For 4-value widths (10/12/14): 32 bytes = two 128-bit vectors (V6, V7).
+// For 2-value width (20): 16 bytes = one 128-bit vector (V6).
+
+DATA packVar10Shifts<>+0(SB)/8,  $0   // V6.D[0] = lane-0 shift for 10-bit
+DATA packVar10Shifts<>+8(SB)/8,  $10  // V6.D[1] = lane-1 shift for 10-bit
+DATA packVar10Shifts<>+16(SB)/8, $20  // V7.D[0] = lane-2 shift for 10-bit
+DATA packVar10Shifts<>+24(SB)/8, $30  // V7.D[1] = lane-3 shift for 10-bit
+GLOBL packVar10Shifts<>(SB), RODATA|NOPTR, $32
+
+DATA packVar12Shifts<>+0(SB)/8,  $0   // V6.D[0] = lane-0 shift for 12-bit
+DATA packVar12Shifts<>+8(SB)/8,  $12  // V6.D[1] = lane-1 shift for 12-bit
+DATA packVar12Shifts<>+16(SB)/8, $24  // V7.D[0] = lane-2 shift for 12-bit
+DATA packVar12Shifts<>+24(SB)/8, $36  // V7.D[1] = lane-3 shift for 12-bit
+GLOBL packVar12Shifts<>(SB), RODATA|NOPTR, $32
+
+DATA packVar14Shifts<>+0(SB)/8,  $0   // V6.D[0] = lane-0 shift for 14-bit
+DATA packVar14Shifts<>+8(SB)/8,  $14  // V6.D[1] = lane-1 shift for 14-bit
+DATA packVar14Shifts<>+16(SB)/8, $28  // V7.D[0] = lane-2 shift for 14-bit
+DATA packVar14Shifts<>+24(SB)/8, $42  // V7.D[1] = lane-3 shift for 14-bit
+GLOBL packVar14Shifts<>(SB), RODATA|NOPTR, $32
+
+DATA packVar20Shifts<>+0(SB)/8, $0   // V6.D[0] = lane-0 shift for 20-bit
+DATA packVar20Shifts<>+8(SB)/8, $20  // V6.D[1] = lane-1 shift for 20-bit
+GLOBL packVar20Shifts<>(SB), RODATA|NOPTR, $16
+
+// Mask tables: (1<<width)-1 replicated across all 64-bit lanes used.
+// 10-bit mask = 0x3FF, 12-bit = 0xFFF, 14-bit = 0x3FFF, 20-bit = 0xFFFFF.
+
+DATA packVar10Mask<>+0(SB)/8, $0x3FF
+DATA packVar10Mask<>+8(SB)/8, $0x3FF
+GLOBL packVar10Mask<>(SB), RODATA|NOPTR, $16
+
+DATA packVar12Mask<>+0(SB)/8, $0xFFF
+DATA packVar12Mask<>+8(SB)/8, $0xFFF
+GLOBL packVar12Mask<>(SB), RODATA|NOPTR, $16
+
+DATA packVar14Mask<>+0(SB)/8, $0x3FFF
+DATA packVar14Mask<>+8(SB)/8, $0x3FFF
+GLOBL packVar14Mask<>(SB), RODATA|NOPTR, $16
+
+DATA packVar20Mask<>+0(SB)/8, $0xFFFFF
+DATA packVar20Mask<>+8(SB)/8, $0xFFFFF
+GLOBL packVar20Mask<>(SB), RODATA|NOPTR, $16
+
+// func packBits10NEON(out []byte, vals []uint64, groups int)
+//
+// Packs `groups` chunks of four 10-bit values into byte-aligned 40-bit chunks
+// (5 bytes each). Caller guarantees len(out) >= 5*groups, len(vals) >= 4*groups.
+//
+// Register allocation:
+//   R0 = out ptr, R1 = vals ptr, R2 = groups count
+//   V4 = mask (0x3FF in both lanes), V6 = shifts [0,10], V7 = shifts [20,30]
+//   V0,V1 = loaded values; V2,V3 = temporaries
+//   R3,R4 = scalar GP temporaries for store
+TEXT ·packBits10NEON(SB), NOSPLIT, $0-56
+	MOVD out_base+0(FP), R0
+	MOVD vals_base+24(FP), R1
+	MOVD groups+48(FP), R2
+	// Load per-lane shift vectors and mask vector.
+	MOVD $packVar10Shifts<>(SB), R10
+	VLD1 (R10), [V6.D2, V7.D2]           // V6=[0,10] V7=[20,30]
+	MOVD $packVar10Mask<>(SB), R10
+	VLD1 (R10), [V4.D2]                   // V4=[0x3FF,0x3FF]
+
+loop_pk10:
+	CBZ  R2, done_pk10
+	VLD1 (R1), [V0.D2, V1.D2]            // V0=[v0,v1], V1=[v2,v3]
+	ADD  $32, R1
+	WORD $0x4E241C00                       // VAND V0.16B = V0.16B & V4.16B (Rm=V4,Rn=V0,Rd=V0)
+	WORD $0x4E241C21                       // VAND V1.16B = V1.16B & V4.16B (Rm=V4,Rn=V1,Rd=V1)
+	WORD $0x4EE64400                       // SSHL V0.2D, V0.2D, V6.2D → [v0<<0, v1<<10]
+	WORD $0x4EE74421                       // SSHL V1.2D, V1.2D, V7.2D → [v2<<20, v3<<30]
+	WORD $0x4EA01C22                       // VORR V2.16B = V0.16B | V1.16B → [v0|v2, v1|v3]
+	WORD $0x6E024043                       // EXT  V3.16B, V2.16B, V2.16B, #8 → [v1|v3, v0|v2]
+	WORD $0x4EA31C42                       // VORR V2.16B |= V3.16B → V2.D[0] = all 4 ORed
+	WORD $0x4E083C43                       // UMOV X3, V2.D[0]
+	MOVW R3, (R0)                          // store bytes 0-3
+	LSR  $32, R3, R4
+	MOVB R4, 4(R0)                         // store byte 4
+	ADD  $5, R0
+	SUB  $1, R2
+	B    loop_pk10
+
+done_pk10:
+	RET
+
+// func packBits12NEON(out []byte, vals []uint64, groups int)
+//
+// Packs `groups` chunks of four 12-bit values into byte-aligned 48-bit chunks
+// (6 bytes each). Caller guarantees len(out) >= 6*groups, len(vals) >= 4*groups.
+TEXT ·packBits12NEON(SB), NOSPLIT, $0-56
+	MOVD out_base+0(FP), R0
+	MOVD vals_base+24(FP), R1
+	MOVD groups+48(FP), R2
+	MOVD $packVar12Shifts<>(SB), R10
+	VLD1 (R10), [V6.D2, V7.D2]           // V6=[0,12] V7=[24,36]
+	MOVD $packVar12Mask<>(SB), R10
+	VLD1 (R10), [V4.D2]                   // V4=[0xFFF,0xFFF]
+
+loop_pk12:
+	CBZ  R2, done_pk12
+	VLD1 (R1), [V0.D2, V1.D2]            // V0=[v0,v1], V1=[v2,v3]
+	ADD  $32, R1
+	WORD $0x4E241C00                       // VAND V0.16B = V0.16B & V4.16B (Rm=V4,Rn=V0,Rd=V0)
+	WORD $0x4E241C21                       // VAND V1.16B = V1.16B & V4.16B (Rm=V4,Rn=V1,Rd=V1)
+	WORD $0x4EE64400                       // SSHL V0.2D, V0.2D, V6.2D → [v0<<0, v1<<12]
+	WORD $0x4EE74421                       // SSHL V1.2D, V1.2D, V7.2D → [v2<<24, v3<<36]
+	WORD $0x4EA01C22                       // VORR V2.16B = V0.16B | V1.16B → [v0|v2, v1|v3]
+	WORD $0x6E024043                       // EXT  V3.16B, V2.16B, V2.16B, #8 → [v1|v3, v0|v2]
+	WORD $0x4EA31C42                       // VORR V2.16B |= V3.16B → V2.D[0] = all 4 ORed
+	WORD $0x4E083C43                       // UMOV X3, V2.D[0]
+	MOVW R3, (R0)                          // store bytes 0-3
+	LSR  $32, R3, R4
+	MOVH R4, 4(R0)                         // store bytes 4-5
+	ADD  $6, R0
+	SUB  $1, R2
+	B    loop_pk12
+
+done_pk12:
+	RET
+
+// func packBits14NEON(out []byte, vals []uint64, groups int)
+//
+// Packs `groups` chunks of four 14-bit values into byte-aligned 56-bit chunks
+// (7 bytes each). Caller guarantees len(out) >= 7*groups, len(vals) >= 4*groups.
+TEXT ·packBits14NEON(SB), NOSPLIT, $0-56
+	MOVD out_base+0(FP), R0
+	MOVD vals_base+24(FP), R1
+	MOVD groups+48(FP), R2
+	MOVD $packVar14Shifts<>(SB), R10
+	VLD1 (R10), [V6.D2, V7.D2]           // V6=[0,14] V7=[28,42]
+	MOVD $packVar14Mask<>(SB), R10
+	VLD1 (R10), [V4.D2]                   // V4=[0x3FFF,0x3FFF]
+
+loop_pk14:
+	CBZ  R2, done_pk14
+	VLD1 (R1), [V0.D2, V1.D2]            // V0=[v0,v1], V1=[v2,v3]
+	ADD  $32, R1
+	WORD $0x4E241C00                       // VAND V0.16B = V0.16B & V4.16B (Rm=V4,Rn=V0,Rd=V0)
+	WORD $0x4E241C21                       // VAND V1.16B = V1.16B & V4.16B (Rm=V4,Rn=V1,Rd=V1)
+	WORD $0x4EE64400                       // SSHL V0.2D, V0.2D, V6.2D → [v0<<0, v1<<14]
+	WORD $0x4EE74421                       // SSHL V1.2D, V1.2D, V7.2D → [v2<<28, v3<<42]
+	WORD $0x4EA01C22                       // VORR V2.16B = V0.16B | V1.16B → [v0|v2, v1|v3]
+	WORD $0x6E024043                       // EXT  V3.16B, V2.16B, V2.16B, #8 → [v1|v3, v0|v2]
+	WORD $0x4EA31C42                       // VORR V2.16B |= V3.16B → V2.D[0] = all 4 ORed
+	WORD $0x4E083C43                       // UMOV X3, V2.D[0]
+	MOVW R3, (R0)                          // store bytes 0-3
+	LSR  $32, R3, R4
+	MOVH R4, 4(R0)                         // store bytes 4-5
+	LSR  $48, R3, R5
+	MOVB R5, 6(R0)                         // store byte 6
+	ADD  $7, R0
+	SUB  $1, R2
+	B    loop_pk14
+
+done_pk14:
+	RET
+
+// func packBits20NEON(out []byte, vals []uint64, pairs int)
+//
+// Packs `pairs` chunks of two 20-bit values into byte-aligned 40-bit chunks
+// (5 bytes each). Caller guarantees len(out) >= 5*pairs, len(vals) >= 2*pairs.
+//
+// Two values fit in one 128-bit register (V0): [v0, v1].
+// After SSHL with [0,20]: V0=[v0<<0, v1<<20].
+// EXT V1, V0, V0, #8 → V1=[v1<<20, v0<<0].
+// VORR V0 |= V1 → V0.D[0] = (v0<<0)|(v1<<20) = all packed.
+TEXT ·packBits20NEON(SB), NOSPLIT, $0-56
+	MOVD out_base+0(FP), R0
+	MOVD vals_base+24(FP), R1
+	MOVD pairs+48(FP), R2
+	MOVD $packVar20Shifts<>(SB), R10
+	VLD1 (R10), [V6.D2]                   // V6=[0,20]
+	MOVD $packVar20Mask<>(SB), R10
+	VLD1 (R10), [V4.D2]                   // V4=[0xFFFFF,0xFFFFF]
+
+loop_pk20:
+	CBZ  R2, done_pk20
+	VLD1 (R1), [V0.D2]                    // V0=[v0,v1]
+	ADD  $16, R1
+	WORD $0x4E241C00                       // VAND V0.16B = V0.16B & V4.16B (Rm=V4,Rn=V0,Rd=V0)
+	WORD $0x4EE64400                       // SSHL V0.2D, V0.2D, V6.2D → [v0<<0, v1<<20]
+	WORD $0x6E004001                       // EXT  V1.16B, V0.16B, V0.16B, #8 → [v1<<20, v0<<0]
+	WORD $0x4EA11C00                       // VORR V0.16B |= V1.16B → V0.D[0] = all 2 ORed
+	WORD $0x4E083C03                       // UMOV X3, V0.D[0]
+	MOVW R3, (R0)                          // store bytes 0-3
+	LSR  $32, R3, R4
+	MOVB R4, 4(R0)                         // store byte 4
+	ADD  $5, R0
+	SUB  $1, R2
+	B    loop_pk20
+
+done_pk20:
+	RET
