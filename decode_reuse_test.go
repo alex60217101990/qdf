@@ -132,3 +132,83 @@ func TestReuse_PointerStaleCleared(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodePtrReuse verifies that decodePtr reuses the existing heap object
+// on repeated decode instead of allocating a fresh one each time.
+func TestDecodePtrReuse(t *testing.T) {
+	type Inner struct {
+		X int64 `qdf:"x"`
+	}
+	type Outer struct {
+		P *Inner `qdf:"p"`
+	}
+
+	b1, err := Marshal(Outer{P: &Inner{X: 42}}, OptSpeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dst Outer
+	if err := Unmarshal(b1, &dst); err != nil {
+		t.Fatal(err)
+	}
+	if dst.P == nil || dst.P.X != 42 {
+		t.Fatalf("first decode: %+v", dst)
+	}
+	first := dst.P // save address for reuse check
+
+	b2, err := Marshal(Outer{P: &Inner{X: 99}}, OptSpeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Unmarshal(b2, &dst); err != nil {
+		t.Fatal(err)
+	}
+	if dst.P == nil || dst.P.X != 99 {
+		t.Fatalf("second decode: %+v", dst)
+	}
+	// After the fix, decodePtr reuses the existing allocation.
+	if dst.P != first {
+		t.Errorf("pointer not reused: first=%p second=%p", first, dst.P)
+	}
+
+	// Also verify nil-tag path: encoding a nil pointer must clear the field.
+	b3, err := Marshal(Outer{P: nil}, OptSpeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Unmarshal(b3, &dst); err != nil {
+		t.Fatal(err)
+	}
+	if dst.P != nil {
+		t.Fatalf("nil not written: %+v", dst)
+	}
+}
+
+// BenchmarkDecodePtrReuse measures the allocation savings from reusing the
+// existing heap object in decodePtr on repeated decodes into the same struct.
+func BenchmarkDecodePtrReuse(b *testing.B) {
+	type Inner struct {
+		X int64   `qdf:"x"`
+		Y float64 `qdf:"y"`
+	}
+	type Outer struct {
+		P *Inner `qdf:"p"`
+	}
+	src := Outer{P: &Inner{X: 42, Y: 3.14}}
+	buf, err := Marshal(src, OptSpeed)
+	if err != nil {
+		b.Fatal(err)
+	}
+	var dst Outer
+	// Prime dst with a live allocation so the reuse path is exercised.
+	if err := Unmarshal(buf, &dst); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := Unmarshal(buf, &dst); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
