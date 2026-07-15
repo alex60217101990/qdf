@@ -318,10 +318,10 @@ done_pk32:
 //     EXT V3.16B, V2.16B, V2.16B, #8  (Rd=V3, Rn=V2, Rm=V2)  → WORD $0x6E024043
 //     EXT V1.16B, V0.16B, V0.16B, #8  (Rd=V1, Rn=V0, Rm=V0)  → WORD $0x6E004001
 //
-//   UMOV Xd, Vn.D[0]  — unsigned move lane 0 to GP register (Q=1, imm5=10000)
-//     encoding: 0 1 001110 000 10000 001111 1 Rn Rd
-//     UMOV X3, V2.D[0]  → WORD $0x4E103C43
-//     UMOV X3, V0.D[0]  → WORD $0x4E103C03
+//   UMOV Xd, Vn.D[0]  — unsigned move lane 0 to GP register (Q=1, imm5=01000)
+//     encoding: 0 1 001110 000 01000 001111 1 Rn Rd
+//     UMOV X3, V2.D[0]  → WORD $0x4E083C43
+//     UMOV X3, V0.D[0]  → WORD $0x4E083C03
 // -----------------------------------------------------------------------
 
 // Shift-amount tables: per-lane left-shift amounts for each bit width.
