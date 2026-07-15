@@ -109,6 +109,11 @@ type Encoder struct {
 	pforExcPos   []uint64
 	pforExcDelta []uint64
 
+	// alpExcScratch collects exception indices during the ALP float pack pass
+	// so the second O(n) re-scan of the slice is eliminated (mirrors the PFOR
+	// pattern above). Pointer-free ([]int); retained across calls.
+	alpExcScratch []int
+
 	// wideF64 reuses the []float32 -> []float64 widening buffer for the lossy
 	// vector codec, retained across encodes and dropped past the ceiling in
 	// resetForReuse. For f32 fields this avoids one allocation per encode;
@@ -417,6 +422,10 @@ func (e *Encoder) resetForReuse() {
 	if cap(e.pforExcPos) > maxRetainedColScratch {
 		e.pforExcPos = nil
 		e.pforExcDelta = nil
+	}
+	// ALP exception-index scratch: pointer-free, drop when oversized.
+	if cap(e.alpExcScratch) > maxRetainedColScratch {
+		e.alpExcScratch = nil
 	}
 	e.vecScratch.Reset()
 	if cap(e.wideF64) > maxRetainedColScratch {
