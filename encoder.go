@@ -101,6 +101,14 @@ type Encoder struct {
 	// encState, so the row-major float path reuses it without needing a state.
 	alpScratch []uint64
 
+	// pforExcPos / pforExcDelta collect exception (relPos, delta) pairs during
+	// the PFOR pack pass so the second O(n) scan of s is eliminated. Storing
+	// relative positions pre-computed during the pack loop lets the emit pass
+	// loop over the compact scratch instead of re-scanning the full slice.
+	// Pointer-free ([]uint64); retained across calls, dropped past the ceiling.
+	pforExcPos   []uint64
+	pforExcDelta []uint64
+
 	// wideF64 reuses the []float32 -> []float64 widening buffer for the lossy
 	// vector codec, retained across encodes and dropped past the ceiling in
 	// resetForReuse. For f32 fields this avoids one allocation per encode;
@@ -403,6 +411,12 @@ func (e *Encoder) resetForReuse() {
 	// Pure []uint64 (no pointers) so no clear is needed.
 	if cap(e.alpScratch) > maxRetainedColScratch {
 		e.alpScratch = nil
+	}
+	// PFOR exception scratch: pointer-free, drop both when oversized (they grow
+	// together on the same workload so a single ceiling check suffices).
+	if cap(e.pforExcPos) > maxRetainedColScratch {
+		e.pforExcPos = nil
+		e.pforExcDelta = nil
 	}
 	e.vecScratch.Reset()
 	if cap(e.wideF64) > maxRetainedColScratch {

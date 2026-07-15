@@ -3,6 +3,7 @@ package qdf
 import (
 	"encoding/binary"
 	"math/rand"
+	"strconv"
 	"testing"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
@@ -122,6 +123,72 @@ func TestPFor_RoundTripU64(t *testing.T) {
 		}
 	}
 }
+
+// BenchmarkPFor_EncodeU64 / BenchmarkPFor_EncodeI64 measure the PFOR encode
+// path (writePackedPFor{Uint64,Int64}Slice) on slices with ~3% exceptions,
+// which is the regime where the exception-scratch optimisation matters most.
+func BenchmarkPFor_EncodeU64(b *testing.B) {
+	r := rand.New(rand.NewSource(42))
+	for _, n := range []int{1024, 4096, 16384} {
+		s := make([]uint64, n)
+		base := uint64(1_000_000)
+		spike := uint64(1 << 40)
+		for i := range s {
+			if r.Intn(100) < 3 {
+				s[i] = spike + uint64(r.Intn(1000))
+			} else {
+				s[i] = base + uint64(r.Intn(16))
+			}
+		}
+		mn, mx := minMaxU64(s)
+		forBits := bitpack.BitsForDelta(mx - mn)
+		bw, _, ok := pforPlanUnsigned(s, mn, forBits)
+		if !ok {
+			continue
+		}
+		enc := NewEncoder(Fast)
+		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(n * 8))
+			for b.Loop() {
+				enc.Reset()
+				enc.writePackedPForUint64Slice(s, mn, bw)
+			}
+		})
+	}
+}
+
+func BenchmarkPFor_EncodeI64(b *testing.B) {
+	r := rand.New(rand.NewSource(43))
+	for _, n := range []int{1024, 4096, 16384} {
+		s := make([]int64, n)
+		base := int64(1_000_000)
+		spike := int64(1 << 40)
+		for i := range s {
+			if r.Intn(100) < 3 {
+				s[i] = spike + int64(r.Intn(1000))
+			} else {
+				s[i] = base + int64(r.Intn(16))
+			}
+		}
+		mn, mx := minMaxI64(s)
+		forBits := bitpack.BitsForDelta(uint64(mx) - uint64(mn))
+		bw, _, ok := pforPlanSigned(s, mn, forBits)
+		if !ok {
+			continue
+		}
+		enc := NewEncoder(Fast)
+		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(n * 8))
+			for b.Loop() {
+				enc.Reset()
+				enc.writePackedPForInt64Slice(s, mn, bw)
+			}
+		})
+	}
+}
+
 
 func FuzzPForRoundTrip(f *testing.F) {
 	f.Add([]byte{1, 2, 3, 4, 5, 6, 7, 8})
