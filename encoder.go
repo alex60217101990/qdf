@@ -264,6 +264,15 @@ type Encoder struct {
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
 	keyIdxBusy bool
 
+	// newKeyIdx is a reused seen-map for hasDupNewKeys (delta_keyed.go), cleared
+	// (not reallocated) per diff call so large new-key sets above keyedLinearMax
+	// reuse the bucket storage instead of heap-allocating per call. Kept on the
+	// Encoder (not encState) next to keyIdx so both keyed-diff scratch fields
+	// share the same cache neighbourhood. newKeyIdxBusy guards against
+	// re-entrancy: a nested keyed slice sees true and falls back to a fresh map.
+	newKeyIdx     map[string]struct{}
+	newKeyIdxBusy bool
+
 	// stateSuspended turns off every wire-stateful encoding — string/[]byte
 	// interning, struct-shape interning, map-shape interning — for the duration
 	// of a keyed-slice delta's never-larger trial (delta_keyed.go). A keyed patch
@@ -456,6 +465,14 @@ func (e *Encoder) resetForReuse() {
 		clear(e.keyIdx)
 	}
 	e.keyIdxBusy = false
+	// newKeyIdx: keys are unsafe.String aliases into caller backing; clear to
+	// drop GC-pinning references. Drop past spike cap like keyIdx above.
+	if len(e.newKeyIdx) > 1<<16 {
+		e.newKeyIdx = nil
+	} else {
+		clear(e.newKeyIdx)
+	}
+	e.newKeyIdxBusy = false
 	e.headerOut = false
 	if e.state != nil {
 		e.state.reset()
