@@ -1,6 +1,6 @@
 module github.com/alex60217101990/qdf/internal/codegen_test
 
-go 1.26
+go 1.26.5
 
 require (
 	github.com/alex60217101990/qdf v0.0.0
