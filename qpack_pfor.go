@@ -69,8 +69,10 @@ func (e *Encoder) writePackedPForUint64Slice(s []uint64, mn uint64, b int) {
 	out = append(out, byte(b))
 	out = appendUvarint(out, mn)
 	start := len(out)
-	out = append(out, make([]byte, bodyBytes)...)
+	out = out[:start+bodyBytes] // capacity guaranteed by slices.Grow at line 66
 	body := out[start : start+bodyBytes]
+	// Zero-initialize body bytes since PackChunk may read-modify-write on byte boundaries
+	clear(body)
 	var chunk [64]uint64
 	excN := 0
 	for i := 0; i < n; i += len(chunk) {
@@ -156,8 +158,10 @@ func (e *Encoder) writePackedPForInt64Slice(s []int64, mn int64, b int) {
 	out = append(out, byte(b))
 	out = appendUvarint(out, zigzagEncode64(mn))
 	start := len(out)
-	out = append(out, make([]byte, bodyBytes)...)
+	out = out[:start+bodyBytes] // capacity guaranteed by slices.Grow at line 153
 	body := out[start : start+bodyBytes]
+	// Zero-initialize body bytes since PackChunk may read-modify-write on byte boundaries
+	clear(body)
 	var chunk [64]uint64
 	excN := 0
 	for i := 0; i < n; i += len(chunk) {
