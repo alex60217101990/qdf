@@ -15,6 +15,29 @@ func benchDeltaRec() ([]fuzzRec, []fuzzRec) {
 	return old, neu
 }
 
+// BenchmarkDiffMap measures Diff on a canonical (OptCanonical) map[string]int,
+// which exercises canonSortedMapKeys twice per call (once for updates, once for
+// deletions). With 16 keys the old code allocated 16 reflect.Value holders per
+// call; the new code allocates 1.
+func BenchmarkDiffMap(b *testing.B) {
+	old := map[string]int{
+		"alpha": 1, "beta": 2, "gamma": 3, "delta": 4,
+		"epsilon": 5, "zeta": 6, "eta": 7, "theta": 8,
+		"iota": 9, "kappa": 10, "lambda": 11, "mu": 12,
+		"nu": 13, "xi": 14, "omicron": 15, "pi": 16,
+	}
+	neu := make(map[string]int, len(old))
+	for k, v := range old {
+		neu[k] = v
+	}
+	neu["mu"] = 99 // one update — triggers canonSortedMapKeys for the full key set
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = Diff(old, neu, OptCanonical|OptDense)
+	}
+}
+
 func BenchmarkDiffApply(b *testing.B) {
 	old, neu := benchDeltaRec()
 	b.Run("Diff", func(b *testing.B) {
