@@ -85,7 +85,16 @@ func unpackBits32(out []uint64, in []byte) {
 	}
 }
 
-// --- scalar bodies (to be replaced by NEON in later tasks) ---
+// --- NEON pack routines ---
+
+//go:noescape
+func packBits8NEON(out []byte, vals []uint64, n int)
+
+//go:noescape
+func packBits16NEON(out []byte, vals []uint64, n int)
+
+//go:noescape
+func packBits32NEON(out []byte, vals []uint64, n int)
 
 //go:noescape
 func unpackVar2NEON(out []uint64, in []byte, pairs int, twoB int, shifts *[16]int64, mask uint64)
@@ -132,21 +141,42 @@ func unpackBits12(out []uint64, in []byte)                   { unpackVarNEON(out
 func unpackBits14(out []uint64, in []byte)                   { unpackVarNEON(out, in, 14) }
 func unpackBits20(out []uint64, in []byte)                   { unpackVarNEON(out, in, 20) }
 
+// packBits8 writes the low byte of each value contiguously. NEON processes 8
+// values per iteration (XTN chain D→S→H→B); the n%8 tail is scalar.
 func packBits8(out []byte, vals []uint64) {
-	for i, v := range vals {
-		out[i] = byte(v)
+	n := len(vals)
+	blocks := n &^ 7
+	if blocks > 0 {
+		packBits8NEON(out[:blocks], vals[:blocks], blocks)
+	}
+	for i := blocks; i < n; i++ {
+		out[i] = byte(vals[i])
 	}
 }
 
+// packBits16 writes the low 2 bytes LE per value. NEON processes 8 values per
+// iteration (XTN chain D→S→H); the n%8 tail is scalar.
 func packBits16(out []byte, vals []uint64) {
-	for i, v := range vals {
-		binary.LittleEndian.PutUint16(out[i*2:], uint16(v))
+	n := len(vals)
+	blocks := n &^ 7
+	if blocks > 0 {
+		packBits16NEON(out[:blocks*2], vals[:blocks], blocks)
+	}
+	for i := blocks; i < n; i++ {
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(vals[i]))
 	}
 }
 
+// packBits32 writes the low 4 bytes LE per value. NEON processes 4 values per
+// iteration (XTN D→S); the n%4 tail is scalar.
 func packBits32(out []byte, vals []uint64) {
-	for i, v := range vals {
-		binary.LittleEndian.PutUint32(out[i*4:], uint32(v))
+	n := len(vals)
+	blocks := n &^ 3
+	if blocks > 0 {
+		packBits32NEON(out[:blocks*4], vals[:blocks], blocks)
+	}
+	for i := blocks; i < n; i++ {
+		binary.LittleEndian.PutUint32(out[i*4:], uint32(vals[i]))
 	}
 }
 
