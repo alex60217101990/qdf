@@ -76,6 +76,24 @@ func BenchmarkUnpackWide17(b *testing.B) { benchUnpackWide(b, 17) }
 func BenchmarkUnpackWide23(b *testing.B) { benchUnpackWide(b, 23) }
 func BenchmarkUnpackWide28(b *testing.B) { benchUnpackWide(b, 28) }
 
+// BenchmarkPackBools measures PackBoolsLSB throughput on a 4096-element
+// bool slice. On arm64 with qdf_simd this exercises the NEON 8-wide path;
+// without qdf_simd it falls back to the scalar loop. SetBytes counts
+// input bool bytes so GB/s reflects raw bool ingestion rate.
+func BenchmarkPackBools(b *testing.B) {
+	const n = 4096
+	src := make([]bool, n)
+	for i := range src {
+		src[i] = i%3 != 0
+	}
+	dst := make([]byte, (n+7)>>3)
+	b.SetBytes(int64(n))
+	for b.Loop() {
+		clear(dst)
+		PackBoolsLSB(dst, src, n)
+	}
+}
+
 // BenchmarkUnpack12Direct exercises unpackBits12 (the VPSRLVQ path under
 // qdf_simd, scalar otherwise) directly, isolating the width-12 codec from
 // the Unpack dispatch.
