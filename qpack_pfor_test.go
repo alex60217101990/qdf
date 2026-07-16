@@ -189,7 +189,6 @@ func BenchmarkPFor_EncodeI64(b *testing.B) {
 	}
 }
 
-
 func FuzzPForRoundTrip(f *testing.F) {
 	f.Add([]byte{1, 2, 3, 4, 5, 6, 7, 8})
 	f.Add(make([]byte, 256))
