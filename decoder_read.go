@@ -127,16 +127,39 @@ func (d *Decoder) decodeInt(t byte) (int64, error) {
 		v := int64(readU64(d.buf[d.i:]))
 		d.i += 8
 		return v, nil
+	case tagUint8:
+		if d.i >= len(d.buf) {
+			return 0, ErrShortBuffer
+		}
+		v := uint64(d.buf[d.i])
+		d.i++
+		return int64(v), nil
+	case tagUint16:
+		if d.i+2 > len(d.buf) {
+			return 0, ErrShortBuffer
+		}
+		v := uint64(readU16(d.buf[d.i:]))
+		d.i += 2
+		return int64(v), nil
+	case tagUint32:
+		if d.i+4 > len(d.buf) {
+			return 0, ErrShortBuffer
+		}
+		v := uint64(readU32(d.buf[d.i:]))
+		d.i += 4
+		return int64(v), nil
+	case tagUint64:
+		if d.i+8 > len(d.buf) {
+			return 0, ErrShortBuffer
+		}
+		v := readU64(d.buf[d.i:])
+		d.i += 8
+		if v > math.MaxInt64 {
+			return 0, ErrTypeMismatch
+		}
+		return int64(v), nil
 	}
-	// fall back to the unsigned decoder for tagUintN
-	u, err := d.decodeUint(t)
-	if err != nil {
-		return 0, err
-	}
-	if u > math.MaxInt64 {
-		return 0, ErrTypeMismatch
-	}
-	return int64(u), nil
+	return 0, ErrTypeMismatch
 }
 
 func (d *Decoder) ReadFloat32() (float32, error) {
