@@ -401,14 +401,37 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 		}
 	}
 
+	// Pre-alloc one flat []float32 slab per elemF32 vector field so the
+	// scatter loop below slices into it instead of calling make([]float32,dim)
+	// once per row. For n=1000, dim=512 this eliminates 1000 heap allocs of
+	// 2 KB each, replacing them with a single 2 MB alloc per field.
+	f32Flat := make([][]float32, nv)
+	for vi := range nv {
+		if batched[vi] == nil || !td.vecFields[vi].elemF32 {
+			continue
+		}
+		if n > 0 {
+			if dim := len(batched[vi][0]); dim > 0 {
+				f32Flat[vi] = make([]float32, n*dim)
+			}
+		}
+	}
+
 	for i := range n {
 		rowPtr := unsafe.Add(base, uintptr(i)*stride)
 		for fi := range td.fields {
 			fp := unsafe.Add(rowPtr, td.fields[fi].offset)
 			if skip[fi] {
-				vec := batched[fieldVi[fi]][i]
-				if td.vecFields[fieldVi[fi]].elemF32 {
-					out := make([]float32, len(vec))
+				vi := fieldVi[fi]
+				vec := batched[vi][i]
+				if td.vecFields[vi].elemF32 {
+					dim := len(vec)
+					var out []float32
+					if flat := f32Flat[vi]; flat != nil {
+						out = flat[i*dim : (i+1)*dim]
+					} else {
+						out = make([]float32, dim)
+					}
 					for j, x := range vec {
 						out[j] = float32(x)
 					}
