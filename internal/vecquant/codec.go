@@ -325,7 +325,7 @@ func reconstruct(q []int32, pdim, dim, count int, delta float64) [][]float64 {
 			row[j] = float64(seg[j]) * delta
 		}
 		hadamard.Inverse(row, hadamardSeed)
-		out[i] = outFlat[i*dim : (i+1)*dim]
+		out[i] = outFlat[i*dim : (i+1)*dim : (i+1)*dim]
 		copy(out[i], row[:dim])
 	}
 	return out
@@ -340,7 +340,7 @@ func reconstructE8(coords []int32, cosets []byte, pdim, dim, count int, delta fl
 	for i := range count {
 		copy(row, flat[i*pdim:i*pdim+pdim])
 		hadamard.Inverse(row, hadamardSeed)
-		out[i] = outFlat[i*dim : (i+1)*dim]
+		out[i] = outFlat[i*dim : (i+1)*dim : (i+1)*dim]
 		copy(out[i], row[:dim])
 	}
 	return out

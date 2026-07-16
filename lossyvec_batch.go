@@ -428,7 +428,7 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 					dim := len(vec)
 					var out []float32
 					if flat := f32Flat[vi]; flat != nil {
-						out = flat[i*dim : (i+1)*dim]
+						out = flat[i*dim : (i+1)*dim : (i+1)*dim]
 					} else {
 						out = make([]float32, dim)
 					}
