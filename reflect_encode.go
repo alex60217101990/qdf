@@ -1921,7 +1921,7 @@ func encodeReflect(e *Encoder, v any) error {
 	// Safety: the data pointer is valid for the lifetime of v (the any parameter
 	// stays alive until encodeReflect returns), and td.encode does not retain p.
 	if k := t.Kind(); (k == reflect.Struct || k == reflect.Array) &&
-		uintptr(t.Size()) > unsafe.Sizeof(unsafe.Pointer(nil)) {
+		t.Size() > unsafe.Sizeof(unsafe.Pointer(nil)) {
 		type eface struct {
 			_ unsafe.Pointer
 			p unsafe.Pointer
