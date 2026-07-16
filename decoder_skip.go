@@ -256,7 +256,7 @@ func (d *Decoder) Skip() error {
 				if err != nil {
 					return err
 				}
-				sh.names = append(sh.names, string(kb))
+				sh.names = append(sh.names, d.keyCache.Make(kb))
 			}
 		} else {
 			sh := d.state.shapeLookup(uint32(shapeID))

@@ -381,6 +381,45 @@ func BenchmarkMapShape_Telemetry(b *testing.B) {
 	})
 }
 
+// BenchmarkSkipMapShape measures Skip() on tagMapShape declarations where the
+// skipped field's key-set overlaps keys already interned by the non-skip decode
+// path.  The fix replaces string(kb) with d.keyCache.Make(kb) in
+// decoder_skip.go so overlapping keys are cache hits (zero alloc) instead of
+// fresh string copies (one alloc each).
+//
+// Setup: a sender writes four map-shaped fields; the receiver knows only two of
+// them.  Six keys appear in both the known and unknown shapes, so they are
+// already interned when Skip() reaches the unknown shape declarations.
+func BenchmarkSkipMapShape(b *testing.B) {
+	type sender struct {
+		Known1 map[string]string `qdf:"k1"` // version, env, region, svc
+		Known2 map[string]string `qdf:"k2"` // version, dc, host, env
+		Skip1  map[string]string `qdf:"s1"` // version, env, dc, svc  (3 shared with k1/k2)
+		Skip2  map[string]string `qdf:"s2"` // region, host, cluster, ns  (2 shared with k1/k2)
+	}
+	type receiver struct {
+		Known1 map[string]string `qdf:"k1"`
+		Known2 map[string]string `qdf:"k2"`
+	}
+	src := sender{
+		Known1: map[string]string{"version": "1.0", "env": "prod", "region": "us-east-1", "svc": "api"},
+		Known2: map[string]string{"version": "1.0", "dc": "dc1", "host": "h1", "env": "prod"},
+		Skip1:  map[string]string{"version": "1.0", "env": "prod", "dc": "dc1", "svc": "api"},
+		Skip2:  map[string]string{"region": "us-east-1", "host": "h1", "cluster": "k8s", "ns": "prod"},
+	}
+	data, err := Marshal(src, OptBalanced|OptMapShape)
+	if err != nil {
+		b.Fatalf("marshal: %v", err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		var dst receiver
+		if err := Unmarshal(data, &dst); err != nil {
+			b.Fatalf("unmarshal: %v", err)
+		}
+	}
+}
+
 func TestMapShape_Malformed(t *testing.T) {
 	type wrap struct {
 		M map[string]string `qdf:"m"`
