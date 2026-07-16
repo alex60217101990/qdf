@@ -316,6 +316,7 @@ func achievedRelError(orig, recon [][]float64) float64 {
 
 // reconstruct dequantizes q and inverse-rotates back to original dim.
 func reconstruct(q []int32, pdim, dim, count int, delta float64) [][]float64 {
+	outFlat := make([]float64, count*dim)
 	out := make([][]float64, count)
 	row := make([]float64, pdim)
 	for i := range count {
@@ -324,9 +325,8 @@ func reconstruct(q []int32, pdim, dim, count int, delta float64) [][]float64 {
 			row[j] = float64(seg[j]) * delta
 		}
 		hadamard.Inverse(row, hadamardSeed)
-		v := make([]float64, dim)
-		copy(v, row[:dim])
-		out[i] = v
+		out[i] = outFlat[i*dim : (i+1)*dim]
+		copy(out[i], row[:dim])
 	}
 	return out
 }
@@ -334,14 +334,14 @@ func reconstruct(q []int32, pdim, dim, count int, delta float64) [][]float64 {
 // reconstructE8 dequantizes E8 coords+cosets and inverse-rotates to dim.
 func reconstructE8(coords []int32, cosets []byte, pdim, dim, count int, delta float64) [][]float64 {
 	flat := lattice.ReconstructE8(coords, cosets, delta, count*pdim)
+	outFlat := make([]float64, count*dim)
 	out := make([][]float64, count)
 	row := make([]float64, pdim)
 	for i := range count {
 		copy(row, flat[i*pdim:i*pdim+pdim])
 		hadamard.Inverse(row, hadamardSeed)
-		v := make([]float64, dim)
-		copy(v, row[:dim])
-		out[i] = v
+		out[i] = outFlat[i*dim : (i+1)*dim]
+		copy(out[i], row[:dim])
 	}
 	return out
 }
