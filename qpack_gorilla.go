@@ -148,12 +148,6 @@ func (br *bitReader) readBits(count uint8) (uint64, bool) {
 	return out, true
 }
 
-func btoU64(b bool) uint64 {
-	if b {
-		return 1
-	}
-	return 0
-}
 
 // writePackedGorillaFloat64Slice emits a Gorilla XOR-coded []float64.
 // n=0 writes only the tag/kind/n; n=1 also writes the first value but no
