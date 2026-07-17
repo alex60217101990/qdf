@@ -346,3 +346,63 @@ func TestPFor_CorpusGate(t *testing.T) {
 		}
 	}
 }
+
+// TestPForExceptionDeltaOverflow is a regression test for the uint64→int cast
+// overflow in the PFOR exception-delta loop.  A crafted buffer sets the second
+// exception's position gap (dp) to MaxUint64.  Before the fix, int(MaxUint64)
+// == -1 on 64-bit platforms, which decremented pos from 1 back to 0 — still
+// inside [0,n) — so the bounds check passed and slot 0 was silently overwritten
+// with a wrong value.  After the fix the decoder must return a non-nil error.
+func TestPForExceptionDeltaOverflow(t *testing.T) {
+	// MaxUint64 (0xFFFFFFFFFFFFFFFF) encoded as a uvarint: 10 bytes.
+	maxU64Varint := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01}
+
+	// uint64 variant -------------------------------------------------------
+	// Wire format (starting after the tagPackPFor byte the caller already
+	// consumed):
+	//   kind=uint64 | n=8 (uvarint) | b=1 | mn=0 (uvarint) | body=1B |
+	//   excN=2 |
+	//     exc1: dp=1, delta=1  (pos becomes 1 — a valid write to slot 1)
+	//     exc2: dp=MaxUint64   (pre-fix: int(MaxUint64)==-1, pos wraps to 0)
+	//
+	// Without the fix pos wraps to 0 ∈ [0,8), bounds check passes, and the
+	// function returns nil.  With the fix it must return a non-nil error.
+	bufU := []byte{
+		qpackKindUint64, // kind byte
+		0x08,            // n=8 (uvarint)
+		0x01,            // b=1 (bits per packed slot)
+		0x00,            // mn=0 (uvarint)
+		0x00,            // body: (8*1+7)/8 = 1 byte, all zeros
+		0x02,            // excN=2
+		0x01, 0x01,      // exc1: dp=1, delta=1
+	}
+	bufU = append(bufU, maxU64Varint...) // exc2: dp=MaxUint64
+	bufU = append(bufU, 0x02)            // exc2: delta=2
+
+	var dU Decoder
+	dU.buf = bufU
+	_, errU := dU.readPackedPForUint64Slice()
+	if errU == nil {
+		t.Fatal("uint64: expected error for MaxUint64 exception delta, got nil (pos wrapped into valid range)")
+	}
+
+	// int64 variant --------------------------------------------------------
+	bufI := []byte{
+		qpackKindInt64, // kind byte
+		0x08,           // n=8 (uvarint)
+		0x01,           // b=1
+		0x00,           // mn=0, zigzag-encoded (zigzag(0)=0)
+		0x00,           // body: 1 byte
+		0x02,           // excN=2
+		0x01, 0x01,     // exc1: dp=1, delta=1
+	}
+	bufI = append(bufI, maxU64Varint...) // exc2: dp=MaxUint64
+	bufI = append(bufI, 0x02)            // exc2: delta=2
+
+	var dI Decoder
+	dI.buf = bufI
+	_, errI := dI.readPackedPForInt64Slice()
+	if errI == nil {
+		t.Fatal("int64: expected error for MaxUint64 exception delta, got nil (pos wrapped into valid range)")
+	}
+}
