@@ -98,8 +98,8 @@ func BenchmarkDiffKeyed(b *testing.B) {
 	}
 	neu[n-1].Val = 9999 // one field change so the patch is non-trivial
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_, _ = Diff(old, neu, OptBalanced)
 	}
 }
