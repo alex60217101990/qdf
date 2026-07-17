@@ -302,6 +302,26 @@ func (t *SymbolTable) Reset() {
 	t.first = [257]int32{}
 }
 
+// Clone returns an independent deep copy of t. Use it to retain a table
+// beyond the lifetime of the Builder that trained it: Builder.Build returns a
+// table that aliases the Builder's internal SymbolTable and is invalidated the
+// next time Build is called on the same Builder (e.g. when the Builder is
+// returned to a pool). Clone's copies (symbols and cands slices) contain only
+// value types (no pointer fields), so the clone neither pins the original
+// Builder nor shares any mutable state with it.
+func (t *SymbolTable) Clone() *SymbolTable {
+	c := &SymbolTable{first: t.first}
+	if len(t.symbols) > 0 {
+		c.symbols = make([]symbol, len(t.symbols))
+		copy(c.symbols, t.symbols)
+	}
+	if len(t.cands) > 0 {
+		c.cands = make([]cand, len(t.cands))
+		copy(c.cands, t.cands)
+	}
+	return c
+}
+
 // UnmarshalInto parses a symbol table from b into t, reusing t's existing
 // slice backing arrays. It is equivalent to UnmarshalSymbolTable but avoids
 // the intermediate [][]byte allocation, making it suitable for pooled callers.
