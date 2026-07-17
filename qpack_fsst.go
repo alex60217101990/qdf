@@ -18,6 +18,13 @@ const (
 	// encoder still uses the full buildRounds for the table it emits. Keeps the
 	// per-column probe training off the OptCompression hot path.
 	fsstProbeRounds = 1
+	// fsstReuseInterval is the number of consecutive batches that reuse the
+	// cached FSST symbol table (fsstCachedTbl) before retraining. Matches
+	// retainReleaseStreak (8) so a steady workload holds its table across 8
+	// batches before a full retrain checks whether the string distribution has
+	// shifted. Only applies to streaming encoders (same Encoder reused across
+	// calls); pool-backed Marshal resets the cache on every acquire.
+	fsstReuseInterval = 8
 )
 
 // fsstBuilderPool reuses FSST training scratch across the per-column probe
@@ -48,17 +55,33 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	// which is the dominant FSST encode cost; otherwise train on this column.
 	tbl := e.fsstDict
 	if tbl == nil {
-		// Reuse a pooled [][]byte across columns/encodes instead of allocating
-		// a fresh slice per column (the dominant OptCompression columnar-encode
-		// allocation). The views are zero-copy; the trainer only reads them.
-		samples := e.state.fsstSamples[:0]
-		for _, s := range strs {
-			samples = append(samples, unsafestr.Bytes(s))
+		// Streaming cache: reuse the table trained on a recent batch to skip
+		// the Build() cost (~140–311 µs) when the same Encoder is reused across
+		// consecutive batches. We retrain every fsstReuseInterval batches so the
+		// table adapts to drifting distributions. The wire format is unchanged:
+		// the table is always fully serialised (MarshalTo below) so the decoder
+		// needs no protocol changes — caching is encoder-side only.
+		if e.fsstCachedTbl != nil && e.fsstBatchCount < fsstReuseInterval {
+			tbl = e.fsstCachedTbl
+			e.fsstBatchCount++
+		} else {
+			// (Re)train: build via the pooled builder (reuses counter/cand scratch),
+			// then clone to an independent copy before the builder is returned to
+			// the pool. bld.Build returns a table aliasing bld's internal storage;
+			// that alias is invalidated the next time any goroutine calls Build on
+			// the same Builder. Clone() copies the three fields (symbols, cands,
+			// first) into a fresh allocation that survives beyond this call.
+			samples := e.state.fsstSamples[:0]
+			for _, s := range strs {
+				samples = append(samples, unsafestr.Bytes(s))
+			}
+			e.state.fsstSamples = samples
+			bld := fsstBuilderPool.Get().(*fsst.Builder)
+			defer fsstBuilderPool.Put(bld)
+			tbl = bld.Build(samples)
+			e.fsstCachedTbl = tbl.Clone() // independent copy; bld safe to pool
+			e.fsstBatchCount = 0
 		}
-		e.state.fsstSamples = samples
-		bld := fsstBuilderPool.Get().(*fsst.Builder)
-		defer fsstBuilderPool.Put(bld)
-		tbl = bld.Build(samples) // aliases bld; used within this call only
 	}
 
 	// Compress all rows into one scratch buffer, recording per-row lengths.

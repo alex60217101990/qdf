@@ -114,6 +114,43 @@ func TestBatchFSSTDirectTruncated(t *testing.T) {
 	}
 }
 
+// BenchmarkBatchFSSTStream measures the FSST encode cost when the same Encoder
+// is reused across consecutive batches (the "streaming" pattern: one encoder,
+// many batches). Unlike BenchmarkFSSTEncodeCompressible which pulls a fresh
+// encoder from the pool each iteration, this bench keeps one encoder warm so
+// the fsstCachedTbl optimisation can eliminate Build() training on batches 1–7
+// out of every 8.
+//
+// Run this bench interleaved against the baseline (before adding fsstCachedTbl)
+// to measure the training-avoidance gain.
+func BenchmarkBatchFSSTStream(b *testing.B) {
+	rows := mkFSSTSrc(512)
+	// Verify the wire actually carries an FSST string column before benching.
+	{
+		data, err := Marshal(rows, OptBalanced|OptFSST)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if bytes.IndexByte(data, tagColStrFSST) < 0 {
+			b.Skip("Body column did not FSST-code: bench would not exercise fsstCachedTbl")
+		}
+	}
+
+	// One dedicated encoder per bench run: resetForReuse preserves fsstCachedTbl
+	// across iterations so the cache warms up after the first iteration.
+	enc := NewEncoderWith(OptBalanced | OptFSST)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		enc.resetForReuse() // partial reset: fsstCachedTbl survives
+		if err := enc.EncodeValue(rows); err != nil {
+			b.Fatal(err)
+		}
+		_ = enc.Bytes()
+	}
+}
+
 // BenchmarkBatchFSSTDecode measures the FSST batch decode after the
 // direct-into-slab change: the temp make([]byte,0,dt64) scratch + one full copy
 // pass the general readStringColumnHandles arm used to pay are gone, so allocs/op

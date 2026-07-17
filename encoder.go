@@ -87,6 +87,16 @@ type Encoder struct {
 	// immutable; it is never mutated by the encoder.
 	fsstDict *fsst.SymbolTable
 
+	// fsstCachedTbl holds the FSST symbol table trained on the most recent
+	// batch when no user-supplied fsstDict is set. Reused across consecutive
+	// same-encoder batches to eliminate the per-batch Build training cost
+	// (~140–311 µs). Retrained every fsstReuseInterval batches so the table
+	// adapts when string distributions shift. Cleared by Reset() on pool
+	// recycle so a pooled encoder never carries stale data into the next
+	// caller; survives resetForReuse() so a streaming caller amortises training.
+	fsstCachedTbl  *fsst.SymbolTable
+	fsstBatchCount int // consecutive reuses of fsstCachedTbl since last retrain
+
 	// keyIdx is a reused (clear-not-realloc) old-key→index map for keyed slice
 	// diff. Lives on the Encoder so a many-element keyed slice builds its match
 	// table once per pool acquire; dropped past a spike cap in Reset(). Single
@@ -409,6 +419,10 @@ func (e *Encoder) Reset() {
 	e.pairPred = false
 	e.mtf = false
 	e.fsstDict = nil
+	// Drop the streaming FSST table cache so a pooled encoder does not carry
+	// stale table data into the next caller's workload.
+	e.fsstCachedTbl = nil
+	e.fsstBatchCount = 0
 }
 
 // resetForReuse clears the per-message / per-stream encoder state — the output
