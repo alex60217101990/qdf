@@ -142,7 +142,7 @@ func (d *Decoder) readPackedRLEUint64Slice() ([]uint64, error) {
 			return nil, ErrInvalidLength
 		}
 		d.i += nr
-		if runLen == 0 || uint64(idx)+runLen > uint64(n) {
+		if runLen == 0 || runLen > uint64(n-idx) {
 			return nil, ErrInvalidLength
 		}
 		end := idx + int(runLen)
@@ -175,7 +175,7 @@ func (d *Decoder) readPackedRLEInt64Slice() ([]int64, error) {
 			return nil, ErrInvalidLength
 		}
 		d.i += nr
-		if runLen == 0 || uint64(idx)+runLen > uint64(n) {
+		if runLen == 0 || runLen > uint64(n-idx) {
 			return nil, ErrInvalidLength
 		}
 		v := zigzagDecode64(v64)
