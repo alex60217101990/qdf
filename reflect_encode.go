@@ -557,18 +557,26 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 // encodeMapCanonical emits a map under OptCanonical: keys in sorted order so
 // logically-equal maps serialize byte-identically. It writes the same plain map
 // header and reuses the SAME key/value encode closures as the default path
-// (k.encode / v.encode) — only the order changes. A single reused addressable
-// key holder fetches each value via rv.MapIndex(kh), with no per-lookup boxing
-// allocation. The common integer/string/bool key kinds use a type-specialized,
-// pooled, monomorphized sort; float and exotic comparable key kinds (struct /
-// array / interface) take a slow reflect-comparator fallback (rare).
+// (k.encode / v.encode) — only the order changes.
+//
+// For the common string, int, uint, and bool key kinds: a single MapRange pass
+// collects key scalars and copies values via SetIterValue into a pre-allocated
+// typed array (reflect.ArrayOf). This avoids the per-key rv.MapIndex alloc that
+// the old emit-closure design incurred for indirect value types (size > ptrSize).
+//
+// Float and exotic key kinds (struct / array / interface) take a slow
+// reflect-comparator fallback that correctly handles NaN float keys (which are
+// unfindable by MapIndex and must never be re-fetched via one).
 func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.Type, k, v *typeDesc) error {
 	n := rv.Len()
 	e.WriteMapHeader(n)
+	if n == 0 {
+		return nil
+	}
 
-	// Reused holders: a key holder set per sorted key for MapIndex, and a value
-	// holder the value codec reads through (addressable, so v.encode can take its
-	// pointer). Pooled on the state when available (no reflect.New per map row).
+	// Pool the key holder across map rows (one reflect.New per distinct key type
+	// per Encoder lifetime). valHolder/vp are retained for the default exotic-key
+	// path which still needs them for keyHolder.Set and valHolder.Set.
 	var keyHolder, valHolder reflect.Value
 	var vp unsafe.Pointer
 	var pooled bool
@@ -582,59 +590,112 @@ func (e *Encoder) encodeMapCanonical(rv reflect.Value, keyType, valType reflect.
 	}
 	kp := unsafe.Pointer(keyHolder.UnsafeAddr())
 
-	// emit fetches the value for the (already-set) key holder, copies it into the
-	// value holder, and runs both encode closures. MapIndex returns a fresh
-	// non-addressable Value; valHolder.Set copies it into the addressable holder
-	// the codec reads through vp.
-	emit := func() error {
-		valHolder.Set(rv.MapIndex(keyHolder))
-		if err := k.encode(e, kp); err != nil {
-			return err
-		}
-		return v.encode(e, vp)
-	}
-
 	switch keyType.Kind() {
 	case reflect.String:
-		keys, pooled := e.gatherStringKeys(rv)
-		defer e.canonKeysRelease(pooled)
-		for _, key := range keys {
-			keyHolder.SetString(key)
-			if err := emit(); err != nil {
+		// Single-pass collect: SetIterKey extracts the string key into keyHolder
+		// (zero alloc); SetIterValue copies the map value into the pre-allocated
+		// valArr slot (zero alloc). Sort key-index pairs, then encode.
+		valArr := reflect.New(reflect.ArrayOf(n, valType)).Elem()
+		type sIdx struct {
+			k string
+			i int
+		}
+		idxs := make([]sIdx, 0, n)
+		i := 0
+		for it := rv.MapRange(); it.Next(); {
+			keyHolder.SetIterKey(it)
+			valArr.Index(i).SetIterValue(it)
+			idxs = append(idxs, sIdx{keyHolder.String(), i})
+			i++
+		}
+		slices.SortFunc(idxs, func(a, b sIdx) int { return cmp.Compare(a.k, b.k) })
+		for _, p := range idxs {
+			keyHolder.SetString(p.k)
+			if err := k.encode(e, kp); err != nil {
+				return err
+			}
+			if err := v.encode(e, unsafe.Pointer(valArr.Index(p.i).UnsafeAddr())); err != nil {
 				return err
 			}
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		keys, pooled := e.gatherIntKeys(rv)
-		defer e.canonKeysRelease(pooled)
-		for _, key := range keys {
-			keyHolder.SetInt(key)
-			if err := emit(); err != nil {
+		valArr := reflect.New(reflect.ArrayOf(n, valType)).Elem()
+		type iIdx struct {
+			k int64
+			i int
+		}
+		idxs := make([]iIdx, 0, n)
+		i := 0
+		for it := rv.MapRange(); it.Next(); {
+			keyHolder.SetIterKey(it)
+			valArr.Index(i).SetIterValue(it)
+			idxs = append(idxs, iIdx{keyHolder.Int(), i})
+			i++
+		}
+		slices.SortFunc(idxs, func(a, b iIdx) int { return cmp.Compare(a.k, b.k) })
+		for _, p := range idxs {
+			keyHolder.SetInt(p.k)
+			if err := k.encode(e, kp); err != nil {
+				return err
+			}
+			if err := v.encode(e, unsafe.Pointer(valArr.Index(p.i).UnsafeAddr())); err != nil {
 				return err
 			}
 		}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		keys, pooled := e.gatherUintKeys(rv)
-		defer e.canonKeysRelease(pooled)
-		for _, key := range keys {
-			keyHolder.SetUint(key)
-			if err := emit(); err != nil {
+		valArr := reflect.New(reflect.ArrayOf(n, valType)).Elem()
+		type uIdx struct {
+			k uint64
+			i int
+		}
+		idxs := make([]uIdx, 0, n)
+		i := 0
+		for it := rv.MapRange(); it.Next(); {
+			keyHolder.SetIterKey(it)
+			valArr.Index(i).SetIterValue(it)
+			idxs = append(idxs, uIdx{keyHolder.Uint(), i})
+			i++
+		}
+		slices.SortFunc(idxs, func(a, b uIdx) int { return cmp.Compare(a.k, b.k) })
+		for _, p := range idxs {
+			keyHolder.SetUint(p.k)
+			if err := k.encode(e, kp); err != nil {
+				return err
+			}
+			if err := v.encode(e, unsafe.Pointer(valArr.Index(p.i).UnsafeAddr())); err != nil {
 				return err
 			}
 		}
 	case reflect.Bool:
-		// At most two keys; emit false then true if present (no sort needed).
-		for _, b := range [...]bool{false, true} {
-			keyHolder.SetBool(b)
-			mv := rv.MapIndex(keyHolder)
-			if !mv.IsValid() {
-				continue
+		// At most two keys; collect via MapRange (no MapIndex), emit false then true.
+		// Pre-allocate 2 slots regardless — at most one slot stays unused.
+		valArr := reflect.New(reflect.ArrayOf(2, valType)).Elem()
+		var hasFalse, hasTrue bool
+		for it := rv.MapRange(); it.Next(); {
+			keyHolder.SetIterKey(it)
+			if keyHolder.Bool() {
+				valArr.Index(1).SetIterValue(it)
+				hasTrue = true
+			} else {
+				valArr.Index(0).SetIterValue(it)
+				hasFalse = true
 			}
-			valHolder.Set(mv)
+		}
+		if hasFalse {
+			keyHolder.SetBool(false)
 			if err := k.encode(e, kp); err != nil {
 				return err
 			}
-			if err := v.encode(e, vp); err != nil {
+			if err := v.encode(e, unsafe.Pointer(valArr.Index(0).UnsafeAddr())); err != nil {
+				return err
+			}
+		}
+		if hasTrue {
+			keyHolder.SetBool(true)
+			if err := k.encode(e, kp); err != nil {
+				return err
+			}
+			if err := v.encode(e, unsafe.Pointer(valArr.Index(1).UnsafeAddr())); err != nil {
 				return err
 			}
 		}
