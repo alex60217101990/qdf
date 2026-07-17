@@ -46,8 +46,44 @@ func (bw *bitWriter) writeBit(v bool) {
 }
 
 func (bw *bitWriter) writeBits(v uint64, count uint8) {
-	for i := count; i > 0; i-- {
-		bw.writeBit((v>>(i-1))&1 == 1)
+	if count == 0 {
+		return
+	}
+	bw.nbits += int(count)
+
+	avail := 8 - bw.used // free bits remaining in bw.cur
+
+	// Fast path: entire payload fits in the current byte.
+	if count <= avail {
+		shift := avail - count
+		bw.cur |= byte(v&((1<<count)-1)) << shift
+		bw.used += count
+		if bw.used == 8 {
+			bw.buf = append(bw.buf, bw.cur)
+			bw.cur = 0
+			bw.used = 0
+		}
+		return
+	}
+
+	// Fill the remaining bits of the current byte with the top `avail` bits of v.
+	// Top `avail` bits of v (MSB-first) = v >> (count - avail), truncated to `avail` bits.
+	bw.cur |= byte(v >> (count - avail))
+	bw.buf = append(bw.buf, bw.cur)
+	bw.cur = 0
+	bw.used = 0
+	remaining := count - avail
+
+	// Append full bytes directly (no branch per bit, no append overhead per byte).
+	for remaining >= 8 {
+		remaining -= 8
+		bw.buf = append(bw.buf, byte(v>>remaining))
+	}
+
+	// Store trailing partial bits in bw.cur.
+	if remaining > 0 {
+		bw.cur = byte(v&((1<<remaining)-1)) << (8 - remaining)
+		bw.used = remaining
 	}
 }
 
