@@ -6,10 +6,6 @@ import (
 	"unsafe"
 )
 
-// noopRelease is a package-level no-op release function used by buildKeyLookup
-// on the linear path to avoid allocating a closure on the heap.
-var noopRelease = func() {}
-
 // keyToken returns a string usable as a Go map key that uniquely identifies the
 // element's key field value WITHOUT allocating. elemP points at an element of a
 // keyed struct type td; td.keyOff/td.keyDesc locate the key field. Delegates to
@@ -390,7 +386,7 @@ type keyLookup struct {
 // keyed slice), it allocates a fresh local map so the parent's lookup is never
 // clobbered. release() returns the borrow (no-op for the linear / nested cases).
 func buildKeyLookup(m *map[string]int, busy *bool, keyAt func(int) string, n int) (lk keyLookup, dup bool, release func()) {
-	noop := noopRelease
+	noop := func() {}
 	if n <= keyedLinearMax {
 		for i := range n {
 			ki := keyAt(i)
