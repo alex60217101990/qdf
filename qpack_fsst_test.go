@@ -253,3 +253,31 @@ func itoaTiny(i int) string {
 	}
 	return string(b[p:])
 }
+
+// BenchmarkFSSTEncodeIncompressible measures the FSST encode attempt on
+// non-compressible (random-byte) input. FSST trains, attempts compression,
+// and then rejects the output because it does not shrink the column. A
+// sample-based probe short-circuits this rejection path before full
+// compression, saving the per-row Compress work.
+func BenchmarkFSSTEncodeIncompressible(b *testing.B) {
+	rows := mkRows(genRandom(512))
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := Marshal(rows, OptBalanced|OptFSST); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkFSSTEncodeCompressible measures the FSST encode attempt on
+// compressible (URL-like) input where FSST succeeds. The probe must not
+// regress this path.
+func BenchmarkFSSTEncodeCompressible(b *testing.B) {
+	rows := mkRows(genURLs(512))
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := Marshal(rows, OptBalanced|OptFSST); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
