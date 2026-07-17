@@ -170,6 +170,52 @@ func TestRLE_ErrorCases(t *testing.T) {
 	})
 }
 
+// TestRLEOverflowGuard verifies that a crafted wire input with runLen=MaxUint64
+// cannot bypass the bounds guard via integer wrap-around when idx > 0.
+//
+// Attack: n=5, run1=(val=0, runLen=1) advances idx to 1, run2=(val=1, runLen=MaxUint64).
+// Old addition guard: uint64(1)+MaxUint64 wraps to 0, and 0 > 5 is false → bypass.
+// Then end = 1 + int(MaxUint64) = 0, inner fill is skipped, idx resets to 0.
+// A third run (val=2, runLen=5) then fills all 5 output slots unchallenged → err=nil.
+// Fixed subtraction guard: MaxUint64 > uint64(5-1)=4 → true → ErrInvalidLength.
+func TestRLEOverflowGuard(t *testing.T) {
+	// makeBypassBuf builds: header(n=5) + run1(0,1) + run2(1,MaxUint64) + run3(2,5).
+	// With old guard run2 bypasses, idx resets to 0, run3 fills all slots → nil error.
+	// With fixed guard run2 is rejected → ErrInvalidLength.
+	makeBypassBuf := func(kind byte) []byte {
+		var buf []byte
+		buf = append(buf, tagPackRLE, kind)
+		buf = appendUvarint(buf, 5)              // n=5
+		buf = appendUvarint(buf, 0)              // run1 value
+		buf = appendUvarint(buf, 1)              // run1 runLen → idx: 0→1
+		buf = appendUvarint(buf, 1)              // run2 value
+		buf = appendUvarint(buf, math.MaxUint64) // run2 runLen — wraps old addition guard
+		buf = appendUvarint(buf, 2)              // run3 value (reached only if bypass succeeds)
+		buf = appendUvarint(buf, 5)              // run3 runLen fills all 5 slots → err nil
+		return buf
+	}
+
+	t.Run("uint64", func(t *testing.T) {
+		buf := makeBypassBuf(qpackKindUint64)
+		dec := NewDecoderOnBuf(buf)
+		dec.i++ // consume tag; readPackedRLEUint64Slice expects kind onward
+		_, err := dec.readPackedRLEUint64Slice()
+		if err == nil {
+			t.Fatal("expected ErrInvalidLength for MaxUint64 runLen overflow bypass, got nil")
+		}
+	})
+
+	t.Run("int64", func(t *testing.T) {
+		buf := makeBypassBuf(qpackKindInt64)
+		dec := NewDecoderOnBuf(buf)
+		dec.i++ // consume tag
+		_, err := dec.readPackedRLEInt64Slice()
+		if err == nil {
+			t.Fatal("expected ErrInvalidLength for MaxUint64 runLen overflow bypass on int64, got nil")
+		}
+	})
+}
+
 // TestRLE_EndToEnd round-trips an []int64 through the full Marshal /
 // Unmarshal API with QPack enabled, confirming that the picker fires
 // and the wire decodes back. The fixture is shaped like a real HTTP-
