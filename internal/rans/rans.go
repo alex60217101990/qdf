@@ -8,6 +8,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"slices"
+
+	"github.com/alex60217101990/qdf/internal/bufpool"
 )
 
 const (
@@ -112,9 +114,13 @@ func buildSlot(cum *[257]uint32, slot *[scale]byte) {
 	}
 }
 
-// encodeStream rANS-encodes src and returns the stream: 4-byte little-endian
-// final state followed by the renormalization bytes in decode order.
-func encodeStream(src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
+// encodeStream rANS-encodes src, appends the stream to dst, and returns the
+// extended dst. The stream is: 4-byte little-endian final state followed by
+// the renormalization bytes in decode order.
+// Accepting dst here is not just API style — it closes a data race: the pool
+// buffer is returned by the deferred Put only after the append (the copy) has
+// completed, so no concurrent encoder can see the data in-flight.
+func encodeStream(dst, src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
 	// Worst-case output: each symbol emits at most maxRenormBytesPerSym renorm
 	// bytes (a freq-1 symbol over the scale=2^12 table renormalizes a state in
 	// [2^23, 2^31) down past xMax=2^19, i.e. two >>8 steps), plus the 4-byte final
@@ -123,7 +129,9 @@ func encodeStream(src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
 	// local distribution skewed against the SHARED table (see encodeStreamStrided-
 	// Into). Size for the proven bound so the backward writer can never underflow.
 	size := len(src)*maxRenormBytesPerSym + 16
-	buf := make([]byte, size)
+	bp := bufpool.Get(size)
+	buf := (*bp)[:size]
+	defer bufpool.Put(bp)
 	pos := size
 	x := uint32(ransByteL)
 	for _, s := range slices.Backward(src) {
@@ -139,7 +147,9 @@ func encodeStream(src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
 	}
 	pos -= 4
 	binary.LittleEndian.PutUint32(buf[pos:], x)
-	return buf[pos:]
+	// Copy into dst before the deferred Put returns buf to the pool.
+	dst = append(dst, buf[pos:]...)
+	return dst
 }
 
 // decodeStream reverses encodeStream, emitting exactly n bytes.
@@ -237,7 +247,7 @@ func Encode(dst, src []byte) []byte {
 	if !useInter {
 		dst = append(dst, ransTagSingle)
 		dst = appendTable(dst, &freq)
-		return append(dst, encodeStream(src, &freq, &cum)...)
+		return encodeStream(dst, src, &freq, &cum)
 	}
 	n := interleaveN
 	if forceTagForTest > 0 {
