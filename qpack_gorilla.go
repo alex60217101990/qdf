@@ -101,14 +101,50 @@ func (br *bitReader) readBit() (bool, bool) {
 }
 
 func (br *bitReader) readBits(count uint8) (uint64, bool) {
-	var out uint64
-	for range count {
-		b, ok := br.readBit()
-		if !ok {
-			return 0, false
-		}
-		out = (out << 1) | btoU64(b)
+	if count == 0 {
+		return 0, true
 	}
+	// Upfront bounds check: compute bytes needed from br.pos.
+	need := (int(br.used) + int(count) + 7) / 8
+	if br.pos+need > len(br.buf) {
+		return 0, false
+	}
+
+	avail := uint8(8) - br.used // bits remaining in current byte (1..8)
+	var out uint64
+
+	if avail >= count {
+		// Fast path: all bits fit within the current byte.
+		shift := avail - count
+		out = uint64(br.buf[br.pos]>>shift) & ((1 << count) - 1)
+		br.used += count
+		if br.used == 8 {
+			br.used = 0
+			br.pos++
+		}
+		return out, true
+	}
+
+	// Consume remaining bits of the current byte (avail bits, MSB-first).
+	out = uint64(br.buf[br.pos]) & ((1 << avail) - 1)
+	br.pos++
+	br.used = 0
+	remaining := count - avail
+
+	// Consume full bytes.
+	for remaining >= 8 {
+		out = (out << 8) | uint64(br.buf[br.pos])
+		br.pos++
+		remaining -= 8
+	}
+
+	// Consume the partial trailing byte.
+	if remaining > 0 {
+		shift := 8 - remaining
+		out = (out << remaining) | uint64(br.buf[br.pos]>>shift)
+		br.used = remaining
+	}
+
 	return out, true
 }
 
