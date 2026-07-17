@@ -2,6 +2,7 @@ package hadamard
 
 import (
 	"math"
+	"strconv"
 	"testing"
 )
 
@@ -49,5 +50,40 @@ func TestNextPow2(t *testing.T) {
 		if got := NextPow2(in); got != want {
 			t.Fatalf("NextPow2(%d)=%d want %d", in, got, want)
 		}
+	}
+}
+
+func BenchmarkForward(b *testing.B) {
+	for _, n := range []int{64, 256, 512, 1024} {
+		x := make([]float64, n)
+		for i := range x {
+			x[i] = math.Sin(float64(i) * 0.7)
+		}
+		tmp := make([]float64, n)
+		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
+			b.SetBytes(int64(n * 8))
+			for b.Loop() {
+				copy(tmp, x)
+				Forward(tmp, 0x9e3779b97f4a7c15)
+			}
+		})
+	}
+}
+
+func BenchmarkInverse(b *testing.B) {
+	for _, n := range []int{64, 256, 512, 1024} {
+		x := make([]float64, n)
+		for i := range x {
+			x[i] = math.Sin(float64(i) * 0.7)
+		}
+		Forward(x, 0x9e3779b97f4a7c15)
+		tmp := make([]float64, n)
+		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
+			b.SetBytes(int64(n * 8))
+			for b.Loop() {
+				copy(tmp, x)
+				Inverse(tmp, 0x9e3779b97f4a7c15)
+			}
+		})
 	}
 }
