@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 )
 
@@ -30,13 +31,11 @@ func BenchmarkDiffMap(b *testing.B) {
 		"nu": 13, "xi": 14, "omicron": 15, "pi": 16,
 	}
 	neu := make(map[string]int, len(old))
-	for k, v := range old {
-		neu[k] = v
-	}
+	maps.Copy(neu, old)
 	neu["mu"] = 99 // one update — triggers canonSortedMapKeys for the full key set
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_, _ = Diff(old, neu, OptCanonical|OptDense)
 	}
 }
