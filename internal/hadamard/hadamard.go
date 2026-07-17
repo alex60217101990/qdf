@@ -32,7 +32,6 @@ func sign(seed uint64, i int) float64 {
 	return -1
 }
 
-
 func checkPow2(n int) {
 	if n == 0 || n&(n-1) != 0 {
 		panic("hadamard: length must be a power of two")
