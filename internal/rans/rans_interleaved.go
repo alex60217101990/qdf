@@ -1,6 +1,10 @@
 package rans
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	"github.com/alex60217101990/qdf/internal/bufpool"
+)
 
 // encodeStreamStridedInto rANS-encodes the substream src[k], src[k+n], … into
 // the caller-provided buf (which must have len >= m*maxRenormBytesPerSym+16,
@@ -50,7 +54,10 @@ func appendInterleaved(dst, src []byte, freq *[256]uint32, cum *[257]uint32, n i
 	// span m_k*maxRenormBytesPerSym+16 bytes (NOT m_k+16, which assumes <=1 byte/
 	// symbol and underflows the backward writer on rare-byte-heavy substreams). The
 	// regions sum to len(src)*maxRenormBytesPerSym + n*16.
-	scratch := make([]byte, len(src)*maxRenormBytesPerSym+n*16)
+	scratchSize := len(src)*maxRenormBytesPerSym + n*16
+	bp := bufpool.Get(scratchSize)
+	scratch := (*bp)[:scratchSize]
+	defer bufpool.Put(bp)
 	off := 0
 	for k := range n {
 		m := max((len(src)-k+n-1)/n, 0)
