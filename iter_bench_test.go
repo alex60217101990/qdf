@@ -5,6 +5,36 @@ import (
 	"testing"
 )
 
+// BenchmarkEncodeShapedMap exercises encodeStringMapShaped (OptMapShape path)
+// with a struct-valued map. After the first encode declares the shape and
+// allocates the per-shape valSlots, the hot path makes zero per-key heap
+// allocations (SetIterValue writes directly into pre-allocated slots).
+func BenchmarkEncodeShapedMap(b *testing.B) {
+	type rec struct {
+		A int     `qdf:"a"`
+		B float64 `qdf:"b"`
+	}
+	type holder struct {
+		M map[string]rec `qdf:"m"`
+	}
+	v := holder{M: map[string]rec{
+		"alpha": {A: 1, B: 1.5},
+		"beta":  {A: 2, B: 2.5},
+		"gamma": {A: 3, B: 3.5},
+	}}
+	enc := NewEncoderWith(OptMapShape | OptDense)
+	// Warm up: first encode declares the shape and initialises valSlots;
+	// subsequent encodes in the loop hit the zero-alloc fast path.
+	if err := enc.EncodeValue(v); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		enc.SetBuffer(enc.Bytes()[:0])
+		_ = enc.EncodeValue(v)
+	}
+}
+
 // Compares two map-iteration strategies in the reflect path:
 // the original *MapIter (rv.MapRange + iter.Next loop) versus the
 // Go 1.26 rv.Seq2 range-over-func. Same body, same accumulators —
