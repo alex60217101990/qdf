@@ -185,6 +185,10 @@ type encState struct {
 	// lastMapShapeKeys holds the key order of the shape memoised by
 	// lastMapShapeID, so a homogeneous run skips the registry scan.
 	lastMapShapeKeys []string
+	// lastMapShapeIdx is the index into mapShapes for the shape memoised by
+	// lastMapShapeID. Gives O(1) access to the binding's pre-allocated valSlots
+	// without a registry scan. Valid only when lastMapShapeID != 0.
+	lastMapShapeIdx int
 	// mapEnc pools reflect holders for the generic (reflect) string-keyed map
 	// encode path so it does not reflect.New per map (OptMapShape).
 	mapEnc mapHolderCache
@@ -293,11 +297,38 @@ type tokenShape struct {
 // the canonical (sorted) key order, cloned so it survives the caller's map. id
 // is drawn from the same sequential space as struct shapeBindings
 // (shapeDeclareEnc).
+//
+// valSlots is a pre-allocated []reflect.Value (one per key, type valType) used
+// by hasAllAndCollect to receive values via SetIterValue — no per-key heap
+// allocation. Initialised lazily on first encode of this shape.
 type mapShapeBinding struct {
-	keys    []string
-	setHash uint64
-	n       int
-	id      uint32
+	keys     []string
+	valSlots []reflect.Value // pre-allocated value holders; see ensureValueSlots
+	valType  reflect.Type   // element type of valSlots; zero if unset
+	setHash  uint64
+	n        int
+	id       uint32
+	// busy is true while emitSlotsOrdered is iterating this binding's valSlots.
+	// hasAllAndCollect must not be called (and thus ensureValueSlots must not
+	// reinitialise) while busy, to prevent a re-entrant nested encode from
+	// corrupting the outer encode's in-progress slot array.
+	busy bool
+}
+
+// ensureValueSlots initialises the pre-allocated reflect.Value holders used
+// for zero-alloc MapRange value collection via SetIterValue. It is a no-op
+// when slots are already allocated for the same value type; it reinitialises
+// only when the type changes (rare: two maps with identical key-sets but
+// different value types sharing the same binding).
+func (b *mapShapeBinding) ensureValueSlots(vt reflect.Type) {
+	if b.valType == vt && b.valSlots != nil {
+		return
+	}
+	b.valType = vt
+	b.valSlots = make([]reflect.Value, len(b.keys))
+	for i := range b.valSlots {
+		b.valSlots[i] = reflect.New(vt).Elem()
+	}
 }
 
 // mapHolderCache pools the addressable reflect.Value scratch the generic
@@ -512,6 +543,7 @@ func (e *encState) reset() {
 	}
 	e.lastMapShapeID = 0
 	e.lastMapShapeKeys = nil
+	e.lastMapShapeIdx = 0
 	e.mapEnc = mapHolderCache{}
 
 	if cap(e.colShapeNames) > maxRetainedShapeCap && release {

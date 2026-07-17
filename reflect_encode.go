@@ -830,43 +830,69 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 	e.writeHeader()
 	n := rv.Len()
 	st := e.state
-	// Pooled, re-entrancy-safe key/value holders — avoids reflect.New per map
-	// (a 1000-row batch pays 2 reflect.New total, not 2 per row).
-	keyHolder, valHolder, vp, pooled := st.mapEnc.acquire(keyType, valType)
+	// Pooled, re-entrancy-safe key holder — avoids reflect.New per map
+	// (a 1000-row batch pays 1 reflect.New total, not 1 per row).
+	// Values are collected into pre-allocated per-shape slots (see
+	// mapShapeBinding.valSlots) via SetIterValue instead of MapIndex, so
+	// valHolder and vp from acquire are not needed on this path.
+	keyHolder, _, _, pooled := st.mapEnc.acquire(keyType, valType)
 	defer st.mapEnc.release(pooled)
 
-	emitValues := func(order []string) error {
-		for _, name := range order {
-			keyHolder.SetString(name)
-			valHolder.Set(rv.MapIndex(keyHolder))
-			if err := v.encode(e, vp); err != nil {
+	// emitSlotsOrdered encodes st.mapShapes[sIdx].valSlots in canonical key
+	// order. It uses index-based access (not a pointer) throughout: a nested
+	// encode may call mapShapeRegister which appends to st.mapShapes, possibly
+	// reallocating the backing array; index-based access always follows the
+	// current slice header, avoiding use-after-reallocation.
+	//
+	// The busy flag is set for the duration so hasAllAndCollect skips this
+	// binding during re-entrant nested encodes (preventing ensureValueSlots
+	// from reinitialising slots that are still in use by the outer encode).
+	emitSlotsOrdered := func(sIdx int) error {
+		st.mapShapes[sIdx].busy = true
+		defer func() { st.mapShapes[sIdx].busy = false }()
+		for i := range st.mapShapes[sIdx].keys {
+			if err := v.encode(e, unsafe.Pointer(st.mapShapes[sIdx].valSlots[i].UnsafeAddr())); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	// hasAll reports whether the map's key-set equals order (caller checks
-	// len==n). Verifies via the map's own keys under MapRange — string keys do
-	// not allocate — instead of MapIndex per key, which would heap-copy a
-	// struct value type. The linear scan is O(n²) but n (a key-set) is tiny.
-	hasAll := func(order []string) bool {
+
+	// hasAllAndCollect does a single MapRange pass: verifies every map key is
+	// in s.keys (binary search on the sorted slice) and simultaneously loads
+	// each value into s.valSlots via SetIterValue — no per-key heap allocation.
+	// Replaces the old two-step hasAll (MapRange) + emitValues (N MapIndex allocs)
+	// flow, keeping the MapRange count to one on the hot fast path and
+	// eliminating all value-copy heap allocations for struct-valued maps.
+	// Callers must check !s.busy before calling (busy bindings are being
+	// iterated by an outer emitSlotsOrdered and must not be re-initialised).
+	hasAllAndCollect := func(s *mapShapeBinding) bool {
+		s.ensureValueSlots(valType)
 		it := rv.MapRange()
 		for it.Next() {
 			keyHolder.SetIterKey(it) // SetIterKey reuses the holder; it.Key() would alloc
-			k := keyHolder.String()
-			found := slices.Contains(order, k)
-			if !found {
+			idx, ok := slices.BinarySearch(s.keys, keyHolder.String())
+			if !ok {
 				return false
 			}
+			s.valSlots[idx].SetIterValue(it)
 		}
 		return true
 	}
 
-	// Fast path: same key-set as the previous map — verify directly, no hash.
-	if st.lastMapShapeID != 0 && len(st.lastMapShapeKeys) == n && hasAll(st.lastMapShapeKeys) {
-		e.buf = append(e.buf, tagMapShape)
-		e.buf = appendUvarint(e.buf, uint64(st.lastMapShapeID))
-		return emitValues(st.lastMapShapeKeys)
+	// Fast path: same key-set as the previous map — one MapRange pass combines
+	// hasAll verification with value collection into pre-allocated slots.
+	// Replaces hasAll (MapRange) + emitValues (N MapIndex) with a single sweep,
+	// eliminating N per-key heap allocations for struct values.
+	// !s.busy: guard against a coincidental n-match from a re-entrant nested
+	// encode targeting the outer binding with a different valType.
+	if st.lastMapShapeID != 0 && len(st.lastMapShapeKeys) == n {
+		s := &st.mapShapes[st.lastMapShapeIdx]
+		if !s.busy && hasAllAndCollect(s) {
+			e.buf = append(e.buf, tagMapShape)
+			e.buf = appendUvarint(e.buf, uint64(st.lastMapShapeID))
+			return emitSlotsOrdered(st.lastMapShapeIdx)
+		}
 	}
 
 	// Key-set changed: order-independent set-hash to find an earlier shape.
@@ -881,14 +907,16 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 	// a key mismatch would re-declare a colliding key-set on every encode: under
 	// two alternating sets that collide on setHash, the already-registered second
 	// set is never found again, so mapShapes grows without bound. The s.n == n
-	// filter guarantees len(s.keys) == n, so hasAll ⇒ set equality.
+	// filter guarantees len(s.keys) == n, so hasAllAndCollect ⇒ set equality.
+	// !s.busy: skip bindings currently held by an outer emitSlotsOrdered.
 	for i := range st.mapShapes {
 		s := &st.mapShapes[i]
-		if s.setHash == setHash && s.n == n && hasAll(s.keys) {
+		if s.setHash == setHash && s.n == n && !s.busy && hasAllAndCollect(s) {
 			st.lastMapShapeID, st.lastMapShapeKeys = s.id, s.keys
+			st.lastMapShapeIdx = i
 			e.buf = append(e.buf, tagMapShape)
 			e.buf = appendUvarint(e.buf, uint64(s.id))
-			return emitValues(s.keys)
+			return emitSlotsOrdered(i)
 		}
 	}
 
@@ -902,14 +930,29 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 	slices.Sort(keys)
 	id := st.shapeDeclareEnc()
 	st.mapShapeRegister(setHash, n, keys, id)
+	idx := len(st.mapShapes) - 1
 	st.lastMapShapeID, st.lastMapShapeKeys = id, keys
+	st.lastMapShapeIdx = idx
 	e.buf = append(e.buf, tagMapShape)
 	e.buf = appendUvarint(e.buf, 0)
 	e.buf = appendUvarint(e.buf, uint64(n))
 	for _, name := range keys {
 		e.WriteString(name)
 	}
-	return emitValues(keys)
+	// Collect values into the newly declared binding's pre-allocated slots and
+	// emit in canonical order. One extra MapRange pass on the declare path is
+	// acceptable: declare is rare (once per distinct key-set per session).
+	// s is a local pointer; no mapShapes reallocation happens in the it3 loop
+	// (only in v.encode inside emitSlotsOrdered, after it3 completes).
+	s := &st.mapShapes[idx]
+	s.ensureValueSlots(valType)
+	it3 := rv.MapRange()
+	for it3.Next() {
+		keyHolder.SetIterKey(it3)
+		pos, _ := slices.BinarySearch(keys, keyHolder.String())
+		s.valSlots[pos].SetIterValue(it3)
+	}
+	return emitSlotsOrdered(idx)
 }
 
 func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) error {
