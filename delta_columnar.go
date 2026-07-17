@@ -31,12 +31,14 @@ const (
 
 // diffColumnarEligible reports whether a slice's columnar plan can use the
 // column-level diff: pure columnar (every field is a column, no residual) with
-// fewer than 128 columns. The 128 cap keeps the nChangedCols count a single
-// uvarint byte (nChanged <= len(cols) < 128 < 0x80), so the placeholder-patch
-// in diffColumnar is always valid; a struct with >=128 columns (pathological)
-// declines to the positional path.
+// fewer than 16384 columns. The 16384 cap (2-byte uvarint max) ensures the
+// nChangedCols placeholder in diffColumnar always fits in the reserved space.
+// For structs with <128 columns nChanged fits in a single byte (backward-
+// compatible wire format). For structs with 128..16383 columns diffColumnar
+// reserves a 2-byte padded uvarint placeholder. Structs with >=16384 columns
+// are pathological and decline to the positional path.
 func diffColumnarEligible(colPlan *columnarPlan) bool {
-	return colPlan != nil && colPlan.residual == nil && len(colPlan.cols) < 128
+	return colPlan != nil && colPlan.residual == nil && len(colPlan.cols) < 16384
 }
 
 // colKindColumnDiffSupported reports whether a column's kind has a column-diff
@@ -150,7 +152,17 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	body = append(body, tagColSlicePatch)
 	body = appendUvarint(body, uint64(n))
 	colCountPos := len(body)
-	body = appendUvarint(body, 0) // nChangedCols placeholder (single byte for <128 cols)
+	// Reserve space for nChangedCols. Structs with <128 columns guarantee
+	// nChanged < 128, so a single byte suffices (backward-compatible wire
+	// format). Structs with >=128 columns may have nChanged >=128, so reserve
+	// two bytes (padded uvarint encoding of 0: 0x80, 0x00) to accommodate up to
+	// 16383 changed columns. The apply side always uses readUvarint, so both
+	// sizes decode correctly.
+	if len(plan.cols) < 128 {
+		body = append(body, 0) // 1-byte uvarint placeholder
+	} else {
+		body = append(body, 0x80, 0) // 2-byte padded uvarint placeholder for 0
+	}
 	nChanged := 0
 	// Column codecs write through enc.buf; swap it to point at our scratch body,
 	// restore enc.buf afterward.
@@ -209,8 +221,16 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 		body = enc.buf
 	}
 	enc.buf = savedBuf
-	// Patch the nChangedCols count (always < 128 columns → single uvarint byte).
-	body[colCountPos] = byte(nChanged)
+	// Patch the nChangedCols count into the reserved placeholder bytes.
+	// For structs with <128 columns nChanged <128, so single byte is valid
+	// (backward-compatible wire format). For structs with >=128 columns two
+	// bytes were reserved; write a padded 2-byte uvarint (covers 0..16383).
+	if len(plan.cols) < 128 {
+		body[colCountPos] = byte(nChanged) // nChanged < 128, single byte valid
+	} else {
+		body[colCountPos] = byte(nChanged) | 0x80   // low 7 bits + continuation
+		body[colCountPos+1] = byte(nChanged >> 7)   // high bits
+	}
 	st.deltaColBuf = body
 
 	// Never-larger: keep the column body only if it strictly beats positional.
