@@ -24,10 +24,10 @@ import (
 // Source is the wire shape: everything is a normal Go type, encoded and
 // decoded like any other qdf struct.
 type Source struct {
-	ID     int64     `qdf:"id"`
+	TS     time.Time `qdf:"ts"`
 	Region string    `qdf:"region"` // low-cardinality: a handful of repeated values
 	Msg    string    `qdf:"msg"`    // high-cardinality: distinct per row
-	TS     time.Time `qdf:"ts"`
+	ID     int64     `qdf:"id"`
 	Val    float64   `qdf:"val"`
 }
 

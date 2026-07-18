@@ -77,7 +77,7 @@ const preInternUnseen = ^uint32(0)
 // 8-byte counters first, then the 1-byte flags (mode + the many bools) last
 // so the interspersed bools do not each force a padding word (200 bytes vs
 // 232 for the source order).
-type Encoder struct {
+type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 bytes); bools packed last
 	state *encState
 
 	// fsstDict, when non-nil, is a pre-trained FSST symbol table supplied via

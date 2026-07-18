@@ -34,10 +34,16 @@ type batchField struct {
 // same wire field order the normal encoder uses for the equivalent struct
 // (flattened embedded, tag-named) — see appendBatchFields.
 type batchPlan struct {
+
+	// mirrorSlicePtr pools *mirrorSlot values so repeated UnmarshalBatch calls
+	// for the same T neither reallocate the *[]mirror box nor touch
+	// reflect.Value on the hot path (the slot caches the raw slice-header
+	// pointer alongside the any box Unmarshal needs).
+	mirrorSlicePtr sync.Pool
+
 	// Pointer-bearing fields lead, scalars trail (fieldalignment: trims the
 	// GC-scanned prefix 128 -> 104 bytes). Constructed with named fields only.
-	rt     reflect.Type
-	fields []batchField
+	rt reflect.Type
 
 	// mirror is a runtime-built struct type with the same field names/tags
 	// as rt, with handle types swapped back to their decodable wire
@@ -47,14 +53,10 @@ type batchPlan struct {
 	// mirror row into a T row plus slab bytes. Since batchPlanOf only
 	// accepts flat (non-nested) field sets, mirror's field offsets align
 	// 1:1 with plan.fields via mirrorOff.
-	mirror    reflect.Type
-	mirrorOff []uintptr // parallel to fields: byte offset within mirror
+	mirror reflect.Type
+	fields []batchField
 
-	// mirrorSlicePtr pools *mirrorSlot values so repeated UnmarshalBatch calls
-	// for the same T neither reallocate the *[]mirror box nor touch
-	// reflect.Value on the hot path (the slot caches the raw slice-header
-	// pointer alongside the any box Unmarshal needs).
-	mirrorSlicePtr sync.Pool
+	mirrorOff []uintptr // parallel to fields: byte offset within mirror
 
 	// stride is rt.Size() — scalar tail (see the field-order note above).
 	stride uintptr

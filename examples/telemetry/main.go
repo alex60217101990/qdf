@@ -19,8 +19,8 @@ type LogRecord struct {
 	Service string `qdf:"service" json:"service"`
 	Level   string `qdf:"level"   json:"level"`
 	Region  string `qdf:"region"  json:"region"`
-	Code    int32  `qdf:"code"    json:"code"`
 	Message string `qdf:"msg"     json:"msg"`
+	Code    int32  `qdf:"code"    json:"code"`
 }
 
 func main() {

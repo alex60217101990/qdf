@@ -17,8 +17,8 @@ import (
 
 type Event struct {
 	Level string `qdf:"level"`
-	Code  int32  `qdf:"code"`
 	Msg   string `qdf:"msg"`
+	Code  int32  `qdf:"code"`
 }
 
 func main() {
