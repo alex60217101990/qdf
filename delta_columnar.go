@@ -228,8 +228,8 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 	if len(plan.cols) < 128 {
 		body[colCountPos] = byte(nChanged) // nChanged < 128, single byte valid
 	} else {
-		body[colCountPos] = byte(nChanged) | 0x80   // low 7 bits + continuation
-		body[colCountPos+1] = byte(nChanged >> 7)   // high bits
+		body[colCountPos] = byte(nChanged) | 0x80 // low 7 bits + continuation
+		body[colCountPos+1] = byte(nChanged >> 7) // high bits
 	}
 	st.deltaColBuf = body
 

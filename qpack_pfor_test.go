@@ -367,7 +367,8 @@ func TestPForExceptionDeltaOverflow(t *testing.T) {
 	//
 	// Without the fix pos wraps to 0 ∈ [0,8), bounds check passes, and the
 	// function returns nil.  With the fix it must return a non-nil error.
-	bufU := []byte{
+	bufU := make([]byte, 0, 8+len(maxU64Varint)+1)
+	bufU = append(bufU,
 		qpackKindUint64, // kind byte
 		0x08,            // n=8 (uvarint)
 		0x01,            // b=1 (bits per packed slot)
@@ -375,7 +376,7 @@ func TestPForExceptionDeltaOverflow(t *testing.T) {
 		0x00,            // body: (8*1+7)/8 = 1 byte, all zeros
 		0x02,            // excN=2
 		0x01, 0x01,      // exc1: dp=1, delta=1
-	}
+	)
 	bufU = append(bufU, maxU64Varint...) // exc2: dp=MaxUint64
 	bufU = append(bufU, 0x02)            // exc2: delta=2
 
@@ -387,7 +388,8 @@ func TestPForExceptionDeltaOverflow(t *testing.T) {
 	}
 
 	// int64 variant --------------------------------------------------------
-	bufI := []byte{
+	bufI := make([]byte, 0, 8+len(maxU64Varint)+1)
+	bufI = append(bufI,
 		qpackKindInt64, // kind byte
 		0x08,           // n=8 (uvarint)
 		0x01,           // b=1
@@ -395,7 +397,7 @@ func TestPForExceptionDeltaOverflow(t *testing.T) {
 		0x00,           // body: 1 byte
 		0x02,           // excN=2
 		0x01, 0x01,     // exc1: dp=1, delta=1
-	}
+	)
 	bufI = append(bufI, maxU64Varint...) // exc2: dp=MaxUint64
 	bufI = append(bufI, 0x02)            // exc2: delta=2
 

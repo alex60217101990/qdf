@@ -8,9 +8,9 @@ import "testing"
 // runtime.memmove and uses NEON Q-register stores on ARM64.
 func BenchmarkRLEDecodeRunHeavyUint64(b *testing.B) {
 	const (
-		nRuns   = 4
-		runLen  = 256
-		nTotal  = nRuns * runLen
+		nRuns  = 4
+		runLen = 256
+		nTotal = nRuns * runLen
 	)
 
 	// Build input: 4 distinct values, each repeated 256 times.
