@@ -104,7 +104,7 @@ const (
 	mruEmpty    uint16 = 0xFFFF
 )
 
-type encState struct {
+type encState struct { // betteralign:ignore — hot-scalar-first layout is cache-critical; do not reorder
 	// Hot scalars first so they share a single cache line with the
 	// adjacent mruHead and the map header. lastID + lruHead + mruHead
 	// are touched on every state-ref emit; co-locating them with
@@ -302,9 +302,9 @@ type tokenShape struct {
 // by hasAllAndCollect to receive values via SetIterValue — no per-key heap
 // allocation. Initialised lazily on first encode of this shape.
 type mapShapeBinding struct {
+	valType  reflect.Type // element type of valSlots; zero if unset
 	keys     []string
 	valSlots []reflect.Value // pre-allocated value holders; see ensureValueSlots
-	valType  reflect.Type   // element type of valSlots; zero if unset
 	setHash  uint64
 	n        int
 	id       uint32
