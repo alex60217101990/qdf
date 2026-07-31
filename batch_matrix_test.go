@@ -83,7 +83,7 @@ func TestBatchColumnarBytesAndEmpty(t *testing.T) {
 	for i := range src {
 		var blob []byte
 		if i%4 != 0 { // every 4th row: empty blob AND empty name
-			blob = []byte(fmt.Sprintf("blob-%d-%x", i, i*7))
+			blob = fmt.Appendf(blob, "blob-%d-%x", i, i*7)
 		}
 		name := ""
 		if i%4 != 0 {
