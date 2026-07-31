@@ -93,12 +93,14 @@ func encodeScalar(orig [][]float64, flat []float64, pdim, dim int, sigma float64
 	// overflow tracks the int32 saturation of the LAST quantization (the q that
 	// is returned), so the caller can abort to lossless.
 	var overflow bool
-	for range 4 {
+	for i := range 4 {
 		q, overflow = lattice.QuantizeScalar(flat, delta, q)
 		if budgetMetScalar(orig, q, pdim, dim, delta, b, row) {
 			break
 		}
-		delta *= 0.6
+		if i < 3 {
+			delta *= 0.6
+		}
 	}
 	return delta, q, overflow
 }
@@ -113,13 +115,15 @@ func encodeE8(orig [][]float64, flat []float64, pdim, dim int, sigma float64, b 
 		delta = sigma
 	}
 	coords = qDst
-	for range 4 {
+	for i := range 4 {
 		coords, cosets, overflow = lattice.QuantizeE8(flat, delta, coords)
 		if budgetMetE8(orig, coords, cosets, pdim, dim, delta, b, row) {
 			ok = true
 			break
 		}
-		delta *= 0.6
+		if i < 3 {
+			delta *= 0.6
+		}
 	}
 	return delta, coords, cosets, ok, overflow
 }
