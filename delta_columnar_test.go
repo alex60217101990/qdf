@@ -223,8 +223,8 @@ func benchColRows(n int) ([]ccRow, []ccRow) {
 func BenchmarkColDiffDiff(b *testing.B) {
 	old, neu := benchColRows(1000)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+
+	for b.Loop() {
 		if _, err := Diff(old, neu, OptBalanced); err != nil {
 			b.Fatal(err)
 		}
@@ -238,8 +238,8 @@ func BenchmarkColDiffApply(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+
+	for b.Loop() {
 		got := append([]ccRow(nil), old...)
 		if err := Apply(&got, patch); err != nil {
 			b.Fatal(err)
