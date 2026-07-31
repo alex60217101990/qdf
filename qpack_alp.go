@@ -434,7 +434,11 @@ func (d *Decoder) readPackedALPFloat32Slice() ([]float32, error) {
 		bitpack.Unpack(packed, d.buf[d.i:d.i+bodyBytes], width)
 		d.i += bodyBytes
 		for i := range out {
-			out[i] = float32(float64(int64(packed[i])+forMin) * ie)
+			v := int64(packed[i])
+			if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
+				return nil, ErrInvalidLength
+			}
+			out[i] = float32(float64(v+forMin) * ie)
 		}
 	} else {
 		fv := float32(float64(forMin) * ie)
@@ -545,7 +549,11 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 		bitpack.Unpack(packed, d.buf[d.i:d.i+bodyBytes], width)
 		d.i += bodyBytes
 		for i := range out {
-			out[i] = float64(int64(packed[i])+forMin) * ie
+			v := int64(packed[i])
+			if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
+				return nil, ErrInvalidLength
+			}
+			out[i] = float64(v+forMin) * ie
 		}
 	} else {
 		fv := float64(forMin) * ie
