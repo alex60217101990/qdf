@@ -25,8 +25,8 @@ func benchEmbF32(n, dim int) []embedRow {
 func BenchmarkLossyEncodeWarm(b *testing.B) {
 	rows := benchEmbF32(256, 768)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		if _, err := Marshal(rows, OptBalanced|OptLossyVec); err != nil {
 			b.Fatal(err)
 		}
@@ -39,8 +39,8 @@ func BenchmarkLossyEncodeWarm(b *testing.B) {
 func BenchmarkLossyEncodeCold(b *testing.B) {
 	rows := benchEmbF32(256, 768)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		enc := NewEncoderWith(OptBalanced | OptLossyVec)
 		enc.SetVectorBudget(MaxRelError(0.02))
 		if err := enc.EncodeValue(rows); err != nil {
@@ -57,8 +57,8 @@ func BenchmarkLossyDecode(b *testing.B) {
 	_ = enc.EncodeValue(rows)
 	data := append([]byte(nil), enc.Bytes()...)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		var out []embedRow
 		if err := Unmarshal(data, &out); err != nil {
 			b.Fatal(err)
