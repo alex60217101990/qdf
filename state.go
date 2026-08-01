@@ -104,6 +104,16 @@ const (
 	mruEmpty    uint16 = 0xFFFF
 )
 
+// mruRingSentinel is a pre-filled [mruRingSize]uint16 with every slot set to
+// mruEmpty. A single array copy replaces the scalar fill loop in reset paths.
+var mruRingSentinel = func() [mruRingSize]uint16 {
+	var a [mruRingSize]uint16
+	for i := range a {
+		a[i] = mruEmpty
+	}
+	return a
+}()
+
 type encState struct { // betteralign:ignore — hot-scalar-first layout is cache-critical; do not reorder
 	// Hot scalars first so they share a single cache line with the
 	// adjacent mruHead and the map header. lastID + lruHead + mruHead
@@ -388,9 +398,7 @@ func newEncState() *encState {
 	}
 	// Prime ring with sentinels so a scan never matches id 0 by
 	// accident before the ring has been written.
-	for i := range e.mruRing {
-		e.mruRing[i] = mruEmpty
-	}
+	e.mruRing = mruRingSentinel
 	return e
 }
 
@@ -682,9 +690,7 @@ func (e *encState) reset() {
 
 	// Ring side-cache: re-prime with sentinels so post-reset emits
 	// can't false-match a stale id 0.
-	for i := range e.mruRing {
-		e.mruRing[i] = mruEmpty
-	}
+	e.mruRing = mruRingSentinel
 	e.mruHead = 0
 }
 
@@ -1161,9 +1167,7 @@ func newDecState() *decState {
 		lruHead:      lruInvalidID,
 		lastID:       lruInvalidID,
 	}
-	for i := range d.mruRing {
-		d.mruRing[i] = mruEmpty
-	}
+	d.mruRing = mruRingSentinel
 	return d
 }
 
@@ -1284,9 +1288,7 @@ func (d *decState) reset() {
 	if cap(d.deltaColRows) > maxRetainedColScratch {
 		d.deltaColRows = nil
 	}
-	for i := range d.mruRing {
-		d.mruRing[i] = mruEmpty
-	}
+	d.mruRing = mruRingSentinel
 	d.mruHead = 0
 	d.mapDec = mapHolderCache{}
 }
