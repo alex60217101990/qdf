@@ -193,7 +193,7 @@ func (e *Encoder) writePackedGorillaFloat64Slice(s []float64) {
 	// Reserve generously: 4 byte body per sample is a comfortable upper
 	// bound for any non-pathological input; the slow path appends if it
 	// exceeds.
-	out := slices.Grow(e.buf, 2+10+8+10+4*n)
+	out := slices.Grow(e.buf, 2+10+8+10+10*n)
 	out = append(out, tagPackGorilla, qpackKindFloat64)
 	out = appendUvarint(out, uint64(n))
 	if n == 0 {
@@ -250,7 +250,7 @@ func (e *Encoder) writePackedGorillaFloat64Slice(s []float64) {
 func (e *Encoder) writePackedGorillaFloat32Slice(s []float32) {
 	e.writeHeader()
 	n := len(s)
-	out := slices.Grow(e.buf, 2+10+4+10+2*n)
+	out := slices.Grow(e.buf, 2+10+4+10+6*n)
 	out = append(out, tagPackGorilla, qpackKindFloat32)
 	out = appendUvarint(out, uint64(n))
 	if n == 0 {

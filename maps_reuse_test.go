@@ -82,8 +82,8 @@ func BenchmarkMapRecycle(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		if err := Unmarshal(data, &out); err != nil {
 			b.Fatal(err)
 		}
@@ -112,8 +112,8 @@ func BenchmarkMapRecycleBaseline(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		var out []rec // fresh target → no reuse, no harvest, no recycle
 		if err := Unmarshal(data, &out); err != nil {
 			b.Fatal(err)

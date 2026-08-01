@@ -34,6 +34,12 @@ func (e *Encoder) writePackedRLEUint64Slice(s []uint64) {
 		e.buf = out
 		return
 	}
+	if runs == 1 {
+		out = appendUvarint(out, s[0])
+		out = appendUvarint(out, uint64(n))
+		e.buf = out
+		return
+	}
 	runLen := uint64(1)
 	prev := s[0]
 	for i := 1; i < n; i++ {
@@ -67,6 +73,12 @@ func (e *Encoder) writePackedRLEInt64Slice(s []int64) {
 	out = append(out, tagPackRLE, qpackKindInt64)
 	out = appendUvarint(out, uint64(n))
 	if n == 0 {
+		e.buf = out
+		return
+	}
+	if runs == 1 {
+		out = appendUvarint(out, zigzagEncode64(s[0]))
+		out = appendUvarint(out, uint64(n))
 		e.buf = out
 		return
 	}
