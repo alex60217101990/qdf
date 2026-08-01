@@ -50,8 +50,8 @@ func BenchmarkStreamEncodeADRetain(b *testing.B) {
 	enc := NewStreamEncoder(io.Discard, Dense)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := 0; b.Loop(); i++ {
 		batch := batches[i%len(batches)]
 		enc.Reset(io.Discard)
 		for j := range batch {

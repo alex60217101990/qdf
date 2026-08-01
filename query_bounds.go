@@ -153,6 +153,10 @@ func WhereCmp[T Ordered](field string, op CmpOp, val T) QueryOption {
 			t.hiU64 = vU
 		}
 	case colKindFloat, colKindFloat32:
+		if vF != vF { // NaN query value matches nothing; no zone bounds
+			t.pF64 = func(float64) bool { return false }
+			break
+		}
 		t.pF64 = func(v float64) bool {
 			if v != v { // NaN matches nothing
 				return false

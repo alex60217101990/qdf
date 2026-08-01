@@ -264,7 +264,7 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 		return nil, ErrInvalidLength
 	}
 	pos := 0
-	for range excN64 {
+	for i := range excN64 {
 		dp, nr := readUvarint(d.buf[d.i:])
 		if nr <= 0 {
 			return nil, ErrInvalidLength
@@ -275,6 +275,9 @@ func (d *Decoder) readPackedPForInt64Slice() ([]int64, error) {
 			return nil, ErrInvalidLength
 		}
 		d.i += nr
+		if i > 0 && dp == 0 {
+			return nil, ErrInvalidLength
+		}
 		if dp > uint64(n-pos) {
 			return nil, ErrInvalidLength
 		}
@@ -355,7 +358,7 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) {
 		return nil, ErrInvalidLength
 	}
 	pos := 0
-	for range excN64 {
+	for i := range excN64 {
 		dp, nr := readUvarint(d.buf[d.i:])
 		if nr <= 0 {
 			return nil, ErrInvalidLength
@@ -366,6 +369,9 @@ func (d *Decoder) readPackedPForUint64Slice() ([]uint64, error) {
 			return nil, ErrInvalidLength
 		}
 		d.i += nr
+		if i > 0 && dp == 0 {
+			return nil, ErrInvalidLength
+		}
 		if dp > uint64(n-pos) {
 			return nil, ErrInvalidLength
 		}

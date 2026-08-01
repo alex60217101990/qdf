@@ -326,10 +326,10 @@ func (d *Decoder) readPackedPForInt64SliceInto(dst *[]int64) error {
 			return ErrInvalidLength
 		}
 		d.i += nr
-		pos += int(dp)
-		if pos < 0 || pos >= n {
+		if dp >= uint64(n-pos) {
 			return ErrInvalidLength
 		}
+		pos += int(dp)
 		out[pos] = int64(mnU + delta)
 	}
 	return nil

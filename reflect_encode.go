@@ -51,6 +51,9 @@ func decodeIntN(sz int) func(*Decoder, unsafe.Pointer) error {
 			if err != nil {
 				return err
 			}
+			if v < math.MinInt8 || v > math.MaxInt8 {
+				return ErrTypeMismatch
+			}
 			*(*int8)(p) = int8(v)
 			return nil
 		}
@@ -60,6 +63,9 @@ func decodeIntN(sz int) func(*Decoder, unsafe.Pointer) error {
 			if err != nil {
 				return err
 			}
+			if v < math.MinInt16 || v > math.MaxInt16 {
+				return ErrTypeMismatch
+			}
 			*(*int16)(p) = int16(v)
 			return nil
 		}
@@ -68,6 +74,9 @@ func decodeIntN(sz int) func(*Decoder, unsafe.Pointer) error {
 			v, err := d.ReadInt()
 			if err != nil {
 				return err
+			}
+			if v < math.MinInt32 || v > math.MaxInt32 {
+				return ErrTypeMismatch
 			}
 			*(*int32)(p) = int32(v)
 			return nil
@@ -104,6 +113,9 @@ func decodeUintN(sz int) func(*Decoder, unsafe.Pointer) error {
 			if err != nil {
 				return err
 			}
+			if v > math.MaxUint8 {
+				return ErrTypeMismatch
+			}
 			*(*uint8)(p) = uint8(v)
 			return nil
 		}
@@ -113,6 +125,9 @@ func decodeUintN(sz int) func(*Decoder, unsafe.Pointer) error {
 			if err != nil {
 				return err
 			}
+			if v > math.MaxUint16 {
+				return ErrTypeMismatch
+			}
 			*(*uint16)(p) = uint16(v)
 			return nil
 		}
@@ -121,6 +136,9 @@ func decodeUintN(sz int) func(*Decoder, unsafe.Pointer) error {
 			v, err := d.ReadUint()
 			if err != nil {
 				return err
+			}
+			if v > math.MaxUint32 {
+				return ErrTypeMismatch
 			}
 			*(*uint32)(p) = uint32(v)
 			return nil
@@ -482,6 +500,11 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 	valType := t.Elem()
 	stringKey := keyType.Kind() == reflect.String
 	return func(e *Encoder, p unsafe.Pointer) error {
+		rv := reflect.NewAt(t, p).Elem()
+		if rv.IsNil() {
+			e.WriteNil()
+			return nil
+		}
 		// Depth guard mirroring Decoder.descend in decodeMap (see encodeSlice).
 		if e.maxDepth != 0 {
 			e.depth++
@@ -490,11 +513,6 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 				return ErrCycleDetected
 			}
 			defer func() { e.depth-- }()
-		}
-		rv := reflect.NewAt(t, p).Elem()
-		if rv.IsNil() {
-			e.WriteNil()
-			return nil
 		}
 		n := rv.Len()
 		// Canonical emit takes precedence over the OptMapShape/OptDense shape
@@ -849,8 +867,11 @@ func canonReflectKeyCompare(a, b reflect.Value) int {
 			}
 		}
 		return 0
-	case reflect.Interface, reflect.Pointer:
+	case reflect.Interface:
 		return canonReflectKeyCompare(a.Elem(), b.Elem())
+	case reflect.Pointer:
+		// Pointer map keys are compared by address, not by pointed-to value.
+		return cmp.Compare(a.Pointer(), b.Pointer())
 	default:
 		// Stable rendering for any residual comparable kind (complex, chan, etc.).
 		return cmp.Compare(reflectRender(a), reflectRender(b))

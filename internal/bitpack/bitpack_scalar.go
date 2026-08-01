@@ -65,6 +65,9 @@ func bitUnpackU64LEFast(out []uint64, in []byte, bitsPer int) {
 				// already captured by the `have > 56` split above.
 			}
 		}
+		if have < b {
+			break // input exhausted; remaining elements stay zero
+		}
 		out[i] = lo & mask
 		lo = (lo >> b) | (hi << (64 - b))
 		hi >>= b
