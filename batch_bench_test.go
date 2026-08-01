@@ -3,6 +3,7 @@ package qdf
 import (
 	"runtime"
 	"testing"
+	"time"
 )
 
 // benchBatchRows is the row count used for the decode-speed benches: large
@@ -111,4 +112,39 @@ func BenchmarkBatchHeldGC(b *testing.B) {
 		}
 		runtime.KeepAlive(held)
 	})
+}
+
+// mkConstBatSrc builds n rows where the Name field is constant ("constant").
+// This encodes as tagColStrConst on the wire, exercising the const-column fill
+// path in batch decode. Used to gate PERF-BATCH_DECODE-6 (copy-doubling fill).
+func mkConstBatSrc(n int) []batSrc {
+	out := make([]batSrc, n)
+	for i := range out {
+		out[i] = batSrc{
+			ID:   int64(i),
+			Name: "constant",
+			Val:  float64(i) * 1.5,
+			At:   time.Unix(1_700_000_000+int64(i), 500).UTC(),
+		}
+	}
+	return out
+}
+
+// BenchmarkBatchDecodeConstColumn measures UnmarshalBatch decode throughput
+// when the Name column is a constant string (tagColStrConst wire path).
+func BenchmarkBatchDecodeConstColumn(b *testing.B) {
+	src := mkConstBatSrc(benchBatchRows)
+	data, err := Marshal(src, OptBalanced|OptDense|OptShapeIntern)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		bat, err := UnmarshalBatch[batDoc](data)
+		if err != nil {
+			b.Fatal(err)
+		}
+		bat.Release()
+	}
 }
