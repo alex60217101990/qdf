@@ -17,6 +17,25 @@ func TestRoundTrip_Skeleton(t *testing.T) {
 	}
 }
 
+func TestEncode_NonEmpty(t *testing.T) {
+	src := mkSkewed(8192)
+	enc := Encode(nil, src)
+	if len(enc) == 0 {
+		t.Fatal("encode produced empty output")
+	}
+	if enc[0] != TagInter4 {
+		t.Fatalf("expected TagInter4, got %d", enc[0])
+	}
+}
+
+func TestEncode_Small(t *testing.T) {
+	src := []byte("hello")
+	enc := Encode(nil, src)
+	if enc[0] != TagSingle {
+		t.Fatalf("expected TagSingle, got %d", enc[0])
+	}
+}
+
 // mkSkewed returns n bytes where ~70% are 'a'. Used by benchmarks.
 func mkSkewed(n int) []byte {
 	src := make([]byte, n)
