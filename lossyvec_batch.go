@@ -357,6 +357,18 @@ func (d *Decoder) decodeVectorBatchStruct(t reflect.Type, td *typeDesc, p unsafe
 			d.i += used
 			norms = ns
 		}
+		// Pre-check OOM before committing the allocation inside readLossyVec.
+		// Header layout: tag(1) + flags(1) + dim(uvarint). elemF32 bit is flags&1.
+		if len(d.buf[d.i:]) >= 3 {
+			dim, _ := binary.Uvarint(d.buf[d.i+2:])
+			elemBytes := uint64(8)
+			if d.buf[d.i+1]&1 != 0 {
+				elemBytes = 4
+			}
+			if newBytes := uint64(n) * dim * elemBytes; totalVecBytes+newBytes > maxColumnarBytes {
+				return ErrInvalidLength
+			}
+		}
 		vecs, elemF32, used, err := readLossyVec(d.buf[d.i:])
 		if err != nil {
 			return err

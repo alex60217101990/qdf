@@ -203,11 +203,12 @@ func (d *Decoder) readPackedDictUint64Slice() ([]uint64, error) {
 	}
 	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
+	tab := table[:count]
 	for i, k := range idx {
 		if k >= uint64(count) {
 			return nil, ErrBadTag
 		}
-		out[i] = table[k]
+		out[i] = tab[k]
 	}
 	return out, nil
 }
@@ -271,11 +272,12 @@ func (d *Decoder) readPackedDictInt64Slice() ([]int64, error) {
 	}
 	idx := d.deltaScratch[:n]
 	bitpack.Unpack(idx, body, bitsPer)
+	tab64 := table[:count]
 	for i, k := range idx {
 		if k >= uint64(count) {
 			return nil, ErrBadTag
 		}
-		out[i] = table[k]
+		out[i] = tab64[k]
 	}
 	return out, nil
 }
