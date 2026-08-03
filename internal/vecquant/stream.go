@@ -36,9 +36,11 @@ func readVarintZigzag(src []byte, n int) ([]int32, error) {
 	return out, nil
 }
 
-// Stream layout: mode byte (0=raw varint, 1=rANS) | varuint(rawLen) | body.
+// Stream layout: mode byte (0=raw varint, 1=entropy-coded) | varuint(rawLen) | body.
+// Mode-1 bodies are tANS blobs (tags 1/5) since the tANS switch; legacy rANS
+// blobs (tags 0/4) still decode via the tag dispatch in decodeCoords.
 // encodeCoordsInto is the buffer-reusing form of encodeCoords: it zigzag-varint
-// encodes q into the reused zig buffer, rANS-encodes into the reused ransDst
+// encodes q into the reused zig buffer, tANS-encodes into the reused ransDst
 // buffer, and writes the never-larger framing into out (reused). Returns the
 // coord block plus the grown staging buffers so the caller can retain them.
 func encodeCoordsInto(q []int32, out, zig, ransDst []byte) (res, zigBack, ransBack []byte) {
@@ -62,8 +64,8 @@ func encodeCoordsInto(q []int32, out, zig, ransDst []byte) (res, zigBack, ransBa
 func encodeCoords(q []int32) []byte {
 	raw := appendVarintZigzag(nil, q)
 	packed := tans.Encode(nil, raw)
-	// rans.Encode always returns a rANS blob; pick the smaller of it and the raw
-	// zigzag bytes here (never-larger framing).
+	// tans.Encode always returns an entropy-coded blob; pick the smaller of it
+	// and the raw zigzag bytes here (never-larger framing).
 	var out []byte
 	var tmp [binary.MaxVarintLen64]byte
 	hdr := binary.PutUvarint(tmp[:], uint64(len(raw)))

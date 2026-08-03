@@ -229,7 +229,7 @@ func resetPatchDecoder(dec *Decoder, body []byte, dense bool) {
 	}
 }
 
-// maybeApplyPatchRANS optionally rANS-compresses the patch body in place after
+// maybeApplyPatchRANS optionally entropy-compresses (tANS/FSE) the patch body in place after
 // the QDP header (offset start). Mirrors maybeApplyRANS.
 func maybeApplyPatchRANS(enc *Encoder, start int) {
 	if !enc.rans {
@@ -259,7 +259,8 @@ func maybeApplyPatchRANS(enc *Encoder, start int) {
 	enc.buf[start+4] |= flagPatchRANS
 }
 
-// decompressPatchBody reverses maybeApplyPatchRANS: varuint(origLen) + rANS stream.
+// decompressPatchBody reverses maybeApplyPatchRANS: varuint(origLen) + entropy stream
+// (tANS tags 1/5, legacy rANS tags 0/4).
 func decompressPatchBody(body []byte) ([]byte, error) {
 	origLen, k := readUvarint(body)
 	if k <= 0 {
