@@ -34,11 +34,20 @@ func buildDecTable(freq *[256]uint32, decOut *[TableSize]DecEntry) {
 			continue
 		}
 		base := cumul[s]
-		for j := range f {
-			y := f + j // ∈ [freq[s], 2*freq[s])
+		// y = f+j sweeps [f, 2f); nb = TableLog+1-Len32(y) is constant between
+		// powers of two, and within a span newBase = y<<nb advances by 1<<nb.
+		// Strength-reduced: one add per entry instead of recomputing the entry.
+		j := uint32(0)
+		for j < f {
+			y := f + j
 			nb := uint32(TableLog+1) - bitLen32(y)
-			newBase := y << nb
-			decOut[base+j] = DecEntry(s) | DecEntry(nb)<<8 | DecEntry(newBase)<<16
+			spanEnd := min(uint32(1)<<bitLen32(y)-f, f) // j where Len32(y) grows
+			e := DecEntry(s) | DecEntry(nb)<<8 | DecEntry(y<<nb)<<16
+			step := DecEntry(1) << (16 + nb)
+			for ; j < spanEnd; j++ {
+				decOut[base+j] = e
+				e += step
+			}
 		}
 	}
 }
