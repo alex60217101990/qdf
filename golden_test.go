@@ -188,9 +188,35 @@ func TestGolden_QPackGorilla(t *testing.T) {
 }
 
 // TestGolden_DenseRANS pins the on-wire bytes for OptDense combined with
-// OptRANS (static order-0 rANS entropy pass over the encoded body).
+// OptRANS (static order-0 tANS/FSE entropy pass over the encoded body).
 func TestGolden_DenseRANS(t *testing.T) {
 	runGolden(t, "dense_rans", OptDense|OptRANS)
+}
+
+// TestGolden_LegacyRANSDecode pins backward compatibility: a blob written by
+// the legacy rANS encoder (before the tANS/FSE switch, tag bytes 0/4) must
+// keep decoding through the tag-dispatched path. Decode-only — the encoder
+// intentionally no longer produces these bytes.
+func TestGolden_LegacyRANSDecode(t *testing.T) {
+	want, err := os.ReadFile(filepath.Join("testdata", "golden", "struct_batch.dense_rans.legacy.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range goldenCases() {
+		if c.name != "struct_batch" {
+			continue
+		}
+		outPtr := c.zero()
+		if err := Unmarshal(want, outPtr); err != nil {
+			t.Fatalf("legacy rANS decode: %v", err)
+		}
+		outVal := reflect.ValueOf(outPtr).Elem().Interface()
+		if !reflect.DeepEqual(c.value, outVal) {
+			t.Fatalf("legacy decode mismatch:\n want=%+v\n  got=%+v", c.value, outVal)
+		}
+		return
+	}
+	t.Fatal("struct_batch golden case not found")
 }
 
 // TestGolden_ColIndex pins the on-wire bytes of a columnar []struct slice

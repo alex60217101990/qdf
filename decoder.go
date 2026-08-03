@@ -7,6 +7,7 @@ import (
 
 	"github.com/alex60217101990/qdf/internal/intern"
 	"github.com/alex60217101990/qdf/internal/rans"
+	"github.com/alex60217101990/qdf/internal/tans"
 )
 
 // Decoder reads QDF wire data from a single input buffer. Call SetInput
@@ -330,7 +331,14 @@ func (d *Decoder) readHeaderSlow() error {
 		if origLen > uint64(len(d.buf))*64+(1<<20) || origLen > uint64(math.MaxInt) {
 			return ErrInvalidLength
 		}
-		body, err := rans.Decode(rest[k:], int(origLen))
+		blob := rest[k:]
+		var body []byte
+		var err error
+		if len(blob) > 0 && tans.IsTag(blob[0]) {
+			body, err = tans.Decode(blob, int(origLen))
+		} else {
+			body, err = rans.Decode(blob, int(origLen))
+		}
 		if err != nil {
 			return err
 		}

@@ -7,7 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/fsst"
-	"github.com/alex60217101990/qdf/internal/rans"
+	"github.com/alex60217101990/qdf/internal/tans"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 	"github.com/alex60217101990/qdf/internal/vecquant"
 )
@@ -36,7 +36,7 @@ func (e *Encoder) maybeApplyRANS(start int) {
 	}
 	body := e.buf[start+hdr:]
 	cand := appendUvarint(make([]byte, 0, len(body)/2+512), uint64(len(body)))
-	cand = rans.Encode(cand, body)
+	cand = tans.Encode(cand, body)
 	if len(cand) >= len(body) {
 		return // no win — keep the plain body
 	}

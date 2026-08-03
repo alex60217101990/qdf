@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/rans"
+	"github.com/alex60217101990/qdf/internal/tans"
 )
 
 // timeType is the cached descriptor key for time.Time, used by the fingerprint
@@ -243,7 +244,7 @@ func maybeApplyPatchRANS(enc *Encoder, start int) {
 	}
 	body := enc.buf[start+hdr:]
 	cand := appendUvarint(make([]byte, 0, len(body)/2+512), uint64(len(body)))
-	cand = rans.Encode(cand, body)
+	cand = tans.Encode(cand, body)
 	if len(cand) >= len(body) {
 		return
 	}
@@ -276,7 +277,14 @@ func decompressPatchBody(body []byte) ([]byte, error) {
 	if origLen > uint64(len(body))*64+(1<<20) || origLen > uint64(math.MaxInt) {
 		return nil, ErrInvalidPatch
 	}
-	out, err := rans.Decode(body[k:], int(origLen))
+	blob := body[k:]
+	var out []byte
+	var err error
+	if len(blob) > 0 && tans.IsTag(blob[0]) {
+		out, err = tans.Decode(blob, int(origLen))
+	} else {
+		out, err = rans.Decode(blob, int(origLen))
+	}
 	if err != nil {
 		return nil, ErrInvalidPatch
 	}

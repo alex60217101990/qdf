@@ -32,6 +32,12 @@ const (
 	interleaveMinBytes = 4096
 )
 
+// IsTag reports whether b is a tANS blob tag. rANS tags (0, 4) and tANS tags
+// (1, 5) are disjoint, so mixed pipelines dispatch on the first blob byte.
+func IsTag(b byte) bool {
+	return b == TagSingle || b == TagInter4
+}
+
 // ErrBadTable is returned when a decoded frequency table is malformed.
 var ErrBadTable = errors.New("tans: invalid frequency table")
 
