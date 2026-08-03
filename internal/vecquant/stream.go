@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/alex60217101990/qdf/internal/rans"
+	"github.com/alex60217101990/qdf/internal/tans"
 )
 
 func zigzag32(v int32) uint32   { return uint32((v << 1) ^ (v >> 31)) }
@@ -42,7 +43,7 @@ func readVarintZigzag(src []byte, n int) ([]int32, error) {
 // coord block plus the grown staging buffers so the caller can retain them.
 func encodeCoordsInto(q []int32, out, zig, ransDst []byte) (res, zigBack, ransBack []byte) {
 	zig = appendVarintZigzag(zig[:0], q)
-	ransDst = rans.Encode(ransDst[:0], zig)
+	ransDst = tans.Encode(ransDst[:0], zig)
 	out = out[:0]
 	var tmp [binary.MaxVarintLen64]byte
 	hdr := binary.PutUvarint(tmp[:], uint64(len(zig)))
@@ -60,7 +61,7 @@ func encodeCoordsInto(q []int32, out, zig, ransDst []byte) (res, zigBack, ransBa
 
 func encodeCoords(q []int32) []byte {
 	raw := appendVarintZigzag(nil, q)
-	packed := rans.Encode(nil, raw)
+	packed := tans.Encode(nil, raw)
 	// rans.Encode always returns a rANS blob; pick the smaller of it and the raw
 	// zigzag bytes here (never-larger framing).
 	var out []byte
@@ -101,7 +102,13 @@ func decodeCoords(src []byte, count int) ([]int32, error) {
 		}
 		raw = body[:rawLen]
 	case 1:
-		dec, err := rans.Decode(body, int(rawLen))
+		var dec []byte
+		var err error
+		if len(body) > 0 && tans.IsTag(body[0]) {
+			dec, err = tans.Decode(body, int(rawLen))
+		} else {
+			dec, err = rans.Decode(body, int(rawLen))
+		}
 		if err != nil {
 			return nil, err
 		}
