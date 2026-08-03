@@ -12,6 +12,7 @@ package tans
 
 import (
 	"errors"
+	"slices"
 )
 
 const (
@@ -44,9 +45,22 @@ func buildFreqs(src []byte) [256]uint32 {
 	if len(src) == 0 {
 		return freq
 	}
+	// 4-way split histogram: skewed inputs hammer one counter; splitting
+	// breaks the store-to-load forwarding dependency between iterations.
+	var h [4][256]uint32
+	i := 0
+	for ; i+3 < len(src); i += 4 {
+		h[0][src[i]]++
+		h[1][src[i+1]]++
+		h[2][src[i+2]]++
+		h[3][src[i+3]]++
+	}
+	for ; i < len(src); i++ {
+		h[0][src[i]]++
+	}
 	var raw [256]uint32
-	for _, b := range src {
-		raw[b]++
+	for s := range 256 {
+		raw[s] = h[0][s] + h[1][s] + h[2][s] + h[3][s]
 	}
 	n := uint64(len(src))
 	var total uint32
@@ -126,6 +140,9 @@ func parseTable(src []byte) (freq [256]uint32, used int, err error) {
 // For bodies >= interleaveMinBytes uses 4-stream interleaved; smaller use single-stream.
 func Encode(dst, src []byte) []byte {
 	freq := buildFreqs(src)
+	// One up-front grow: tag + freq table (≤512B) + worst-case body
+	// (TableLog/8 = 1.5 bytes/symbol) + stream headers/slack.
+	dst = slices.Grow(dst, 1+512+len(src)*TableLog/8+64)
 	if len(src) >= interleaveMinBytes {
 		dst = append(dst, TagInter4)
 		dst = appendTable(dst, &freq)

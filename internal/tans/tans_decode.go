@@ -17,10 +17,10 @@ func (e DecEntry) Symbol() byte    { return byte(e) }
 func (e DecEntry) NbBits() uint8   { return uint8(e >> 8) }
 func (e DecEntry) NewBase() uint32 { return uint32(e >> 16) }
 
-// buildDecTable fills decOut with the 4096 FSE decode entries.
+// buildDecTable fills decOut with the TableSize FSE decode entries.
 // Symbol s occupies contiguous slots [cumul[s], cumul[s]+freq[s]) — required by
 // the encoder's DeltaFindState = cumul[s] - freq[s] formula.
-func buildDecTable(freq *[256]uint32, encOut *[256]EncSymbol, decOut *[TableSize]DecEntry) {
+func buildDecTable(freq *[256]uint32, decOut *[TableSize]DecEntry) {
 	var cumul [256]uint32
 	var c uint32
 	for s := range 256 {
@@ -33,56 +33,52 @@ func buildDecTable(freq *[256]uint32, encOut *[256]EncSymbol, decOut *[TableSize
 		if f == 0 {
 			continue
 		}
+		base := cumul[s]
 		for j := range f {
-			i := cumul[s] + j
 			y := f + j // ∈ [freq[s], 2*freq[s])
 			nb := uint32(TableLog+1) - bitLen32(y)
 			newBase := y << nb
-			decOut[i] = DecEntry(s) | DecEntry(nb)<<8 | DecEntry(newBase)<<16
+			decOut[base+j] = DecEntry(s) | DecEntry(nb)<<8 | DecEntry(newBase)<<16
 		}
-	}
-
-	for s := range 256 {
-		f := freq[s]
-		if f == 0 {
-			continue
-		}
-		hl := bitLen32(f - 1)
-		if hl > 0 {
-			hl--
-		}
-		maxBitsOut := uint32(TableLog) - hl
-		encOut[s].DeltaNbBits = (maxBitsOut << 16) - (f << maxBitsOut)
-		encOut[s].DeltaFindState = int32(cumul[s]) - int32(f)
 	}
 }
 
-// initBitReader initializes a BACKWARD bit reader over a forward-written
-// payload. The LAST byte of payload is the encoder's close() byte: end mark at
-// its highest set bit, data bits below it. Bits are consumed from the TOP of
-// the container (newest-written first); refill prepends older (lower-address)
-// bytes below via container<<8 | byte.
-// Returns (bitContainer, bitPos, pos, err); pos is the next byte to read,
-// moving toward -1.
-func initBitReader(payload []byte) (bitContainer uint64, bitPos uint, pos int, err error) {
-	pos = len(payload) - 1
-	if pos < 0 {
-		return 0, 0, -1, nil
+// The decoder mirrors zstd's BIT_DStream: the 64-bit container always holds
+// the 8 payload bytes at [pos, pos+8) loaded little-endian, and `consumed`
+// counts bits already eaten from the TOP of that window (the top of the
+// window = the newest-written bits, which decode first).
+//
+//	read nb bits:  v = (container << consumed) >> (64 - nb)
+//	reload:        pos -= consumed/8; consumed &= 7; container = LE64(payload[pos:])
+//	               (clamped at pos==0 near the stream start — `consumed` then
+//	               keeps growing instead; Go shifts >= 64 yield 0, so reads
+//	               past the front of a corrupt stream return zero bits and
+//	               never panic.)
+//
+// Payloads shorter than 8 bytes are right-aligned into a zero-padded 8-byte
+// buffer by the caller so the window load is always in bounds.
+
+// initBitReader positions the reader on the close() byte at the END of
+// payload. len(payload) must be >= 8. Returns (container, consumed, pos, err).
+func initBitReader(payload []byte) (container uint64, consumed uint, pos int, err error) {
+	last := payload[len(payload)-1]
+	if last == 0 {
+		return 0, 0, 0, ErrCorrupt // no end mark
 	}
-	closeByte := payload[pos]
-	if closeByte == 0 {
-		return 0, 0, 0, ErrCorrupt
+	pos = len(payload) - 8
+	container = binary.LittleEndian.Uint64(payload[pos:])
+	// End mark sits at bit 56 + (Len8(last)-1); everything above it is consumed.
+	consumed = uint(9 - bits.Len8(last))
+	return container, consumed, pos, nil
+}
+
+// padPayload right-aligns a short payload into pad, returning an 8-byte view.
+func padPayload(payload []byte, pad *[8]byte) []byte {
+	if len(payload) >= 8 {
+		return payload
 	}
-	pos--
-	bitPos = uint(bits.Len8(closeByte)) - 1
-	bitContainer = uint64(closeByte) & ((1 << bitPos) - 1)
-	// Pre-fill remaining capacity.
-	for bitPos <= 56 && pos >= 0 {
-		bitContainer = bitContainer<<8 | uint64(payload[pos])
-		bitPos += 8
-		pos--
-	}
-	return bitContainer, bitPos, pos, nil
+	copy(pad[8-len(payload):], payload)
+	return pad[:]
 }
 
 // decodeStream decompresses a single-stream tANS blob.
@@ -91,37 +87,80 @@ func decodeStream(src []byte, freq *[256]uint32, n int) ([]byte, error) {
 	if len(src) < 4 {
 		return nil, ErrCorrupt
 	}
-	state := uint32(binary.LittleEndian.Uint32(src[:4]))
-	payload := src[4:]
+	state := binary.LittleEndian.Uint32(src[:4])
+	if len(src) == 4 {
+		return nil, ErrCorrupt // n > 0 always emits at least the close byte
+	}
+	var pad [8]byte
+	payload := padPayload(src[4:], &pad)
 
 	var decTable [TableSize]DecEntry
-	var encTable [256]EncSymbol
-	buildDecTable(freq, &encTable, &decTable)
+	buildDecTable(freq, &decTable)
 
-	out := make([]byte, n)
-
-	bitContainer, bitPos, pos, err := initBitReader(payload)
+	container, consumed, pos, err := initBitReader(payload)
 	if err != nil {
 		return nil, err
 	}
 
-	refill := func() {
-		for bitPos <= 56 && pos >= 0 {
-			bitContainer = bitContainer<<8 | uint64(payload[pos])
-			bitPos += 8
-			pos--
+	out := make([]byte, n)
+
+	// Unrolled x4: init leaves consumed <= 8, each read adds <= TableLog=12,
+	// so 8 + 4*12 = 56 <= 63 between reloads. Reads never need shifts > 63
+	// on valid streams; corrupt streams degrade to zero bits (Go-defined).
+	i := 0
+	for ; i+3 < n; i += 4 {
+		e0 := decTable[state&(TableSize-1)]
+		nb0 := uint(e0.NbBits())
+		state = e0.NewBase() + uint32((container<<consumed)>>(64-nb0))
+		consumed += nb0
+
+		e1 := decTable[state&(TableSize-1)]
+		nb1 := uint(e1.NbBits())
+		state = e1.NewBase() + uint32((container<<consumed)>>(64-nb1))
+		consumed += nb1
+
+		e2 := decTable[state&(TableSize-1)]
+		nb2 := uint(e2.NbBits())
+		state = e2.NewBase() + uint32((container<<consumed)>>(64-nb2))
+		consumed += nb2
+
+		e3 := decTable[state&(TableSize-1)]
+		nb3 := uint(e3.NbBits())
+		state = e3.NewBase() + uint32((container<<consumed)>>(64-nb3))
+		consumed += nb3
+
+		out[i] = e0.Symbol()
+		out[i+1] = e1.Symbol()
+		out[i+2] = e2.Symbol()
+		out[i+3] = e3.Symbol()
+
+		pos -= int(consumed >> 3)
+		consumed &= 7
+		if pos < 0 {
+			consumed += uint(-pos) << 3
+			pos = 0
 		}
+		container = binary.LittleEndian.Uint64(payload[pos:])
+	}
+	for ; i < n; i++ {
+		e := decTable[state&(TableSize-1)]
+		nb := uint(e.NbBits())
+		state = e.NewBase() + uint32((container<<consumed)>>(64-nb))
+		consumed += nb
+		out[i] = e.Symbol()
+
+		pos -= int(consumed >> 3)
+		consumed &= 7
+		if pos < 0 {
+			consumed += uint(-pos) << 3
+			pos = 0
+		}
+		container = binary.LittleEndian.Uint64(payload[pos:])
 	}
 
-	for i := range n {
-		e := decTable[state&(TableSize-1)]
-		out[i] = e.Symbol()
-		nb := uint(e.NbBits())
-		bitPos -= nb
-		state = e.NewBase() + uint32(bitContainer>>bitPos)&uint32((1<<nb)-1)
-		if bitPos <= 24 {
-			refill()
-		}
+	// A valid stream ends exactly where encoding began.
+	if state != TableSize {
+		return nil, ErrCorrupt
 	}
 	return out, nil
 }
@@ -134,13 +173,12 @@ func decodeInterleaved4(src []byte, freq *[256]uint32, n int) ([]byte, error) {
 	}
 
 	var decTable [TableSize]DecEntry
-	var encTable [256]EncSymbol
-	buildDecTable(freq, &encTable, &decTable)
+	buildDecTable(freq, &decTable)
 
-	var xs [4]uint32
-	for k := range 4 {
-		xs[k] = binary.LittleEndian.Uint32(src[k*4:])
-	}
+	x0 := binary.LittleEndian.Uint32(src[0:])
+	x1 := binary.LittleEndian.Uint32(src[4:])
+	x2 := binary.LittleEndian.Uint32(src[8:])
+	x3 := binary.LittleEndian.Uint32(src[12:])
 	src = src[16:]
 
 	var lens [4]int
@@ -159,79 +197,230 @@ func decodeInterleaved4(src []byte, freq *[256]uint32, n int) ([]byte, error) {
 	}
 	lens[3] = len(src) - int(total)
 
+	var pads [4][8]byte
 	var regions [4][]byte
 	off := 0
 	for k := range 4 {
-		regions[k] = src[off : off+lens[k]]
+		regions[k] = padPayload(src[off:off+lens[k]], &pads[k])
 		off += lens[k]
+	}
+	r0, r1, r2, r3 := regions[0], regions[1], regions[2], regions[3]
+
+	c0, u0, p0, err := initBitReader(r0)
+	if err != nil {
+		return nil, err
+	}
+	c1, u1, p1, err := initBitReader(r1)
+	if err != nil {
+		return nil, err
+	}
+	c2, u2, p2, err := initBitReader(r2)
+	if err != nil {
+		return nil, err
+	}
+	c3, u3, p3, err := initBitReader(r3)
+	if err != nil {
+		return nil, err
 	}
 
 	out := make([]byte, n)
-	var bcs [4]uint64
-	var bps [4]uint
-	var rpos [4]int
 
-	for k := range 4 {
-		var err error
-		bcs[k], bps[k], rpos[k], err = initBitReader(regions[k])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	refill := func(k int) {
-		for bps[k] <= 56 && rpos[k] >= 0 {
-			bcs[k] = bcs[k]<<8 | uint64(regions[k][rpos[k]])
-			bps[k] += 8
-			rpos[k]--
-		}
-	}
-
+	// Blocked main loop: 4 rows (16 symbols) per reload. Entering a block,
+	// consumed <= 8; four reads/lane add <= 4*TableLog = 48, so consumed
+	// stays <= 56 <= 63. The four serial state chains are independent, so
+	// the CPU overlaps them (ILP).
 	i := 0
-	for ; i+3 < n; i += 4 {
-		e0 := decTable[xs[0]&(TableSize-1)]
-		e1 := decTable[xs[1]&(TableSize-1)]
-		e2 := decTable[xs[2]&(TableSize-1)]
-		e3 := decTable[xs[3]&(TableSize-1)]
-		out[i] = e0.Symbol()
-		out[i+1] = e1.Symbol()
-		out[i+2] = e2.Symbol()
-		out[i+3] = e3.Symbol()
+	for ; i+15 < n; i += 16 {
+		e0 := decTable[x0&(TableSize-1)]
+		e1 := decTable[x1&(TableSize-1)]
+		e2 := decTable[x2&(TableSize-1)]
+		e3 := decTable[x3&(TableSize-1)]
 		nb0 := uint(e0.NbBits())
 		nb1 := uint(e1.NbBits())
 		nb2 := uint(e2.NbBits())
 		nb3 := uint(e3.NbBits())
-		bps[0] -= nb0
-		bps[1] -= nb1
-		bps[2] -= nb2
-		bps[3] -= nb3
-		xs[0] = e0.NewBase() + uint32(bcs[0]>>bps[0])&uint32((1<<nb0)-1)
-		xs[1] = e1.NewBase() + uint32(bcs[1]>>bps[1])&uint32((1<<nb1)-1)
-		xs[2] = e2.NewBase() + uint32(bcs[2]>>bps[2])&uint32((1<<nb2)-1)
-		xs[3] = e3.NewBase() + uint32(bcs[3]>>bps[3])&uint32((1<<nb3)-1)
-		if bps[0] <= 24 {
-			refill(0)
+		x0 = e0.NewBase() + uint32((c0<<u0)>>(64-nb0))
+		x1 = e1.NewBase() + uint32((c1<<u1)>>(64-nb1))
+		x2 = e2.NewBase() + uint32((c2<<u2)>>(64-nb2))
+		x3 = e3.NewBase() + uint32((c3<<u3)>>(64-nb3))
+		u0 += nb0
+		u1 += nb1
+		u2 += nb2
+		u3 += nb3
+		out[i] = e0.Symbol()
+		out[i+1] = e1.Symbol()
+		out[i+2] = e2.Symbol()
+		out[i+3] = e3.Symbol()
+
+		e0 = decTable[x0&(TableSize-1)]
+		e1 = decTable[x1&(TableSize-1)]
+		e2 = decTable[x2&(TableSize-1)]
+		e3 = decTable[x3&(TableSize-1)]
+		nb0 = uint(e0.NbBits())
+		nb1 = uint(e1.NbBits())
+		nb2 = uint(e2.NbBits())
+		nb3 = uint(e3.NbBits())
+		x0 = e0.NewBase() + uint32((c0<<u0)>>(64-nb0))
+		x1 = e1.NewBase() + uint32((c1<<u1)>>(64-nb1))
+		x2 = e2.NewBase() + uint32((c2<<u2)>>(64-nb2))
+		x3 = e3.NewBase() + uint32((c3<<u3)>>(64-nb3))
+		u0 += nb0
+		u1 += nb1
+		u2 += nb2
+		u3 += nb3
+		out[i+4] = e0.Symbol()
+		out[i+5] = e1.Symbol()
+		out[i+6] = e2.Symbol()
+		out[i+7] = e3.Symbol()
+
+		e0 = decTable[x0&(TableSize-1)]
+		e1 = decTable[x1&(TableSize-1)]
+		e2 = decTable[x2&(TableSize-1)]
+		e3 = decTable[x3&(TableSize-1)]
+		nb0 = uint(e0.NbBits())
+		nb1 = uint(e1.NbBits())
+		nb2 = uint(e2.NbBits())
+		nb3 = uint(e3.NbBits())
+		x0 = e0.NewBase() + uint32((c0<<u0)>>(64-nb0))
+		x1 = e1.NewBase() + uint32((c1<<u1)>>(64-nb1))
+		x2 = e2.NewBase() + uint32((c2<<u2)>>(64-nb2))
+		x3 = e3.NewBase() + uint32((c3<<u3)>>(64-nb3))
+		u0 += nb0
+		u1 += nb1
+		u2 += nb2
+		u3 += nb3
+		out[i+8] = e0.Symbol()
+		out[i+9] = e1.Symbol()
+		out[i+10] = e2.Symbol()
+		out[i+11] = e3.Symbol()
+
+		e0 = decTable[x0&(TableSize-1)]
+		e1 = decTable[x1&(TableSize-1)]
+		e2 = decTable[x2&(TableSize-1)]
+		e3 = decTable[x3&(TableSize-1)]
+		nb0 = uint(e0.NbBits())
+		nb1 = uint(e1.NbBits())
+		nb2 = uint(e2.NbBits())
+		nb3 = uint(e3.NbBits())
+		x0 = e0.NewBase() + uint32((c0<<u0)>>(64-nb0))
+		x1 = e1.NewBase() + uint32((c1<<u1)>>(64-nb1))
+		x2 = e2.NewBase() + uint32((c2<<u2)>>(64-nb2))
+		x3 = e3.NewBase() + uint32((c3<<u3)>>(64-nb3))
+		u0 += nb0
+		u1 += nb1
+		u2 += nb2
+		u3 += nb3
+		out[i+12] = e0.Symbol()
+		out[i+13] = e1.Symbol()
+		out[i+14] = e2.Symbol()
+		out[i+15] = e3.Symbol()
+
+		p0 -= int(u0 >> 3)
+		u0 &= 7
+		if p0 < 0 {
+			u0 += uint(-p0) << 3
+			p0 = 0
 		}
-		if bps[1] <= 24 {
-			refill(1)
+		c0 = binary.LittleEndian.Uint64(r0[p0:])
+
+		p1 -= int(u1 >> 3)
+		u1 &= 7
+		if p1 < 0 {
+			u1 += uint(-p1) << 3
+			p1 = 0
 		}
-		if bps[2] <= 24 {
-			refill(2)
+		c1 = binary.LittleEndian.Uint64(r1[p1:])
+
+		p2 -= int(u2 >> 3)
+		u2 &= 7
+		if p2 < 0 {
+			u2 += uint(-p2) << 3
+			p2 = 0
 		}
-		if bps[3] <= 24 {
-			refill(3)
+		c2 = binary.LittleEndian.Uint64(r2[p2:])
+
+		p3 -= int(u3 >> 3)
+		u3 &= 7
+		if p3 < 0 {
+			u3 += uint(-p3) << 3
+			p3 = 0
 		}
+		c3 = binary.LittleEndian.Uint64(r3[p3:])
 	}
+
+	// Remainder rows (< 4): one reload per lane per row.
+	for ; i+3 < n; i += 4 {
+		e0 := decTable[x0&(TableSize-1)]
+		e1 := decTable[x1&(TableSize-1)]
+		e2 := decTable[x2&(TableSize-1)]
+		e3 := decTable[x3&(TableSize-1)]
+		nb0 := uint(e0.NbBits())
+		nb1 := uint(e1.NbBits())
+		nb2 := uint(e2.NbBits())
+		nb3 := uint(e3.NbBits())
+		x0 = e0.NewBase() + uint32((c0<<u0)>>(64-nb0))
+		x1 = e1.NewBase() + uint32((c1<<u1)>>(64-nb1))
+		x2 = e2.NewBase() + uint32((c2<<u2)>>(64-nb2))
+		x3 = e3.NewBase() + uint32((c3<<u3)>>(64-nb3))
+		u0 += nb0
+		u1 += nb1
+		u2 += nb2
+		u3 += nb3
+		out[i] = e0.Symbol()
+		out[i+1] = e1.Symbol()
+		out[i+2] = e2.Symbol()
+		out[i+3] = e3.Symbol()
+
+		p0 -= int(u0 >> 3)
+		u0 &= 7
+		if p0 < 0 {
+			u0 += uint(-p0) << 3
+			p0 = 0
+		}
+		c0 = binary.LittleEndian.Uint64(r0[p0:])
+
+		p1 -= int(u1 >> 3)
+		u1 &= 7
+		if p1 < 0 {
+			u1 += uint(-p1) << 3
+			p1 = 0
+		}
+		c1 = binary.LittleEndian.Uint64(r1[p1:])
+
+		p2 -= int(u2 >> 3)
+		u2 &= 7
+		if p2 < 0 {
+			u2 += uint(-p2) << 3
+			p2 = 0
+		}
+		c2 = binary.LittleEndian.Uint64(r2[p2:])
+
+		p3 -= int(u3 >> 3)
+		u3 &= 7
+		if p3 < 0 {
+			u3 += uint(-p3) << 3
+			p3 = 0
+		}
+		c3 = binary.LittleEndian.Uint64(r3[p3:])
+	}
+
+	// Tail: <= 3 symbols, one per distinct lane, each reads <= 12 more bits
+	// on top of consumed <= 20 — no reload needed.
+	xs := [4]uint32{x0, x1, x2, x3}
+	cs := [4]uint64{c0, c1, c2, c3}
+	us := [4]uint{u0, u1, u2, u3}
 	for ; i < n; i++ {
 		k := i & 3
 		e := decTable[xs[k]&(TableSize-1)]
-		out[i] = e.Symbol()
 		nb := uint(e.NbBits())
-		bps[k] -= nb
-		xs[k] = e.NewBase() + uint32(bcs[k]>>bps[k])&uint32((1<<nb)-1)
-		if bps[k] <= 24 {
-			refill(k)
-		}
+		xs[k] = e.NewBase() + uint32((cs[k]<<us[k])>>(64-nb))
+		us[k] += nb
+		out[i] = e.Symbol()
+	}
+
+	// Every lane of a valid stream ends exactly where encoding began.
+	if xs[0] != TableSize || xs[1] != TableSize || xs[2] != TableSize || xs[3] != TableSize {
+		return nil, ErrCorrupt
 	}
 	return out, nil
 }
