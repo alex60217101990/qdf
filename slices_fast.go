@@ -3,6 +3,8 @@ package qdf
 import (
 	"reflect"
 	"unsafe"
+
+	"github.com/alex60217101990/qdf/internal/bufpool"
 )
 
 // Specialized fast paths for slices of common primitive element types.
@@ -1099,24 +1101,48 @@ func encodeSliceFloat64Lossless(e *Encoder, s []float64) error {
 			alpWins := alpOK && alpEst < rawEst
 			// pickF64Codec only projects Gorilla from a sample prefix, which can
 			// be wildly optimistic on a smooth-prefix/high-entropy-tail slice.
-			// Emit Gorilla for real and measure it; keep it only when it is
-			// actually smaller than raw (and than ALP) — a true never-larger
-			// gate. The rollback re-emits raw/ALP only on the rare lose case, so
-			// the common smooth-data path still encodes Gorilla once.
-			if gorCodec, _ := pickF64Codec(s); gorCodec == qpackGorilla {
+			// Emit both XOR codecs for real and keep the smaller: Chimp128 wins
+			// on smooth series (window refs + rounded LZ codes), Gorilla wins
+			// on periodic round values whose low mantissa bits collide in
+			// Chimp's hash (a 4-5x size gap in Gorilla's favor there), and no
+			// cheap projection separates the two reliably. The measured winner
+			// is then gated against raw/ALP — a true never-larger pipeline.
+			// ponytail: two full encodes per float64 column under
+			// OptGorillaFloat; replace the loser's encode with an exact
+			// bit-count simulator if encode cost shows up in e2e profiles.
+			gorCodec, _ := pickF64Codec(s)
+			tryGor := gorCodec == qpackGorilla
+			if tryGor || pickChimpF64(s) {
 				start := len(e.buf)
+				// writePacked* may emit the stream header (top-level first
+				// write); truncating to `start` on rollback drops those bytes,
+				// but writeHeader's headerOut latch would then suppress the
+				// next attempt's header and produce a headerless, undecodable
+				// stream. Restore the pre-attempt header state on every
+				// rollback.
 				hdrBefore, flagBefore := e.headerOut, e.headerFlagAt
-				e.writePackedGorillaFloat64Slice(s)
-				gorActual := len(e.buf) - start
-				if gorActual < rawEst && (!alpWins || alpEst >= gorActual) {
+				e.writePackedChimpFloat64Slice(s)
+				best := len(e.buf) - start
+				if tryGor {
+					// Gorilla's projection also cleared its gate — measure it
+					// too and keep the smaller blob.
+					chimpLen := best
+					bp := bufpool.Get(chimpLen)
+					chimpBytes := append((*bp)[:0], e.buf[start:]...)
+					e.buf = e.buf[:start]
+					e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
+					e.writePackedGorillaFloat64Slice(s)
+					best = len(e.buf) - start
+					if chimpLen < best {
+						e.buf = append(e.buf[:start], chimpBytes...)
+						best = chimpLen
+					}
+					bufpool.Put(bp)
+				}
+				if best < rawEst && (!alpWins || alpEst >= best) {
 					return nil
 				}
-				// Gorilla did not win — roll back. writePackedGorilla* may have
-				// emitted the stream header (top-level first write); truncating to
-				// `start` drops those bytes, but writeHeader's headerOut latch would
-				// then suppress the fallback's header and produce a headerless,
-				// undecodable stream. Restore the pre-attempt header state so the
-				// raw/ALP fallback re-emits the header when it was rolled away.
+				// No XOR codec beat raw/ALP — roll back.
 				e.buf = e.buf[:start]
 				e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
 			}
@@ -1170,7 +1196,13 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 	}
 	if t == tagPackGorilla {
 		d.i++
-		v, err := d.readPackedGorillaFloat64Slice()
+		var v []float64
+		var err error
+		if d.i < len(d.buf) && d.buf[d.i] == qpackKindChimp64 {
+			v, err = d.readPackedChimpFloat64Slice()
+		} else {
+			v, err = d.readPackedGorillaFloat64Slice()
+		}
 		if err != nil {
 			return err
 		}
