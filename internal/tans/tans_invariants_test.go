@@ -206,3 +206,36 @@ func TestBuildFreqsSum(t *testing.T) {
 		}
 	}
 }
+
+// TestEncodeDecodeAlgebra runs the exhaustive encode/decode-step check over
+// boundary and random normalized tables.
+func TestEncodeDecodeAlgebra(t *testing.T) {
+	mk := func(pairs ...uint32) *[256]uint32 { // symbol,freq pairs
+		var f [256]uint32
+		for i := 0; i+1 < len(pairs); i += 2 {
+			f[pairs[i]] = pairs[i+1]
+		}
+		return &f
+	}
+	checkAlgebra(t, mk('a', 1, 'b', 4095), "f=1/4095")
+	checkAlgebra(t, mk('a', 2, 'b', 4094), "f=2/4094")
+	checkAlgebra(t, mk('x', 4096), "single=4096")
+	checkAlgebra(t, mk('a', 4095, 'b', 1), "f=4095/1")
+	checkAlgebra(t, mk('a', 2048, 'b', 2048), "2048x2")
+	checkAlgebra(t, mk('a', 3, 'b', 5, 'c', 4088), "3/5/4088")
+	var many [256]uint32
+	for s := 0; s < 240; s++ {
+		many[s] = 1
+	}
+	many[255] = 4096 - 240
+	checkAlgebra(t, &many, "240xf=1")
+	rng := rand.New(rand.NewSource(31))
+	for trial := 0; trial < 10; trial++ {
+		src := make([]byte, 4096)
+		for i := range src {
+			src[i] = byte(rng.Intn(1 + rng.Intn(256)))
+		}
+		freq := buildFreqs(src)
+		checkAlgebra(t, &freq, "random")
+	}
+}
