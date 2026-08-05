@@ -104,6 +104,11 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// into a later message's wire (only same-epoch slots are ever read).
 	chimpScr *chimpScratch
 
+	// alprdScr is the lazily allocated ALP-RD planner scratch (~38 KiB);
+	// see alprdScratch. Persistent contents are self-cleaning (touched-slot
+	// resets), so it survives Reset() safely.
+	alprdScr *alprdScratch
+
 	// keyIdx is a reused (clear-not-realloc) old-key→index map for keyed slice
 	// diff. Lives on the Encoder so a many-element keyed slice builds its match
 	// table once per pool acquire; dropped past a spike cap in Reset(). Single

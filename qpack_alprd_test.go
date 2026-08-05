@@ -9,7 +9,8 @@ import (
 
 func alprdRoundTrip(t *testing.T, in []float64) bool {
 	t.Helper()
-	plan, _, ok := alprdPlanFloat64(in)
+	enc0 := NewEncoder(Fast)
+	plan, _, ok := enc0.alprdPlanFloat64(in)
 	if !ok {
 		return false
 	}
@@ -76,7 +77,8 @@ func bytes16() []float64 {
 // TestALPRDHostile: mutated/truncated blobs must error, never panic.
 func TestALPRDHostile(t *testing.T) {
 	in := mkSensor(512, 3)
-	plan, _, ok := alprdPlanFloat64(in)
+	enc0 := NewEncoder(Fast)
+	plan, _, ok := enc0.alprdPlanFloat64(in)
 	if !ok {
 		t.Skip("planner declined")
 	}
@@ -169,7 +171,7 @@ func TestALPRDRatio(t *testing.T) {
 		{"quantized", mkQuant(8192)},
 	} {
 		var rdLen int
-		if plan, _, ok := alprdPlanFloat64(tc.data); ok {
+		if plan, _, ok := NewEncoder(Fast).alprdPlanFloat64(tc.data); ok {
 			enc := NewEncoder(Fast)
 			enc.writePackedALPRDFloat64Slice(tc.data, plan)
 			rdLen = len(enc.buf)
@@ -234,7 +236,7 @@ func TestALPRD32RoundTrip(t *testing.T) {
 	mixed[9] = float32(math.Inf(1))
 	mixed[11] = float32(math.Copysign(0, -1))
 	for _, in := range [][]float32{mkWeights(8192), mkWeights(16), mixed, rnd} {
-		plan, est, ok := alprdPlanFloat32(in)
+		plan, est, ok := NewEncoder(Fast).alprdPlanFloat32(in)
 		if !ok {
 			continue
 		}
@@ -320,7 +322,7 @@ func writeTestHeader() []byte {
 
 func TestALPRD32Hostile(t *testing.T) {
 	in := mkWeights(512)
-	plan, _, ok := alprdPlanFloat32(in)
+	plan, _, ok := NewEncoder(Fast).alprdPlanFloat32(in)
 	if !ok {
 		t.Skip("planner declined")
 	}
