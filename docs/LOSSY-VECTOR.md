@@ -41,8 +41,8 @@ do two things a fixed-width GPU codebook cannot, which is where its size edge
 comes from:
 
 1. **Entropy-code the quantization indices.** After the rotation the indices are
-   near-Gaussian (a peaked distribution); an order-0 rANS pass — the same one
-   the rest of qdf uses — recovers the bits a fixed-width code wastes.
+   near-Gaussian (a peaked distribution); an order-0 tANS/FSE pass — the same
+   one the rest of qdf uses — recovers the bits a fixed-width code wastes.
 2. **Use a lattice.** The E8 lattice's Voronoi cell is rounder than the scalar
    cube, so it needs fewer bits for the same distortion.
 
@@ -103,12 +103,13 @@ For each float-vector column the encoder runs this pipeline (see the
    achieved error meets the budget (so the guarantee holds even when the data
    is not perfectly Gaussian).
 4. **Quantize** — both the scalar and (when worthwhile) the E8 quantizer, below.
-5. **rANS entropy coding** — the zigzag-varint integer coordinates are
-   compressed with qdf's interleaved rANS stage.
+5. **tANS/FSE entropy coding** — the zigzag-varint integer coordinates are
+   compressed with qdf's tANS/FSE entropy stage (coordinate streams written by
+   the legacy rANS stage still decode).
 6. **Pick the smaller** quantizer that meets the budget, then **never-worse**:
    if even that is not smaller than the lossless float encoding, emit lossless.
 
-Decode reverses it: rANS decode → dequantize (per the recorded variant) →
+Decode reverses it: entropy decode → dequantize (per the recorded variant) →
 inverse Hadamard → restore exceptions.
 
 ### Quantizers
@@ -140,7 +141,7 @@ When you marshal a `[]struct` whose element has a `[]float32`/`[]float64` vector
 field (the common embedding-store shape — `[]EmbedRow{ID, Emb}`), all rows'
 vectors of that field are gathered into **one** count-`N` block (wire tag
 `0xFE`, `tagVecBatchStruct`) instead of one count-1 block per row. This amortizes
-the fixed block header **and** the rANS frequency framing, which a per-row
+the fixed block header **and** the tANS frequency framing, which a per-row
 encoding pays for every vector — on a 256-dim corpus the per-row form costs
 ~290 B/vec versus ~176 B/vec batched (the size numbers below are therefore the
 ones you get in production, not just in a micro-benchmark). Batching kicks in
@@ -208,7 +209,7 @@ automatically). On a 256×768 batch this brings the pooled encode from
 naive non-reusing encode, with byte-identical output. The wins come from:
 
 - streaming the budget check (one reused row, no materialized `[][]float64`);
-- per-Encoder reuse of the rotation, coordinate, widen, and rANS buffers;
+- per-Encoder reuse of the rotation, coordinate, widen, and entropy-coder buffers;
 - skipping the second (E8) quantization when it cannot reduce size.
 
 ---
@@ -224,7 +225,7 @@ varuint count                number of vectors
 u64le seed                   Hadamard rotation seed
 f64le delta                  quantization step size
 varuint coordsLen            byte length of the coords block
-[coordsLen]byte coords       rANS-compressed zigzag-varint integers
+[coordsLen]byte coords       tANS-compressed zigzag-varint integers
 // E8 variant only:
 varuint cosetsLen            byte length of the coset stream
 [cosetsLen]byte cosets       one bit per 8-D block, ceil((count*pdim/8)/8) bytes

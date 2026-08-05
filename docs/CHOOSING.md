@@ -21,10 +21,11 @@ qdf.Marshal(v, qdf.OptCompression)
 ```
 
 `OptCompression` diverges from `OptBalanced` by one bit:
-`OptGorillaFloat`. That bit opts in to the Gorilla XOR codec for
-`[]float64` / `[]float32` slices — wire collapses ~70 % on smooth
-time-series, encode/decode pay ~10× more CPU on those slices because
-the body is bit-level. Anything dominated by float slices that has to
+`OptGorillaFloat`. That bit opts in to the Gorilla / Chimp128 XOR pair
+(best-of picker — the encoder measures both and keeps the smaller blob;
+`[]float32` stays Gorilla-only) for `[]float64` / `[]float32` slices —
+wire collapses ~70 % on smooth time-series, encode/decode pay ~10× more
+CPU on those slices because the body is bit-level. Anything dominated by float slices that has to
 live small (archives, cold storage, paginated history) wants
 `OptCompression`; anything hot path stays on `OptBalanced` /
 `OptQPack`. Both bundles share every other codec; only the Gorilla
@@ -71,7 +72,7 @@ If you said *yes* to all three you've assembled `OptBalanced`.
 | `OptShapeIntern` | `0xEC`   | Arrays / streams of identical struct types.             | One-off struct values.       | `OptDense`    |
 | `OptPairPred`    | `0xEA`   | Conditional pairs (`country` → `city`, `svc` → `host`). | Random / uncorrelated state. | `OptDense`    |
 | `OptMTF`         | `0xE9`   | Hot subset reuse on a >128-entry intern table.          | Small intern tables.         | `OptDense`    |
-| `OptGorillaFloat`| `0xE7`   | Smooth float time-series. ~70 % wire reduction.         | Random / unrelated floats; latency-sensitive paths (10× CPU/slice). | `OptQPack`    |
+| `OptGorillaFloat`| `0xE7`   | Smooth float time-series. ~70 % wire reduction. The Gorilla / Chimp128 best-of picker also catches smooth-but-noisy `[]float64` that used to go raw (−18–27 % wire). | Random / unrelated floats; latency-sensitive paths (10× CPU/slice). | `OptQPack`    |
 | `OptColumnIndex` | `0xEF`   | Wide columnar `[]struct` batches read column-subset.    | Consumers that read all columns; non-columnar payloads. | `OptBalanced` |
 | `OptFSST`        | `0xF6`   | High-cardinality columnar string columns (URLs, log lines, paths) where the whole-string dictionary can't help. ~76–79 % wire reduction on URL/log-line corpora. | Low-cardinality or short string columns (dict wins there); single messages; streaming. | `OptQPack` + columnar (`OptBalanced`) |
 
@@ -254,7 +255,7 @@ tags) — directory exports, structured logs, OTLP spans, RTB bids.
 
 **Recipe:** `qdf.OptCompression` (so hybrid columnar fires). `OptBalanced` is
 already a clean win over json/msgpack here (smaller + faster on every axis), but
-`OptCompression` adds hybrid columnar + FSST + rANS for the big wire reduction.
+`OptCompression` adds hybrid columnar + FSST + the tANS/FSE entropy pass for the big wire reduction.
 
 ```go
 b, err := qdf.Marshal(adUsers, qdf.OptCompression) // hybrid columnar transposes the eligible columns
@@ -285,7 +286,7 @@ in the columnar container.)
 
 On a 1024-sample smooth metric series `OptCompression` shrinks the
 float body from 8398 B (raw-LE under `OptQPack`) to 1671 B (Gorilla
-XOR + rANS pass), an 80 % drop. Encode/decode go from ~6.7 µs to
+XOR + entropy pass), an 80 % drop. Encode/decode go from ~6.7 µs to
 ~41 µs — fine when the series is being archived once and queried over
 its lifetime, not for the hot ingest path.
 
@@ -358,17 +359,17 @@ random either — they share common prefixes, hostnames, method names, etc.
 > `ceil(log2 |A|)` bits instead of 8 (hex halves the column). This is the one
 > class the dictionary (too many distinct), front-coding (no shared prefix)
 > and FSST (random hex has few shared substrings) all miss — and it needs no
-> `OptCompression`/rANS, so it wins on the Balanced tier at no CPU cost.
+> `OptCompression`/entropy pass, so it wins on the Balanced tier at no CPU cost.
 > Never-larger, no flag.
 
 **Reach for `OptCompression`** (bundles `OptFSST` together with
-Gorilla/ALP/rANS):
+Gorilla+Chimp128/ALP/the tANS/FSE entropy pass):
 
 ```go
 b, err := qdf.Marshal(rows, qdf.OptCompression)
 ```
 
-Or use `OptFSST` alone without the float codecs or rANS:
+Or use `OptFSST` alone without the float codecs or the entropy pass:
 
 ```go
 b, err := qdf.Marshal(rows, qdf.OptBalanced|qdf.OptFSST)

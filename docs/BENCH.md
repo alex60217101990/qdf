@@ -16,8 +16,8 @@ Operating modes compared:
   `[]float32/64`, `[]bool`) and map types.
 - **qdf_qpack** — Fast mode + QPack codecs (bit-packed bool, raw-LE,
   Frame-of-Reference, Delta+FOR, RLE, dictionary, Patched FOR for
-  numeric/bool slices; Gorilla XOR and ALP decimal for float64 under
-  `OptCompression`). Auto-selects the smallest predicted form per
+  numeric/bool slices; Gorilla/Chimp128 XOR and ALP decimal for float64
+  under `OptCompression`). Auto-selects the smallest predicted form per
   slice.
 - **qdf_dense** — qdf_qpack + inline state-table interning for
   repeating strings (logs, columnar telemetry). Enum-like string columns
@@ -130,7 +130,10 @@ Numbers from `bench/profiles_test.go`, median of two
   `OptBalanced` on the telemetry fixture now encodes 1.2× faster than
   json (was 0.47× before the lazy-alloc + reset-skip work). Only the
   archive at `OptCompression` still trades CPU for bytes (0.5× json) —
-  expected for a format doing Gorilla XOR + rANS over 5 000 rows.
+  expected for a format doing Gorilla XOR + an entropy pass over 5 000
+  rows. (Since this snapshot the entropy pass switched from rANS to
+  tANS/FSE — 3.2× faster encode / 2× faster decode than the rANS stage
+  measured here, at within ±2 % of its ratio.)
 - **`OptQPack` on numeric payloads is the dramatic case** — 28–89×
   faster encode, 125–236× faster decode, 4× smaller wire than json.
   If your hot path moves floats around, the bit is essentially free
@@ -271,10 +274,12 @@ Payload: 256 booleans, 512 monotonic `uint64` (timestamps), 512 `int64`,
 QPack auto-selects, per slice, by predicted wire size: bit-packed
 bool, raw-LE bulk, Frame-of-Reference + bit-pack, Delta + zigzag +
 FOR, run-length, a low-cardinality dictionary codec, and Patched FOR
-for integer slices. Float slices add two codecs under `OptCompression`
-— Gorilla XOR for smooth series and ALP decimal for quantized/decimal
-grids — picked against raw-LE only when strictly smaller, since their
-bit-level work costs CPU that pays off only when size matters more.
+for integer slices. Float slices add XOR and decimal codecs under
+`OptCompression` — Gorilla/Chimp128 XOR for smooth series (float64
+encodes both and keeps the smaller; float32 stays Gorilla) and ALP
+decimal for quantized/decimal grids — picked against raw-LE only when
+strictly smaller, since their bit-level work costs CPU that pays off
+only when size matters more.
 On a 2-decimal `metric_quant_1024` fixture ALP brings `OptCompression`
 to 2 592 B versus 8 238 B at `OptBalanced` (3.2× smaller).
 
