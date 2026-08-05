@@ -44,6 +44,14 @@ func randomFreqTable(rng *rand.Rand) [256]uint32 {
 }
 
 func TestDecTableMatchesNaive(t *testing.T) {
+	// Single-goroutine brute force: the race detector cannot observe anything
+	// here but multiplies the ~34M array ops 5-10x (blows the macos CI
+	// timeout). Under -race run a boundary+sampled subset; every non-race
+	// lane still runs the full f=1..4096 sweep.
+	fStep := uint32(1)
+	if raceEnabled {
+		fStep = 64
+	}
 	checkTable := func(freq *[256]uint32, tag string) {
 		var got, want [TableSize]DecEntry
 		buildDecTable(freq, &got)
@@ -57,7 +65,16 @@ func TestDecTableMatchesNaive(t *testing.T) {
 		}
 	}
 	// All f in 1..4096 as symbol 7, remainder on symbol 200.
-	for f := uint32(1); f <= TableSize; f++ {
+	// Boundary widths always covered regardless of fStep.
+	for _, f := range []uint32{1, 2, 3, 4094, 4095, 4096} {
+		var freq [256]uint32
+		freq[7] = f
+		if f < TableSize {
+			freq[200] = TableSize - f
+		}
+		checkTable(&freq, "boundary f="+itoa(int(f)))
+	}
+	for f := uint32(1); f <= TableSize; f += fStep {
 		var freq [256]uint32
 		freq[7] = f
 		if f < TableSize {
@@ -210,6 +227,12 @@ func TestBuildFreqsSum(t *testing.T) {
 // TestEncodeDecodeAlgebra runs the exhaustive encode/decode-step check over
 // boundary and random normalized tables.
 func TestEncodeDecodeAlgebra(t *testing.T) {
+	// Same -race scaling rationale as TestDecTableMatchesNaive: boundary
+	// tables always run; the wide random sweep shrinks under -race.
+	randTrials := 10
+	if raceEnabled {
+		randTrials = 1
+	}
 	mk := func(pairs ...uint32) *[256]uint32 { // symbol,freq pairs
 		var f [256]uint32
 		for i := 0; i+1 < len(pairs); i += 2 {
@@ -230,7 +253,7 @@ func TestEncodeDecodeAlgebra(t *testing.T) {
 	many[255] = 4096 - 240
 	checkAlgebra(t, &many, "240xf=1")
 	rng := rand.New(rand.NewSource(31))
-	for range 10 {
+	for range randTrials {
 		src := make([]byte, 4096)
 		for i := range src {
 			src[i] = byte(rng.Intn(1 + rng.Intn(256)))
