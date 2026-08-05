@@ -47,6 +47,8 @@ const (
 	// qpackKindALPRD64 marks an ALP-RD-coded []float64 under tagPackALP
 	// (same family-3 trick; disjoint from Chimp because the TAG differs).
 	qpackKindALPRD64 = 3<<2 | qpackRawW8
+	// qpackKindALPRD32 is the float32 ALP-RD variant (width bits say 4).
+	qpackKindALPRD32 = 3<<2 | qpackRawW4
 )
 
 func qpackRawWidthBytes(kind byte) int {

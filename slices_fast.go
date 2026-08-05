@@ -929,6 +929,14 @@ func encodeSliceFloat32Lossless(e *Encoder, s []float32) error {
 		if e.gorillaFloat {
 			rawExact := 2 + uvarintLen(uint64(len(s))) + len(s)*4
 			plan, alpEst, alpOK := alpPlanFloat32(s) // safe upper bound
+			// ALP-RD covers non-decimal float32 (model weights, embeddings);
+			// both estimates are safe upper bounds — the smaller represents
+			// the ALP family below (mirrors encodeSliceFloat64).
+			rdPlan, rdEst, rdOK := alprdPlanFloat32(s)
+			alpRD := rdOK && (!alpOK || rdEst < alpEst)
+			if alpRD {
+				plan, alpEst, alpOK = alpFloatPlan{}, rdEst, true
+			}
 			alpWins := alpOK && alpEst < rawExact
 			if gorCodec, _ := pickF32Codec(s); gorCodec == qpackGorilla {
 				start := len(e.buf)
@@ -948,7 +956,11 @@ func encodeSliceFloat32Lossless(e *Encoder, s []float32) error {
 				e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
 			}
 			if alpWins {
-				e.writePackedALPFloat32Slice(s, plan)
+				if alpRD {
+					e.writePackedALPRDFloat32Slice(s, rdPlan)
+				} else {
+					e.writePackedALPFloat32Slice(s, plan)
+				}
 				return nil
 			}
 		}
@@ -1001,7 +1013,13 @@ func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 	}
 	if t == tagPackALP {
 		d.i++
-		v, err := d.readPackedALPFloat32Slice()
+		var v []float32
+		var err error
+		if d.i < len(d.buf) && d.buf[d.i] == qpackKindALPRD32 {
+			v, err = d.readPackedALPRDFloat32Slice()
+		} else {
+			v, err = d.readPackedALPFloat32Slice()
+		}
 		if err != nil {
 			return err
 		}
