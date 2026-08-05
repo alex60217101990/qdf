@@ -766,7 +766,13 @@ func decodeSliceFloat64Into(d *Decoder, dst *[]float64) error {
 	}
 	if t == tagPackGorilla {
 		d.i++
-		v, err2 := d.readPackedGorillaFloat64Slice()
+		var v []float64
+		var err2 error
+		if d.i < len(d.buf) && d.buf[d.i] == qpackKindChimp64 {
+			v, err2 = d.readPackedChimpFloat64Slice()
+		} else {
+			v, err2 = d.readPackedGorillaFloat64Slice()
+		}
 		if err2 != nil {
 			return err2
 		}
