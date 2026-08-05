@@ -1098,6 +1098,15 @@ func encodeSliceFloat64Lossless(e *Encoder, s []float64) error {
 			// never-larger gate tight, mirroring the float32 path.
 			rawEst := 2 + uvarintLen(uint64(len(s))) + len(s)*8
 			plan, alpEst, alpOK := alpPlanFloat64(s) // ALP estimate is a safe upper bound
+			// ALP-RD covers the non-decimal doubles ALP's transform cannot;
+			// both estimates are safe upper bounds, so comparing them keeps
+			// the never-larger guarantee. The smaller candidate represents
+			// the ALP family against the XOR pair and raw below.
+			rdPlan, rdEst, rdOK := alprdPlanFloat64(s)
+			alpRD := rdOK && (!alpOK || rdEst < alpEst)
+			if alpRD {
+				plan, alpEst, alpOK = alpFloatPlan{}, rdEst, true
+			}
 			alpWins := alpOK && alpEst < rawEst
 			// pickF64Codec only projects Gorilla from a sample prefix, which can
 			// be wildly optimistic on a smooth-prefix/high-entropy-tail slice.
@@ -1148,7 +1157,11 @@ func encodeSliceFloat64Lossless(e *Encoder, s []float64) error {
 				e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
 			}
 			if alpWins {
-				e.writePackedALPFloat64Slice(s, plan)
+				if alpRD {
+					e.writePackedALPRDFloat64Slice(s, rdPlan)
+				} else {
+					e.writePackedALPFloat64Slice(s, plan)
+				}
 				return nil
 			}
 		}
@@ -1212,7 +1225,13 @@ func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 	}
 	if t == tagPackALP {
 		d.i++
-		v, err := d.readPackedALPFloat64Slice()
+		var v []float64
+		var err error
+		if d.i < len(d.buf) && d.buf[d.i] == qpackKindALPRD64 {
+			v, err = d.readPackedALPRDFloat64Slice()
+		} else {
+			v, err = d.readPackedALPFloat64Slice()
+		}
 		if err != nil {
 			return err
 		}

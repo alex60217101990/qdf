@@ -385,6 +385,8 @@ func (d *Decoder) Skip() error {
 		case qpackKindFloat64:
 		case qpackKindFloat32:
 			excValBytes = 4
+		case qpackKindALPRD64:
+			return d.skipALPRD()
 		default:
 			return ErrTypeMismatch
 		}
