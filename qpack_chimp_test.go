@@ -125,13 +125,13 @@ func TestChimpHostile(t *testing.T) {
 	}
 	// Single-byte mutations.
 	rng := rand.New(rand.NewSource(9))
-	for trial := 0; trial < 20000; trial++ {
+	for range 20000 {
 		b := append([]byte(nil), valid...)
 		b[rng.Intn(len(b))] ^= byte(1 + rng.Intn(255))
 		decodeOne(b)
 	}
 	// Random garbage bodies with a valid prefix.
-	for trial := 0; trial < 5000; trial++ {
+	for range 5000 {
 		b := append([]byte(nil), valid[:20]...)
 		garbage := make([]byte, rng.Intn(64))
 		rng.Read(garbage)

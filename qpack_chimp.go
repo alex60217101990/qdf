@@ -178,11 +178,12 @@ func (e *Encoder) writePackedChimpFloat64Slice(s []float64) {
 			}
 		}
 
-		if xor == 0 {
+		switch {
+		case xor == 0:
 			// flag 00 + 7-bit ref, packed as one 9-bit write.
 			bw.writeBits(uint64(ref), chimpNLog2+2)
 			storedLZ = 65
-		} else if tz > chimpThreshold {
+		case tz > chimpThreshold:
 			// flag 01 + ref + lz code + significant-bit count, one 18-bit write.
 			lz := chimpLeadingRound[bits.LeadingZeros64(xor)]
 			sig := 64 - int(lz) - tz
@@ -191,7 +192,7 @@ func (e *Encoder) writePackedChimpFloat64Slice(s []float64) {
 				chimpNLog2+11)
 			bw.writeBits(xor>>tz, uint8(sig))
 			storedLZ = 65
-		} else {
+		default:
 			lz := chimpLeadingRound[bits.LeadingZeros64(xor)]
 			if lz == storedLZ {
 				bw.writeBits(2, 2) // flag 10

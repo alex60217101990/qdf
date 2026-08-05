@@ -22,7 +22,7 @@ func naiveDecTable(freq *[256]uint32, dec *[TableSize]DecEntry) {
 	}
 	for s := range 256 {
 		f := freq[s]
-		for j := uint32(0); j < f; j++ {
+		for j := range f {
 			y := f + j
 			nb := uint32(TableLog+1) - uint32(bits.Len32(y))
 			dec[cumul[s]+j] = DecEntry(s) | DecEntry(nb)<<8 | DecEntry(y<<nb)<<16
@@ -224,13 +224,13 @@ func TestEncodeDecodeAlgebra(t *testing.T) {
 	checkAlgebra(t, mk('a', 2048, 'b', 2048), "2048x2")
 	checkAlgebra(t, mk('a', 3, 'b', 5, 'c', 4088), "3/5/4088")
 	var many [256]uint32
-	for s := 0; s < 240; s++ {
+	for s := range 240 {
 		many[s] = 1
 	}
 	many[255] = 4096 - 240
 	checkAlgebra(t, &many, "240xf=1")
 	rng := rand.New(rand.NewSource(31))
-	for trial := 0; trial < 10; trial++ {
+	for range 10 {
 		src := make([]byte, 4096)
 		for i := range src {
 			src[i] = byte(rng.Intn(1 + rng.Intn(256)))
