@@ -314,7 +314,10 @@ func diffElemsPositional(enc *Encoder, elem *typeDesc, stride uintptr,
 	pod := elem != nil && elem.pod
 	// The appended tail [minLen,newLen) is always emitted, so reserve at least
 	// that many up front; byte-identical, saves a realloc round on growth.
-	entries := make([]int, 0, newLen-minLen)
+	// Pre-size to at least the appended tail plus a buffer so equal-length
+	// diffs (minLen==newLen, common case) don't start at cap=0 and trigger
+	// a growslice on every changed element.
+	entries := make([]int, 0, newLen-minLen+min(minLen, 64))
 	for i := range minLen {
 		oP := unsafe.Add(oldData, uintptr(i)*stride)
 		nP := unsafe.Add(newData, uintptr(i)*stride)
@@ -360,7 +363,7 @@ func writeReplace(enc *Encoder, td *typeDesc, newP unsafe.Pointer) error {
 
 // diffStruct writes a tagStructPatch body with only the changed fields.
 func diffStruct(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) error {
-	var changed []int
+	changed := make([]int, 0, len(td.fields))
 	for i := range td.fields {
 		f := &td.fields[i]
 		if !equalValue(f.desc, unsafe.Add(oldP, f.offset), unsafe.Add(newP, f.offset), depth) {
