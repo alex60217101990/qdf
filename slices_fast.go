@@ -1128,7 +1128,8 @@ func encodeSliceFloat64Lossless(e *Encoder, s []float64) error {
 					// too and keep the smaller blob.
 					chimpLen := best
 					bp := bufpool.Get(chimpLen)
-					chimpBytes := append((*bp)[:0], e.buf[start:]...)
+					chimpBytes := (*bp)[:0]
+					chimpBytes = append(chimpBytes, e.buf[start:]...)
 					e.buf = e.buf[:start]
 					e.headerOut, e.headerFlagAt = hdrBefore, flagBefore
 					e.writePackedGorillaFloat64Slice(s)
