@@ -97,6 +97,13 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	fsstCachedTbl  *fsst.SymbolTable
 	fsstBatchCount int // consecutive reuses of fsstCachedTbl since last retrain
 
+	// chimpScr is the lazily allocated, epoch-stamped Chimp128 hash-window
+	// scratch (~192 KiB). Stamping makes stale slots self-invalidating, so
+	// the encoder skips a 64 KiB zeroing per float64 slice — which dominated
+	// small-slice encodes. Survives Reset(): stale contents can never leak
+	// into a later message's wire (only same-epoch slots are ever read).
+	chimpScr *chimpScratch
+
 	// keyIdx is a reused (clear-not-realloc) old-key→index map for keyed slice
 	// diff. Lives on the Encoder so a many-element keyed slice builds its match
 	// table once per pool acquire; dropped past a spike cap in Reset(). Single
@@ -1182,3 +1189,7 @@ func appendString(b []byte, s string) []byte { return append(b, s...) }
 func readU16(b []byte) uint16 { return binary.LittleEndian.Uint16(b) }
 func readU32(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
 func readU64(b []byte) uint64 { return binary.LittleEndian.Uint64(b) }
+
+// readU64BE reads a big-endian u64 — the natural window order for the
+// MSB-first Gorilla/Chimp bit streams.
+func readU64BE(b []byte) uint64 { return binary.BigEndian.Uint64(b) }

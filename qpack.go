@@ -38,6 +38,11 @@ const (
 	qpackKindInt64   = qpackRawFamInt | qpackRawW8
 	qpackKindFloat32 = qpackRawFamFloat | qpackRawW4
 	qpackKindFloat64 = qpackRawFamFloat | qpackRawW8
+
+	// qpackKindChimp64 marks a Chimp128-coded []float64 under tagPackGorilla
+	// (family 3 is otherwise unused). Width bits still say 8, so kind-agnostic
+	// paths (Skip, header first-value read) treat it exactly like Float64.
+	qpackKindChimp64 = 3<<2 | qpackRawW8
 )
 
 func qpackRawWidthBytes(kind byte) int {
