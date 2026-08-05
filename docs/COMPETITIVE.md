@@ -30,7 +30,7 @@ only in `bench/go.mod`; the root module stays dependency-free.
 
 **qdf is smaller than protobuf on every batch fixture** at the compression
 tier — RTB −38 %, IoT −29 %, OTLP −68 %, Logs −60 %, Events −39 %. qdf dedups and
-columnar-compresses *across* records (intern + dictionary + Delta/FOR + Gorilla);
+columnar-compresses *across* records (intern + dictionary + Delta/FOR + Gorilla/Chimp);
 protobuf, msgpack, json and flatbuffers encode each record independently, so
 repeated strings, enum values and smooth float series re-pay their cost every
 row. flatbuffers is the largest — it trades size for zero-copy random access.
@@ -96,8 +96,8 @@ row-major. Same data through each library (i7-9750H · Go 1.26, 5 000 rows):
   encode than json, and **≈7× faster decode than json** (≈2× faster than msgpack),
   at roughly half their allocations.
 - **`OptCompression`** is **6.2× smaller than json / 5.5× smaller than msgpack**
-  and still decodes faster than both; it pays encode CPU (rANS + FSST + hybrid
-  transpose) for the bytes — the backup/cold-storage trade.
+  and still decodes faster than both; it pays encode CPU (tANS/FSE entropy pass +
+  FSST + hybrid transpose) for the bytes — the backup/cold-storage trade.
 - protobuf/flatbuffers are not in this row: they need a generated schema for
   `ADUser`, which an ad-hoc Go struct doesn't carry. On the five schema-fixtures
   above qdf is already smaller than protobuf at the compression tier.
@@ -105,7 +105,7 @@ row-major. Same data through each library (i7-9750H · Go 1.26, 5 000 rows):
 ## Honest caveats
 - **`qdf_speed` wire ≈ msgpack** — the speed tier skips columnar compression; it
   is the drop-in `encoding/json` replacement, not the size play.
-- **`qdf_compression` encode is slower** (Gorilla/ALP float cost: ~70 MB/s on the
+- **`qdf_compression` encode is slower** (Gorilla/Chimp/ALP float cost: ~70 MB/s on the
   IoT float batch vs `qdf_balanced` ~1100 MB/s). Use `OptBalanced` for the
   size win without the CPU hit; reserve `OptCompression` for cold storage.
 - **protobuf and flatbuffers win raw decode throughput** — generated code and

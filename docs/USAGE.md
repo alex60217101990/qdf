@@ -68,7 +68,7 @@ slice is valid until the next call.
 |---|---|---|
 | `OptSpeed` | No codecs. Raw tag stream. | Hot request path, single events, latency under 1 µs. |
 | `OptBalanced` | Dense interning + QPack + shape interning + Markov predictors + MTF. | Telemetry, logs, event batches with repeating string fields or numeric slices. Good default. |
-| `OptCompression` | `OptBalanced` + Gorilla XOR and ALP decimal float coding + a final order-0 rANS entropy pass over the whole body. | Cold storage, backup, archive. Wire size matters more than encode CPU. |
+| `OptCompression` | `OptBalanced` + the Gorilla / Chimp128 XOR pair (best-of picker) and ALP decimal float coding + a final order-0 tANS/FSE entropy pass over the whole body. | Cold storage, backup, archive. Wire size matters more than encode CPU. |
 
 Decision list:
 
@@ -77,26 +77,34 @@ Decision list:
 - Float time-series being archived, wire size dominates → `OptCompression`
 - Numeric vectors only (metrics, embeddings), no repeated strings → `qdf.OptQPack`
 
-### The rANS entropy pass
+### The tANS/FSE entropy pass
 
 `OptCompression` adds `OptRANS`: after the body is encoded, a static order-0
-rANS pass entropy-codes the whole body. It is **never larger** — the encoder
-keeps the plain body unless the rANS form is strictly smaller — and it kicks in
-only for bodies above ~512 B, so small messages are untouched. It is a
+tANS/FSE pass (table-driven Finite State Entropy; the `OptRANS` name and the
+`FlagRANS` wire flag are kept for compatibility — only the underlying algorithm
+changed) entropy-codes the whole body. It is **never larger** — the encoder
+keeps the plain body unless the entropy-coded form is strictly smaller — and it
+kicks in only for bodies above ~512 B, so small messages are untouched. It is a
 whole-buffer pass, so `StreamEncoder` ignores it (streaming stays per-message).
+Blobs written by the old rANS coder still decode — the decoder dispatches on
+the blob tag byte, so old wire remains fully readable.
 
 It pays off where the encoded body still has byte-level redundancy that the
 structural codecs do not remove — most visibly **string/hex-heavy** data:
 
-| workload | `OptCompression` w/o rANS | with rANS |
-| -------- | ------------------------: | --------: |
+| workload | `OptCompression` w/o entropy pass | with |
+| -------- | --------------------------------: | ---: |
 | trace batch (unique hex IDs) | 33 607 | **21 003** (−37%) |
 | log batch (repeated fields) | ~8 800 | **~5 200** (−40%) |
 | smooth metric series (Gorilla) | 2 307 | **1 671** (−27%) |
-| already-dense numeric (FOR/dict) | — | unchanged (rANS declines) |
+| already-dense numeric (FOR/dict) | — | unchanged (the pass declines) |
 
-The cost is encode/decode CPU: roughly **4–6× slower** on the bodies where it
-fires (it does extra entropy-coding work). That trade is why it lives only in
+(Sizes measured with the old rANS coder; the tANS output is within
++0.3–1.7 % of those — a deliberate speed/size trade.)
+
+The cost is encode/decode CPU on the bodies where it fires — far lower than the
+old rANS coder's (encode is 3.2× faster, decode 2–3× faster), but still a
+size-for-CPU trade. That trade is why it lives only in
 `OptCompression` — use it for archives and cold storage, not hot paths. You can
 opt out while keeping the float codecs with `OptCompression &^ OptRANS`.
 
@@ -119,8 +127,8 @@ Bit reference:
 | 2 | `OptShapeIntern` | Struct shape table: first emit declares field order, subsequent emits write only shape ID + values. | `OptDense` |
 | 3 | `OptPairPred` | Markov-1 successor predictor over intern IDs (two-byte hit when transition is predictable). | `OptDense` |
 | 4 | `OptMTF` | Move-to-Front rank coding over intern IDs (shorter varuint when LRU rank < raw ID). | `OptDense` |
-| 5 | `OptGorillaFloat` | Gorilla XOR codec for `[]float64`/`[]float32`. ~70% wire reduction on smooth time-series; ~10× CPU/slice. | `OptQPack` |
-| 6 | `OptRANS` | Order-0 rANS entropy pass over the whole body. Never larger (applied only when it shrinks); ~4–6× CPU where it fires; whole-buffer (not for `StreamEncoder`). | — |
+| 5 | `OptGorillaFloat` | Gorilla / Chimp128 XOR pair (best-of picker) for `[]float64`; `[]float32` uses Gorilla only. ~70% wire reduction on smooth time-series; ~10× CPU/slice. Chimp128 also catches smooth-but-noisy series that used to go raw. | `OptQPack` |
+| 6 | `OptRANS` | Order-0 tANS/FSE entropy pass over the whole body (the name is kept for compatibility). Never larger (applied only when it shrinks); whole-buffer (not for `StreamEncoder`); legacy rANS blobs still decode. | — |
 
 Dependent bits without their parent are silent no-ops — the encoder
 does not error, it just ignores them. `OptSpeed = 0` is the zero value.
@@ -149,7 +157,7 @@ time. You do not need to hint it — just set the bit.
 | `[]intN`, run-heavy (status codes, enum-like, sparse counters) | RLE (value, runLen pairs) | `OptQPack` |
 | `[]intN`, small distinct cardinality (≤64), wide value range | Dictionary codec | `OptQPack` |
 | `[]intN`/`[]uintN`, mostly small with rare large outliers (latency spikes, counter resets) | Patched FOR (narrow body + exception list) | `OptQPack` |
-| `[]float64`/`[]float32`, smooth time-series | Gorilla XOR | `OptCompression` (or `OptGorillaFloat`) |
+| `[]float64`/`[]float32`, smooth time-series | Gorilla / Chimp128 XOR (best-of; `float32` is Gorilla-only) | `OptCompression` (or `OptGorillaFloat`) |
 | `[]float64`, quantized/decimal grid (prices, percentages, latencies) | ALP decimal (integer-mantissa FOR + exception list) | `OptCompression` |
 | Repeated strings / `[]byte` across messages | Intern table + state-ref | `OptDense` |
 | Arrays of identical struct type | Shape interning | `OptBalanced` |
@@ -161,9 +169,11 @@ time. You do not need to hint it — just set the bit.
 The encoder probes a slice's structure before committing. For
 integer slices it evaluates FOR, Delta+FOR, RLE, dict, and Patched FOR
 by predicted wire size and picks the smallest. For `[]float64` under
-`OptCompression` it picks the smallest of raw-LE, a Gorilla XOR
-projection (32-sample probe), and an ALP decimal estimate; the ALP
-estimate is a conservative upper bound, so ALP is chosen only when it
+`OptCompression` it picks the smallest of raw-LE, the Gorilla / Chimp128
+XOR pair (the encoder measures both and keeps the smaller blob; a sample
+gate also admits smooth-but-noisy series that previously failed the
+Gorilla projection and were stored raw), and an ALP decimal estimate; the
+ALP estimate is a conservative upper bound, so ALP is chosen only when it
 is strictly smaller than both — no smooth-float workload regresses.
 
 FOR/Delta+FOR win on tight or monotonic integer ranges. RLE wins when
@@ -173,8 +183,9 @@ codes 200/301/404/500 scattered randomly — no long runs, not a tight
 range). Patched FOR wins when the column is mostly small but a rare
 tail of large values would otherwise force FOR to a wide bit count —
 it packs the common case narrow and patches the outliers (≈50% smaller
-than FOR on a latency column with ~1% spikes). Gorilla wins on smooth
-sensor data; it loses on white noise.
+than FOR on a latency column with ~1% spikes). Gorilla / Chimp128 win on
+smooth sensor data (Chimp128 also catches smooth-but-noisy series); both
+lose on white noise.
 ALP wins on quantized/decimal streams (2-decimal metrics, prices,
 latencies) that sit on a fixed grid Gorilla cannot exploit.
 
@@ -323,7 +334,7 @@ wg.Wait()
 - Reuse the output buffer with `AppendMarshal(buf[:0], ...)` on hot
   paths to eliminate per-call allocations.
 - If you have smooth float time-series going to cold storage, use
-  `OptCompression` — the Gorilla codec cuts float wire size ~70% at
+  `OptCompression` — the Gorilla / Chimp128 codec pair cuts float wire size ~70% at
   the cost of ~10× more CPU per slice, which is fine for archival.
 - For large datasets that need to be processed in parallel, split them
   into independent shards and `Marshal` each one separately. Each
@@ -370,7 +381,7 @@ Decode is the most broadly accelerated: every bit width from 1 to 28 (plus
 window — uncommon for real FOR deltas.
 
 Everything else runs the same scalar code whether or not the tag is set:
-strings, maps, struct shapes, varints, the Gorilla and ALP float codecs, and
+strings, maps, struct shapes, varints, the Gorilla / Chimp128 and ALP float codecs, and
 integer widths not listed above. The tag simply doesn't touch them.
 
 ### When it helps
@@ -387,7 +398,7 @@ integer widths not listed above. The tag simply doesn't touch them.
   the overhead swamps any gain.
 - String-heavy, map-heavy, or struct-shape-heavy payloads — those paths are
   scalar regardless of the tag.
-- Float time-series (Gorilla / ALP) — not SIMD-accelerated yet.
+- Float time-series (Gorilla / Chimp128 / ALP) — not SIMD-accelerated yet.
 
 ### Architectures
 
