@@ -929,13 +929,17 @@ func encodeSliceFloat32Lossless(e *Encoder, s []float32) error {
 		if e.gorillaFloat {
 			rawExact := 2 + uvarintLen(uint64(len(s))) + len(s)*4
 			plan, alpEst, alpOK := alpPlanFloat32(s) // safe upper bound
-			// ALP-RD covers non-decimal float32 (model weights, embeddings);
-			// both estimates are safe upper bounds — the smaller represents
-			// the ALP family below (mirrors encodeSliceFloat64).
-			rdPlan, rdEst, rdOK := alprdPlanFloat32(s)
-			alpRD := rdOK && (!alpOK || rdEst < alpEst)
-			if alpRD {
-				plan, alpEst, alpOK = alpFloatPlan{}, rdEst, true
+			// ALP-RD covers non-decimal float32 (model weights, embeddings).
+			// Planned only when the decimal transform declined — see the
+			// float64 twin for the encode-cost rationale.
+			var rdPlan alprdPlan
+			alpRD := false
+			if !alpOK {
+				var rdEst int
+				rdPlan, rdEst, alpRD = e.alprdPlanFloat32(s)
+				if alpRD {
+					plan, alpEst, alpOK = alpFloatPlan{}, rdEst, true
+				}
 			}
 			alpWins := alpOK && alpEst < rawExact
 			if gorCodec, _ := pickF32Codec(s); gorCodec == qpackGorilla {
@@ -1116,14 +1120,20 @@ func encodeSliceFloat64Lossless(e *Encoder, s []float64) error {
 			// never-larger gate tight, mirroring the float32 path.
 			rawEst := 2 + uvarintLen(uint64(len(s))) + len(s)*8
 			plan, alpEst, alpOK := alpPlanFloat64(s) // ALP estimate is a safe upper bound
-			// ALP-RD covers the non-decimal doubles ALP's transform cannot;
-			// both estimates are safe upper bounds, so comparing them keeps
-			// the never-larger guarantee. The smaller candidate represents
-			// the ALP family against the XOR pair and raw below.
-			rdPlan, rdEst, rdOK := alprdPlanFloat64(s)
-			alpRD := rdOK && (!alpOK || rdEst < alpEst)
-			if alpRD {
-				plan, alpEst, alpOK = alpFloatPlan{}, rdEst, true
+			// ALP-RD covers the non-decimal doubles ALP's transform cannot.
+			// Planned ONLY when the decimal transform declined: when classic
+			// applies, its decimal mantissas are far below RD's ~50 bits/value,
+			// and the RD planner (9 cut points + an exact scan) measurably
+			// slows every float column's encode (a 2x IoT-encode regression
+			// before this gate).
+			var rdPlan alprdPlan
+			alpRD := false
+			if !alpOK {
+				var rdEst int
+				rdPlan, rdEst, alpRD = e.alprdPlanFloat64(s)
+				if alpRD {
+					plan, alpEst, alpOK = alpFloatPlan{}, rdEst, true
+				}
 			}
 			alpWins := alpOK && alpEst < rawEst
 			// pickF64Codec only projects Gorilla from a sample prefix, which can

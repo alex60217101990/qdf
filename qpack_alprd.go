@@ -39,6 +39,126 @@ type alprdPlan struct {
 	exc    int   // exact exception count over the full slice
 }
 
+// alprdScratch holds the planner's frequency table and sample buffer
+// (~38 KiB). Living on the Encoder (lazily allocated) keeps it off the
+// goroutine stack — stack-resident arrays this size forced a stack grow per
+// planned column. cnts is all-zero between calls: every pass resets exactly
+// the slots it touched before returning.
+type alprdScratch struct {
+	keys    [4096]uint16
+	cnts    [4096]int32
+	touched [2 * alprdSample]int32
+	sample  [2 * alprdSample]uint16
+	// Distinct 16-bit patterns and their sample counts (pass-1 snapshot);
+	// the 9 cut passes aggregate these few pairs instead of re-hashing the
+	// whole sample per cut.
+	pairK [2 * alprdSample]uint16
+	pairC [2 * alprdSample]int32
+}
+
+func (e *Encoder) alprdScratchFor() *alprdScratch {
+	if e.alprdScr == nil {
+		e.alprdScr = new(alprdScratch)
+	}
+	return e.alprdScr
+}
+
+// alprdChooseCut picks the best cut and dictionary from the gathered top-16
+// bit sample. width is 64 or 32 (the value width) — it only affects the
+// right-bits term of the projection. Returns ok=false when no cut has any
+// coverage. Cost: ONE exact hash pass over the sample, then one aggregation
+// pass per candidate cut over the DISTINCT patterns (usually a few dozen).
+func alprdChooseCut(cs *alprdScratch, sampled, width int) (plan alprdPlan, ok bool) {
+	const tabSize = 4096 // strictly > max sample count: probing always terminates
+	keys, cnts, touched := &cs.keys, &cs.cnts, &cs.touched
+
+	// Pass 1: exact frequencies of the 16-bit patterns.
+	nt := 0
+	for _, p := range cs.sample[:sampled] {
+		h := int(p*40503) & (tabSize - 1)
+		for cnts[h] != 0 && keys[h] != p {
+			h = (h + 1) & (tabSize - 1)
+		}
+		if cnts[h] == 0 {
+			touched[nt] = int32(h)
+			nt++
+		}
+		keys[h] = p
+		cnts[h]++
+	}
+	// Snapshot the distinct pairs and clear the table for the cut passes.
+	uniq := 0
+	for _, h := range touched[:nt] {
+		cs.pairK[uniq] = keys[h]
+		cs.pairC[uniq] = cnts[h]
+		cnts[h] = 0
+		uniq++
+	}
+
+	bestBits := math.MaxInt
+	for leftBW := alprdMinLeft; leftBW <= alprdMaxLeft; leftBW++ {
+		shift := uint(16 - leftBW)
+		nt = 0
+		for i := range uniq {
+			left := cs.pairK[i] >> shift
+			h := int(left*40503) & (tabSize - 1)
+			for cnts[h] != 0 && keys[h] != left {
+				h = (h + 1) & (tabSize - 1)
+			}
+			if cnts[h] == 0 {
+				touched[nt] = int32(h)
+				nt++
+			}
+			keys[h] = left
+			cnts[h] += cs.pairC[i]
+		}
+		// Top-8 coverage by simple selection over the touched slots.
+		var top [alprdMaxDict]int32
+		var topKey [alprdMaxDict]uint16
+		for _, ti := range touched[:nt] {
+			c := cnts[ti]
+			for j := range alprdMaxDict {
+				if c > top[j] {
+					copy(top[j+1:], top[j:alprdMaxDict-1])
+					copy(topKey[j+1:], topKey[j:alprdMaxDict-1])
+					top[j] = c
+					topKey[j] = keys[ti]
+					break
+				}
+			}
+		}
+		// Leave cnts all-zero for the next pass / next call.
+		for _, ti := range touched[:nt] {
+			cnts[ti] = 0
+		}
+		d := 0
+		covered := int32(0)
+		for j := range alprdMaxDict {
+			if top[j] == 0 {
+				break
+			}
+			d++
+			covered += top[j]
+		}
+		if d == 0 {
+			continue
+		}
+		cbits := int(alprdCodeBits(d))
+		// Projected bits/value: codes + right bits + amortized exceptions
+		// (u16 left + ~2-byte position each).
+		excFrac := float64(sampled-int(covered)) / float64(sampled)
+		bits := float64(cbits) + float64(width-leftBW) + excFrac*float64(16+16)
+		if int(bits*1024) < bestBits {
+			bestBits = int(bits * 1024)
+			plan.leftBW = uint8(leftBW)
+			plan.dictN = uint8(d)
+			plan.cbits = uint8(cbits)
+			copy(plan.dict[:], topKey[:d])
+		}
+	}
+	return plan, plan.dictN != 0
+}
+
 // alprdCodeBits returns ceil(log2 d) for d in [1,8].
 func alprdCodeBits(d int) uint8 {
 	switch {
@@ -58,86 +178,30 @@ func alprdCodeBits(d int) uint8 {
 // picker may choose ALP-RD only when it strictly beats the alternatives, so
 // the codec never grows the wire. ok is false when even the best plan cannot
 // beat raw.
-func alprdPlanFloat64(s []float64) (plan alprdPlan, estBytes int, ok bool) {
+func (e *Encoder) alprdPlanFloat64(s []float64) (plan alprdPlan, estBytes int, ok bool) {
 	n := len(s)
 	if n < 16 {
 		return plan, 0, false // header + dictionary dominate tiny slices
 	}
-
 	stride := 1
 	if n > alprdSample {
 		stride = n / alprdSample
 	}
-
-	// For each candidate cut, count sample frequencies of the left pattern
-	// and keep the top-8 coverage. Patterns are u16; a tiny open-addressed
-	// table avoids a map allocation.
-	const tabSize = 4096 // strictly > the max sample count below, so probing always terminates
-	var keys [tabSize]uint16
-	var cnts [tabSize]int32
-
-	bestBits := math.MaxInt
-	for leftBW := alprdMinLeft; leftBW <= alprdMaxLeft; leftBW++ {
-		shift := uint(64 - leftBW)
-		for i := range tabSize {
-			cnts[i] = 0
-		}
-		sampled := 0
-		for i := 0; i < n && sampled < 2*alprdSample; i += stride {
-			left := uint16(math.Float64bits(s[i]) >> shift)
-			h := int(left*40503) & (tabSize - 1)
-			for cnts[h] != 0 && keys[h] != left {
-				h = (h + 1) & (tabSize - 1)
-			}
-			keys[h] = left
-			cnts[h]++
-			sampled++
-		}
-		// Top-8 coverage by simple selection (table is small).
-		var top [alprdMaxDict]int32
-		var topKey [alprdMaxDict]uint16
-		for i := range tabSize {
-			c := cnts[i]
-			if c == 0 {
-				continue
-			}
-			for j := range alprdMaxDict {
-				if c > top[j] {
-					copy(top[j+1:], top[j:alprdMaxDict-1])
-					copy(topKey[j+1:], topKey[j:alprdMaxDict-1])
-					top[j] = c
-					topKey[j] = keys[i]
-					break
-				}
-			}
-		}
-		d := 0
-		covered := int32(0)
-		for j := range alprdMaxDict {
-			if top[j] == 0 {
-				break
-			}
-			d++
-			covered += top[j]
-		}
-		if d == 0 {
-			continue
-		}
-		cbits := int(alprdCodeBits(d))
-		// Projected bits/value: codes + right bits + amortized exceptions
-		// (u16 left + ~2-byte position each).
-		excFrac := float64(sampled-int(covered)) / float64(sampled)
-		bits := float64(cbits) + float64(64-leftBW) + excFrac*float64(16+16)
-		total := int(bits * float64(n))
-		if total < bestBits {
-			bestBits = total
-			plan.leftBW = uint8(leftBW)
-			plan.dictN = uint8(d)
-			plan.cbits = uint8(cbits)
-			copy(plan.dict[:], topKey[:d])
-		}
+	// Gather the top-16 bit patterns once; alprdChooseCut does one exact hash
+	// pass over them and aggregates the distinct patterns per candidate cut.
+	cs := e.alprdScratchFor()
+	sampled := 0
+	for i := 0; i < n && sampled < len(cs.sample); i += stride {
+		cs.sample[sampled] = uint16(math.Float64bits(s[i]) >> 48)
+		sampled++
 	}
-	if plan.dictN == 0 {
+	plan, ok = alprdChooseCut(cs, sampled, 64)
+	if !ok {
+		return plan, 0, false
+	}
+	// Cheap pre-gate: skip the exact O(8n) scan when even the optimistic
+	// sample projection cannot beat raw.
+	if projBits := int(plan.cbits) + 64 - int(plan.leftBW); projBits >= 63 {
 		return plan, 0, false
 	}
 
@@ -399,7 +463,7 @@ func (d *Decoder) skipALPRD(width int) error {
 // the dictionary's win class.
 
 // alprdPlanFloat32 mirrors alprdPlanFloat64 for []float32.
-func alprdPlanFloat32(s []float32) (plan alprdPlan, estBytes int, ok bool) {
+func (e *Encoder) alprdPlanFloat32(s []float32) (plan alprdPlan, estBytes int, ok bool) {
 	n := len(s)
 	if n < 16 {
 		return plan, 0, false
@@ -408,70 +472,18 @@ func alprdPlanFloat32(s []float32) (plan alprdPlan, estBytes int, ok bool) {
 	if n > alprdSample {
 		stride = n / alprdSample
 	}
-	const tabSize = 4096
-	var keys [tabSize]uint16
-	var cnts [tabSize]int32
-
-	bestBits := math.MaxInt
-	for leftBW := alprdMinLeft; leftBW <= alprdMaxLeft; leftBW++ {
-		shift := uint(32 - leftBW)
-		for i := range tabSize {
-			cnts[i] = 0
-		}
-		sampled := 0
-		for i := 0; i < n && sampled < 2*alprdSample; i += stride {
-			left := uint16(math.Float32bits(s[i]) >> shift)
-			h := int(left*40503) & (tabSize - 1)
-			for cnts[h] != 0 && keys[h] != left {
-				h = (h + 1) & (tabSize - 1)
-			}
-			keys[h] = left
-			cnts[h]++
-			sampled++
-		}
-		var top [alprdMaxDict]int32
-		var topKey [alprdMaxDict]uint16
-		for i := range tabSize {
-			c := cnts[i]
-			if c == 0 {
-				continue
-			}
-			for j := range alprdMaxDict {
-				if c > top[j] {
-					copy(top[j+1:], top[j:alprdMaxDict-1])
-					copy(topKey[j+1:], topKey[j:alprdMaxDict-1])
-					top[j] = c
-					topKey[j] = keys[i]
-					break
-				}
-			}
-		}
-		d := 0
-		covered := int32(0)
-		for j := range alprdMaxDict {
-			if top[j] == 0 {
-				break
-			}
-			d++
-			covered += top[j]
-		}
-		if d == 0 {
-			continue
-		}
-		cbits := int(alprdCodeBits(d))
-		excFrac := float64(sampled-int(covered)) / float64(sampled)
-		bits := float64(cbits) + float64(32-leftBW) + excFrac*float64(16+16)
-		total := int(bits * float64(n))
-		if total < bestBits {
-			bestBits = total
-			plan.leftBW = uint8(leftBW)
-			plan.dictN = uint8(d)
-			plan.cbits = uint8(cbits)
-			copy(plan.dict[:], topKey[:d])
-		}
+	cs := e.alprdScratchFor()
+	sampled := 0
+	for i := 0; i < n && sampled < len(cs.sample); i += stride {
+		cs.sample[sampled] = uint16(math.Float32bits(s[i]) >> 16)
+		sampled++
 	}
-	if plan.dictN == 0 {
+	plan, ok = alprdChooseCut(cs, sampled, 32)
+	if !ok {
 		return plan, 0, false
+	}
+	if projBits := int(plan.cbits) + 32 - int(plan.leftBW); projBits >= 31 {
+		return plan, 0, false // projection cannot beat raw
 	}
 
 	shift := uint(32 - plan.leftBW)
