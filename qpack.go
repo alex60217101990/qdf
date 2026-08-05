@@ -43,6 +43,10 @@ const (
 	// (family 3 is otherwise unused). Width bits still say 8, so kind-agnostic
 	// paths (Skip, header first-value read) treat it exactly like Float64.
 	qpackKindChimp64 = 3<<2 | qpackRawW8
+
+	// qpackKindALPRD64 marks an ALP-RD-coded []float64 under tagPackALP
+	// (same family-3 trick; disjoint from Chimp because the TAG differs).
+	qpackKindALPRD64 = 3<<2 | qpackRawW8
 )
 
 func qpackRawWidthBytes(kind byte) int {
