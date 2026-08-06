@@ -39,6 +39,11 @@ const (
 	qpackKindFloat32 = qpackRawFamFloat | qpackRawW4
 	qpackKindFloat64 = qpackRawFamFloat | qpackRawW8
 
+	// qpackKindPlane16 marks a byte-plane-split []uint16 column under
+	// tagPackRaw (family 3 is otherwise unused; the width bits keep saying 2
+	// so kind-agnostic width math stays right). See qpack_plane16.go.
+	qpackKindPlane16 = 3<<2 | qpackRawW2
+
 	// qpackKindChimp64 marks a Chimp128-coded []float64 under tagPackGorilla
 	// (family 3 is otherwise unused). Width bits still say 8, so kind-agnostic
 	// paths (Skip, header first-value read) treat it exactly like Float64.

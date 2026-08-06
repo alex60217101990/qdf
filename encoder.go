@@ -109,6 +109,12 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// resets), so it survives Reset() safely.
 	alprdScr *alprdScratch
 
+	// plane16Scr / plane16Enc are the byte-plane codec's de-interleave buffer
+	// and its compressed high plane, retained across encodes (the plan step
+	// compresses for real, and the emit step reuses that exact blob).
+	plane16Scr []byte
+	plane16Enc []byte
+
 	// keyIdx is a reused (clear-not-realloc) old-key→index map for keyed slice
 	// diff. Lives on the Encoder so a many-element keyed slice builds its match
 	// table once per pool acquire; dropped past a spike cap in Reset(). Single
@@ -461,6 +467,12 @@ func (e *Encoder) resetForReuse() {
 	// ALP exception-index scratch: pointer-free, drop when oversized.
 	if cap(e.alpExcScratch) > maxRetainedColScratch {
 		e.alpExcScratch = nil
+	}
+	// Byte-plane codec scratch: the de-interleave buffer is 2 B/elem and the
+	// compressed high plane tracks it, so one ceiling check drops both.
+	if cap(e.plane16Scr) > maxRetainedColScratch {
+		e.plane16Scr = nil
+		e.plane16Enc = nil
 	}
 	e.vecScratch.Reset()
 	if cap(e.wideF64) > maxRetainedColScratch {

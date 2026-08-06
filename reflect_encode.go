@@ -1868,6 +1868,16 @@ func decodeAnyPackedSlice(d *Decoder) (any, error) {
 		var s []uint32
 		err := decodeSliceUint32(d, unsafe.Pointer(&s))
 		return s, err
+	case qpackKindUint16, qpackKindPlane16:
+		// The 16-bit slice fast paths emit native raw and byte-plane columns,
+		// so an any-typed field can carry either.
+		var s []uint16
+		err := decodeSliceUint16(d, unsafe.Pointer(&s))
+		return s, err
+	case qpackKindInt16:
+		var s []int16
+		err := decodeSliceInt16(d, unsafe.Pointer(&s))
+		return s, err
 	case qpackKindFloat64:
 		var s []float64
 		err := decodeSliceFloat64(d, unsafe.Pointer(&s))
@@ -1877,7 +1887,7 @@ func decodeAnyPackedSlice(d *Decoder) (any, error) {
 		err := decodeSliceFloat32(d, unsafe.Pointer(&s))
 		return s, err
 	default:
-		// Narrower kinds (Int8/Int16/Uint8/Uint16) never reach a pack tag — they
+		// The remaining narrow kinds (Int8/Uint8) never reach a pack tag — they
 		// encode as a plain array (or []byte for uint8), handled by decodeAny's
 		// array/bin cases — so any other kind is malformed input.
 		return nil, ErrBadTag
