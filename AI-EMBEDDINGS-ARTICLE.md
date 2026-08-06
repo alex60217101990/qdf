@@ -62,8 +62,8 @@ and that's exactly where the size edge comes from.
    *rounder* than the cube, so it spends fewer bits for the same distortion.
 3. **Entropy-code the indices.** After the rotation the quantization indices are
    near-Gaussian — a peaked distribution. A fixed-width code wastes bits on that;
-   an order-0 **rANS** pass (the same entropy stage the rest of `qdf` uses)
-   recovers them.
+   an order-0 **tANS/FSE** pass (the same entropy stage the rest of `qdf` uses;
+   streams written by the legacy rANS stage still decode) recovers them.
 4. **Never-worse.** The encoder builds *both* quantizers and the plain lossless
    float encoding, and keeps whichever is smallest. `OptLossyVec` is a hint, never
    a commitment to inflate — an incompressible or exception-heavy column silently
@@ -89,7 +89,7 @@ The pipeline attacks every term of that bound:
   second moment is `G ≈ 0.0717` versus the scalar cube's `1/12 ≈ 0.0833` — a
   **~0.65 dB coding gain**, which is most of the gain available in 8 dimensions
   short of an impractically large vector quantizer.
-- **rANS** captures the entropy (coding) gain — the bits a fixed-width index
+- **tANS/FSE** captures the entropy (coding) gain — the bits a fixed-width index
   leaves on the table once the distribution is peaked.
 
 Granular gain + entropy gain are the two levers a *practical* quantizer has.
@@ -253,7 +253,7 @@ Two habits make the encode side cheap:
 
 1. **Reuse a `*qdf.Encoder` across calls.** `qdf.Marshal` allocates a fresh
    encoder state per call; a long-lived encoder reuses its rotation, coordinate,
-   widen, and rANS scratch. On a 256×768 batch that's the **13,855 → 1,308
+   widen, and entropy-coder scratch. On a 256×768 batch that's the **13,855 → 1,308
    allocs/op** (21.2 MB → 2.0 MB/op) difference — ~10× — with byte-identical
    output.
 
@@ -269,7 +269,7 @@ Two habits make the encode side cheap:
 2. **Marshal the whole `[]struct`, not vector-by-vector.** When the element has a
    `[]float32`/`[]float64` field, qdf gathers *every row's* vector into **one**
    count-`N` column block (wire tag `0xFE`) instead of one block per row. That
-   amortizes the block header *and* the rANS frequency framing across the batch —
+   amortizes the block header *and* the tANS frequency framing across the batch —
    the per-row form costs ~290 B/vec vs ~176 B/vec batched on a 256-dim corpus.
    So the headline numbers are the ones you actually get in production, *because*
    you marshal the batch. (Needs ≥ 16 rows with the same vector length.)
@@ -404,7 +404,7 @@ gain that puts qdf's curve to the left does not.
   lossy quantization is the right tool, and it can live inside your serializer
   instead of a second system.
 - `qdf`'s codec pulls **both** practical quantization levers (E8 granular gain +
-  rANS entropy gain) on top of the TurboQuant-style rotation — which is why it's
+  tANS entropy gain) on top of the TurboQuant-style rotation — which is why it's
   Pareto-better than rotated-scalar at equal recall, and why the *next* idea
   (Leech) measured worse.
 - It's an honest CPU-for-size trade: lower throughput, smaller wire, near-zero
