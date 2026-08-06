@@ -1374,7 +1374,26 @@ func encodeSliceUint16(e *Encoder, p unsafe.Pointer) error {
 		codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost := pickU64Codec(w)
 		// Never-worse floor: the picker scores against a uint64-raw 8 B/elem
 		// baseline; the native form here is 2 B/elem.
-		if bestCost >= 2+uvarintLen(uint64(len(s)))+2*len(s) {
+		nativeCost := 2 + uvarintLen(uint64(len(s))) + 2*len(s)
+		// The byte-plane split reaches columns whose high byte is low-entropy
+		// (bf16/fp16 tensors, quantized data) — a class the integer codecs
+		// only ever score by value range, so FOR can post a small win while
+		// the plane form is far smaller. Gate the trial compression on a
+		// sampled-entropy projection rather than on the integer picker
+		// declining outright, which left ~11% on the table for all-positive
+		// weight tensors.
+		// Require a real margin, not just any win: the codec costs the decoder
+		// a 16 KiB tANS table build, which a fraction-of-a-percent saving does
+		// not pay for.
+		floor := min(bestCost, nativeCost)
+		floor -= floor / 64
+		if len(s) >= plane16MinElems && plane16Project(s) < floor {
+			if hiBody, total, ok := e.plane16Estimate(s); ok && total < floor {
+				e.writePackedPlane16Slice(s, hiBody)
+				return nil
+			}
+		}
+		if bestCost >= nativeCost {
 			e.writePackedUint16Slice(s)
 			return nil
 		}
@@ -1399,7 +1418,16 @@ func decodeSliceUint16(d *Decoder, p unsafe.Pointer) error {
 	}
 	switch t {
 	case tagPackRaw:
-		// Either the native 16-bit column or a widened uint64 QPack column.
+		// Native 16-bit column, byte-plane column, or a widened uint64 one.
+		if d.i+1 < len(d.buf) && d.buf[d.i+1] == qpackKindPlane16 {
+			d.i++
+			v, err := d.readPackedPlane16Slice()
+			if err != nil {
+				return err
+			}
+			*(*[]uint16)(p) = v
+			return nil
+		}
 		if d.i+1 < len(d.buf) && d.buf[d.i+1] == qpackKindUint64 {
 			v64, err := d.readQPackUint64(t)
 			if err != nil {

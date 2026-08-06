@@ -293,6 +293,9 @@ func (d *Decoder) Skip() error {
 			return ErrShortBuffer
 		}
 		k := d.buf[d.i]
+		if k == qpackKindPlane16 {
+			return d.skipPlane16() // variable-length body, not n*width
+		}
 		d.i++
 		w := qpackRawWidthBytes(k)
 		if w == 0 {
