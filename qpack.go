@@ -909,3 +909,81 @@ func (d *Decoder) readPackedBool() ([]bool, error) {
 	d.i += nBytes
 	return out, nil
 }
+
+// writePackedUint16Slice emits a native 2 B/elem raw uint16 column. This is
+// the never-larger floor for []uint16: the QPack pipeline scores codecs
+// against a uint64-raw baseline, so incompressible 16-bit data must land here
+// rather than in a widened column.
+func (e *Encoder) writePackedUint16Slice(s []uint16) {
+	n := len(s)
+	if endian.NativeIsLittle && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*2)
+		e.writePackedRawBytes(qpackKindUint16, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*2)
+	out = append(out, tagPackRaw, qpackKindUint16)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = append(out, byte(v), byte(v>>8))
+	}
+	e.buf = out
+}
+
+func (e *Encoder) writePackedInt16Slice(s []int16) {
+	n := len(s)
+	if endian.NativeIsLittle && n > 0 {
+		body := unsafe.Slice((*byte)(unsafe.Pointer(&s[0])), n*2)
+		e.writePackedRawBytes(qpackKindInt16, n, body)
+		return
+	}
+	e.writeHeader()
+	out := slices.Grow(e.buf, 2+10+n*2)
+	out = append(out, tagPackRaw, qpackKindInt16)
+	out = appendUvarint(out, uint64(n))
+	for _, v := range s {
+		out = append(out, byte(uint16(v)), byte(uint16(v)>>8))
+	}
+	e.buf = out
+}
+
+func (d *Decoder) readPackedUint16Slice() ([]uint16, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindUint16)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uint16, n)
+	if n == 0 {
+		return out, nil
+	}
+	if endian.NativeIsLittle {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*2)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = uint16(body[i*2]) | uint16(body[i*2+1])<<8
+	}
+	return out, nil
+}
+
+func (d *Decoder) readPackedInt16Slice() ([]int16, error) {
+	n, body, err := d.readPackedRawHeader(qpackKindInt16)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]int16, n)
+	if n == 0 {
+		return out, nil
+	}
+	if endian.NativeIsLittle {
+		dst := unsafe.Slice((*byte)(unsafe.Pointer(&out[0])), n*2)
+		copy(dst, body)
+		return out, nil
+	}
+	for i := range n {
+		out[i] = int16(uint16(body[i*2]) | uint16(body[i*2+1])<<8)
+	}
+	return out, nil
+}

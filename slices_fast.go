@@ -13,8 +13,10 @@ import (
 var (
 	sliceStringType  = reflect.TypeFor[[]string]()
 	sliceIntType     = reflect.TypeFor[[]int]()
+	sliceInt16Type   = reflect.TypeFor[[]int16]()
 	sliceInt32Type   = reflect.TypeFor[[]int32]()
 	sliceInt64Type   = reflect.TypeFor[[]int64]()
+	sliceUint16Type  = reflect.TypeFor[[]uint16]()
 	sliceUint32Type  = reflect.TypeFor[[]uint32]()
 	sliceUint64Type  = reflect.TypeFor[[]uint64]()
 	sliceFloat32Type = reflect.TypeFor[[]float32]()
@@ -39,10 +41,14 @@ func installSliceFastPath(t reflect.Type) (
 		return encodeSliceStringNil, decodeSliceStringNil, true
 	case sliceIntType:
 		return encodeSliceIntNil, decodeSliceIntNil, true
+	case sliceInt16Type:
+		return encodeSliceInt16Nil, decodeSliceInt16Nil, true
 	case sliceInt32Type:
 		return encodeSliceInt32Nil, decodeSliceInt32Nil, true
 	case sliceInt64Type:
 		return encodeSliceInt64Nil, decodeSliceInt64Nil, true
+	case sliceUint16Type:
+		return encodeSliceUint16Nil, decodeSliceUint16Nil, true
 	case sliceUint32Type:
 		return encodeSliceUint32Nil, decodeSliceUint32Nil, true
 	case sliceUint64Type:
@@ -1330,4 +1336,219 @@ func decodeSliceBool(d *Decoder, p unsafe.Pointer) error {
 	}
 	*(*[]bool)(p) = out
 	return nil
+}
+
+// widenU64From16 / widenI64From16 stage a 16-bit slice into the shared 64-bit
+// scratch so the uint64/int64 QPack pickers can score it.
+func (e *Encoder) widenU64From16(s []uint16) []uint64 {
+	if cap(e.wideU64) < len(s) {
+		e.wideU64 = make([]uint64, len(s))
+	}
+	w := e.wideU64[:len(s)]
+	for i, v := range s {
+		w[i] = uint64(v)
+	}
+	return w
+}
+
+func (e *Encoder) widenI64From16(s []int16) []int64 {
+	if cap(e.wideI64) < len(s) {
+		e.wideI64 = make([]int64, len(s))
+	}
+	w := e.wideI64[:len(s)]
+	for i, v := range s {
+		w[i] = int64(v)
+	}
+	return w
+}
+
+// encodeSliceUint16 mirrors encodeSliceUint32 one width down. Without this
+// fast path a []uint16 fell through to the generic reflect encoder, which
+// writes one uvarint per element — 3 bytes for any value >= 16384, i.e. a 1.5x
+// EXPANSION over the 2 B/elem native form on high-entropy data (bf16 weights,
+// hashes, quantized tensors).
+func encodeSliceUint16(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]uint16)(p)
+	if e.qpack {
+		w := e.widenU64From16(s)
+		codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost := pickU64Codec(w)
+		// Never-worse floor: the picker scores against a uint64-raw 8 B/elem
+		// baseline; the native form here is 2 B/elem.
+		if bestCost >= 2+uvarintLen(uint64(len(s)))+2*len(s) {
+			e.writePackedUint16Slice(s)
+			return nil
+		}
+		if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
+			e.writePackedUint16Slice(s)
+			return nil
+		}
+		e.emitQPackUint64(w, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
+		return nil
+	}
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteUint(uint64(s[i]))
+	}
+	return nil
+}
+
+func decodeSliceUint16(d *Decoder, p unsafe.Pointer) error {
+	t, err := d.peekTag()
+	if err != nil {
+		return err
+	}
+	switch t {
+	case tagPackRaw:
+		// Either the native 16-bit column or a widened uint64 QPack column.
+		if d.i+1 < len(d.buf) && d.buf[d.i+1] == qpackKindUint64 {
+			v64, err := d.readQPackUint64(t)
+			if err != nil {
+				return err
+			}
+			out := make([]uint16, len(v64))
+			for i, x := range v64 {
+				out[i] = uint16(x)
+			}
+			*(*[]uint16)(p) = out
+			return nil
+		}
+		d.i++
+		v, err := d.readPackedUint16Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]uint16)(p) = v
+		return nil
+	case tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor, tagPackBlock, tagZoneChunk:
+		v64, err := d.readQPackUint64(t)
+		if err != nil {
+			return err
+		}
+		out := make([]uint16, len(v64))
+		for i, x := range v64 {
+			out[i] = uint16(x)
+		}
+		*(*[]uint16)(p) = out
+		return nil
+	}
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	out := make([]uint16, n)
+	for i := range out {
+		v, err := d.ReadUint()
+		if err != nil {
+			return err
+		}
+		out[i] = uint16(v)
+	}
+	*(*[]uint16)(p) = out
+	return nil
+}
+
+// encodeSliceInt16 is the signed twin of encodeSliceUint16.
+func encodeSliceInt16(e *Encoder, p unsafe.Pointer) error {
+	s := *(*[]int16)(p)
+	if e.qpack {
+		w := e.widenI64From16(s)
+		codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost := pickI64Codec(w)
+		if bestCost >= 2+uvarintLen(uint64(len(s)))+2*len(s) {
+			e.writePackedInt16Slice(s)
+			return nil
+		}
+		if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
+			e.writePackedInt16Slice(s)
+			return nil
+		}
+		e.emitQPackInt64(w, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
+		return nil
+	}
+	e.WriteArrayHeader(len(s))
+	for i := range s {
+		e.WriteInt(int64(s[i]))
+	}
+	return nil
+}
+
+func decodeSliceInt16(d *Decoder, p unsafe.Pointer) error {
+	t, err := d.peekTag()
+	if err != nil {
+		return err
+	}
+	switch t {
+	case tagPackRaw:
+		if d.i+1 < len(d.buf) && d.buf[d.i+1] == qpackKindInt64 {
+			v64, err := d.readQPackInt64(t)
+			if err != nil {
+				return err
+			}
+			out := make([]int16, len(v64))
+			for i, x := range v64 {
+				out[i] = int16(x)
+			}
+			*(*[]int16)(p) = out
+			return nil
+		}
+		d.i++
+		v, err := d.readPackedInt16Slice()
+		if err != nil {
+			return err
+		}
+		*(*[]int16)(p) = v
+		return nil
+	case tagPackFor, tagPackDeltaFor, tagPackRLE, tagPackDict, tagPackPFor, tagPackBlock, tagZoneChunk:
+		v64, err := d.readQPackInt64(t)
+		if err != nil {
+			return err
+		}
+		out := make([]int16, len(v64))
+		for i, x := range v64 {
+			out[i] = int16(x)
+		}
+		*(*[]int16)(p) = out
+		return nil
+	}
+	n, err := d.ReadArrayHeader()
+	if err != nil {
+		return err
+	}
+	out := make([]int16, n)
+	for i := range out {
+		v, err := d.ReadInt()
+		if err != nil {
+			return err
+		}
+		out[i] = int16(v)
+	}
+	*(*[]int16)(p) = out
+	return nil
+}
+
+func encodeSliceUint16Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceUint16(e, p)
+}
+
+func decodeSliceUint16Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceUint16(d, p)
+}
+
+func encodeSliceInt16Nil(e *Encoder, p unsafe.Pointer) error {
+	if e.encodeNilSlice(p) {
+		return nil
+	}
+	return encodeSliceInt16(e, p)
+}
+
+func decodeSliceInt16Nil(d *Decoder, p unsafe.Pointer) error {
+	if d.decodeNilSlice(p) {
+		return nil
+	}
+	return decodeSliceInt16(d, p)
 }
