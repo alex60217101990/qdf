@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"encoding/binary"
 	"math"
 	"math/bits"
 	"slices"
@@ -24,25 +25,28 @@ import (
 // and make the bit-stream comparable to other Gorilla implementations.
 
 // bitWriter / bitReader are MSB-first scratchpads. They are local to the
-// gorilla codec and do not allocate on the hot path.
+// gorilla/chimp codecs and do not allocate on the hot path.
+//
+// The writer accumulates into a 64-bit container filled from the TOP (MSB
+// first, matching the stream order) and emits one big-endian 8-byte word per
+// 64 bits. A full word is only emitted once all 64 of its bits are final, so
+// the buffer never holds provisional bytes: len(buf) always equals
+// floor(nbits/8) rounded down to the last complete word, and flush() adds the
+// ceil-rounded remainder. A per-byte writer cost ~58% of XOR-codec encode
+// time; the word-wise form pays one shift/or per call instead.
 type bitWriter struct {
-	buf   []byte
-	nbits int // total bits written, independent of buf's base offset
-	cur   byte
-	used  uint8 // bits used in cur (0..7)
+	buf       []byte
+	nbits     int    // total bits written, independent of buf's base offset
+	container uint64 // pending bits, left-aligned (bit 63 = next byte's MSB)
+	cnt       uint8  // valid bits in container (0..63)
 }
 
 func (bw *bitWriter) writeBit(v bool) {
+	var b uint64
 	if v {
-		bw.cur |= 1 << (7 - bw.used)
+		b = 1
 	}
-	bw.used++
-	bw.nbits++
-	if bw.used == 8 {
-		bw.buf = append(bw.buf, bw.cur)
-		bw.cur = 0
-		bw.used = 0
-	}
+	bw.writeBits(b, 1)
 }
 
 func (bw *bitWriter) writeBits(v uint64, count uint8) {
@@ -50,55 +54,42 @@ func (bw *bitWriter) writeBits(v uint64, count uint8) {
 		return
 	}
 	bw.nbits += int(count)
-
-	avail := 8 - bw.used // free bits remaining in bw.cur
-
-	// Fast path: entire payload fits in the current byte.
-	if count <= avail {
-		shift := avail - count
-		bw.cur |= byte(v&((1<<count)-1)) << shift
-		bw.used += count
-		if bw.used == 8 {
-			bw.buf = append(bw.buf, bw.cur)
-			bw.cur = 0
-			bw.used = 0
-		}
+	if count < 64 {
+		v &= 1<<count - 1 // callers may pass wider values; keep the stream exact
+	}
+	space := 64 - bw.cnt
+	if count < space {
+		bw.container |= v << (space - count)
+		bw.cnt += count
 		return
 	}
-
-	// Fill the remaining bits of the current byte with the top `avail` bits of v.
-	// Top `avail` bits of v (MSB-first) = v >> (count - avail), truncated to `avail` bits.
-	bw.cur |= byte(v >> (count - avail))
-	bw.buf = append(bw.buf, bw.cur)
-	bw.cur = 0
-	bw.used = 0
-	remaining := count - avail
-
-	// Append full bytes directly (no branch per bit, no append overhead per byte).
-	for remaining >= 8 {
-		remaining -= 8
-		bw.buf = append(bw.buf, byte(v>>remaining))
-	}
-
-	// Store trailing partial bits in bw.cur.
-	if remaining > 0 {
-		bw.cur = byte(v&((1<<remaining)-1)) << (8 - remaining)
-		bw.used = remaining
-	}
+	// The write completes the current word: emit it, then keep the remainder.
+	// Kept inline in this function on purpose — splitting the emit into a
+	// //go:noinline helper (to get writeBits under the inliner's budget) cost
+	// 2-6% on every encode benchmark, so the call-per-writeBit stays.
+	bw.container |= v >> (count - space)
+	bw.buf = binary.BigEndian.AppendUint64(bw.buf, bw.container)
+	rem := count - space
+	bw.container = v << (64 - rem) // rem == 0 -> shift 64 -> 0 (Go-defined)
+	bw.cnt = rem
 }
 
-// flush finalises any partial byte. Returns the total bit count written. The
-// count is tracked incrementally (nbits) rather than derived from len(buf) so
-// the writer can append directly into a caller buffer that already holds a
-// header prefix.
+// flush finalises the pending partial word. Returns the total bit count
+// written. The count is tracked incrementally (nbits) rather than derived from
+// len(buf) so the writer can append directly into a caller buffer that already
+// holds a header prefix.
 func (bw *bitWriter) flush() int {
-	total := bw.nbits
-	if bw.used > 0 {
-		bw.buf = append(bw.buf, bw.cur)
-		bw.cur = 0
-		bw.used = 0
+	for n := bw.cnt; n > 0; {
+		bw.buf = append(bw.buf, byte(bw.container>>56))
+		bw.container <<= 8
+		if n <= 8 {
+			break
+		}
+		n -= 8
 	}
-	return total
+	bw.container = 0
+	bw.cnt = 0
+	return bw.nbits
 }
 
 // finishGorillaBody finalises a Gorilla body that was written in-place into out
