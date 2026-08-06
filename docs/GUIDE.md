@@ -52,7 +52,7 @@ format:
   map fast paths. Comparable to `vmihailenco/msgpack` on CPU, smaller
   by ~30 % on typical payloads.
 - **QPack** — adds numeric / bool slice codecs (bit-pack, frame-of-
-  reference, delta-FOR, Gorilla XOR) selected per-slice by size
+  reference, delta-FOR, Gorilla/Chimp128 XOR) selected per-slice by size
   estimate. Beats msgpack by 2–5× on numeric arrays.
 - **Dense** — adds an inline intern table for repeated strings,
   Markov-0 and Markov-1 predictors over intern IDs, Move-to-Front
@@ -118,11 +118,11 @@ order:
 |  2  | `OptShapeIntern`  | struct shape table, `tagMapShape`      | `OptDense` |
 |  3  | `OptPairPred`    | Markov-1 predictor over state-refs     | `OptDense` |
 |  4  | `OptMTF`          | Move-to-Front rank coding              | `OptDense` |
-|  5  | `OptGorillaFloat` | Gorilla XOR codec for `[]float64` / `[]float32` (~70 % wire reduction on smooth time-series, ~10× CPU/slice) | `OptQPack` |
-|  6  | `OptRANS` | Order-0 rANS entropy pass over the whole body, applied only when it shrinks (`FlagRANS`) — never larger, ~4–6× CPU where it fires, whole-buffer (not streaming) | — |
+|  5  | `OptGorillaFloat` | Gorilla / Chimp128 XOR pair (best-of picker) for `[]float64`; `[]float32` is Gorilla-only (~70 % wire reduction on smooth time-series, ~10× CPU/slice; Chimp128 also catches smooth-but-noisy series that used to go raw) | `OptQPack` |
+|  6  | `OptRANS` | Order-0 tANS/FSE entropy pass (table-driven Finite State Entropy; the name is kept for compatibility) over the whole body, applied only when it shrinks (`FlagRANS`) — never larger, whole-buffer (not streaming); legacy rANS blobs still decode | — |
 |  7  | `OptFSST` | FSST substring-level codec for high-cardinality columnar string columns (URLs, log lines, paths); tried after the dictionary codec bails; never larger; columnar `[]struct` only | `OptQPack` + columnar |
 |  9  | `OptMapShape` | Key-set interning for `map[string]V` fields: a recurring set of keys (telemetry tags, log labels) is declared once via `tagMapShape`; later maps emit only the shape ID + values in canonical key order. ~−24 % encode CPU and ~−26 % wire on tag-map-heavy rows; opt-in. | `OptDense` |
-| 12  | `OptLossyVec` | Opt-in **lossy** codec for `[]float32` / `[]float64` embedding fields (≥ 32 elems): Hadamard rotation → scalar or E8-lattice quantize → rANS, keeps the smaller, never larger than lossless. ~17–22 % smaller than scalar quantization at equal quality. Fidelity via `(*Encoder).SetVectorBudget` (`MinCosine` / `MaxRelError` / `TargetSNR`). In no bundle; default mode stays bit-exact. See [`LOSSY-VECTOR.md`](LOSSY-VECTOR.md). | — |
+| 12  | `OptLossyVec` | Opt-in **lossy** codec for `[]float32` / `[]float64` embedding fields (≥ 32 elems): Hadamard rotation → scalar or E8-lattice quantize → tANS/FSE entropy pass, keeps the smaller, never larger than lossless. ~17–22 % smaller than scalar quantization at equal quality. Fidelity via `(*Encoder).SetVectorBudget` (`MinCosine` / `MaxRelError` / `TargetSNR`). In no bundle; default mode stays bit-exact. See [`LOSSY-VECTOR.md`](LOSSY-VECTOR.md). | — |
 
 `OptSpeed = 0`. `OptBalanced = OptDense | OptQPack | OptShapeIntern
 | OptPairPred | OptMTF`. `OptCompression = OptBalanced | OptGorillaFloat
@@ -185,7 +185,7 @@ So far so msgpack-shaped. The qdf-specific tags start at 0xE0:
 0xE4  tagPackRaw        (QPack)   raw little-endian numeric slice
 0xE5  tagPackFor        (QPack)   Frame-of-Reference bitpacked integer slice
 0xE6  tagPackDeltaFor   (QPack)   Delta + zigzag + FOR integer slice
-0xE7  tagPackGorilla    (QPack)   Gorilla XOR-coded float slice
+0xE7  tagPackGorilla    (QPack)   Gorilla / Chimp128 XOR-coded float slice (kind byte selects)
 0xE8  tagStateRepeat    (Dense)   Markov-0 hit: id == lastID
 0xE9  tagStateMTF       (Dense)   MTF rank reference: varuint(rank)
 0xEA  tagStatePair      (Dense)   Markov-1 hit: varuint(rank=0 in top-1)
@@ -565,7 +565,7 @@ slice; the decoder reads the picked tag.
 0xE4  tagPackRaw       []intN/uintN raw little-endian, no padding
 0xE5  tagPackFor       []uintN      Frame-of-Reference bitpacked
 0xE6  tagPackDeltaFor  []intN       Delta + zigzag + FOR
-0xE7  tagPackGorilla   []float64    Gorilla XOR coding
+0xE7  tagPackGorilla   []float64    Gorilla / Chimp128 XOR coding (kind byte)
 0xEB  tagPackRLE       []intN       Run-length encoded (value, runLen) pairs
 0xED  tagPackDict      []intN       Dictionary-coded; ≤64 distinct values
 0xEE  tagPackPFor      []intN       Patched FOR: narrow body + outlier exceptions
@@ -593,12 +593,24 @@ Selection logic:
   fit. Its size estimate uses a conservative upper bound on the
   exception bytes, so it is chosen only when strictly smaller than every
   other codec. The winning estimator wins.
-- **Float slice**: by default, raw. Gorilla is opt-in via
+- **Float slice**: by default, raw. The XOR pair is opt-in via
   `OptGorillaFloat` (bundled into `OptCompression`). When the bit is
   set, `pickF64Codec` probes the first 32 consecutive XOR pairs; if
   the projected per-sample bit cost stays comfortably below raw 64
-  it emits `tagPackGorilla`, otherwise it falls back to raw. The
-  probe runs in ~30 ns. Gorilla wins on real-world time-series
+  the encoder measures **both Gorilla and Chimp128** (Liakos et al.,
+  VLDB 2022: XOR against the best of the previous 128 values via a
+  low-mantissa hash window, 2-bit control codes, rounded leading-zero
+  classes) and keeps the smaller blob, so the pick never regresses
+  size — periodic round values still encode as Gorilla. A second
+  sample gate (`pickChimpF64`) also admits smooth-but-noisy `[]float64`
+  slices that fail the Gorilla projection and previously stayed raw
+  (−18.3 % wire under `OptCompression`, −27 % under
+  `OptBalanced|OptGorillaFloat`; columnar struct batches −10.8 %/−15.5 %).
+  Both variants share `tagPackGorilla` — a kind byte
+  (`qpackKindChimp64`) distinguishes them, and legacy Gorilla blobs
+  keep decoding. Decode of float64 XOR columns is 6–34 % faster than
+  the old Gorilla-only path. `[]float32` stays Gorilla-only. The
+  Gorilla/Chimp pair wins on real-world time-series
   telemetry but loses on white noise — the threshold pick keeps it
   from firing where it would.
 
@@ -684,8 +696,8 @@ the encoder transposes the slice:
   scratch slice and passed through the existing QPack codec selector
   (FOR, Delta+FOR, RLE, dict, bitpack). Each column's full-length
   slice is encoded as a single QPack payload.
-- Float columns are emitted as raw-LE slices (Gorilla is opt-in via
-  `OptGorillaFloat`).
+- Float columns are emitted as raw-LE slices (the Gorilla / Chimp128
+  pair is opt-in via `OptGorillaFloat`).
 - String columns try a per-column dictionary first (`tagColStrDict`,
   0xF5): the distinct values are written once and each row stores a
   `ceil(log2 distinct)`-bit index (via the bitpack layer). It is emitted
@@ -713,7 +725,7 @@ the encoder transposes the slice:
   hex (`|A|`=16) halves the body. This is the one class the dictionary
   (high-cardinality), front-coding (no shared prefix) and FSST (high
   entropy, few shared substrings) all miss, and it is captured *without* the
-  rANS CPU cost, so the win lands on the Balanced tier. It sits after the
+  entropy-pass CPU cost, so the win lands on the Balanced tier. It sits after the
   dictionary and FSST in the per-column picker (so prefix-shared columns are
   still front-coded and substring-sharing text still goes to FSST), gated on
   a cheap high-cardinality probe and emitted only when strictly smaller than
@@ -786,7 +798,7 @@ unwanted columns — correct, just not fast.
 **Streaming strips it:** the column index is a single-message feature. It
 backpatches the header flag at a fixed offset, which a stream's shared/reused
 buffer invalidates after the first `Flush`, so `NewStreamEncoderWith` forces
-`colIndex = false` — exactly like the whole-body rANS pass.
+`colIndex = false` — exactly like the whole-body entropy pass.
 
 The element-addressable angle is what makes the skip cheap: because each
 column body is a single self-contained codec payload (FOR / bitpack / dict),
@@ -845,8 +857,8 @@ output to before — the codec is gated.
 
 - `OptFSST` is the individual bit; it is bundled into `OptCompression`.
   So `qdf.Marshal(rows, qdf.OptCompression)` turns on FSST together with
-  Gorilla/ALP/rANS.
-- For FSST without the float codecs or rANS:
+  Gorilla+Chimp128/ALP/the tANS/FSE entropy pass.
+- For FSST without the float codecs or the entropy pass:
   `qdf.Marshal(rows, qdf.OptBalanced|qdf.OptFSST)`.
 - **Columnar-only:** needs a `[]struct` batch that the columnar probe
   selects; not used for single messages or the streaming API.
@@ -880,39 +892,49 @@ from `d.Marshal` decodes with a plain `Unmarshal` and needs no out-of-band
 dictionary.
 
 **Cost:** encode trains a symbol table — a storage-tier CPU cost (same family
-as Gorilla ~10× and rANS ~4–6× relative to `OptBalanced`). Use the reusable
+as Gorilla ~10× relative to `OptBalanced`; the tANS/FSE entropy pass is
+cheaper still). Use the reusable
 `FSSTDict` for hot repeated encodes. Decode is cheap and low-alloc: one
 per-column slab allocation. Indicative numbers on a 1024-URL-row batch:
 per-batch encode ~1.7 ms, reusable-dict encode ~0.4 ms (≈5× faster, far fewer
 allocs), decode ~100 µs / 69 allocs; wire −76–79 % vs `OptBalanced`.
 
-### rANS entropy pass (`OptRANS`, `FlagRANS`)
+### tANS/FSE entropy pass (`OptRANS`, `FlagRANS`)
 
 Under `OptCompression` the encoder runs one more pass after the body is
-fully built: a static order-0 rANS (the canonical rans_byte — 32-bit
-state, byte renormalization, frequencies normalized to a 12-bit table)
-over the whole body. It is the last stage, downstream of every structural
-codec, and it targets the residual byte-level redundancy those codecs
-leave behind (most visibly string/hex-heavy payloads such as trace IDs).
+fully built: a static order-0 tANS/FSE coder (table-driven Finite State
+Entropy, in `internal/tans`; the `OptRANS` option name and the `FlagRANS`
+wire flag are kept for compatibility — only the underlying algorithm
+changed) over the whole body. It is the last stage, downstream of every
+structural codec, and it targets the residual byte-level redundancy those
+codecs leave behind (most visibly string/hex-heavy payloads such as trace
+IDs).
 
 It runs at the top-level `Marshal` entry points only — never per nested
 value, and never in `StreamEncoder` (a whole-buffer pass is incompatible
 with per-message streaming, so the stream encoder ignores `OptRANS`).
 
-The wire form, set behind `FlagRANS` in the 5th header byte, is
-`varuint(origLen)` + the 256-entry frequency table (one varuint per
-symbol) + the rANS stream. The encoder applies it through a **picker**:
-the rANS form replaces the plain body only when it is strictly smaller,
+The wire form, set behind `FlagRANS` in the 5th header byte, starts with
+a blob tag byte the decoder dispatches on: the tANS coder emits tags 1
+(single-stream) and 5 (interleaved-4), while legacy rANS blobs (tags 0
+and 4) still decode — full backward compatibility, old wire remains
+readable. The encoder applies it through a **picker**: the entropy-coded
+form replaces the plain body only when it is strictly smaller,
 and bodies under ~512 B are not even attempted (the table would dominate).
 So `OptCompression` never produces a larger buffer than it did before, on
-any payload. The decoder, on seeing `FlagRANS`, bounds `origLen` against
-the input size, decodes the body, and reads tags from the reconstructed
-plain body exactly as for a non-rANS buffer.
+any payload. The decoder, on seeing `FlagRANS`, bounds the declared
+original length against the input size, decodes the body, and reads tags
+from the reconstructed plain body exactly as for a non-entropy-coded
+buffer.
 
 Measured wire reductions on the corpus under `OptCompression`: trace
 batches −37 %, smooth metric series −27 %, quantized metrics −8 %;
-already-dense numeric fixtures decline rANS and are unchanged. The cost
-is ~4–6× encode/decode CPU on the bodies where it fires — the reason it
+already-dense numeric fixtures decline the pass and are unchanged. (The
+tANS output is within +0.3–1.7 % of the old rANS sizes — a deliberate
+speed/size trade.) The CPU cost where it fires is far below the old rANS
+coder's: on Apple M5 Pro (benchstat, n=10) encode is 3.2× faster
+(617 MiB/s at 256 K) and decode 2.0× faster at 256 K (1120 MiB/s) and
+3.0× at 4 K blobs — still a size-for-CPU trade, the reason it
 stays in the opt-in `OptCompression` tier and out of `OptBalanced`.
 
 ---
@@ -1295,8 +1317,11 @@ Float slices are the only codec that trades latency for size in the
 preset bundles. `OptQPack` (and therefore `OptBalanced`) keeps floats
 on raw-LE bulk — predictable ~4 µs per 1024-sample slice, 8 B per
 sample. `OptCompression` adds `OptGorillaFloat`; the encoder probes
-the first 32 XOR pairs (~30 ns) and emits Gorilla XOR when the
-projected per-sample cost stays comfortably below 64 bits.
+the first 32 XOR pairs (~30 ns), measures both Gorilla and Chimp128
+XOR when the projected per-sample cost stays comfortably below 64
+bits, and keeps the smaller blob (a sample gate also admits
+smooth-but-noisy series that fail the Gorilla projection and used to
+stay raw).
 
 Empirically, on `bench/profiles_test.go` Intel i7-9750H, Go 1.26.0:
 
@@ -1310,7 +1335,7 @@ Empirically, on `bench/profiles_test.go` Intel i7-9750H, Go 1.26.0:
 Reading the table: under `OptCompression`, smooth time-series
 collapses ~72 % on the wire but encode/decode pay ~10× more CPU per
 slice because Gorilla works at the bit level. On random-walk floats
-the probe rejects Gorilla so the path stays raw and OptCompression
+the probe rejects the XOR pair so the path stays raw and OptCompression
 matches OptQPack exactly — wire and latency. The wrong choice is
 `OptCompression` on hot-path metric ingest with smooth values; the
 right choice is `OptCompression` on archival snapshots and offline

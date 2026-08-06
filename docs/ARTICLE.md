@@ -17,7 +17,7 @@ that:
 - reaches **protobuf-class density** through a dense state machine (string interning +
   move-to-front + an order-1 Markov predictor + struct-shape interning);
 - **transposes `[]struct` into columns** and picks, per column, the smallest of a
-  dozen integer/float codecs (FOR, delta, RLE, dictionary, PFOR, Gorilla, ALP) with a
+  dozen integer/float codecs (FOR, delta, RLE, dictionary, PFOR, Gorilla/Chimp, ALP) with a
   *never-larger* guarantee;
 - lets you run **`Where(...)` / `Select(...)` over the encoded bytes** — predicate
   pushdown + column projection with SQL three-valued NULL logic;
@@ -172,7 +172,7 @@ flowchart TD
     P -->|few runs| RLE[Run-Length]
     P -->|low cardinality| DICT[Dictionary]
     P -->|tight + outliers| PFOR[Patched FOR]
-    P -->|smooth floats| GOR[Gorilla XOR]
+    P -->|smooth floats| GOR[Gorilla/Chimp XOR]
     P -->|decimal floats| ALP[ALP]
     FOR & DFOR & RLE & DICT & PFOR & GOR & ALP --> K{"smaller than raw-LE?"}
     K -->|yes| W[write codec frame]
@@ -458,9 +458,9 @@ or sit cold.
 |---|---|---|
 | `OptColumnIndex` | per-column length table | you'll `Select` a subset of columns; ~4 B/col, otherwise free |
 | `OptMapShape` | interns recurring `map` key-sets | maps with stable keys (telemetry tags, labels) |
-| `OptGorillaFloat` | Gorilla XOR for float slices | smooth float time-series (sensor/metric streams) |
+| `OptGorillaFloat` | XOR float codec — encodes both Gorilla and Chimp128 for `float64` and keeps the smaller (`float32` stays Gorilla) | smooth float time-series (sensor/metric streams) |
 | `OptFSST` | FSST string codec for columns | high-cardinality, substring-sharing text (URLs, log lines, paths) |
-| `OptRANS` | final order-0 rANS entropy pass | last-mile size; ~1.5× smaller, ~2–3× slower |
+| `OptRANS` | final order-0 tANS/FSE entropy pass (option name kept; legacy rANS payloads still decode) | last-mile size; ~1.5× smaller; the entropy stage itself is 3.2×/2× faster enc/dec than the old rANS |
 | `OptCanonical` | sorted keys + float normalization | hashing / signing / dedup of bytes |
 | `OptDeltaNoBaseFingerprint` | drops the patch base check | `Diff/Apply` when you guarantee the base |
 

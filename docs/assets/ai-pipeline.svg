@@ -6,7 +6,7 @@
     </marker>
   </defs>
   <text x="40" y="40" font-size="22" font-weight="700" fill="#1a1a2e">OptLossyVec encode pipeline (wire tag 0xFD)</text>
-  <text x="40" y="62" font-size="13" fill="#9ca3af">source: lossyvec.go · internal/lattice · internal/hadamard · internal/rans — see docs/LOSSY-VECTOR.md</text>
+  <text x="40" y="62" font-size="13" fill="#9ca3af">source: lossyvec.go · internal/lattice · internal/hadamard · internal/tans — see docs/LOSSY-VECTOR.md</text>
 
   <!-- stage boxes -->
   <g font-size="14">
@@ -36,9 +36,9 @@
     <text x="704" y="198" text-anchor="middle" font-weight="700" fill="#166534">E8 lattice</text>
     <text x="704" y="216" text-anchor="middle" font-size="12" fill="#6b7280">D8 vs D8+½ · +1 coset bit</text>
 
-    <!-- 5 rANS -->
+    <!-- 5 tANS -->
     <rect x="824" y="120" width="150" height="84" rx="10" fill="#fdf4ff" stroke="#d946ef" stroke-width="1.5"/>
-    <text x="899" y="150" text-anchor="middle" font-weight="700" fill="#86198f">rANS entropy</text>
+    <text x="899" y="150" text-anchor="middle" font-weight="700" fill="#86198f">tANS entropy</text>
     <text x="899" y="172" text-anchor="middle" font-size="12" fill="#a21caf">zigzag-varint coords</text>
     <text x="899" y="190" text-anchor="middle" font-size="12" fill="#6b7280">order-0, interleaved</text>
 
@@ -67,5 +67,5 @@
 
   <!-- footnote: exceptions + batched -->
   <rect x="24" y="300" width="1132" height="40" rx="8" fill="#f9fafb" stroke="#e5e7eb"/>
-  <text x="40" y="325" font-size="12.5" fill="#374151">NaN/±Inf pulled into an exception list first and restored bit-exactly on decode · []struct embedding rows batch into ONE count-N block (tag 0xFE) — amortizes header + rANS framing</text>
+  <text x="40" y="325" font-size="12.5" fill="#374151">NaN/±Inf pulled into an exception list first and restored bit-exactly on decode · []struct embedding rows batch into ONE count-N block (tag 0xFE) — amortizes header + tANS framing</text>
 </svg>

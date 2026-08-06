@@ -91,15 +91,15 @@ is the decision guide; the rest of the document is the reference.
 ### Which `Options` tier?
 
 The tier is the same bit-mask `Marshal` takes, and it only affects how *replaced
-values* inside the patch are codec-encoded (plus whether the optional rANS pass
-runs). The op-level structure is identical across tiers, and a patch is
+values* inside the patch are codec-encoded (plus whether the optional tANS/FSE
+entropy pass runs). The op-level structure is identical across tiers, and a patch is
 self-describing — **the consumer never needs to match the producer's tier.**
 
 | Tier | Use when | Cost |
 | ---- | -------- | ---- |
 | `OptSpeed` | Lowest latency matters more than bytes — a single-process cache, a LAN sync, a high-frequency tick where CPU is the budget. | Largest patches (no entropy pass, lightest codecs). |
 | `OptBalanced` *(default)* | The general choice. Good wire size, low CPU. Start here. | — |
-| `OptCompression` | Bytes are scarce — WAN replication, cross-region CDC, anything you pay egress for or persist at volume. Adds a never-larger order-0 rANS pass over the patch body. | More producer CPU; decode is cheap. |
+| `OptCompression` | Bytes are scarce — WAN replication, cross-region CDC, anything you pay egress for or persist at volume. Adds a never-larger order-0 tANS/FSE entropy pass over the patch body. | More producer CPU; decode is cheap. |
 
 Rule of thumb: **`OptBalanced` unless you are measurably bottlenecked** on
 latency (→ `OptSpeed`) or on bytes over an expensive link (→ `OptCompression`).
@@ -164,8 +164,8 @@ strings — see [Batching replaced strings](#batching-replaced-strings-with-an-a
 
 `opts` is the same `Options` bit-mask `Marshal` takes — `OptSpeed`,
 `OptBalanced`, `OptCompression`, and the modifiers. The tier only affects how
-individual replaced values are codec-encoded and whether the optional rANS pass
-runs over the patch body; the patch's op-level wire is identical across tiers.
+individual replaced values are codec-encoded and whether the optional tANS/FSE
+entropy pass runs over the patch body; the patch's op-level wire is identical across tiers.
 
 > **`Apply` mutates `*base` in place.** It overwrites the changed locations and
 > leaves the rest untouched — it does not allocate a fresh value. If you need to
@@ -244,13 +244,14 @@ be mistaken for a full value or vice versa.
 +-----+-----+-----+-----+-----+--------- 8 ---------+----- 8 (optional) -----+
 | 'Q' | 'D' | 'P' | ver |flags|       schemaFP      |   baseFP (if flag set) |
 +-----+-----+-----+-----+-----+---------------------+------------------------+
-| body — the root patch (rANS-framed iff the rANS flag is set)              |
+| body — the root patch (tANS-framed iff the rANS flag is set)              |
 +--------------------------------------------------------------------------+
 ```
 
 - 3-byte magic `'Q' 'D' 'P'` plus a 1-byte version.
 - 1 flag byte: *dense* (field names interned in the body), *rANS* (body is
-  rANS-compressed), *baseFP present*.
+  entropy-compressed — tANS/FSE now; patches written with the legacy rANS
+  coder still decode), *baseFP present*.
 - An 8-byte little-endian **schemaFP** (always present).
 - An optional 8-byte little-endian **baseFP** (present unless you opt out).
 
@@ -286,10 +287,11 @@ loud error.
 
 The patch body is self-contained and bounded. Every length-prefixed read is
 bounded by the input, so a hostile or truncated patch returns an error — it
-never panics and never OOMs. Under `OptCompression` an order-0 rANS entropy pass
-runs *after* the structural diff, over the already-minimal patch body, and only
-when it actually shrinks (never larger). The diff does the structural work; rANS
-squeezes whatever byte entropy is left.
+never panics and never OOMs. Under `OptCompression` an order-0 tANS/FSE entropy
+pass runs *after* the structural diff, over the already-minimal patch body, and
+only when it actually shrinks (never larger). The diff does the structural work;
+the entropy pass squeezes whatever byte entropy is left. (Patch bodies written
+by the older rANS coder still decode.)
 
 The path is covered by a round-trip oracle fuzzer
 (`Apply(base, Diff(old, new)) == new`) and a hostile-patch fuzzer that feeds
