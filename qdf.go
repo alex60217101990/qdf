@@ -411,7 +411,38 @@ var (
 	}
 )
 
+// noteDetached records, on a pooled encoder whose output buffer was just handed
+// to the caller, how large that buffer had to get. resetForReuse allocates the
+// replacement at this size instead of doubling up from initialEncBuf.
+//
+// Bounded by maxPooledBuf for the same reason the pool refuses to retain past
+// it: a one-off outlier must not make every later message allocate at the
+// outlier's size. Only the size is kept, never the buffer, so this pins nothing.
+//
 //go:nosplit
+func (e *Encoder) noteDetached(out []byte) {
+	need, used := cap(out), len(out)
+	if need > e.bufHint {
+		// The message outgrew the hint, so the hint was too small: adopt what it
+		// actually took. cap, not len — the codec picker writes candidate
+		// encodings and rewinds the ones that lose, so the buffer's peak is
+		// above the bytes finally delivered, and sizing to len alone would make
+		// every message pay one grow.
+		e.bufHint = min(need, maxPooledBuf)
+		return
+	}
+	// It fit. Left alone, the hint would keep whatever high-water mark one big
+	// message set and every later small message would allocate at that size —
+	// handing the caller a small slice backed by a large array. Decay a quarter
+	// of the way toward what the data actually used instead: still above the
+	// speculative peak for a while, but a workload that shrinks stops paying for
+	// its largest message within a few sends. A quarter is a rate, not a size
+	// guess, so no payload shape is special-cased.
+	if slack := e.bufHint - used; slack > 0 {
+		e.bufHint -= slack / 4
+	}
+}
+
 func putEnc(enc *Encoder, pool *sync.Pool) {
 	if cap(enc.buf) > maxPooledBuf {
 		enc.buf = nil
