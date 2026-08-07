@@ -68,8 +68,8 @@ const internTableInitSize = 64
 // encode that created it; inside one message the caller already holds the
 // data, so it costs no retention.
 type ptrInternSlot struct {
-	keep string
 	ptr  unsafe.Pointer
+	keep string
 	n    uintptr
 	id   uint32
 	used bool
@@ -78,9 +78,15 @@ type ptrInternSlot struct {
 // ptrInternInit is the initial index size; it grows with the intern table.
 const ptrInternInit = 64
 
+// ptrIndexReset clears only the slots ptrRecord actually filled since the
+// last reset (tracked in ptrUsed), not the whole backing array. Occupancy is
+// a handful of entries per message; capacity is fixed at ptrInternInit or
+// more, so a full-table clear() pays for slots that were never touched.
 func (e *encState) ptrIndexReset() {
-	clear(e.ptrIndex)
-	e.ptrIndex = e.ptrIndex[:0]
+	for _, i := range e.ptrUsed {
+		e.ptrIndex[i] = ptrInternSlot{}
+	}
+	e.ptrUsed = e.ptrUsed[:0]
 	// ptrCount tracks occupancy for the load-factor check in ptrRecord; leaving
 	// it at its pre-reset value after the slots above are cleared makes
 	// ptrRecord believe the table is as full as it was last message, growing
@@ -88,18 +94,19 @@ func (e *encState) ptrIndexReset() {
 	e.ptrCount = 0
 }
 
-// ptrIndexSlot returns the slot s hashes to, probing linearly past collisions.
-// The index is kept under half load so chains stay short. Both call sites
-// (ptrLookup's len==0 short-circuit, ptrRecord's grow-before-insert) already
-// guarantee cap(e.ptrIndex) != 0 here, so there is no zero-cap case to handle.
-func (e *encState) ptrIndexSlot(sp unsafe.Pointer, n uintptr) *ptrInternSlot {
+// ptrIndexSlot returns the slot s hashes to and its index, probing linearly
+// past collisions. The index is kept under half load so chains stay short.
+// Both call sites (ptrLookup's len==0 short-circuit, ptrRecord's
+// grow-before-insert) already guarantee cap(e.ptrIndex) != 0 here, so there
+// is no zero-cap case to handle.
+func (e *encState) ptrIndexSlot(sp unsafe.Pointer, n uintptr) (*ptrInternSlot, uint64) {
 	e.ptrIndex = e.ptrIndex[:cap(e.ptrIndex)]
 	mask := uint64(len(e.ptrIndex) - 1)
 	h := (uint64(uintptr(sp))>>3)*0x9E3779B97F4A7C15 + uint64(n)
 	for i := h & mask; ; i = (i + 1) & mask {
 		slot := &e.ptrIndex[i]
 		if !slot.used || (slot.ptr == sp && slot.n == n) {
-			return slot
+			return slot, i
 		}
 	}
 }
@@ -109,7 +116,7 @@ func (e *encState) ptrLookup(s string) (uint32, bool) {
 	if len(e.ptrIndex) == 0 || len(s) == 0 {
 		return 0, false
 	}
-	slot := e.ptrIndexSlot(unsafe.Pointer(unsafe.StringData(s)), uintptr(len(s)))
+	slot, _ := e.ptrIndexSlot(unsafe.Pointer(unsafe.StringData(s)), uintptr(len(s)))
 	if slot.used {
 		return slot.id, true
 	}
@@ -126,7 +133,7 @@ func (e *encState) ptrRecord(s string, id uint32) {
 	if e.ptrCount*2 >= uint32(cap(e.ptrIndex)) {
 		e.ptrIndexGrow()
 	}
-	slot := e.ptrIndexSlot(unsafe.Pointer(unsafe.StringData(s)), uintptr(len(s)))
+	slot, i := e.ptrIndexSlot(unsafe.Pointer(unsafe.StringData(s)), uintptr(len(s)))
 	if slot.used {
 		return
 	}
@@ -136,19 +143,21 @@ func (e *encState) ptrRecord(s string, id uint32) {
 	slot.id = id
 	slot.used = true
 	e.ptrCount++
+	e.ptrUsed = append(e.ptrUsed, uint32(i))
 }
 
 func (e *encState) ptrIndexGrow() {
 	old := e.ptrIndex
-	size := cap(old) * 2
-	if size < ptrInternInit {
-		size = ptrInternInit
-	}
+	size := max(cap(old)*2, ptrInternInit)
 	e.ptrIndex = make([]ptrInternSlot, size)
 	e.ptrCount = 0
-	for i := range old {
-		if old[i].used {
-			e.ptrRecord(old[i].keep, old[i].id)
+	// Old slot indices are meaningless against the new table; ptrUsed is
+	// rebuilt from scratch as the re-insert loop below calls ptrRecord,
+	// which appends the new (correct) index for each entry.
+	e.ptrUsed = e.ptrUsed[:0]
+	for _, slot := range old {
+		if slot.used {
+			e.ptrRecord(slot.keep, slot.id)
 		}
 	}
 }
@@ -243,10 +252,16 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// ptrIndex/ptrCount back the address-keyed intern index (ptrInternSlot,
 	// ptrLookup/ptrRecord below) — a separate lookup keyed on backing address
 	// and length rather than content, so a repeat of the SAME backing array
-	// costs a pointer compare instead of a content hash. Not yet consulted by
-	// the encode path (wired in a later change); exists standalone here.
+	// costs a pointer compare instead of a content hash.
 	ptrIndex []ptrInternSlot
 	ptrCount uint32
+	// ptrUsed lists the slot indices ptrRecord has filled since the last
+	// reset, so ptrIndexReset can zero exactly those slots instead of the
+	// whole table — occupancy is a handful of entries per message, capacity
+	// is fixed at 64+ regardless. Rebuilt from scratch on every grow (see
+	// ptrIndexGrow): indices into the old table are meaningless in the new
+	// one.
+	ptrUsed []uint32
 
 	// Move-to-front LRU over intern IDs. lruHead is the ID at rank 0
 	// (most recently emitted state-ref or freshly interned). lruLink
