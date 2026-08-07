@@ -232,7 +232,7 @@ const (
 	// scratch a pooled encoder keeps between calls (same ~16 k-element scale as
 	// the delta scratch); a one-off larger narrow-int slice is dropped so the
 	// pool never pins an outlier buffer.
-	maxRetainedWideScratch = 1 << 14
+	maxRetainedWideScratch = 1 << 17
 )
 
 // Options is a bit-mask of per-call encoder feature toggles. A zero

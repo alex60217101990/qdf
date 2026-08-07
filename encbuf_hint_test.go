@@ -3,6 +3,7 @@ package qdf
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"runtime"
 	"testing"
 )
 
@@ -117,4 +118,55 @@ func TestEncBufHintDecays(t *testing.T) {
 	if e.bufHint > maxPooledBuf {
 		t.Errorf("hint exceeded maxPooledBuf: %d", e.bufHint)
 	}
+}
+
+// TestWideScratchSurvivesLargeColumns pins the retention ceiling for the
+// int32->int64 widening scratch. At its former value (1<<14) a []int32 field
+// just past 16384 elements was dropped from the pooled encoder and rebuilt on
+// every single message: measured 139492 B/op at 17000 elements against 414 B/op
+// at 16384, a 337x jump for 4% more data.
+//
+// The assertion is on shape, not on a tuned number — allocation per message
+// must not scale with the column once it passes the old ceiling.
+func TestWideScratchSurvivesLargeColumns(t *testing.T) {
+	type wideCol struct {
+		Data []int32 `qdf:"data"`
+	}
+	mk := func(n int) wideCol {
+		d := make([]int32, n)
+		for i := range d {
+			d[i] = int32(i * 3 % 100000)
+		}
+		return wideCol{Data: d}
+	}
+
+	measure := func(v wideCol) uint64 {
+		for range 50 { // let the pooled scratch settle
+			if _, err := Marshal(v, OptBalanced); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var a, b runtime.MemStats
+		runtime.ReadMemStats(&a)
+		const runs = 100
+		for range runs {
+			if _, err := Marshal(v, OptBalanced); err != nil {
+				t.Fatal(err)
+			}
+		}
+		runtime.ReadMemStats(&b)
+		return (b.TotalAlloc - a.TotalAlloc) / runs
+	}
+
+	small := measure(mk(8192))   // comfortably under any ceiling
+	large := measure(mk(100000)) // over the former 1<<14, under the current 1<<17
+
+	// The large column's own output is bigger, so some growth is expected; a
+	// dropped-and-rebuilt scratch shows up as growth proportional to the column
+	// (12x the elements would mean ~800 KB of widening scratch per message).
+	if limit := small + 300_000; large > limit {
+		t.Errorf("large column allocates %d B/op vs %d B/op for a small one (limit %d) — the widening scratch is being dropped every message",
+			large, small, limit)
+	}
+	t.Logf("8192 elems: %d B/op   100000 elems: %d B/op", small, large)
 }
