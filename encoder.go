@@ -842,24 +842,7 @@ func (e *Encoder) WriteString(s string) {
 				}
 			}
 		}
-		// Address fast path: a string whose exact backing address and length
-		// we have already interned in this message is the same bytes, so the
-		// id is known without hashing them again. A miss costs one pointer
-		// compare and falls through to the content hash below.
-		id, ok := st.ptrLookup(s)
-		if ok {
-			if st.lastID == id {
-				e.buf = append(e.buf, tagStateRepeat)
-				if e.pairPred {
-					st.pairRecord(id, id)
-				}
-				return
-			}
-			e.emitStateRef(id)
-			return
-		}
-		id, ok = st.lookupOrAssign(s)
-		st.ptrRecord(s, id)
+		id, ok := st.lookupOrAssign(s)
 		if preInternIdx >= 0 {
 			e.preIntern[preInternIdx].id = id
 		}
