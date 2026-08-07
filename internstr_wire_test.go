@@ -6,11 +6,23 @@ import (
 	"testing"
 )
 
-// TestProfileWireHash pins the invariant work item A rests on: finding an
+// wantProfileWireDigest is the encoding of the whole profile corpus. It is
+// pinned, not logged, so the check survives the work item that motivated it:
+// an encoder change that alters what goes on the wire fails here rather than
+// waiting for someone to eyeball two runs.
+//
+// Changing it is a deliberate act. A diff means the wire format moved, which
+// breaks every already-encoded payload — so update this constant only together
+// with a compatibility note saying why the break is intended, never to make a
+// red test go green.
+const wantProfileWireDigest = "f7b0284fbff425d9e229e3c3f874a4b8032848ef78bc5b9607f9c74f412d28a2"
+
+// TestProfileWireHash pins the invariant work item A rested on: finding an
 // intern id through the string's address rather than by hashing its bytes
 // changes HOW the id is found, never WHICH id the string gets, so the encoded
-// bytes must be identical. Run it before and after the change and compare the
-// printed digest.
+// bytes must be identical. A itself was measured and reverted, but the check
+// outlives it — any future change to the encoder's string or intern path is
+// subject to the same requirement.
 //
 // The digest covers every profile under every option set. A vacuity control is
 // included: mutating one byte of one encoding must change the digest, so a
@@ -41,6 +53,9 @@ func TestProfileWireHash(t *testing.T) {
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
 	t.Logf("profile wire digest: %s", sum)
+	if sum != wantProfileWireDigest {
+		t.Errorf("wire digest changed:\n got %s\nwant %s\nthe encoded bytes moved; see the note on wantProfileWireDigest", sum, wantProfileWireDigest)
+	}
 
 	// Vacuity control: the same corpus with one byte flipped must differ.
 	h2 := sha256.New()
