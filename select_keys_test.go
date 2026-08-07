@@ -309,3 +309,26 @@ func TestUnmarshalKeysLargeFilter(t *testing.T) {
 		t.Fatal("wrong values")
 	}
 }
+
+// TestEmptyKeyFilterKeepsEverything pins one half of a footgun both
+// projections shared: an empty-but-NON-NIL filter (how a caller hits it:
+// keys := []string{} then keys...) must mean "no filter", not "drop
+// everything". The column half of the same guard (wantField's len check) is
+// hardening only — no payload shape was found that reaches wantField with an
+// empty filter, so it is deliberately left untested rather than pinned by a
+// test that would pass vacuously.
+func TestEmptyKeyFilterKeepsEverything(t *testing.T) {
+	m := map[string]int64{"a": 1, "b": 2}
+	blob, err := Marshal(m, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := []string{}
+	var got map[string]int64
+	if err := UnmarshalKeys(blob, &got, empty...); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("empty key filter dropped data: %v", got)
+	}
+}
