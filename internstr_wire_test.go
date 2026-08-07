@@ -21,7 +21,6 @@ func TestProfileWireHash(t *testing.T) {
 		for _, v := range []any{
 			mkLogProfile(1024),
 			mkTelemetryProfile(1024),
-			mkAPIProfile(512),
 		} {
 			blob, err := Marshal(v, o)
 			if err != nil {
@@ -29,6 +28,16 @@ func TestProfileWireHash(t *testing.T) {
 			}
 			h.Write(blob)
 		}
+		// The API profile carries a map[string]string field; its encoding is
+		// only key-order-stable under OptCanonical. Canonical fixes order
+		// without changing whether keys are interned, so the intern path
+		// this work item touches stays covered while the digest stays
+		// deterministic across runs.
+		blob, err := Marshal(mkAPIProfile(512), o|OptCanonical)
+		if err != nil {
+			t.Fatalf("%v|OptCanonical: %v", o, err)
+		}
+		h.Write(blob)
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
 	t.Logf("profile wire digest: %s", sum)
@@ -40,7 +49,6 @@ func TestProfileWireHash(t *testing.T) {
 		for _, v := range []any{
 			mkLogProfile(1024),
 			mkTelemetryProfile(1024),
-			mkAPIProfile(512),
 		} {
 			blob, err := Marshal(v, o)
 			if err != nil {
@@ -53,6 +61,16 @@ func TestProfileWireHash(t *testing.T) {
 			}
 			h2.Write(blob)
 		}
+		blob, err := Marshal(mkAPIProfile(512), o|OptCanonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first && len(blob) > 0 {
+			blob = append([]byte(nil), blob...)
+			blob[len(blob)-1] ^= 1
+			first = false
+		}
+		h2.Write(blob)
 	}
 	if hex.EncodeToString(h2.Sum(nil)) == sum {
 		t.Fatal("vacuity control failed: a flipped byte did not change the digest")
