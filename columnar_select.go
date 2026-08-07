@@ -1,9 +1,6 @@
 package qdf
 
-import (
-	"reflect"
-	"slices"
-)
+import "slices"
 
 // wantedColumns maps each WIRE column index to the target plan column to
 // decode it into, or nil to skip. Matched by field name. Wire columns whose
@@ -110,27 +107,5 @@ func UnmarshalKeys(data []byte, out any, keys ...string) error {
 	if len(keys) == 0 {
 		return Unmarshal(data, out)
 	}
-	if !rootTakesKeyFilter(out) {
-		return ErrTypeMismatch
-	}
 	return unmarshalKeys(data, out, keys)
-}
-
-// rootTakesKeyFilter reports whether out roots a payload the key projection is
-// defined for: a pointer to a string-keyed map, or to an interface (the
-// dynamic map[string]any form). Anything else would let the filter land on a
-// map nested at an arbitrary depth, which is not what the caller asked for.
-func rootTakesKeyFilter(out any) bool {
-	t := reflect.TypeOf(out)
-	if t == nil || t.Kind() != reflect.Pointer {
-		return false
-	}
-	switch e := t.Elem(); e.Kind() {
-	case reflect.Interface:
-		return true
-	case reflect.Map:
-		return e.Key().Kind() == reflect.String
-	default:
-		return false
-	}
 }

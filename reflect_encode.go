@@ -2103,11 +2103,34 @@ func decodeReflect(d *Decoder, out any) error {
 	if d.query != nil && t.Kind() != reflect.Slice {
 		return &QueryError{Op: "predicate pushdown", Err: ErrUnsupported}
 	}
+	// The UnmarshalKeys projection is defined on the ROOT map. Reject a target
+	// that does not root one here rather than letting the filter drift down to
+	// whatever map happens to be nested inside — same reasoning as the query
+	// check above, and the same place, so the decode entry point stays the one
+	// spot that rules on target shape.
+	if d.selectKeys != nil && !rootsStringKeyedMap(t) {
+		d.selectKeys = nil
+		return ErrTypeMismatch
+	}
 	td, err := descOf(t)
 	if err != nil {
 		return err
 	}
 	return td.decode(d, unsafe.Pointer(rv.Pointer()))
+}
+
+// rootsStringKeyedMap reports whether the decode target's element type roots a
+// payload the key projection is defined for: a string-keyed map, or an
+// interface (the dynamic map[string]any form).
+func rootsStringKeyedMap(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Interface:
+		return true
+	case reflect.Map:
+		return t.Key().Kind() == reflect.String
+	default:
+		return false
+	}
 }
 
 // encodeNilSlice emits tagNil and returns true when the slice at p is nil
