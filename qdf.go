@@ -561,6 +561,35 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 // unmarshal is the shared pooled-decoder dispatch behind Unmarshal and
 // UnmarshalColumns. When fields is non-nil it restricts the columnar map
 // (any) decode to those columns (see Decoder.selectFields).
+// unmarshalKeys mirrors unmarshal but arms the root-map key projection
+// (UnmarshalKeys) rather than the columnar field filter. The two are separate
+// decoder fields on purpose: one filter must never be read as the other.
+func unmarshalKeys(data []byte, out any, keys []string) error {
+	dec := decPool.Get().(*Decoder)
+	dec.buf = data
+	dec.i = 0
+	dec.depth = 0
+	dec.headerRead = false
+	dec.mode = Fast
+	dec.colIndex = false
+	dec.colMaxLen = 0
+	dec.noCopy = false
+	dec.arena = nil
+	dec.selectFields = nil
+	dec.selectKeys = keys
+	dec.query = nil
+	clear(dec.mapFreeList)
+	if dec.state != nil {
+		dec.state.reset()
+	}
+	err := decodeReflect(dec, out)
+	dec.buf = nil
+	dec.selectKeys = nil
+	dec.i = 0
+	decPool.Put(dec)
+	return err
+}
+
 func unmarshal(data []byte, out any, fields []string, noCopy bool, arena *Arena) error {
 	dec := decPool.Get().(*Decoder)
 	dec.buf = data
@@ -573,6 +602,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool, arena *Arena)
 	dec.noCopy = noCopy
 	dec.arena = arena
 	dec.selectFields = fields
+	dec.selectKeys = nil
 	dec.query = nil        // parity with UnmarshalT / SetInput: never inherit a prior query decode's plan from the shared pool
 	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {

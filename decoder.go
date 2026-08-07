@@ -38,6 +38,14 @@ type Decoder struct {
 	// reset / return-to-pool / SetInput so it never leaks across decodes.
 	selectFields []string
 
+	// selectKeys is the UnmarshalKeys projection: the keys to keep from the
+	// ROOT map. It is deliberately separate from selectFields (column names)
+	// — sharing one field made a column projection filter map entries and
+	// vice versa — and is consumed one-shot by the root map's decode loop, so
+	// nothing nested (values, Skip, nested maps, columnar containers) ever
+	// sees a live filter.
+	selectKeys []string
+
 	// query, when non-nil, makes a columnar decode filter rows by the plan's
 	// predicates (AND) and project the plan's columns. Set by Unmarshal when
 	// QueryOptions are passed; cleared on reset / SetInput so it never leaks.
@@ -234,6 +242,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.colIndex = false
 	d.colMaxLen = 0
 	d.selectFields = nil
+	d.selectKeys = nil
 	d.query = nil
 	clear(d.mapFreeList) // drop recycled maps; keep the backing allocated
 	if d.state != nil {

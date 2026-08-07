@@ -334,7 +334,11 @@ func emitPair(buf *bytes.Buffer, p pair) {
 		fmt.Fprintf(buf, "\tif t == tagMapShape {\n")
 		fmt.Fprintf(buf, "\t\tnames, err := decodeMapStringShapeHeader(d)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
 		fmt.Fprintf(buf, "\t\tm := reuseOrMakeMap[%s, %s](d, p, len(names))\n", p.K.goType, p.V.goType)
+		// UnmarshalKeys projection: consume the root filter ONCE, before the
+		// loop, so values and Skip below run unfiltered.
+		fmt.Fprintf(buf, "\t\tkf := d.takeKeyFilter()\n")
 		fmt.Fprintf(buf, "\t\tfor _, k := range names {\n")
+		fmt.Fprintf(buf, "\t\t\tif !kf.want(k) {\n\t\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\t%s\n", p.V.readBlock("v"))
 		fmt.Fprintf(buf, "\t\t\tm[k] = v\n")
 		fmt.Fprintf(buf, "\t\t}\n\t\t*(*%s)(p) = m\n\t\treturn nil\n\t}\n", mapTy)
@@ -342,8 +346,16 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "\tn, err := d.ReadMapHeader()\n\tif err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tif err := d.CheckLength(n, 2); err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tm := reuseOrMakeMap[%s, %s](d, p, n)\n", p.K.goType, p.V.goType)
+	if p.K.suffix == "String" {
+		// UnmarshalKeys projection: consume the root filter ONCE, before the
+		// loop. Only string-keyed maps participate — the filter is name-based.
+		fmt.Fprintf(buf, "\tkf := d.takeKeyFilter()\n")
+	}
 	fmt.Fprintf(buf, "\tfor range n {\n")
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.readKey("k")))
+	if p.K.suffix == "String" {
+		fmt.Fprintf(buf, "\t\tif !kf.want(k) {\n\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n")
+	}
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.readBlock("v")))
 	fmt.Fprintf(buf, "\t\tm[k] = v\n")
 	fmt.Fprintf(buf, "\t}\n\t*(*%s)(p) = m\n\treturn nil\n}\n\n", mapTy)

@@ -1069,7 +1069,16 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 			// for every entry (and across rows) — no reflect.New per entry.
 			kh, vh, vp, pooled := d.state.mapDec.acquire(keyType, valType)
 			defer d.state.mapDec.release(pooled)
+			// UnmarshalKeys projection: consume the root filter ONCE so the
+			// values and Skip below decode unfiltered.
+			kf := d.takeKeyFilter()
 			for _, name := range names {
+				if !kf.want(name) {
+					if err := d.Skip(); err != nil {
+						return err
+					}
+					continue
+				}
 				kh.SetString(name)
 				// Reset the value holder each entry: a slice-backed value type
 				// would otherwise have its backing array reused across entries
@@ -1103,9 +1112,21 @@ func decodeMap(t reflect.Type, k, v *typeDesc) func(*Decoder, unsafe.Pointer) er
 		vv := reflect.New(valType).Elem()
 		kp := unsafe.Pointer(kv.UnsafeAddr())
 		vp := unsafe.Pointer(vv.UnsafeAddr())
+		// UnmarshalKeys projection, consumed once (string keys only — the
+		// filter is name-based).
+		var kf keyFilter
+		if keyType.Kind() == reflect.String {
+			kf = d.takeKeyFilter()
+		}
 		for range n {
 			if err := k.decode(d, kp); err != nil {
 				return err
+			}
+			if !kf.want(kv.String()) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
 			}
 			// Reset the value holder each entry so a slice-backed value type does
 			// not reuse the previous entry's backing array (reuseOrMakeSlice keeps
