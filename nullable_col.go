@@ -145,18 +145,18 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	st := e.state
 	maskBytes := (n + 7) >> 3
 	var mask []byte
-	if cap(st.colMaskScratch) >= maskBytes {
-		mask = st.colMaskScratch[:maskBytes]
+	if cur := st.colMaskScratch.get(); cap(cur) >= maskBytes {
+		mask = cur[:maskBytes]
 		clear(mask)
 	} else {
 		mask = make([]byte, maskBytes)
 	}
-	st.colMaskScratch = mask
+	st.colMaskScratch.set(mask)
 	stride, off := plan.stride, col.offset
 
 	switch col.kind.base() {
 	case colKindInt:
-		s := st.colScratchI64[:0]
+		s := st.colScratchI64.get()[:0]
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
 			if pp != nil {
@@ -164,11 +164,11 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 				s = append(s, loadI64At(pp, col.width))
 			}
 		}
-		st.colScratchI64 = s
+		st.colScratchI64.set(s)
 		e.buf = append(e.buf, mask...)
 		return encodeSliceInt64(e, unsafe.Pointer(&s))
 	case colKindUint:
-		s := st.colScratchU64[:0]
+		s := st.colScratchU64.get()[:0]
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
 			if pp != nil {
@@ -176,13 +176,13 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 				s = append(s, loadU64At(pp, col.width))
 			}
 		}
-		st.colScratchU64 = s
+		st.colScratchU64.set(s)
 		e.buf = append(e.buf, mask...)
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindFloat32:
 		// float32: loadU64At(width==4) reads *(*uint32) — the raw f32 bits — so
 		// the uint codec carries them losslessly (NaN payloads survive).
-		s := st.colScratchU64[:0]
+		s := st.colScratchU64.get()[:0]
 		canon := e.opts.Has(OptCanonical)
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
@@ -195,11 +195,11 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 				s = append(s, bits)
 			}
 		}
-		st.colScratchU64 = s
+		st.colScratchU64.set(s)
 		e.buf = append(e.buf, mask...)
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindFloat:
-		s := st.colScratchF64[:0]
+		s := st.colScratchF64.get()[:0]
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
 			if pp != nil {
@@ -207,13 +207,13 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 				s = append(s, loadF64At(pp, col.width))
 			}
 		}
-		st.colScratchF64 = s
+		st.colScratchF64.set(s)
 		e.buf = append(e.buf, mask...)
 		// Lossless: a SCALAR *float64 column must never become lossy under
 		// OptLossyVec (which targets genuine []float64/[]float32 VECTOR fields).
 		return encodeSliceFloat64Lossless(e, s)
 	case colKindBool:
-		s := st.colScratchBool[:0]
+		s := st.colScratchBool.get()[:0]
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
 			if pp != nil {
@@ -221,11 +221,11 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 				s = append(s, *(*bool)(pp))
 			}
 		}
-		st.colScratchBool = s
+		st.colScratchBool.set(s)
 		e.buf = append(e.buf, mask...)
 		return encodeSliceBool(e, unsafe.Pointer(&s))
 	case colKindString:
-		s := st.colScratchStr[:0]
+		s := st.colScratchStr.get()[:0]
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
 			if pp != nil {
@@ -233,15 +233,15 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 				s = append(s, *(*string)(pp))
 			}
 		}
-		st.colScratchStr = s
+		st.colScratchStr.set(s)
 		e.buf = append(e.buf, mask...)
 		e.writeStringColumn(s)
 		return nil
 	case colKindTime:
 		// Gather present *time.Time values into sec+nsec dense sub-columns,
 		// mirroring the non-nullable colKindTime encoder in encodeColumnar.
-		sec := st.colScratchI64[:0]
-		nsec := st.colScratchU64[:0]
+		sec := st.colScratchI64.get()[:0]
+		nsec := st.colScratchU64.get()[:0]
 		for i := range n {
 			pp := *(*unsafe.Pointer)(unsafe.Add(base, uintptr(i)*stride+off))
 			if pp != nil {
@@ -251,8 +251,8 @@ func (e *Encoder) encodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 				nsec = append(nsec, uint64(t.Nanosecond()))
 			}
 		}
-		st.colScratchI64 = sec
-		st.colScratchU64 = nsec
+		st.colScratchI64.set(sec)
+		st.colScratchU64.set(nsec)
 		e.buf = append(e.buf, mask...)
 		if err := encodeSliceInt64(e, unsafe.Pointer(&sec)); err != nil {
 			return err

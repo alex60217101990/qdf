@@ -272,3 +272,48 @@ func BenchmarkProfileRSS(b *testing.B) {
 		b.ReportMetric(float64(last), "heap_inuse_B")
 	})
 }
+
+// TestScratchReleasedUnderPressure pins the property work item B relies on:
+// after a burst of large messages, a pooled encoder must not still be holding
+// the large columnar scratch once the collector has run. With the scratch
+// behind a weak reference the collector reclaims it; with a fixed threshold it
+// is held until enough small messages pass.
+func TestScratchReleasedUnderPressure(t *testing.T) {
+	big := mkLogProfile(65536)
+	for i := 0; i < 20; i++ {
+		blob, err := Marshal(big, OptBalanced)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []logProfileRow
+		if err := Unmarshal(blob, &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime.GC()
+	runtime.GC()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	after := ms.HeapInuse
+
+	small := mkLogProfile(16)
+	for i := 0; i < 100; i++ {
+		blob, err := Marshal(small, OptBalanced)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []logProfileRow
+		if err := Unmarshal(blob, &out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime.GC()
+	runtime.GC()
+	runtime.ReadMemStats(&ms)
+	settled := ms.HeapInuse
+
+	t.Logf("after burst: %d bytes, after 100 small messages: %d bytes", after, settled)
+	if settled > after {
+		t.Fatalf("resident memory grew after the burst subsided: %d -> %d", after, settled)
+	}
+}

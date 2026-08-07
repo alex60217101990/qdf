@@ -733,8 +733,8 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 	}
 	switch col.kind {
 	case colKindInt:
-		s := gatherColI64(st.colScratchI64, base, plan.stride, col, n)
-		st.colScratchI64 = s
+		s := gatherColI64(st.colScratchI64.get(), base, plan.stride, col, n)
+		st.colScratchI64.set(s)
 		// OptZoneMap: zone-chunk the column with a min/max zonemap for predicate
 		// zone-skip (columnar-only, explicit size-for-query-speed opt-in).
 		if e.zonemap && n >= zoneChunkMinLen {
@@ -743,19 +743,19 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 		}
 		return encodeSliceInt64(e, unsafe.Pointer(&s))
 	case colKindUint:
-		s := gatherColU64(st.colScratchU64, base, plan.stride, col, n)
-		st.colScratchU64 = s
+		s := gatherColU64(st.colScratchU64.get(), base, plan.stride, col, n)
+		st.colScratchU64.set(s)
 		if e.zonemap && n >= zoneChunkMinLen {
 			e.writeZoneChunkUint64(s)
 			return nil
 		}
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindFloat:
-		s := st.colScratchF64[:0]
+		s := st.colScratchF64.get()[:0]
 		for i := range n {
 			s = append(s, loadFloat64Field(base, plan.stride, col, i))
 		}
-		st.colScratchF64 = s
+		st.colScratchF64.set(s)
 		// OptZoneMap: zone-chunk with a finite min/max zonemap for predicate
 		// zone-skip (lossless per zone). Lossless regardless: a SCALAR float64
 		// column must never become lossy, even under OptLossyVec.
@@ -769,7 +769,7 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 	case colKindFloat32:
 		// float32 column: store raw 32-bit patterns via the uint codec (4 B,
 		// bit-exact). Reuses the u64 scratch — the high 32 bits are always zero.
-		s := st.colScratchU64[:0]
+		s := st.colScratchU64.get()[:0]
 		if e.opts.Has(OptCanonical) {
 			for i := range n {
 				s = append(s, canonicalizeFloat32Bits(loadFloat32Bits(base, plan.stride, col, i)))
@@ -779,15 +779,15 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 				s = append(s, loadFloat32Bits(base, plan.stride, col, i))
 			}
 		}
-		st.colScratchU64 = s
+		st.colScratchU64.set(s)
 		return encodeSliceUint64(e, unsafe.Pointer(&s))
 	case colKindBool:
-		s := st.colScratchBool[:0]
+		s := st.colScratchBool.get()[:0]
 		for i := range n {
 			p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
 			s = append(s, *(*bool)(p))
 		}
-		st.colScratchBool = s
+		st.colScratchBool.set(s)
 		return encodeSliceBool(e, unsafe.Pointer(&s))
 	case colKindString:
 		if col.isByte {
@@ -797,26 +797,26 @@ func (e *Encoder) encodeOneColumn(plan *columnarPlan, base unsafe.Pointer, col *
 			}
 			return nil
 		}
-		s := st.colScratchStr[:0]
+		s := st.colScratchStr.get()[:0]
 		for i := range n {
 			s = append(s, loadStringField(base, plan.stride, col, i))
 		}
-		st.colScratchStr = s
+		st.colScratchStr.set(s)
 		e.writeStringColumn(s)
 		return nil
 	case colKindTime:
 		// Two sub-columns: sec ([]int64) + nsec ([]uint64). Delta+FOR on sec
 		// compresses monotonic timestamp series efficiently.
-		sec := st.colScratchI64[:0]
-		nsec := st.colScratchU64[:0]
+		sec := st.colScratchI64.get()[:0]
+		nsec := st.colScratchU64.get()[:0]
 		for i := range n {
 			p := unsafe.Add(base, uintptr(i)*plan.stride+col.offset)
 			t := (*time.Time)(p).UTC()
 			sec = append(sec, t.Unix())
 			nsec = append(nsec, uint64(t.Nanosecond()))
 		}
-		st.colScratchI64 = sec
-		st.colScratchU64 = nsec
+		st.colScratchI64.set(sec)
+		st.colScratchU64.set(nsec)
 		if err := encodeSliceInt64(e, unsafe.Pointer(&sec)); err != nil {
 			return err
 		}

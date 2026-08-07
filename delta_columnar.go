@@ -201,11 +201,11 @@ func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintp
 				// the discarded positional body. Gather the whole column and emit a
 				// wire-stateless dict/raw body instead. Non-string kinds are stateless
 				// and use encodeOneColumn unchanged.
-				s := st.colScratchStr[:0]
+				s := st.colScratchStr.get()[:0]
 				for i := range n {
 					s = append(s, loadStringField(newData, stride, col, i))
 				}
-				st.colScratchStr = s
+				st.colScratchStr.set(s)
 				enc.writeStringColumnStateless(s)
 			} else {
 				err = enc.encodeOneColumn(plan, newData, col, n)
@@ -449,25 +449,25 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 	st := enc.state
 	switch col.kind {
 	case colKindInt:
-		s := st.colScratchI64[:0]
+		s := st.colScratchI64.get()[:0]
 		for _, r := range rows {
 			s = append(s, loadIntCell(col, stride, newData, r))
 		}
-		st.colScratchI64 = s
+		st.colScratchI64.set(s)
 		return encodeSliceInt64(enc, unsafe.Pointer(&s))
 	case colKindUint:
-		s := st.colScratchU64[:0]
+		s := st.colScratchU64.get()[:0]
 		for _, r := range rows {
 			s = append(s, loadUintCell(col, stride, newData, r))
 		}
-		st.colScratchU64 = s
+		st.colScratchU64.set(s)
 		return encodeSliceUint64(enc, unsafe.Pointer(&s))
 	case colKindFloat:
-		s := st.colScratchF64[:0]
+		s := st.colScratchF64.get()[:0]
 		for _, r := range rows {
 			s = append(s, loadFloat64Field(newData, stride, col, r))
 		}
-		st.colScratchF64 = s
+		st.colScratchF64.set(s)
 		// Lossless: a SCALAR float64 column must never become lossy under
 		// OptLossyVec (which targets genuine []float64/[]float32 VECTOR fields).
 		return encodeSliceFloat64Lossless(enc, s)
@@ -476,7 +476,7 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 		// which never re-floats them — so the canonical -0.0/NaN normalization that
 		// columnar.go applies must be repeated here under OptCanonical.
 		canon := enc.opts.Has(OptCanonical)
-		s := st.colScratchU64[:0]
+		s := st.colScratchU64.get()[:0]
 		for _, r := range rows {
 			bits := loadFloat32Bits(newData, stride, col, r)
 			if canon {
@@ -484,39 +484,39 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 			}
 			s = append(s, bits)
 		}
-		st.colScratchU64 = s
+		st.colScratchU64.set(s)
 		return encodeSliceUint64(enc, unsafe.Pointer(&s))
 	case colKindBool:
-		s := st.colScratchBool[:0]
+		s := st.colScratchBool.get()[:0]
 		for _, r := range rows {
 			p := unsafe.Add(newData, uintptr(r)*stride+col.offset)
 			s = append(s, *(*bool)(p))
 		}
-		st.colScratchBool = s
+		st.colScratchBool.set(s)
 		return encodeSliceBool(enc, unsafe.Pointer(&s))
 	case colKindString:
 		// Both string and []byte columns gather the changed cells into a []string
 		// and emit a wire-stateless dict/raw body (never the intern fallback). A
 		// []byte field is viewed as a string via loadStringField (col.isByte), so
 		// the same codec handles both; the decoder copies back to owned bytes.
-		s := st.colScratchStr[:0]
+		s := st.colScratchStr.get()[:0]
 		for _, r := range rows {
 			s = append(s, loadStringField(newData, stride, col, r))
 		}
-		st.colScratchStr = s
+		st.colScratchStr.set(s)
 		enc.writeStringColumnStateless(s)
 		return nil
 	case colKindTime:
-		sec := st.colScratchI64[:0]
-		nsec := st.colScratchU64[:0]
+		sec := st.colScratchI64.get()[:0]
+		nsec := st.colScratchU64.get()[:0]
 		for _, r := range rows {
 			p := unsafe.Add(newData, uintptr(r)*stride+col.offset)
 			tt := (*time.Time)(p).UTC()
 			sec = append(sec, tt.Unix())
 			nsec = append(nsec, uint64(tt.Nanosecond()))
 		}
-		st.colScratchI64 = sec
-		st.colScratchU64 = nsec
+		st.colScratchI64.set(sec)
+		st.colScratchU64.set(nsec)
 		if err := encodeSliceInt64(enc, unsafe.Pointer(&sec)); err != nil {
 			return err
 		}
@@ -534,30 +534,32 @@ func encodeDeltaColumn(enc *Encoder, col *colColumn,
 	case colKindInt:
 		// Gather new and old contiguously (each gather hoists the width switch
 		// once), then a vectorizable subtract — no per-element width branch.
-		cur := gatherColI64(st.colScratchI64, newData, stride, col, n)
+		cur := gatherColI64(st.colScratchI64.get(), newData, stride, col, n)
 		prev := gatherColI64(st.deltaColAuxI64, oldData, stride, col, n)
-		st.colScratchI64, st.deltaColAuxI64 = cur, prev
+		st.colScratchI64.set(cur)
+		st.deltaColAuxI64 = prev
 		for i := range cur {
 			cur[i] -= prev[i]
 		}
 		return encodeSliceInt64(enc, unsafe.Pointer(&cur))
 	case colKindUint:
-		cur := gatherColU64(st.colScratchU64, newData, stride, col, n)
+		cur := gatherColU64(st.colScratchU64.get(), newData, stride, col, n)
 		prev := gatherColU64(st.deltaColAuxU64, oldData, stride, col, n)
-		st.colScratchU64, st.deltaColAuxU64 = cur, prev
+		st.colScratchU64.set(cur)
+		st.deltaColAuxU64 = prev
 		for i := range cur {
 			cur[i] -= prev[i]
 		}
 		return encodeSliceUint64(enc, unsafe.Pointer(&cur))
 	case colKindBool:
 		// changed-flag column: true where the cell flipped. Apply XORs base where set.
-		s := st.colScratchBool[:0]
+		s := st.colScratchBool.get()[:0]
 		for i := range n {
 			po := unsafe.Add(oldData, uintptr(i)*stride+col.offset)
 			pn := unsafe.Add(newData, uintptr(i)*stride+col.offset)
 			s = append(s, *(*bool)(po) != *(*bool)(pn))
 		}
-		st.colScratchBool = s
+		st.colScratchBool.set(s)
 		return encodeSliceBool(enc, unsafe.Pointer(&s))
 	}
 	return ErrInvalidPatch
