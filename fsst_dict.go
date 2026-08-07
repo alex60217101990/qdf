@@ -76,6 +76,7 @@ func marshalDict(v any, opts Options, dict *fsst.SymbolTable) ([]byte, error) {
 	var out []byte
 	if cap(enc.buf) > marshalDetachThreshold {
 		out = enc.buf
+		enc.noteDetached(out)
 		enc.buf = nil
 	} else {
 		out = slices.Clone(enc.buf)

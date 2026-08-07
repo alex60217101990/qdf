@@ -38,6 +38,7 @@ func MarshalDirect[T Marshaler](v T) ([]byte, error) {
 	// caller instead of paying a multi-megabyte slices.Clone. Small payloads
 	// stay on the clone path so the warm pool buffer survives. Mirrors Marshal.
 	if cap(out) > marshalDetachThreshold {
+		enc.noteDetached(out)
 		enc.buf = nil
 		putEnc(enc, &encPool)
 		return out, nil

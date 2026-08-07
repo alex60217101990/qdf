@@ -35,6 +35,7 @@ func MarshalT[T any](v T, opts Options) ([]byte, error) {
 	var out []byte
 	if cap(enc.buf) > marshalDetachThreshold {
 		out = enc.buf
+		enc.noteDetached(out)
 		enc.buf = nil
 	} else {
 		out = slices.Clone(enc.buf)
