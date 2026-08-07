@@ -81,14 +81,18 @@ const ptrInternInit = 64
 func (e *encState) ptrIndexReset() {
 	clear(e.ptrIndex)
 	e.ptrIndex = e.ptrIndex[:0]
+	// ptrCount tracks occupancy for the load-factor check in ptrRecord; leaving
+	// it at its pre-reset value after the slots above are cleared makes
+	// ptrRecord believe the table is as full as it was last message, growing
+	// it on a phantom load that no longer exists and never letting it shrink.
+	e.ptrCount = 0
 }
 
 // ptrIndexSlot returns the slot s hashes to, probing linearly past collisions.
-// The index is kept under half load so chains stay short.
+// The index is kept under half load so chains stay short. Both call sites
+// (ptrLookup's len==0 short-circuit, ptrRecord's grow-before-insert) already
+// guarantee cap(e.ptrIndex) != 0 here, so there is no zero-cap case to handle.
 func (e *encState) ptrIndexSlot(sp unsafe.Pointer, n uintptr) *ptrInternSlot {
-	if cap(e.ptrIndex) == 0 {
-		e.ptrIndex = make([]ptrInternSlot, ptrInternInit)
-	}
 	e.ptrIndex = e.ptrIndex[:cap(e.ptrIndex)]
 	mask := uint64(len(e.ptrIndex) - 1)
 	h := (uint64(uintptr(sp))>>3)*0x9E3779B97F4A7C15 + uint64(n)

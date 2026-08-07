@@ -316,3 +316,25 @@ func TestPtrInternIndex(t *testing.T) {
 		t.Fatal("index answered after reset")
 	}
 }
+
+// TestPtrInternIndexResetBoundsCapacity catches a regression where
+// ptrIndexReset clears the slots but leaves ptrCount (the load-factor
+// counter ptrRecord reads before deciding whether to grow) at its
+// pre-reset value. Live occupancy never exceeds 3 entries at a time here,
+// but a leaked ptrCount accumulates across cycles and eventually crosses
+// the half-load threshold on a load that no longer exists, growing the
+// table on a phantom load that never shrinks back.
+func TestPtrInternIndexResetBoundsCapacity(t *testing.T) {
+	st := newEncState()
+	const cycles = 300
+	for i := 0; i < cycles; i++ {
+		for j := 0; j < 3; j++ {
+			s := strconv.Itoa(i) + "_" + strconv.Itoa(j) + "_probe"
+			st.ptrRecord(s, uint32(j))
+		}
+		st.ptrIndexReset()
+	}
+	if cap(st.ptrIndex) > ptrInternInit {
+		t.Fatalf("index capacity grew to %d after %d record-then-reset cycles of 3 live entries each; want <= %d (ptrCount leaking across ptrIndexReset)", cap(st.ptrIndex), cycles, ptrInternInit)
+	}
+}
