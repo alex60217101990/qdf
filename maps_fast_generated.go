@@ -73,7 +73,14 @@ func decodeMapStringString(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, string](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			v, err := d.ReadString()
 			if err != nil {
 				return err
@@ -91,12 +98,19 @@ func decodeMapStringString(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, string](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := d.ReadString()
 		if err != nil {
 			return err
@@ -171,7 +185,14 @@ func decodeMapStringBool(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, bool](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			v, err := d.ReadBool()
 			if err != nil {
 				return err
@@ -189,12 +210,19 @@ func decodeMapStringBool(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, bool](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := d.ReadBool()
 		if err != nil {
 			return err
@@ -269,7 +297,14 @@ func decodeMapStringInt8(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, int8](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadInt()
 			if err != nil {
 				return err
@@ -288,12 +323,19 @@ func decodeMapStringInt8(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, int8](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadInt()
 		if err != nil {
 			return err
@@ -369,7 +411,14 @@ func decodeMapStringInt16(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, int16](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadInt()
 			if err != nil {
 				return err
@@ -388,12 +437,19 @@ func decodeMapStringInt16(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, int16](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadInt()
 		if err != nil {
 			return err
@@ -469,7 +525,14 @@ func decodeMapStringInt32(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, int32](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadInt()
 			if err != nil {
 				return err
@@ -488,12 +551,19 @@ func decodeMapStringInt32(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, int32](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadInt()
 		if err != nil {
 			return err
@@ -569,7 +639,14 @@ func decodeMapStringInt(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, int](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadInt()
 			if err != nil {
 				return err
@@ -588,12 +665,19 @@ func decodeMapStringInt(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, int](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadInt()
 		if err != nil {
 			return err
@@ -669,7 +753,14 @@ func decodeMapStringInt64(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, int64](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			v, err := d.ReadInt()
 			if err != nil {
 				return err
@@ -687,12 +778,19 @@ func decodeMapStringInt64(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, int64](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := d.ReadInt()
 		if err != nil {
 			return err
@@ -767,7 +865,14 @@ func decodeMapStringUint8(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, uint8](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadUint()
 			if err != nil {
 				return err
@@ -786,12 +891,19 @@ func decodeMapStringUint8(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, uint8](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadUint()
 		if err != nil {
 			return err
@@ -867,7 +979,14 @@ func decodeMapStringUint16(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, uint16](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadUint()
 			if err != nil {
 				return err
@@ -886,12 +1005,19 @@ func decodeMapStringUint16(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, uint16](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadUint()
 		if err != nil {
 			return err
@@ -967,7 +1093,14 @@ func decodeMapStringUint32(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, uint32](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadUint()
 			if err != nil {
 				return err
@@ -986,12 +1119,19 @@ func decodeMapStringUint32(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, uint32](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadUint()
 		if err != nil {
 			return err
@@ -1067,7 +1207,14 @@ func decodeMapStringUint(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, uint](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			vWide, err := d.ReadUint()
 			if err != nil {
 				return err
@@ -1086,12 +1233,19 @@ func decodeMapStringUint(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, uint](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		vWide, err := d.ReadUint()
 		if err != nil {
 			return err
@@ -1167,7 +1321,14 @@ func decodeMapStringUint64(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, uint64](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			v, err := d.ReadUint()
 			if err != nil {
 				return err
@@ -1185,12 +1346,19 @@ func decodeMapStringUint64(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, uint64](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := d.ReadUint()
 		if err != nil {
 			return err
@@ -1265,7 +1433,14 @@ func decodeMapStringFloat32(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, float32](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			v, err := d.ReadFloat32()
 			if err != nil {
 				return err
@@ -1283,12 +1458,19 @@ func decodeMapStringFloat32(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, float32](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := d.ReadFloat32()
 		if err != nil {
 			return err
@@ -1363,7 +1545,14 @@ func decodeMapStringFloat64(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, float64](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			v, err := d.ReadFloat64()
 			if err != nil {
 				return err
@@ -1381,12 +1570,19 @@ func decodeMapStringFloat64(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, float64](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := d.ReadFloat64()
 		if err != nil {
 			return err
@@ -1473,7 +1669,14 @@ func decodeMapStringBytes(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, []byte](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			var v []byte
 			vTag, err := d.peekTag()
 			if err != nil {
@@ -1500,12 +1703,19 @@ func decodeMapStringBytes(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, []byte](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		var v []byte
 		vTag, err := d.peekTag()
 		if err != nil {
@@ -1610,7 +1820,14 @@ func decodeMapStringStringSlice(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, []string](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			var v []string
 			vTag, err := d.peekTag()
 			if err != nil {
@@ -1648,12 +1865,19 @@ func decodeMapStringStringSlice(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, []string](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		var v []string
 		vTag, err := d.peekTag()
 		if err != nil {
@@ -1754,7 +1978,14 @@ func decodeMapStringAny(d *Decoder, p unsafe.Pointer) error {
 			return err
 		}
 		m := reuseOrMakeMap[string, any](d, p, len(names))
+		kf := d.takeKeyFilter()
 		for _, k := range names {
+			if !kf.want(k) {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			v, err := decodeAny(d)
 			if err != nil {
 				return err
@@ -1772,12 +2003,19 @@ func decodeMapStringAny(d *Decoder, p unsafe.Pointer) error {
 		return err
 	}
 	m := reuseOrMakeMap[string, any](d, p, n)
+	kf := d.takeKeyFilter()
 	for range n {
 		kb, err := d.readStringBytes()
 		if err != nil {
 			return err
 		}
 		k := d.keyCache.Make(kb)
+		if !kf.want(k) {
+			if err := d.Skip(); err != nil {
+				return err
+			}
+			continue
+		}
 		v, err := decodeAny(d)
 		if err != nil {
 			return err

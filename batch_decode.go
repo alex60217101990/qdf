@@ -213,6 +213,7 @@ func tryDecodeBatchColumnar(data []byte, plan *batchPlan, slab *batchSlab, rows 
 	d.noCopy = true
 	d.arena = nil
 	d.selectFields = nil
+	d.selectKeys = nil
 	d.query = nil
 	if d.state != nil {
 		d.state.reset()
@@ -281,6 +282,7 @@ func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows 
 	d.noCopy = true
 	d.arena = nil
 	d.selectFields = nil
+	d.selectKeys = nil
 	d.query = nil
 	if d.state != nil {
 		d.state.reset()

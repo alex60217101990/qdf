@@ -89,6 +89,7 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	// in unmarshal / unmarshalQuery — UnmarshalT shares the same decoder pool).
 	dec.colMaxLen = 0
 	dec.selectFields = nil
+	dec.selectKeys = nil
 	dec.query = nil
 	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {

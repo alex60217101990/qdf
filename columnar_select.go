@@ -1,6 +1,9 @@
 package qdf
 
-import "slices"
+import (
+	"reflect"
+	"slices"
+)
 
 // wantedColumns maps each WIRE column index to the target plan column to
 // decode it into, or nil to skip. Matched by field name. Wire columns whose
@@ -36,8 +39,98 @@ func UnmarshalColumns(data []byte, out any, fields ...string) error {
 // wantField reports whether name is in the active selectFields filter. A nil
 // filter wants every column (no filtering).
 func (d *Decoder) wantField(name string) bool {
-	if d.selectFields == nil {
+	if len(d.selectFields) == 0 {
 		return true
 	}
 	return slices.Contains(d.selectFields, name)
+}
+
+// keyFilter is the consumed form of an UnmarshalKeys projection. The zero
+// value wants every key, so an absent filter costs one nil check.
+type keyFilter struct {
+	list []string
+	set  map[string]struct{} // built only for large lists, see takeKeyFilter
+}
+
+// keyFilterSetMin is where linear scanning stops paying. Map entry counts are
+// data-driven (an attacker picks them), so a large key list must not turn a
+// projection into O(keys x entries).
+const keyFilterSetMin = 16
+
+// takeKeyFilter consumes the pending UnmarshalKeys projection. It is one-shot:
+// the root map's decode loop takes it, and every nested decode — values, Skip,
+// nested maps, columnar containers — then runs unfiltered. Sharing one filter
+// field with the columnar column names, and clearing it per value rather than
+// once per map, produced three separate silent-data-loss bugs; this shape has
+// neither hazard.
+func (d *Decoder) takeKeyFilter() keyFilter {
+	keys := d.selectKeys
+	if len(keys) == 0 {
+		return keyFilter{}
+	}
+	d.selectKeys = nil
+	f := keyFilter{list: keys}
+	if len(keys) >= keyFilterSetMin {
+		f.set = make(map[string]struct{}, len(keys))
+		for _, k := range keys {
+			f.set[k] = struct{}{}
+		}
+	}
+	return f
+}
+
+// want reports whether name survives the filter. The zero filter wants all.
+func (f keyFilter) want(name string) bool {
+	if f.list == nil {
+		return true
+	}
+	if f.set != nil {
+		_, ok := f.set[name]
+		return ok
+	}
+	return slices.Contains(f.list, name)
+}
+
+// UnmarshalKeys decodes only the named keys of a map-rooted payload into out,
+// skipping every other entry's value without decoding it. out must point at a
+// string-keyed map (or at an interface, for the dynamic form) — the projection
+// is defined on the ROOT map only, and values decode in full, so a nested map
+// inside a selected value keeps all of its keys.
+//
+// This is the projection path for payloads whose member names are dynamic — a
+// model checkpoint keyed by tensor name, a metrics blob keyed by series —
+// where a typed subset struct (which Unmarshal already projects through Skip)
+// cannot be written ahead of time. Skipping is far cheaper than decoding: on a
+// 64-tensor checkpoint, taking two tensors runs ~27x faster than a full decode
+// under OptBalanced. Under OptRANS the gain is much smaller (~2x): the entropy
+// pass has to inflate the whole message before any entry can be skipped.
+//
+// With no keys it behaves like Unmarshal.
+func UnmarshalKeys(data []byte, out any, keys ...string) error {
+	if len(keys) == 0 {
+		return Unmarshal(data, out)
+	}
+	if !rootTakesKeyFilter(out) {
+		return ErrTypeMismatch
+	}
+	return unmarshalKeys(data, out, keys)
+}
+
+// rootTakesKeyFilter reports whether out roots a payload the key projection is
+// defined for: a pointer to a string-keyed map, or to an interface (the
+// dynamic map[string]any form). Anything else would let the filter land on a
+// map nested at an arbitrary depth, which is not what the caller asked for.
+func rootTakesKeyFilter(out any) bool {
+	t := reflect.TypeOf(out)
+	if t == nil || t.Kind() != reflect.Pointer {
+		return false
+	}
+	switch e := t.Elem(); e.Kind() {
+	case reflect.Interface:
+		return true
+	case reflect.Map:
+		return e.Key().Kind() == reflect.String
+	default:
+		return false
+	}
 }
