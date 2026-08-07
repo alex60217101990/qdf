@@ -85,7 +85,7 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	}
 
 	// Compress all rows into one scratch buffer, recording per-row lengths.
-	comp := e.state.fsstScratch.get()[:0]
+	comp := e.state.fsstScratch[:0]
 	compLens := e.state.fsstLens[:0]
 	decompTotal := 0
 	for _, s := range strs {
@@ -94,7 +94,7 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 		compLens = append(compLens, len(comp)-before)
 		decompTotal += len(s)
 	}
-	e.state.fsstScratch.set(comp)
+	e.state.fsstScratch = comp
 	e.state.fsstLens = compLens
 
 	// Block size = tag + table + uvarint(n) + uvarint(decompTotal)

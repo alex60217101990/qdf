@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"unsafe"
-	"weak"
 
 	"github.com/alex60217101990/qdf/internal/internarena"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
@@ -215,17 +214,13 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// within a stream. kinds carry residualKind (0xFF) for residual fields.
 	hybridShapeNames [][]string
 	hybridShapeKinds [][]colKind
-	// Pooled transpose scratch, reused across columns and across calls. Held
-	// via a weak reference (colScratchRef) rather than the maxRetainedColScratch
-	// hard cap: nothing strongly retains the backing between messages, so the
-	// collector reclaims it directly under memory pressure instead of pinning
-	// it until a fixed threshold trips.
-	colScratchI64  colScratchRef[int64]
-	colScratchU64  colScratchRef[uint64]
-	colScratchF64  colScratchRef[float64]
-	colScratchBool colScratchRef[bool]
-	colScratchF32  colScratchRef[float32] // codegen columnar float32 gather scratch
-	colScratchStr  colScratchRef[string]  // gathered string column values
+	// Pooled transpose scratch, reused across columns and across calls.
+	colScratchI64  []int64
+	colScratchU64  []uint64
+	colScratchF64  []float64
+	colScratchBool []bool
+	colScratchF32  []float32 // codegen columnar float32 gather scratch
+	colScratchStr  []string  // gathered string column values
 	// Canonical map-key sort scratch (OptCanonical), reused across maps; adaptive
 	// retention (dropped when oversized in the encoder pool reset, like
 	// colScratch*). Pointer-free numeric scratch needs no clear; canonKeysStr
@@ -250,12 +245,10 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// a vectorizable subtract instead of two per-element width switches.
 	deltaColAuxI64 []int64
 	deltaColAuxU64 []uint64
-	colDictTable   colScratchRef[string] // distinct table for the string-dict codec
-	colMaskScratch colScratchRef[byte]   // presence bitmap for nullable columns
+	colDictTable   []string // distinct table for the string-dict codec
+	colMaskScratch []byte   // presence bitmap for nullable columns
 	// FSST codec scratch, reused across columns (same lifetime as colDictTable).
-	// fsstScratch is weak-referenced like colScratch* above; fsstLens is a
-	// small pointer-free companion still governed by maxRetainedColScratch.
-	fsstScratch colScratchRef[byte]
+	fsstScratch []byte   // compressed bytes for all rows, concatenated
 	fsstLens    []int    // per-row compressed lengths
 	fsstSamples [][]byte // per-column []byte views fed to the FSST trainer
 	// strDictMap maps a string column's distinct values to dense indices
@@ -436,44 +429,14 @@ const (
 	retainReleaseStreak = 8
 
 	// maxRetainedColScratch hard-caps the row-count-scaled columnar scratch
-	// arrays that are still held as plain slices (deltaColAux*, deltaColBitmap/
-	// Rows/Buf, canonKeys*, canonFloat*, fsstLens/fsstSamples, and the decoder's
-	// own colScratch* family): a backing larger than this is dropped, bounding
-	// worst-case pooled memory after a one-off giant columnar batch. 1<<17
-	// (131072 rows) covers any realistic batch while capping the per-encoder
-	// pin at ~2 MB for a []string scratch (16 B/elem). The encoder's
-	// colScratch*/colDictTable/colMaskScratch/fsstScratch instead go through
-	// colScratchRef (weak.Pointer): nothing holds them strongly between
-	// messages, so the collector reclaims them under pressure directly rather
-	// than needing this fixed ceiling at all. The intern/LRU/pair arrays need
-	// no ceiling either — maxStateEntries (≤ 0xFFFF) already bounds them.
+	// arrays (colScratch*, colDictTable, colMaskScratch, fsstScratch): a
+	// backing larger than this is dropped, bounding worst-case pooled memory
+	// after a one-off giant columnar batch. 1<<17 (131072 rows) covers any
+	// realistic batch while capping the per-encoder pin at ~2 MB for the
+	// []string scratch (16 B/elem). The intern/LRU/pair arrays need no such
+	// ceiling — maxStateEntries (≤ 0xFFFF) already bounds them to ~1-4 MB.
 	maxRetainedColScratch = 1 << 17
 )
-
-// colScratchRef is a weak-referenced scratch buffer for the row-count-scaled
-// columnar transpose arrays (encState's colScratch*, colDictTable,
-// colMaskScratch, fsstScratch). Nothing keeps the backing array strongly
-// reachable between messages — the returned slice from get()/set() lives only
-// as long as its caller's local use of it — so the collector is free to
-// reclaim a large backing under memory pressure instead of waiting for it to
-// cross a fixed threshold like maxRetainedColScratch. get returns nil once the
-// backing has been collected (or was never set); every call site already
-// treats a short/nil buffer as a cache miss and grows/reallocates it, exactly
-// as it did when reset() dropped an oversized backing to nil.
-type colScratchRef[T any] struct {
-	p weak.Pointer[[]T]
-}
-
-func (r *colScratchRef[T]) get() []T {
-	if p := r.p.Value(); p != nil {
-		return *p
-	}
-	return nil
-}
-
-func (r *colScratchRef[T]) set(v []T) {
-	r.p = weak.Make(&v)
-}
 
 func (e *encState) reset() {
 	// Adaptive retention. A pooled encoder that just handled a large
@@ -605,12 +568,30 @@ func (e *encState) reset() {
 		e.hybridShapeNames = e.hybridShapeNames[:0]
 		e.hybridShapeKinds = e.hybridShapeKinds[:0]
 	}
-	// Row-scaled columnar scratch (colScratch*, colDictTable, colMaskScratch,
-	// fsstScratch) no longer needs a reset()-time cap: each is a colScratchRef
-	// (weak.Pointer) now, so nothing here holds it strongly between messages
-	// and the collector reclaims an oversized backing on its own under memory
-	// pressure, rather than reset() having to drop it past a fixed threshold.
-	//
+	// Row-scaled columnar scratch: retained across batches (amortizes a steady
+	// columnar workload, whose row count is independent of internLoad), dropped
+	// only past the hard ceiling so a one-off giant batch can't pin unbounded
+	// memory. sync.Pool's GC eviction reclaims it when the encoder goes idle.
+	// Each backing grows on its own per-column-type demand (a batch of only
+	// float64 columns grows colScratchF64 while colScratchI64 stays at 0), so
+	// gate each independently — a single check keyed on colScratchI64 would miss
+	// an oversized U64/F64/Bool backing and pin double the intended scratch (same
+	// class as the deltaColAux* fix below).
+	if cap(e.colScratchI64) > maxRetainedColScratch {
+		e.colScratchI64 = nil
+	}
+	if cap(e.colScratchU64) > maxRetainedColScratch {
+		e.colScratchU64 = nil
+	}
+	if cap(e.colScratchF64) > maxRetainedColScratch {
+		e.colScratchF64 = nil
+	}
+	if cap(e.colScratchBool) > maxRetainedColScratch {
+		e.colScratchBool = nil
+	}
+	if cap(e.colScratchF32) > maxRetainedColScratch {
+		e.colScratchF32 = nil
+	}
 	// deltaColAux* are swapped with colScratchI64/U64 in encodeDeltaColumn, so
 	// after a large columnar-delta batch one of the two grown backings lives here
 	// and is missed by the colScratchI64 check above — cap them independently or
@@ -632,9 +613,8 @@ func (e *encState) reset() {
 	if cap(e.deltaColBuf) > maxRetainedColScratch {
 		e.deltaColBuf = nil
 	}
-	// fsstScratch itself is a colScratchRef (weak.Pointer, no cap here); fsstLens
-	// is its small pointer-free companion and stays under the fixed ceiling.
-	if cap(e.fsstLens) > maxRetainedColScratch {
+	if cap(e.fsstScratch) > maxRetainedColScratch {
+		e.fsstScratch = nil
 		e.fsstLens = nil
 	}
 	// fsstSamples holds []byte views into caller strings; clear the headers to
@@ -645,11 +625,19 @@ func (e *encState) reset() {
 		clear(e.fsstSamples)
 		e.fsstSamples = e.fsstSamples[:0]
 	}
-	// colScratchStr ([]string headers aliasing caller strings) needs no explicit
-	// clear here: it is a colScratchRef now, so once nothing strongly
-	// references the backing (the encoder is idle, between messages) the whole
-	// backing — headers included — is ordinary unreachable garbage, collected
-	// without qdf having to zero it first.
+	// String-column scratch: []string slices retain header references that pin
+	// the caller's string memory across a pool recycle. clear() drops those
+	// headers while keeping the backing; drop the backing only past the ceiling.
+	if cap(e.colScratchStr) > maxRetainedColScratch {
+		e.colScratchStr = nil
+	} else {
+		// Clear across the FULL backing, not just len: the gather reslices via
+		// [:0] per column, so a column with fewer rows than an earlier one leaves
+		// a high-water tail of headers aliasing the caller's (now possibly dead)
+		// struct strings, pinning them from GC across the pool recycle.
+		clear(e.colScratchStr[:cap(e.colScratchStr)])
+		e.colScratchStr = e.colScratchStr[:0]
+	}
 	// Canonical map-key sort scratch (OptCanonical): numeric scratch is
 	// pointer-free (drop only past the ceiling); canonKeysStr holds caller
 	// string headers, so clear them to drop references across a pool recycle.
@@ -682,8 +670,20 @@ func (e *encState) reset() {
 	if cap(e.canonFloat32) > maxRetainedColScratch {
 		e.canonFloat32 = nil
 	}
-	// colDictTable and colMaskScratch are colScratchRef too — see the
-	// colScratchStr note above; no reset()-time action needed for either.
+	if cap(e.colDictTable) > maxRetainedColScratch {
+		e.colDictTable = nil
+	} else {
+		// []string resliced via [:0] per column, so a shorter column leaves a
+		// high-water tail of headers aliasing caller strings; clear the FULL
+		// backing (mirrors the decoder's colDictTableScr reset).
+		clear(e.colDictTable[:cap(e.colDictTable)])
+		e.colDictTable = e.colDictTable[:0]
+	}
+	if cap(e.colMaskScratch) > maxRetainedColScratch {
+		e.colMaskScratch = nil
+	} else {
+		e.colMaskScratch = e.colMaskScratch[:0]
+	}
 	if len(e.strDictMap) > 0 {
 		clear(e.strDictMap)
 	}

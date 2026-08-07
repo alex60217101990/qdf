@@ -54,8 +54,8 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	} else {
 		clear(m)
 	}
-	table := e.state.colDictTable.get()[:0]
-	idx := e.state.colScratchU64.get()[:0]
+	table := e.state.colDictTable[:0]
+	idx := e.state.colScratchU64[:0]
 	// gp tracks the longest byte prefix shared by EVERY distinct value, computed
 	// for free as the table is built (no sort, no extra pass). It is a sort-free
 	// signal for the front-coded table form: gp >= 2 guarantees the front-coded
@@ -67,8 +67,8 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 		id, ok := m[s]
 		if !ok {
 			if len(m) >= qpackStrDictMaxDistinct {
-				e.state.colDictTable.set(table)
-				e.state.colScratchU64.set(idx)
+				e.state.colDictTable = table
+				e.state.colScratchU64 = idx
 				return false
 			}
 			id = uint32(len(m))
@@ -84,13 +84,13 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 		// High-cardinality bail: after the sample, if the column is mostly
 		// distinct it will not dict-compress — stop before scanning the rest.
 		if i+1 == qpackStrDictSampleN && len(m)*100 > qpackStrDictSampleN*qpackStrDictSampleMaxPct {
-			e.state.colDictTable.set(table)
-			e.state.colScratchU64.set(idx)
+			e.state.colDictTable = table
+			e.state.colScratchU64 = idx
 			return false
 		}
 	}
-	e.state.colDictTable.set(table)
-	e.state.colScratchU64.set(idx)
+	e.state.colDictTable = table
+	e.state.colScratchU64 = idx
 
 	d := len(table)
 	if d < 2 {

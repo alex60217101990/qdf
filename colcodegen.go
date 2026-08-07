@@ -65,61 +65,51 @@ func (e *Encoder) colState() *encState {
 // ScratchInt returns a reusable []int64 of length n for a signed column.
 func (e *Encoder) ScratchInt(n int) []int64 {
 	st := e.colState()
-	buf := st.colScratchI64.get()
-	if cap(buf) < n {
-		buf = make([]int64, n)
+	if cap(st.colScratchI64) < n {
+		st.colScratchI64 = make([]int64, n)
 	}
-	buf = buf[:n]
-	st.colScratchI64.set(buf)
-	return buf
+	st.colScratchI64 = st.colScratchI64[:n]
+	return st.colScratchI64
 }
 
 // ScratchUint returns a reusable []uint64 of length n for an unsigned column.
 func (e *Encoder) ScratchUint(n int) []uint64 {
 	st := e.colState()
-	buf := st.colScratchU64.get()
-	if cap(buf) < n {
-		buf = make([]uint64, n)
+	if cap(st.colScratchU64) < n {
+		st.colScratchU64 = make([]uint64, n)
 	}
-	buf = buf[:n]
-	st.colScratchU64.set(buf)
-	return buf
+	st.colScratchU64 = st.colScratchU64[:n]
+	return st.colScratchU64
 }
 
 // ScratchFloat64 returns a reusable []float64 of length n for a float64 column.
 func (e *Encoder) ScratchFloat64(n int) []float64 {
 	st := e.colState()
-	buf := st.colScratchF64.get()
-	if cap(buf) < n {
-		buf = make([]float64, n)
+	if cap(st.colScratchF64) < n {
+		st.colScratchF64 = make([]float64, n)
 	}
-	buf = buf[:n]
-	st.colScratchF64.set(buf)
-	return buf
+	st.colScratchF64 = st.colScratchF64[:n]
+	return st.colScratchF64
 }
 
 // ScratchFloat32 returns a reusable []float32 of length n for a float32 column.
 func (e *Encoder) ScratchFloat32(n int) []float32 {
 	st := e.colState()
-	buf := st.colScratchF32.get()
-	if cap(buf) < n {
-		buf = make([]float32, n)
+	if cap(st.colScratchF32) < n {
+		st.colScratchF32 = make([]float32, n)
 	}
-	buf = buf[:n]
-	st.colScratchF32.set(buf)
-	return buf
+	st.colScratchF32 = st.colScratchF32[:n]
+	return st.colScratchF32
 }
 
 // ScratchBool returns a reusable []bool of length n for a bool column.
 func (e *Encoder) ScratchBool(n int) []bool {
 	st := e.colState()
-	buf := st.colScratchBool.get()
-	if cap(buf) < n {
-		buf = make([]bool, n)
+	if cap(st.colScratchBool) < n {
+		st.colScratchBool = make([]bool, n)
 	}
-	buf = buf[:n]
-	st.colScratchBool.set(buf)
-	return buf
+	st.colScratchBool = st.colScratchBool[:n]
+	return st.colScratchBool
 }
 
 // WriteIntColumn encodes a column gathered from a signed-integer field. The
@@ -142,11 +132,10 @@ func (e *Encoder) WriteFloat64Column(s []float64) error {
 // shares the buffer with has already been encoded), so no allocation.
 func (e *Encoder) WriteFloat32Column(s []float32) error {
 	st := e.colState()
-	u := st.colScratchU64.get()
-	if cap(u) < len(s) {
-		u = make([]uint64, len(s))
+	if cap(st.colScratchU64) < len(s) {
+		st.colScratchU64 = make([]uint64, len(s))
 	}
-	u = u[:len(s)]
+	u := st.colScratchU64[:len(s)]
 	if e.opts.Has(OptCanonical) {
 		// Mirror the reflect colKindFloat32 path (columnar.go): under OptCanonical
 		// normalize -0.0 -> +0.0 and every NaN -> one quiet NaN so semantically
@@ -160,7 +149,7 @@ func (e *Encoder) WriteFloat32Column(s []float32) error {
 			u[i] = uint64(math.Float32bits(v))
 		}
 	}
-	st.colScratchU64.set(u)
+	st.colScratchU64 = u
 	return encodeSliceUint64(e, unsafe.Pointer(&u))
 }
 
@@ -173,14 +162,12 @@ func (e *Encoder) WriteBoolColumn(s []bool) error { return encodeSliceBool(e, un
 func (e *Encoder) ScratchMask(n int) []byte {
 	st := e.colState()
 	mb := (n + 7) >> 3
-	mask := st.colMaskScratch.get()
-	if cap(mask) < mb {
-		mask = make([]byte, mb)
+	if cap(st.colMaskScratch) < mb {
+		st.colMaskScratch = make([]byte, mb)
 	}
-	mask = mask[:mb]
-	clear(mask)
-	st.colMaskScratch.set(mask)
-	return mask
+	st.colMaskScratch = st.colMaskScratch[:mb]
+	clear(st.colMaskScratch)
+	return st.colMaskScratch
 }
 
 // WriteColNullMask appends a nullable column's presence bitmap (raw bytes, bit i
@@ -218,13 +205,11 @@ func (d *Decoder) ReadColNullMask(n int) ([]byte, int, error) {
 // ScratchString returns a reusable []string of length n for a string column.
 func (e *Encoder) ScratchString(n int) []string {
 	st := e.colState()
-	buf := st.colScratchStr.get()
-	if cap(buf) < n {
-		buf = make([]string, n)
+	if cap(st.colScratchStr) < n {
+		st.colScratchStr = make([]string, n)
 	}
-	buf = buf[:n]
-	st.colScratchStr.set(buf)
-	return buf
+	st.colScratchStr = st.colScratchStr[:n]
+	return st.colScratchStr
 }
 
 // WriteStringColumn encodes a string column, reusing the Balanced string-column
