@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"reflect"
+	"runtime"
 	"strconv"
 	"testing"
 )
@@ -128,4 +129,146 @@ func assertProfilesRoundTrip(t *testing.T) {
 
 func TestProfilesRoundTrip(t *testing.T) {
 	assertProfilesRoundTrip(t)
+}
+
+func BenchmarkProfileEncode(b *testing.B) {
+	cases := []struct {
+		name string
+		v    any
+	}{
+		{"log", mkLogProfile(4096)},
+		{"telemetry", mkTelemetryProfile(4096)},
+		{"api", mkAPIProfile(2048)},
+	}
+	for _, c := range cases {
+		b.Run(c.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := Marshal(c.v, OptBalanced); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkProfileDecode(b *testing.B) {
+	logs := mkLogProfile(4096)
+	tel := mkTelemetryProfile(4096)
+	api := mkAPIProfile(2048)
+	logBlob, err := Marshal(logs, OptBalanced)
+	if err != nil {
+		b.Fatal(err)
+	}
+	telBlob, err := Marshal(tel, OptBalanced)
+	if err != nil {
+		b.Fatal(err)
+	}
+	apiBlob, err := Marshal(api, OptBalanced)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Run("log", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			var out []logProfileRow
+			if err := Unmarshal(logBlob, &out); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("telemetry", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			var out []telemetryProfileRow
+			if err := Unmarshal(telBlob, &out); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("api", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			var out []apiProfileRow
+			if err := Unmarshal(apiBlob, &out); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+// heapInuseAfter runs f the given number of times through pooled encoders and
+// decoders, then reports HeapInuse after two collections. Two are needed: the
+// first makes the garbage unreachable, the second frees what the first
+// discovered. B/op answers "what did one call allocate"; this answers "what
+// does the process still hold", which is the question the retention thresholds
+// were written for.
+func heapInuseAfter(iters int, f func()) uint64 {
+	for i := 0; i < iters; i++ {
+		f()
+	}
+	runtime.GC()
+	runtime.GC()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return ms.HeapInuse
+}
+
+// BenchmarkProfileRSS reports resident memory as a benchmark metric rather
+// than a test log: benchstat can then compare it across runs the same way it
+// compares ns/op, and there is no assertion-free test pretending to be a gate.
+// Each sub-benchmark runs its shape once per iteration and reports the bytes
+// the process still holds afterwards.
+func BenchmarkProfileRSS(b *testing.B) {
+	logs := mkLogProfile(4096)
+	b.Run("steady", func(b *testing.B) {
+		var last uint64
+		for i := 0; i < b.N; i++ {
+			last = heapInuseAfter(10000, func() {
+				blob, err := Marshal(logs, OptBalanced)
+				if err != nil {
+					b.Fatal(err)
+				}
+				var out []logProfileRow
+				if err := Unmarshal(blob, &out); err != nil {
+					b.Fatal(err)
+				}
+			})
+		}
+		b.ReportMetric(float64(last), "heap_inuse_B")
+	})
+
+	// Burst shape: the case the retention thresholds exist for — a few large
+	// messages followed by many small ones. A pooled encoder that keeps the
+	// large scratch shows up here and nowhere else.
+	big := mkLogProfile(65536)
+	small := mkLogProfile(16)
+	b.Run("burst", func(b *testing.B) {
+		var last uint64
+		for i := 0; i < b.N; i++ {
+			last = heapInuseAfter(1, func() {
+				for j := 0; j < 100; j++ {
+					blob, err := Marshal(big, OptBalanced)
+					if err != nil {
+						b.Fatal(err)
+					}
+					var out []logProfileRow
+					if err := Unmarshal(blob, &out); err != nil {
+						b.Fatal(err)
+					}
+				}
+				for j := 0; j < 10000; j++ {
+					blob, err := Marshal(small, OptBalanced)
+					if err != nil {
+						b.Fatal(err)
+					}
+					var out []logProfileRow
+					if err := Unmarshal(blob, &out); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
+		b.ReportMetric(float64(last), "heap_inuse_B")
+	})
 }
