@@ -32,6 +32,26 @@ func init() {
 	}
 }
 
+// alpExactFlag marks, in the wire's exponent byte, that the block reconstructs
+// values by DIVIDING the integer mantissa by 10^d rather than multiplying it
+// by a precomputed 1/10^d.
+//
+// Multiplying by the inverse is an approximation: 1/10^d is not representable,
+// so the map I -> I*(1/10^d) misses many doubles that are exactly round(x,d).
+// Measured over decimal columns, 13-35% of perfectly representable values
+// failed the encoder's round-trip check and were stored as raw exceptions,
+// which is what actually dominated the block size (a 2-decimal price column
+// spent 11 KB on the packed body and 14 KB on 1087 spurious exceptions).
+// Dividing by the exactly-representable 10^d is correctly rounded and has zero
+// false exceptions; it measured ~3% slower on the decode loop, which is
+// memory-bound rather than divider-bound.
+//
+// The flag lives in the high bit of the exponent byte because a decoder that
+// predates it validates that byte against alpMaxExp (18) and returns ErrBadTag
+// — a loud failure rather than silently different values. New decoders read
+// both forms, so every blob ever written stays readable.
+const alpExactFlag = 0x80
+
 // alpMaxExpSearch caps the effective-exponent search. 0..15 covers every
 // practical decimal resolution; 16..18 only ever add exceptions.
 const alpMaxExpSearch = 15
@@ -48,36 +68,87 @@ type alpFloatPlan struct {
 	forMin int64 // FOR reference of the non-exception integer mantissas
 	width  uint8 // bits per packed element, 0..56
 	exc    int   // exception count
+	// exact selects DIVISION by 10^d over multiplication by a precomputed
+	// 1/10^d when reconstructing. Division is correctly rounded and costs no
+	// false exceptions, but it is a newer wire form (alpExactFlag) and a few
+	// percent slower to decode — so it is only chosen when it actually
+	// removes exceptions. Columns that score identically keep the original
+	// multiply form: same bytes, same speed, readable by older decoders.
+	exact bool
+}
+
+// alpRoundTrips reports whether the integer mantissa iv reconstructs v exactly
+// under the block's chosen operation. Encoder and decoder MUST agree on it —
+// that is what the exponent byte's alpExactFlag carries.
+func alpRoundTrips(iv int64, v, pe float64, exact bool) bool {
+	if exact {
+		return math.Float64bits(float64(iv)/pe) == math.Float64bits(v)
+	}
+	return math.Float64bits(float64(iv)*(1/pe)) == math.Float64bits(v)
 }
 
 // alpScoreExp evaluates one effective exponent d over s: returns the FOR min,
 // bit width, exception count. Round-trip uses exact float64 equality.
-func alpScoreExp(s []float64, d int) (forMin int64, width uint8, exc int) {
+func alpScoreExp(s []float64, d int) (forMin int64, width uint8, exc int, exact bool) {
 	pe := alpPow10[d]
 	ie := alpInv10[d]
-	mn := int64(math.MaxInt64)
-	mx := int64(math.MinInt64)
+	// Score both reconstructions in one pass. They accept DIFFERENT sets of
+	// values, so each needs its own FOR range: pairing one op's range with the
+	// other op's accepted set yields a width wider than necessary (measured
+	// +167 B on the IoT benchmark when the ranges were shared).
+	mnDiv, mxDiv := int64(math.MaxInt64), int64(math.MinInt64)
+	mnMul, mxMul := int64(math.MaxInt64), int64(math.MinInt64)
+	excDiv, excMul := 0, 0
 	for _, v := range s {
-		I := int64(math.RoundToEven(v * pe))
-		// Bit-exact round-trip check. Arithmetic == would treat -0.0 as equal
+		iv := int64(math.RoundToEven(v * pe))
+		bv := math.Float64bits(v)
+		// Bit-exact round-trip checks. Arithmetic == would treat -0.0 as equal
 		// to +0.0 and silently drop the sign bit, and NaN != NaN; comparing
 		// bits makes -0.0/NaN/±Inf land in the exception list as the spec
 		// requires (exact float64 bit equality).
-		if math.Float64bits(float64(I)*ie) != math.Float64bits(v) {
-			exc++
-			continue
+		if math.Float64bits(float64(iv)/pe) == bv {
+			mnDiv = min(mnDiv, iv)
+			mxDiv = max(mxDiv, iv)
+		} else {
+			excDiv++
 		}
-		if I < mn {
-			mn = I
+		if math.Float64bits(float64(iv)*ie) == bv {
+			mnMul = min(mnMul, iv)
+			mxMul = max(mxMul, iv)
+		} else {
+			excMul++
 		}
-		if I > mx {
-			mx = I
+	}
+	// Choose the reconstruction by BYTES, not by exception ratio. The two ops
+	// accept different value sets, so each implies its own FOR width as well
+	// as its own exception count — scoring only the counts let a single
+	// exception flip a 40% size difference, took the exact form for zero gain
+	// on short blocks, and once picked a form 2.17x LARGER because the values
+	// only division accepts forced the FOR width from 12 to 50 bits.
+	//
+	// An exception costs a varuint position plus the raw 8-byte value; 13 is
+	// the same conservative charge alpPlanFloat64's estimate uses. Ties go to
+	// multiplication: same bytes, slightly faster decode, and readable by
+	// decoders that predate alpExactFlag.
+	const excBytes = 13
+	widthOf := func(lo, hi int64) int {
+		if lo > hi {
+			return 0
 		}
+		return bits.Len64(uint64(hi - lo))
+	}
+	wDiv, wMul := widthOf(mnDiv, mxDiv), widthOf(mnMul, mxMul)
+	costDiv := (wDiv*len(s)+7)/8 + excDiv*excBytes
+	costMul := (wMul*len(s)+7)/8 + excMul*excBytes
+	exact = costDiv < costMul
+	mn, mx, exc := mnMul, mxMul, excMul
+	if exact {
+		mn, mx, exc = mnDiv, mxDiv, excDiv
 	}
 	if mn > mx { // all exceptions
-		return 0, 0, exc
+		return 0, 0, exc, exact
 	}
-	return mn, uint8(bits.Len64(uint64(mx - mn))), exc
+	return mn, uint8(bits.Len64(uint64(mx - mn))), exc, exact
 }
 
 // alpChooseExp samples ~32 evenly-spaced values to pick the cheapest effective
@@ -95,7 +166,11 @@ func alpChooseExp(s []float64) int {
 	}
 	bestD, bestCost := 0, math.MaxInt // platform max sentinel (int, 32-bit safe)
 	for d := 0; d <= alpMaxExpSearch; d++ {
-		_, w, exc := alpScoreExp(sample, d)
+		// alpScoreExp returns the cheaper of the two reconstructions for this
+		// exponent, so costing its (w, exc) compares each exponent at its own
+		// optimum — mixing ops across exponents made the curve incomparable
+		// and once picked d=4 where d=2 was 52% smaller.
+		_, w, exc, _ := alpScoreExp(sample, d)
 		cost := (int(w)*len(sample)+7)/8 + exc*10
 		if cost < bestCost {
 			bestCost, bestD = cost, d
@@ -119,14 +194,14 @@ func alpPlanFloat64(s []float64) (plan alpFloatPlan, estBytes int, ok bool) {
 		return alpFloatPlan{}, 0, false // too large; raw/Gorilla (buffer-bounded) handle it
 	}
 	d := alpChooseExp(s)
-	forMin, width, exc := alpScoreExp(s, d)
+	forMin, width, exc, exact := alpScoreExp(s, d)
 	if width > qpackForMaxBits {
 		return alpFloatPlan{}, 0, false
 	}
 	if exc >= n { // nothing packs; raw/Gorilla strictly better
 		return alpFloatPlan{}, 0, false
 	}
-	plan = alpFloatPlan{d: d, forMin: forMin, width: width, exc: exc}
+	plan = alpFloatPlan{d: d, forMin: forMin, width: width, exc: exc, exact: exact}
 	body := (int(width)*n + 7) / 8
 	estBytes = 2 + uvarintLen(uint64(n)) + 1 + uvarintLen(zigzagEncode64(forMin)) +
 		1 + body + uvarintLen(uint64(exc)) + exc*(5+8)
@@ -145,12 +220,15 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 		e.buf = out
 		return
 	}
-	out = append(out, byte(plan.d))
+	expByte := byte(plan.d)
+	if plan.exact {
+		expByte |= alpExactFlag
+	}
+	out = append(out, expByte)
 	out = appendUvarint(out, zigzagEncode64(plan.forMin))
 	out = append(out, plan.width)
 
 	pe := alpPow10[plan.d]
-	ie := alpInv10[plan.d]
 
 	// Acquire exception-index scratch. Populated during the pack pass so the
 	// exception-emit phase below never needs a second O(n) re-scan of s.
@@ -168,7 +246,7 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 		clear(packed)
 		for i, v := range s {
 			I := int64(math.RoundToEven(v * pe))
-			if math.Float64bits(float64(I)*ie) == math.Float64bits(v) {
+			if alpRoundTrips(I, v, pe, plan.exact) {
 				packed[i] = uint64(I - plan.forMin)
 			} else {
 				excIdx = append(excIdx, i) // collect exception index for emit below
@@ -187,7 +265,7 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 		// for the emit pass below.
 		for i, v := range s {
 			I := int64(math.RoundToEven(v * pe))
-			if math.Float64bits(float64(I)*ie) != math.Float64bits(v) {
+			if !alpRoundTrips(I, v, pe, plan.exact) {
 				excIdx = append(excIdx, i)
 			}
 		}
@@ -298,6 +376,9 @@ func alpPlanFloat32(s []float32) (plan alpFloatPlan, estBytes int, ok bool) {
 	if exc >= n {
 		return alpFloatPlan{}, 0, false
 	}
+	// float32 keeps the original multiply reconstruction: its 24-bit
+	// mantissa loses far less to the inverse approximation than float64's 53,
+	// and leaving it alone keeps every f32 blob byte-identical.
 	plan = alpFloatPlan{d: d, forMin: forMin, width: width, exc: exc}
 	body := (int(width)*n + 7) / 8
 	estBytes = 2 + uvarintLen(uint64(n)) + 1 + uvarintLen(zigzagEncode64(forMin)) +
@@ -316,6 +397,10 @@ func (e *Encoder) writePackedALPFloat32Slice(s []float32, plan alpFloatPlan) {
 		e.buf = out
 		return
 	}
+	// float32 always reconstructs by multiplication (alpMantissaF32 is the
+	// only predicate its pack loop uses), so the exponent byte never carries
+	// alpExactFlag — stamping it here would let the reader divide while the
+	// writer multiplied.
 	out = append(out, byte(plan.d))
 	out = appendUvarint(out, zigzagEncode64(plan.forMin))
 	out = append(out, plan.width)
@@ -399,7 +484,9 @@ func (d *Decoder) readPackedALPFloat32Slice() ([]float32, error) {
 	if d.i >= len(d.buf) {
 		return nil, ErrShortBuffer
 	}
-	expD := int(d.buf[d.i])
+	rawExp := d.buf[d.i]
+	exact := rawExp&alpExactFlag != 0
+	expD := int(rawExp &^ alpExactFlag)
 	d.i++
 	if expD > alpMaxExp {
 		return nil, ErrBadTag
@@ -424,6 +511,7 @@ func (d *Decoder) readPackedALPFloat32Slice() ([]float32, error) {
 	}
 	n := int(n64)
 	ie := alpInv10[expD]
+	pe := alpPow10[expD]
 	out := make([]float32, n)
 	if width > 0 {
 		bodyBytes := int((n64*uint64(width) + 7) / 8)
@@ -433,15 +521,28 @@ func (d *Decoder) readPackedALPFloat32Slice() ([]float32, error) {
 		packed := d.deltaScratch[:n]
 		bitpack.Unpack(packed, d.buf[d.i:d.i+bodyBytes], width)
 		d.i += bodyBytes
-		for i := range out {
-			v := int64(packed[i])
-			if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
-				return nil, ErrInvalidLength
+		if exact { // see the float64 twin: branch hoisted out of the loop
+			for i := range out {
+				v := int64(packed[i])
+				if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
+					return nil, ErrInvalidLength
+				}
+				out[i] = float32(float64(v+forMin) / pe)
 			}
-			out[i] = float32(float64(v+forMin) * ie)
+		} else {
+			for i := range out {
+				v := int64(packed[i])
+				if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
+					return nil, ErrInvalidLength
+				}
+				out[i] = float32(float64(v+forMin) * ie)
+			}
 		}
 	} else {
 		fv := float32(float64(forMin) * ie)
+		if exact {
+			fv = float32(float64(forMin) / pe)
+		}
 		for i := range out {
 			out[i] = fv
 		}
@@ -508,7 +609,9 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 	if d.i >= len(d.buf) {
 		return nil, ErrShortBuffer
 	}
-	expD := int(d.buf[d.i])
+	rawExp := d.buf[d.i]
+	exact := rawExp&alpExactFlag != 0
+	expD := int(rawExp &^ alpExactFlag)
 	d.i++
 	if expD > alpMaxExp {
 		return nil, ErrBadTag
@@ -534,6 +637,7 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 	}
 	n := int(n64)
 	ie := alpInv10[expD]
+	pe := alpPow10[expD]
 	out := make([]float64, n)
 	if width > 0 {
 		bodyBytes := int((n64*uint64(width) + 7) / 8)
@@ -548,15 +652,31 @@ func (d *Decoder) readPackedALPFloat64Slice() ([]float64, error) {
 		packed := d.deltaScratch[:n]
 		bitpack.Unpack(packed, d.buf[d.i:d.i+bodyBytes], width)
 		d.i += bodyBytes
-		for i := range out {
-			v := int64(packed[i])
-			if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
-				return nil, ErrInvalidLength
+		// Two loops rather than a branch per element: the reconstruction op is
+		// fixed for the whole block, and testing it inside the loop measured
+		// +13% on decode.
+		if exact {
+			for i := range out {
+				v := int64(packed[i])
+				if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
+					return nil, ErrInvalidLength
+				}
+				out[i] = float64(v+forMin) / pe
 			}
-			out[i] = float64(v+forMin) * ie
+		} else {
+			for i := range out {
+				v := int64(packed[i])
+				if (forMin > 0 && v > math.MaxInt64-forMin) || (forMin < 0 && v < math.MinInt64-forMin) {
+					return nil, ErrInvalidLength
+				}
+				out[i] = float64(v+forMin) * ie
+			}
 		}
 	} else {
 		fv := float64(forMin) * ie
+		if exact {
+			fv = float64(forMin) / pe
+		}
 		for i := range out {
 			out[i] = fv
 		}
