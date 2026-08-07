@@ -272,3 +272,47 @@ func BenchmarkProfileRSS(b *testing.B) {
 		b.ReportMetric(float64(last), "heap_inuse_B")
 	})
 }
+
+// The index must answer for a string it recorded, must not answer for a
+// different string, and must answer for a substring taken at the same offset
+// and length — which is the same bytes, sharing the parent's backing array.
+func TestPtrInternIndex(t *testing.T) {
+	st := newEncState()
+	parent := "abcdefghijklmnop"
+	a := parent[2:8]
+
+	if _, ok := st.ptrLookup(a); ok {
+		t.Fatal("empty index answered")
+	}
+	st.ptrRecord(a, 7)
+	got, ok := st.ptrLookup(a)
+	if !ok || got != 7 {
+		t.Fatalf("recorded string: got (%d,%v), want (7,true)", got, ok)
+	}
+
+	// Same bytes, same backing, same offset and length: must hit.
+	again := parent[2:8]
+	got, ok = st.ptrLookup(again)
+	if !ok || got != 7 {
+		t.Fatalf("identical substring: got (%d,%v), want (7,true)", got, ok)
+	}
+
+	// Same backing, different length: different bytes, must miss.
+	if _, ok := st.ptrLookup(parent[2:9]); ok {
+		t.Fatal("different length answered")
+	}
+	// Same length, different offset: different bytes, must miss.
+	if _, ok := st.ptrLookup(parent[3:9]); ok {
+		t.Fatal("different offset answered")
+	}
+	// Equal content, different backing: allowed to miss, must not answer wrong.
+	other := string([]byte(a))
+	if got, ok := st.ptrLookup(other); ok && got != 7 {
+		t.Fatalf("equal-content copy answered with the wrong id %d", got)
+	}
+
+	st.ptrIndexReset()
+	if _, ok := st.ptrLookup(a); ok {
+		t.Fatal("index answered after reset")
+	}
+}

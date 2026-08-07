@@ -53,6 +53,102 @@ type internSlot struct {
 // no resize at all.
 const internTableInitSize = 64
 
+// ptrInternSlot indexes an interned string by the address and length of its
+// backing array, so a repeat costs a pointer compare instead of hashing every
+// byte again. Equal (ptr, n) implies equal content because Go strings are
+// immutable.
+//
+// keep is load-bearing, not a convenience. installInternSlot copies the key
+// into the encoder arena and stores the copy, deliberately not pinning the
+// caller's buffer — so nothing else keeps a recorded address alive, and a
+// collected string's address could be handed to a different string, which
+// would make a stale entry return the wrong id. Holding the string here is
+// what keeps the backing array reachable and the address therefore stable.
+// The index is cleared at the message boundary, so the pin never outlives the
+// encode that created it; inside one message the caller already holds the
+// data, so it costs no retention.
+type ptrInternSlot struct {
+	keep string
+	ptr  unsafe.Pointer
+	n    uintptr
+	id   uint32
+	used bool
+}
+
+// ptrInternInit is the initial index size; it grows with the intern table.
+const ptrInternInit = 64
+
+func (e *encState) ptrIndexReset() {
+	clear(e.ptrIndex)
+	e.ptrIndex = e.ptrIndex[:0]
+}
+
+// ptrIndexSlot returns the slot s hashes to, probing linearly past collisions.
+// The index is kept under half load so chains stay short.
+func (e *encState) ptrIndexSlot(sp unsafe.Pointer, n uintptr) *ptrInternSlot {
+	if cap(e.ptrIndex) == 0 {
+		e.ptrIndex = make([]ptrInternSlot, ptrInternInit)
+	}
+	e.ptrIndex = e.ptrIndex[:cap(e.ptrIndex)]
+	mask := uint64(len(e.ptrIndex) - 1)
+	h := (uint64(uintptr(sp))>>3)*0x9E3779B97F4A7C15 + uint64(n)
+	for i := h & mask; ; i = (i + 1) & mask {
+		slot := &e.ptrIndex[i]
+		if !slot.used || (slot.ptr == sp && slot.n == n) {
+			return slot
+		}
+	}
+}
+
+// ptrLookup returns the id recorded for s's exact backing address and length.
+func (e *encState) ptrLookup(s string) (uint32, bool) {
+	if len(e.ptrIndex) == 0 || len(s) == 0 {
+		return 0, false
+	}
+	slot := e.ptrIndexSlot(unsafe.Pointer(unsafe.StringData(s)), uintptr(len(s)))
+	if slot.used {
+		return slot.id, true
+	}
+	return 0, false
+}
+
+// ptrRecord associates s's backing address and length with id.
+func (e *encState) ptrRecord(s string, id uint32) {
+	if len(s) == 0 {
+		return
+	}
+	// Grow before insert so the table stays under half load and the probe in
+	// ptrIndexSlot always terminates on an empty slot.
+	if e.ptrCount*2 >= uint32(cap(e.ptrIndex)) {
+		e.ptrIndexGrow()
+	}
+	slot := e.ptrIndexSlot(unsafe.Pointer(unsafe.StringData(s)), uintptr(len(s)))
+	if slot.used {
+		return
+	}
+	slot.keep = s
+	slot.ptr = unsafe.Pointer(unsafe.StringData(s))
+	slot.n = uintptr(len(s))
+	slot.id = id
+	slot.used = true
+	e.ptrCount++
+}
+
+func (e *encState) ptrIndexGrow() {
+	old := e.ptrIndex
+	size := cap(old) * 2
+	if size < ptrInternInit {
+		size = ptrInternInit
+	}
+	e.ptrIndex = make([]ptrInternSlot, size)
+	e.ptrCount = 0
+	for i := range old {
+		if old[i].used {
+			e.ptrRecord(old[i].keep, old[i].id)
+		}
+	}
+}
+
 // Intern table backing Dense mode. The encoder maintains a string→ID
 // map; the decoder maintains the matching ID-ordered list of byte
 // slices. IDs are assigned in encode order starting at 0. There is no
@@ -139,6 +235,14 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// pattern sequential and predictable; load is kept below 0.5 by
 	// doubling on growth so probe chains stay short (typically 1).
 	internTable []internSlot
+
+	// ptrIndex/ptrCount back the address-keyed intern index (ptrInternSlot,
+	// ptrLookup/ptrRecord below) — a separate lookup keyed on backing address
+	// and length rather than content, so a repeat of the SAME backing array
+	// costs a pointer compare instead of a content hash. Not yet consulted by
+	// the encode path (wired in a later change); exists standalone here.
+	ptrIndex []ptrInternSlot
+	ptrCount uint32
 
 	// Move-to-front LRU over intern IDs. lruHead is the ID at rank 0
 	// (most recently emitted state-ref or freshly interned). lruLink
@@ -474,6 +578,7 @@ func (e *encState) reset() {
 		clear(e.internTable)
 	}
 	e.internLoad = 0
+	e.ptrIndexReset()
 	// Adaptive arena retention. The default Reset() soft cap (256 KiB) drops the
 	// spike slabs a high-cardinality AD/log batch just grew, forcing a full arena
 	// regrow every batch — the dominant streaming-encode allocation (~181 KB/value
