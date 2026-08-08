@@ -147,3 +147,140 @@ func TestFrontDeltaWriterDeclines(t *testing.T) {
 		t.Error("writer left bytes behind after declining")
 	}
 }
+
+// frontDeltaRoundTrip encodes strs through the writer and reads them back
+// through the reader, returning what the reader produced.
+func frontDeltaRoundTrip(t *testing.T, strs []string) []string {
+	t.Helper()
+	e := NewEncoder(Dense)
+	e.applyOpts(OptBalanced)
+	if !e.tryWriteStringColumnFrontDelta(strs) {
+		t.Fatal("writer declined the column")
+	}
+	buf := e.Bytes()
+	i := 0
+	for i < len(buf) && buf[i] != tagColStrFrontDelta {
+		i++
+	}
+	d := NewDecoderOnBuf(buf)
+	d.i = i
+	got, err := d.readStringColumnFrontDelta(len(strs))
+	if err != nil {
+		t.Fatalf("reader: %v", err)
+	}
+	return got
+}
+
+func TestFrontDeltaRoundTrip(t *testing.T) {
+	mk := func(shape string, n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			switch shape {
+			case "prefix":
+				out[i] = "/api/v2/resource/" + strconv.Itoa(i)
+			case "bothends":
+				out[i] = "GET /api/v2/item/" + strconv.Itoa(i*7919) + " HTTP/1.1"
+			case "allequal":
+				out[i] = "the same value every row"
+			case "empties":
+				if i%3 == 0 {
+					out[i] = ""
+				} else {
+					out[i] = "/api/v2/resource/" + strconv.Itoa(i)
+				}
+			}
+		}
+		return out
+	}
+	// Sizes straddle the 64-row anchor so boundary rows are covered.
+	for _, shape := range []string{"prefix", "bothends", "allequal", "empties"} {
+		for _, n := range []int{32, 63, 64, 65, 128, 1000} {
+			want := mk(shape, n)
+			got := frontDeltaRoundTrip(t, want)
+			if len(got) != len(want) {
+				t.Fatalf("%s n=%d: got %d rows, want %d", shape, n, len(got), len(want))
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("%s n=%d row %d: got %q, want %q", shape, n, i, got[i], want[i])
+				}
+			}
+		}
+	}
+}
+
+func TestFrontDeltaRejectsMalformed(t *testing.T) {
+	strs := make([]string, 100)
+	for i := range strs {
+		strs[i] = "/api/v2/resource/" + strconv.Itoa(i)
+	}
+	e := NewEncoder(Dense)
+	e.applyOpts(OptBalanced)
+	if !e.tryWriteStringColumnFrontDelta(strs) {
+		t.Fatal("writer declined")
+	}
+	full := append([]byte(nil), e.Bytes()...)
+	start := 0
+	for start < len(full) && full[start] != tagColStrFrontDelta {
+		start++
+	}
+
+	// Every single-byte corruption inside the block, and every truncation of
+	// it, must produce an error rather than a panic or a wrong value.
+	for pos := start; pos < len(full); pos++ {
+		for _, delta := range []byte{1, 0x7f, 0xff} {
+			b := append([]byte(nil), full...)
+			b[pos] += delta
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Fatalf("panic on byte %d += %d: %v", pos, delta, r)
+					}
+				}()
+				d := NewDecoderOnBuf(b)
+				d.i = start
+				_, _ = d.readStringColumnFrontDelta(len(strs))
+			}()
+		}
+	}
+	for cut := start; cut < len(full); cut++ {
+		b := append([]byte(nil), full[:cut]...)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("panic on truncation at %d: %v", cut, r)
+				}
+			}()
+			d := NewDecoderOnBuf(b)
+			d.i = start
+			if _, err := d.readStringColumnFrontDelta(len(strs)); err == nil {
+				t.Fatalf("truncation at %d accepted", cut)
+			}
+		}()
+	}
+}
+
+func TestFrontDeltaRejectsReservedFlags(t *testing.T) {
+	strs := make([]string, 100)
+	for i := range strs {
+		strs[i] = "/api/v2/resource/" + strconv.Itoa(i)
+	}
+	e := NewEncoder(Dense)
+	e.applyOpts(OptBalanced)
+	if !e.tryWriteStringColumnFrontDelta(strs) {
+		t.Fatal("writer declined")
+	}
+	b := append([]byte(nil), e.Bytes()...)
+	start := 0
+	for start < len(b) && b[start] != tagColStrFrontDelta {
+		start++
+	}
+	_, nr := readUvarint(b[start+1:])
+	b[start+1+nr] |= 0x80 // set a reserved bit
+
+	d := NewDecoderOnBuf(b)
+	d.i = start
+	if _, err := d.readStringColumnFrontDelta(len(strs)); err == nil {
+		t.Error("accepted a reserved flag bit")
+	}
+}
