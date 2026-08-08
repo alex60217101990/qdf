@@ -472,7 +472,7 @@ func (e *Encoder) resetForReuse() {
 	// than letting it double up from initialEncBuf, which costs one allocation
 	// and one copy per doubling. Only the detach path sets the hint, so an
 	// encoder whose buffer was retained never takes this branch.
-	if cap(e.buf) == 0 && e.bufHint > initialEncBuf {
+	if cap(e.buf) == 0 && e.bufHint > initialEncBuf && e.bufHint <= maxHintedBuf {
 		e.buf = make([]byte, 0, e.bufHint)
 	}
 	e.customFramed = false

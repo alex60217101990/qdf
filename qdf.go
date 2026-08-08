@@ -223,6 +223,16 @@ const (
 	// the high-water buffer once it warms up, while still releasing
 	// truly outlier payloads instead of pinning them to the pool.
 	maxPooledBuf = 16 * 1024 * 1024
+	// maxHintedBuf bounds the sizes worth pre-allocating from the hint. The hint
+	// pays where the buffer is assembled from many modest appends and the
+	// doubling chain from initialEncBuf is long relative to the output — a
+	// 1.26 MB IoT batch allocated 7.2 MB to deliver 1.26. It does not pay above
+	// that: slices.Grow serves a large request with a single right-sized
+	// allocation, so the chain is already short (a 17.9 MB dense batch allocates
+	// 18.3 MB) and any pre-allocation is either overshoot or an undershoot that
+	// doubles on top. Measured on that batch: 18.3 MB/op unhinted, 21.9 with a
+	// cap-sized hint, 39.3 with a len-sized one.
+	maxHintedBuf = 4 * 1024 * 1024
 	// maxRetainedDeltaScratch bounds the Delta+FOR decode scratch a pooled
 	// decoder keeps between calls. Retains it for columns up to ~16 k rows
 	// (the maxStateEntries scale) and drops it after a one-off larger decode so
@@ -412,35 +422,31 @@ var (
 )
 
 // noteDetached records, on a pooled encoder whose output buffer was just handed
-// to the caller, how large that buffer had to get. resetForReuse allocates the
-// replacement at this size instead of doubling up from initialEncBuf.
+// to the caller, how many bytes that message actually produced. resetForReuse
+// allocates the next buffer at that size instead of doubling up from
+// initialEncBuf, so a steady workload pays one allocation per message.
 //
-// Bounded by maxPooledBuf for the same reason the pool refuses to retain past
-// it: a one-off outlier must not make every later message allocate at the
-// outlier's size. Only the size is kept, never the buffer, so this pins nothing.
+// The delivered length, not the capacity the buffer reached. cap carries
+// whatever slack the doubling chain left behind, and pre-allocating that slack
+// again every message costs more than it saves on payloads whose columns are
+// written in a few large appends: a 17.9 MB dense batch measured 21.9 MB/op
+// from a cap-sized hint against 18.3 MB/op with no hint at all. Sizing to the
+// delivered bytes tracks the workload in both directions with no decay rule and
+// no margin to tune.
+//
+// The codec picker writes candidate encodings and rewinds the losers, so a
+// message whose peak sits above its output still grows once past this hint —
+// that is the pre-hint behaviour, never worse, and it is still far below the
+// doubling chain it replaces.
+//
+// Not clamped to maxPooledBuf: that ceiling bounds what the pool RETAINS
+// between calls, while this sizes an allocation handed straight to the caller.
+// Clamping was worse than no hint at all above the ceiling — the encode
+// allocated the clamp, outgrew it by construction, then doubled on top.
 //
 //go:nosplit
 func (e *Encoder) noteDetached(out []byte) {
-	need, used := cap(out), len(out)
-	if need > e.bufHint {
-		// The message outgrew the hint, so the hint was too small: adopt what it
-		// actually took. cap, not len — the codec picker writes candidate
-		// encodings and rewinds the ones that lose, so the buffer's peak is
-		// above the bytes finally delivered, and sizing to len alone would make
-		// every message pay one grow.
-		e.bufHint = min(need, maxPooledBuf)
-		return
-	}
-	// It fit. Left alone, the hint would keep whatever high-water mark one big
-	// message set and every later small message would allocate at that size —
-	// handing the caller a small slice backed by a large array. Decay a quarter
-	// of the way toward what the data actually used instead: still above the
-	// speculative peak for a while, but a workload that shrinks stops paying for
-	// its largest message within a few sends. A quarter is a rate, not a size
-	// guess, so no payload shape is special-cased.
-	if slack := e.bufHint - used; slack > 0 {
-		e.bufHint -= slack / 4
-	}
+	e.bufHint = cap(out)
 }
 
 func putEnc(enc *Encoder, pool *sync.Pool) {

@@ -80,54 +80,56 @@ func TestEncBufHintWireIdentity(t *testing.T) {
 // Driven directly rather than through Marshal: the encoder pool hands out
 // whichever instance it likes, so a payload-level test mostly measures encoders
 // that never saw the large message and passes whether the decay works or not.
-func TestEncBufHintDecays(t *testing.T) {
+// TestEncBufHintTracksTheWorkload pins what noteDetached and resetForReuse
+// promise each other. Driven directly rather than through Marshal — the encoder
+// pool hands out whichever instance it likes, so a payload-level test mostly
+// measures encoders that never saw the message it set up and passes either way.
+func TestEncBufHintTracksTheWorkload(t *testing.T) {
 	var e Encoder
 
-	// A large message detaches and sets the mark.
-	big := make([]byte, 4<<20)
-	e.noteDetached(big)
-	peak := e.bufHint
-	if peak != len(big) {
-		t.Fatalf("hint did not adopt the large message: got %d want %d", peak, len(big))
+	// The hint is the capacity the message needed, not the bytes it delivered:
+	// the codec picker writes candidate encodings and rewinds the losers, so the
+	// peak sits above the output and sizing to the output alone would make every
+	// message grow once.
+	const big = 1 << 20
+	e.noteDetached(make([]byte, big/2, big))
+	if e.bufHint != big {
+		t.Fatalf("hint did not adopt what the message needed: got %d want %d", e.bufHint, big)
 	}
 
-	const smallLen = 512
-	// Small messages that fit must walk it back down. Each iteration mirrors
-	// what resetForReuse does: the next buffer is allocated at exactly the
-	// current hint, so its capacity tracks the hint rather than staying pinned
-	// at the peak.
-	for range 64 {
-		e.noteDetached(make([]byte, smallLen, e.bufHint))
-	}
-	if e.bufHint >= peak {
-		t.Fatalf("hint did not decay: still %d after 64 small messages (peak %d)", e.bufHint, peak)
-	}
-	if e.bufHint < smallLen {
-		t.Errorf("hint decayed below what the data used: %d < %d", e.bufHint, smallLen)
-	}
-	t.Logf("hint %d -> %d", peak, e.bufHint)
-
-	// And it must rise again at once when a message outgrows it.
-	e.noteDetached(make([]byte, 8<<20))
-	if e.bufHint != 8<<20 {
-		t.Errorf("hint did not rise to a larger message: got %d", e.bufHint)
-	}
-
-	// An outlier must never be adopted past the pool's own retention ceiling.
-	e.noteDetached(make([]byte, maxPooledBuf*4))
-	if e.bufHint > maxPooledBuf {
-		t.Errorf("hint exceeded maxPooledBuf: %d", e.bufHint)
+	// And it follows the workload down, or one large message would leave every
+	// later small one allocating at its size — handing the caller a small slice
+	// backed by a large array for as long as that encoder lives.
+	const small = 4096
+	e.noteDetached(make([]byte, 512, small))
+	if e.bufHint != small {
+		t.Errorf("hint did not follow the workload down: got %d want %d", e.bufHint, small)
 	}
 }
 
-// TestWideScratchSurvivesLargeColumns pins the retention ceiling for the
-// int32->int64 widening scratch. At its former value (1<<14) a []int32 field
-// just past 16384 elements was dropped from the pooled encoder and rebuilt on
-// every single message: measured 139492 B/op at 17000 elements against 414 B/op
-// at 16384, a 337x jump for 4% more data.
-//
-// The assertion is on shape, not on a tuned number — allocation per message
-// must not scale with the column once it passes the old ceiling.
+// TestEncBufHintSkipsLargePayloads pins the bound on where pre-allocating pays.
+// slices.Grow serves a large request with one right-sized allocation, so above
+// maxHintedBuf the doubling chain is already short and a pre-allocation is
+// either overshoot or an undershoot that doubles on top — measured 18.3 MB/op
+// unhinted against 21.9 hinted on a 17.9 MB batch.
+func TestEncBufHintSkipsLargePayloads(t *testing.T) {
+	var e Encoder
+
+	e.bufHint = maxHintedBuf
+	e.buf = nil
+	e.resetForReuse()
+	if cap(e.buf) != maxHintedBuf {
+		t.Errorf("a hint at the bound should still pre-allocate: cap %d want %d", cap(e.buf), maxHintedBuf)
+	}
+
+	e.bufHint = maxHintedBuf + 1
+	e.buf = nil
+	e.resetForReuse()
+	if cap(e.buf) != 0 {
+		t.Errorf("a hint past the bound should not pre-allocate: cap %d want 0", cap(e.buf))
+	}
+}
+
 func TestWideScratchSurvivesLargeColumns(t *testing.T) {
 	type wideCol struct {
 		Data []int32 `qdf:"data"`
