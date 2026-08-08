@@ -394,7 +394,7 @@ const (
 func isStringColumnBlockTag(b byte) bool {
 	return b == tagColStrDict || b == tagColStrDictFC || b == tagColStrFSST ||
 		b == tagColStrRaw || b == tagColStrConst || b == tagColStrAlpha ||
-		b == tagColStrDictQ
+		b == tagColStrDictQ || b == tagColStrFrontDelta
 }
 
 // Varint (ULEB128) helpers. Used for state-table IDs and intern-payload
