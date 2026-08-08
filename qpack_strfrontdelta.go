@@ -121,6 +121,16 @@ func frontDeltaProject(strs []string) (frontDeltaMode, bool) {
 	if n < frontDeltaMinElems {
 		return 0, false
 	}
+	// High-cardinality gate first, the same one the alphabet packer uses. A
+	// low-cardinality column is cheaper as interned references — a repeat costs
+	// one state-ref byte — and this codec cannot beat that: it still spends
+	// three varints per row. Scoring against the raw per-value floor instead
+	// would say otherwise, because raw is not what such a column would actually
+	// get. Without this gate an all-identical column is claimed here and comes
+	// out larger than the const form it belongs in.
+	if !dictSampleHighCard(strs) {
+		return 0, false
+	}
 	sample := min(n, frontDeltaSampleN)
 
 	raw, front, back := 0, 0, 0

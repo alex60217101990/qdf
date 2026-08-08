@@ -42,6 +42,14 @@ func (e *Encoder) writeStringColumn(strs []string) {
 	if e.tryWriteStringColumnAlpha(strs) {
 		return
 	}
+	// Front-delta sits after alpha and before raw. Alpha must go first: hex and
+	// base64 identifiers share no prefixes (their characters are random) but
+	// alpha halves them, so intercepting those here would trade a 2x win for
+	// nothing. What reaches this line is high-cardinality text over an
+	// unrestricted alphabet — values that resemble the row above them.
+	if e.tryWriteStringColumnFrontDelta(strs) {
+		return
+	}
 	if e.tryWriteStringColumnRaw(strs) {
 		return
 	}
