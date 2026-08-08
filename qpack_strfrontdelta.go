@@ -3,6 +3,7 @@ package qdf
 import (
 	"encoding/binary"
 	"math/bits"
+	"slices"
 
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
@@ -146,4 +147,80 @@ func frontDeltaProject(strs []string) (frontDeltaMode, bool) {
 	}
 	// Require a real margin, not a byte or two: the sample is an estimate.
 	return mode, best+raw>>frontDeltaMinGainShift < raw
+}
+
+// tryWriteStringColumnFrontDelta attempts to emit strs as a tagColStrFrontDelta
+// block. It returns true when the block was written and is strictly smaller
+// than the per-value raw floor, false when the caller should fall through to
+// the next codec — in which case the encoder's buffer is untouched.
+//
+// The gate runs twice on purpose. frontDeltaProject decides from a sample
+// whether to bother building the streams at all; the exact totals are then
+// compared before a byte is emitted, so a column whose tail behaves unlike its
+// head cannot make the wire grow.
+func (e *Encoder) tryWriteStringColumnFrontDelta(strs []string) bool {
+	n := len(strs)
+	mode, ok := frontDeltaProject(strs)
+	if !ok {
+		return false
+	}
+	withSuffix := mode == frontDeltaFrontBack
+
+	// Build the length stream and measure the body exactly. The staging lives
+	// on the encoder so a wide batch does not reallocate it per column.
+	lens := e.frontDeltaLens[:0]
+	totalMid, rawFloor, lenBytes := 0, 0, 0
+	prev := ""
+	for i, s := range strs {
+		rawFloor += uvarintLen(uint64(len(s))) + len(s)
+		if i%frontDeltaBlock == 0 {
+			prev = ""
+		}
+		p := frontDeltaCommonPrefix(s, prev)
+		q := 0
+		if withSuffix {
+			q = frontDeltaCommonSuffix(s, prev, p)
+		}
+		m := len(s) - p - q
+		lens = append(lens, uint32(p), uint32(q), uint32(m))
+		totalMid += m
+		// Measure the length stream here rather than in a second walk over
+		// lens: the varint widths are known the moment the values are, and a
+		// separate pass would re-read 12 bytes per row for nothing.
+		lenBytes += uvarintLen(uint64(p)) + uvarintLen(uint64(m))
+		if withSuffix {
+			lenBytes += uvarintLen(uint64(q))
+		}
+		prev = s
+	}
+	e.frontDeltaLens = lens
+
+	hdr := 2 + uvarintLen(uint64(n)) + uvarintLen(uint64(totalMid))
+	if hdr+lenBytes+totalMid >= rawFloor {
+		return false // exact total lost: leave the column to the next codec
+	}
+
+	e.writeHeader()
+	out := slices.Grow(e.buf, hdr+lenBytes+totalMid)
+	out = append(out, tagColStrFrontDelta)
+	out = appendUvarint(out, uint64(n))
+	var flags byte
+	if withSuffix {
+		flags = 1
+	}
+	out = append(out, flags)
+	out = appendUvarint(out, uint64(totalMid))
+	for i := 0; i < len(lens); i += 3 {
+		out = appendUvarint(out, uint64(lens[i]))
+		if withSuffix {
+			out = appendUvarint(out, uint64(lens[i+1]))
+		}
+		out = appendUvarint(out, uint64(lens[i+2]))
+	}
+	for i, s := range strs {
+		p, q := int(lens[3*i]), int(lens[3*i+1])
+		out = append(out, s[p:len(s)-q]...)
+	}
+	e.buf = out
+	return true
 }

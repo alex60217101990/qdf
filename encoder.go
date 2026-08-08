@@ -140,6 +140,14 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// corrects on the next message, since every detach overwrites it.
 	bufHint int
 
+	// frontDeltaLens holds one (prefix, suffix, mid) triple per row while a
+	// front-delta column is measured and then written. Reused across columns so
+	// a wide batch does not reallocate it per column, and released past the same
+	// ceiling the other row-scaled scratch uses — a one-off giant column must
+	// not pin its staging on every pooled encoder, and a workload that stays
+	// above the ceiling must not rebuild it every message.
+	frontDeltaLens []uint32
+
 	// alpScratch is a reused FOR-mantissa staging buffer for the ALP float
 	// writer (mirrors the decoder's deltaScratch). Lives on the Encoder, not
 	// encState, so the row-major float path reuses it without needing a state.
@@ -481,6 +489,9 @@ func (e *Encoder) resetForReuse() {
 	// Pure []uint64 (no pointers) so no clear is needed.
 	if cap(e.alpScratch) > maxRetainedColScratch {
 		e.alpScratch = nil
+	}
+	if cap(e.frontDeltaLens) > maxRetainedColScratch {
+		e.frontDeltaLens = nil
 	}
 	// PFOR exception scratch: pointer-free, drop both when oversized (they grow
 	// together on the same workload so a single ceiling check suffices).

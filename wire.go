@@ -331,6 +331,31 @@ const (
 	// against the columnar header and buffer-bounded before allocation.
 	tagColStrDictQ = 0xFC
 
+	// tagColStrFrontDelta is an incrementally-coded string column inside a
+	// tagColStruct payload: the cheap counterpart to tagColStrFSST for
+	// high-cardinality text whose values resemble their neighbours (request
+	// lines differing in an id, user agents differing in a version). Each row
+	// stores what it shares with the row above instead of its own bytes.
+	//
+	// Every frontDeltaBlock (64) rows the chain resets and a row is written in
+	// full, so a reader can start at a block boundary — predicate pushdown
+	// materialises only surviving rows and would otherwise have to decode the
+	// column from the top to reach any row.
+	//
+	// Wire:
+	//   0xD9,
+	//        varuint(n),            // row count (cross-checked)
+	//        flags byte,            // bit0 = suffix coding; bits 1-7 reserved, must be 0
+	//        varuint(totalMid),     // sum of mid lengths, so the slab is allocated once
+	//        n x ( varuint(pfx), [varuint(sfx) if bit0], varuint(midLen) ),
+	//        totalMid bytes         // the mids, concatenated in row order
+	//
+	// Row i is prev[:pfx] + mid + prev[len(prev)-sfx:], where prev is row i-1
+	// unless i%64 == 0, in which case prev is empty and pfx = sfx = 0.
+	// Never-larger: emitted only when the exact coded total beats the raw
+	// per-value floor.
+	tagColStrFrontDelta = 0xD9
+
 	tagColVecLossy = 0xFD // lossy float-vector block (Hadamard+quant+rANS)
 
 	// tagVecBatchStruct is a container for a []struct whose []float32/[]float64
