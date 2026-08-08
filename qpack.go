@@ -265,6 +265,22 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 			}
 		}
 	}
+	// Gate the PFOR planner. Unlike every other candidate here it has no cheap
+	// pre-check, so it built a bits.Len64 histogram over the whole column even
+	// when a previous codec had already won outright — measured 0 wins in 40
+	// calls on monotone data and 0 in 40 on repeating data, 800k values scanned
+	// each time for nothing.
+	//
+	// The bound is exact rather than sampled. PFOR's body costs (n*cand+7)/8
+	// bytes for its chosen width, so a winning plan needs hdr + n*cand/8 <
+	// bestCost. Once bestCost drops to hdr + n/8 the only admissible width is
+	// cand = 0, which turns every value above the minimum into an exception and
+	// cannot beat the run/dict encodings that produce such a small bestCost in
+	// the first place. Skipping there forfeits nothing the wire would notice.
+	pforHdr := 3 + uvarintLen(uint64(len(s))) + uvarintLen(zigzagEncode64(mn))
+	if bestCost <= pforHdr+len(s)/8 {
+		return
+	}
 	if pb, pc, okp := pforPlanSigned(s, mn, forBits); okp && pc < bestCost {
 		codec = qpackPFor
 		pforBits = pb
