@@ -99,3 +99,51 @@ func TestFrontDeltaProjectPicksMode(t *testing.T) {
 		t.Errorf("mode = %v, want frontDeltaFrontBack", mode)
 	}
 }
+
+func TestFrontDeltaWriterHeader(t *testing.T) {
+	strs := make([]string, 100)
+	for i := range strs {
+		strs[i] = "/api/v2/resource/" + strconv.Itoa(i)
+	}
+
+	e := NewEncoder(Dense)
+	e.applyOpts(OptBalanced)
+	if !e.tryWriteStringColumnFrontDelta(strs) {
+		t.Fatal("writer declined a prefix-sharing column")
+	}
+	buf := e.Bytes()
+
+	// The block begins at the tag; everything before it is the frame header.
+	i := 0
+	for i < len(buf) && buf[i] != tagColStrFrontDelta {
+		i++
+	}
+	if i == len(buf) {
+		t.Fatal("tag not found in output")
+	}
+	i++
+	n, nr := readUvarint(buf[i:])
+	if nr <= 0 || n != uint64(len(strs)) {
+		t.Fatalf("row count = %d (nr=%d), want %d", n, nr, len(strs))
+	}
+	i += nr
+	if flags := buf[i]; flags&^1 != 0 {
+		t.Errorf("reserved flag bits set: %#x", flags)
+	}
+}
+
+func TestFrontDeltaWriterDeclines(t *testing.T) {
+	rnd := make([]string, 200)
+	for i := range rnd {
+		rnd[i] = strconv.Itoa(i*2654435761) + "-" + strconv.Itoa(i*40503)
+	}
+	e := NewEncoder(Dense)
+	e.applyOpts(OptBalanced)
+	before := len(e.Bytes())
+	if e.tryWriteStringColumnFrontDelta(rnd) {
+		t.Error("writer accepted a column with nothing to share")
+	}
+	if len(e.Bytes()) != before {
+		t.Error("writer left bytes behind after declining")
+	}
+}
