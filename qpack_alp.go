@@ -66,8 +66,8 @@ const alpMaxElems = 1 << 24
 type alpFloatPlan struct {
 	d      int   // effective decimal exponent (e-f)
 	forMin int64 // FOR reference of the non-exception integer mantissas
-	width  uint8 // bits per packed element, 0..56
 	exc    int   // exception count
+	width  uint8 // bits per packed element, 0..56
 	// exact selects DIVISION by 10^d over multiplication by a precomputed
 	// 1/10^d when reconstructing. Division is correctly rounded and costs no
 	// false exceptions, but it is a newer wire form (alpExactFlag) and a few

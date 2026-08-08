@@ -45,8 +45,8 @@ func (d *Decoder) wantField(name string) bool {
 // keyFilter is the consumed form of an UnmarshalKeys projection. The zero
 // value wants every key, so an absent filter costs one nil check.
 type keyFilter struct {
-	list []string
 	set  map[string]struct{} // built only for large lists, see takeKeyFilter
+	list []string
 }
 
 // keyFilterSetMin is where linear scanning stops paying. Map entry counts are
