@@ -148,6 +148,15 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 	// PFOR: wins on outlier-heavy slices where plain FOR is forced wide by a
 	// few large values. Conservative cost estimate (maxDelta upper bound) keeps
 	// it never-worse: chosen only when strictly smaller than every other codec.
+	// Same cost bound as the signed twin: PFOR's body costs (n*cand+7)/8 bytes,
+	// so once bestCost falls to hdr + n/8 the only admissible width is cand = 0,
+	// which makes an exception of every value above the minimum and cannot beat
+	// the run or dict encoding that produced so small a bestCost. Skipping there
+	// saves a full bits.Len64 histogram over the column.
+	pforHdr := 3 + uvarintLen(uint64(len(s))) + uvarintLen(mn)
+	if bestCost <= pforHdr+len(s)/8 {
+		return
+	}
 	if pb, pc, okp := pforPlanUnsigned(s, mn, forBits); okp && pc < bestCost {
 		codec = qpackPFor
 		pforBits = pb
