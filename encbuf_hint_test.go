@@ -160,15 +160,23 @@ func TestWideScratchSurvivesLargeColumns(t *testing.T) {
 		return (b.TotalAlloc - a.TotalAlloc) / runs
 	}
 
-	small := measure(mk(8192))   // comfortably under any ceiling
-	large := measure(mk(100000)) // over the former 1<<14, under the current 1<<17
+	const largeN = 100000 // over the former 1<<14 ceiling, under the current 1<<17
+	small := measure(mk(8192))
+	large := measure(mk(largeN))
 
-	// The large column's own output is bigger, so some growth is expected; a
-	// dropped-and-rebuilt scratch shows up as growth proportional to the column
-	// (12x the elements would mean ~800 KB of widening scratch per message).
-	if limit := small + 300_000; large > limit {
-		t.Errorf("large column allocates %d B/op vs %d B/op for a small one (limit %d) — the widening scratch is being dropped every message",
-			large, small, limit)
+	// The scratch is []uint64, so dropping and rebuilding it costs exactly 8
+	// bytes per element per message. Bound the whole message by that figure:
+	// well above what the column legitimately allocates, well below what it
+	// costs to rebuild the scratch on top of that.
+	//
+	// The bound is absolute rather than a multiple of the small column because
+	// -race inflates every allocation, and by different factors on different
+	// runners. Measured per element: 2.1 B fixed without -race, up to 6.0 B
+	// fixed under it, against 10.2 B with the ceiling back at 1<<14 — so 8 B
+	// separates the two regimes in both modes.
+	if limit := uint64(8 * largeN); large > limit {
+		t.Errorf("a %d-element column allocates %d B/op (limit %d, small column %d) — the widening scratch is being dropped every message",
+			largeN, large, limit, small)
 	}
-	t.Logf("8192 elems: %d B/op   100000 elems: %d B/op", small, large)
+	t.Logf("8192 elems: %d B/op   %d elems: %d B/op (%.1f B/elem)", small, largeN, large, float64(large)/largeN)
 }
