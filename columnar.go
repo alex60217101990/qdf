@@ -392,11 +392,22 @@ const (
 // estimate credits alpha-packing on a restricted-alphabet high-cardinality
 // column. Left false for the pure-columnar and FSST paths, where the historical
 // model is kept byte-for-byte (no decision change, no regression).
-func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool, fsstDict *fsst.SymbolTable, internAware bool) bool {
+// columnarProbeColumns estimates every column two ways — transposed, and
+// row-major — and reports both the totals and which columns are individually
+// cheaper transposed.
+//
+// The per-column verdict is what the container decision needs: one column that
+// does not transpose well should not veto one that does, it should simply be
+// written row-major beside the residual fields. The arithmetic below is
+// untouched; the verdict is read off the totals each column contributes, so
+// there is no second model to keep in step with the first.
+//
+// keep must have room for one entry per column.
+func columnarProbeColumns(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool, fsstDict *fsst.SymbolTable, internAware bool, keep []bool) (colBytes, rowBytes int) {
 	sample := min(n, columnarProbeSample)
-	var rowBytes, colBytes int
 	for c := range plan.cols {
 		col := &plan.cols[c]
+		beforeCol, beforeRow := colBytes, rowBytes
 		switch col.kind {
 		case colKindInt, colKindUint:
 			// Distinct values bounded to 17 (cardinality > 16 disables the dict
@@ -658,7 +669,28 @@ func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled b
 			rowBytes += sample + valBytes
 			colBytes += (sample+7)/8 + valBytes
 		}
+		// A kind the switch does not model contributes nothing to either total
+		// and is therefore not a winner — which is what today's summed verdict
+		// effectively assumed too.
+		keep[c] = colBytes-beforeCol < rowBytes-beforeRow
 	}
+	return colBytes, rowBytes
+}
+
+// columnarProbe is columnarProbeColumns with the per-column verdicts discarded,
+// applying the whole-struct gate. Kept while the call site migrates.
+func columnarProbe(plan *columnarPlan, base unsafe.Pointer, n int, fsstEnabled bool, fsstDict *fsst.SymbolTable, internAware bool) bool {
+	// Stack-resident for any ordinary struct: this runs once per batch, and an
+	// allocation here shows up in the encoder's per-op figures even though it is
+	// nowhere near the hot loop.
+	var buf [32]bool
+	var keep []bool
+	if len(plan.cols) <= len(buf) {
+		keep = buf[:len(plan.cols)]
+	} else {
+		keep = make([]bool, len(plan.cols))
+	}
+	colBytes, rowBytes := columnarProbeColumns(plan, base, n, fsstEnabled, fsstDict, internAware, keep)
 	if rowBytes == 0 {
 		return false
 	}
