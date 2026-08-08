@@ -224,3 +224,132 @@ func (e *Encoder) tryWriteStringColumnFrontDelta(strs []string) bool {
 	e.buf = out
 	return true
 }
+
+// readStringColumnFrontDelta decodes a tagColStrFrontDelta block. d.i points at
+// the tag on entry.
+//
+// The length stream is walked twice: once to validate every field and total the
+// reconstructed size, then once to build. Two passes are what let the slab be
+// allocated exactly once, and they are also what lets every bound be checked
+// before a byte is copied — a hostile stream cannot reach past the buffer or
+// claim a body it did not send.
+func (d *Decoder) readStringColumnFrontDelta(n int) ([]string, error) {
+	if d.i >= len(d.buf) || d.buf[d.i] != tagColStrFrontDelta {
+		return nil, ErrTypeMismatch
+	}
+	d.i++
+
+	n64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return nil, ErrInvalidLength
+	}
+	d.i += nr
+	if !d.colLenOK(n64) || n64 != uint64(n) {
+		return nil, ErrInvalidLength
+	}
+
+	if d.i >= len(d.buf) {
+		return nil, ErrShortBuffer
+	}
+	flags := d.buf[d.i]
+	d.i++
+	if flags&^1 != 0 {
+		return nil, ErrBadTag // reserved bits must be zero
+	}
+	withSuffix := flags&1 != 0
+
+	totalMid64, nr := readUvarint(d.buf[d.i:])
+	if nr <= 0 {
+		return nil, ErrInvalidLength
+	}
+	d.i += nr
+	if totalMid64 > uint64(len(d.buf)-d.i) {
+		return nil, ErrShortBuffer
+	}
+	totalMid := int(totalMid64)
+
+	// Pass one: validate and total. lenStart lets pass two re-read the same
+	// varints without storing them.
+	lenStart := d.i
+	total, sumMid := 0, 0
+	prevLen := 0
+	for i := range n {
+		if i%frontDeltaBlock == 0 {
+			prevLen = 0
+		}
+		p, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return nil, ErrInvalidLength
+		}
+		d.i += nr
+		q := uint64(0)
+		if withSuffix {
+			q, nr = readUvarint(d.buf[d.i:])
+			if nr <= 0 {
+				return nil, ErrInvalidLength
+			}
+			d.i += nr
+		}
+		m, nr := readUvarint(d.buf[d.i:])
+		if nr <= 0 {
+			return nil, ErrInvalidLength
+		}
+		d.i += nr
+
+		// The two references must fit inside the previous row and must not
+		// overlap: without this a row could claim more bytes than exist.
+		if p+q > uint64(prevLen) {
+			return nil, ErrBadTag
+		}
+		if m > totalMid64 {
+			return nil, ErrInvalidLength
+		}
+		sumMid += int(m)
+		if sumMid > totalMid {
+			return nil, ErrInvalidLength
+		}
+		rowLen := int(p) + int(q) + int(m)
+		total += rowLen
+		prevLen = rowLen
+	}
+	if sumMid != totalMid {
+		return nil, ErrInvalidLength // the declared body and the lengths disagree
+	}
+	if d.i+totalMid > len(d.buf) {
+		return nil, ErrShortBuffer
+	}
+	body := d.buf[d.i : d.i+totalMid]
+	bodyEnd := d.i + totalMid
+
+	// Pass two: build. One slab holds every reconstructed value; the returned
+	// strings alias it, the same shape readStringColumnAlpha uses.
+	slab := make([]byte, 0, total)
+	out := d.colStrScratch(n)
+	d.i = lenStart
+	mid := 0
+	prev := ""
+	for i := range n {
+		if i%frontDeltaBlock == 0 {
+			prev = ""
+		}
+		p, nr := readUvarint(d.buf[d.i:])
+		d.i += nr
+		q := uint64(0)
+		if withSuffix {
+			q, nr = readUvarint(d.buf[d.i:])
+			d.i += nr
+		}
+		m, nr := readUvarint(d.buf[d.i:])
+		d.i += nr
+
+		off := len(slab)
+		slab = append(slab, prev[:p]...)
+		slab = append(slab, body[mid:mid+int(m)]...)
+		slab = append(slab, prev[len(prev)-int(q):]...)
+		mid += int(m)
+		out[i] = unsafestr.String(slab[off:])
+		prev = out[i]
+	}
+	d.i = bodyEnd
+	return out, nil
+}
