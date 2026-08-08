@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"cmp"
+	"hash/maphash"
 	"slices"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
@@ -47,13 +48,22 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	if n < qpackStrDictMinElems {
 		return false
 	}
-	m := e.state.strDictMap
-	if m == nil {
-		m = make(map[string]uint32, qpackStrDictMaxDistinct)
-		e.state.strDictMap = m
-	} else {
-		clear(m)
+	st := e.state
+	// Power of two, twice the distinct cap, so the table never passes half load
+	// and the linear probe stays short.
+	if st.strDictSlots == nil {
+		st.strDictSlots = make([]strDictSlot, 2*qpackStrDictMaxDistinct)
 	}
+	slots := st.strDictSlots
+	mask := uint64(len(slots) - 1)
+	st.strDictEpoch++
+	if st.strDictEpoch == 0 {
+		// Wrapped: the zero stamp means "empty", so retire every stale entry
+		// once rather than risk reading one as live.
+		clear(slots)
+		st.strDictEpoch = 1
+	}
+	epoch := st.strDictEpoch
 	table := e.state.colDictTable[:0]
 	idx := e.state.colScratchU64[:0]
 	// gp tracks the longest byte prefix shared by EVERY distinct value, computed
@@ -64,26 +74,36 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	// — a non-prefix-shared column skips it entirely (no CPU regression).
 	gp := 0
 	for i, s := range strs {
-		id, ok := m[s]
-		if !ok {
-			if len(m) >= qpackStrDictMaxDistinct {
-				e.state.colDictTable = table
-				e.state.colScratchU64 = idx
-				return false
+		h := maphash.String(internHashSeed, s)
+		var id uint32
+		for j := h & mask; ; j = (j + 1) & mask {
+			slot := &slots[j]
+			if slot.epoch != epoch {
+				// Empty for this column: install.
+				if len(table) >= qpackStrDictMaxDistinct {
+					e.state.colDictTable = table
+					e.state.colScratchU64 = idx
+					return false
+				}
+				id = uint32(len(table))
+				slot.hash, slot.epoch, slot.idx = h, epoch, id
+				table = append(table, s)
+				if len(table) == 1 {
+					gp = len(s)
+				} else {
+					gp = commonPrefixLen(table[0][:gp], s)
+				}
+				break
 			}
-			id = uint32(len(m))
-			m[s] = id
-			table = append(table, s)
-			if len(table) == 1 {
-				gp = len(s)
-			} else {
-				gp = commonPrefixLen(table[0][:gp], s)
+			if slot.hash == h && table[slot.idx] == s {
+				id = slot.idx
+				break
 			}
 		}
 		idx = append(idx, uint64(id))
 		// High-cardinality bail: after the sample, if the column is mostly
 		// distinct it will not dict-compress — stop before scanning the rest.
-		if i+1 == qpackStrDictSampleN && len(m)*100 > qpackStrDictSampleN*qpackStrDictSampleMaxPct {
+		if i+1 == qpackStrDictSampleN && len(table)*100 > qpackStrDictSampleN*qpackStrDictSampleMaxPct {
 			e.state.colDictTable = table
 			e.state.colScratchU64 = idx
 			return false

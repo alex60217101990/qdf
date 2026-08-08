@@ -40,6 +40,16 @@ func internKeyHash(s string) uint64 {
 // 8 B instead of 16 B for a hash-first layout; the total stays 32 B:
 //
 //	key 16 B  +  hash 8 B  +  id 4 B  +  pad 4 B  =  32 B  →  2 slots / cache line
+//
+// strDictSlot indexes one distinct value of a string column by hash. idx points
+// into the caller's table; the string itself is never stored here, so a hash
+// match is confirmed against that table.
+type strDictSlot struct {
+	hash  uint64
+	epoch uint32
+	idx   uint32
+}
+
 type internSlot struct {
 	key  string
 	hash uint64
@@ -255,6 +265,19 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// while the string-dict codec decides/encodes. Reused (cleared) per
 	// column to avoid a per-column map allocation.
 	strDictMap map[string]uint32
+
+	// strDictSlots is an open-addressed index over colDictTable, replacing a
+	// map[string]uint32 in the string-dict builder. The column's distinct count
+	// is capped at qpackStrDictMaxDistinct, so a fixed power-of-two table stays
+	// under half load and one linear probe usually resolves — cheaper than Go's
+	// map machinery for a lookup this hot (measured 4.2% of a log-shaped encode
+	// in mapaccess2_faststr alone).
+	//
+	// strDictEpoch stamps the live generation so a new column costs an increment
+	// instead of clearing the table. On wrap the slots are cleared once, which
+	// is the only time the cost is paid.
+	strDictSlots []strDictSlot
+	strDictEpoch uint32
 
 	// canonKeysBusy guards the pooled canonKeys* scratch against re-entrancy: a
 	// map whose values contain maps recurses into the gather mid-iteration and
