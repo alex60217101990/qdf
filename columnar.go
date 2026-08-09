@@ -84,11 +84,15 @@ type colColumn struct {
 	// elemType is the pointed-to type for a nullable (*T) column, used to
 	// allocate the present values on decode. nil for non-nullable columns.
 	elemType reflect.Type
-	name     string
-	offset   uintptr
-	width    uintptr // element width in bytes for the scalar load/store
-	kind     colKind // base kind, OR'd with colKindNullable for *T columns
-	isByte   bool    // true for []byte string columns (vs string)
+	// desc is the field's row-major codec pair, carried so a column the probe
+	// declines can be demoted into the hybrid residual list — a residualField
+	// is encoded through exactly these closures.
+	desc   *typeDesc
+	name   string
+	offset uintptr
+	width  uintptr // element width in bytes for the scalar load/store
+	kind   colKind // base kind, OR'd with colKindNullable for *T columns
+	isByte bool    // true for []byte string columns (vs string)
 }
 
 // residualField describes one struct field that is NOT columnar-eligible
@@ -254,7 +258,7 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 		if nullable {
 			ck |= colKindNullable
 		}
-		cols = append(cols, colColumn{name: f.name, offset: f.offset, kind: ck, width: w, isByte: isByte, elemType: elemType})
+		cols = append(cols, colColumn{name: f.name, offset: f.offset, kind: ck, width: w, isByte: isByte, elemType: elemType, desc: f.desc})
 		hybridNames = append(hybridNames, f.name)
 		hybridKinds = append(hybridKinds, ck)
 	}
@@ -1923,11 +1927,36 @@ func decodeHybridColumnar(d *Decoder, t reflect.Type, plan *columnarPlan, p unsa
 
 	// Residual block. Precompute the wire-residual → target mapping once
 	// (nil target = a residual field the struct lacks, consumed via Skip).
+	// A field marked residual on the wire is normally residual in the target
+	// plan too, because eligibility is a property of the type. It need not be:
+	// the encoder also demotes a column the probe judged not worth transposing,
+	// and the target plan — built from the type alone — still calls that field a
+	// column. Decode it row-major into the same field rather than discarding it,
+	// which is what a nil target does.
+	nsynth := 0
+	for c := range sh.kinds {
+		if sh.kinds[c] == residualKind && findResidual(plan, sh.names[c]) == nil {
+			nsynth++
+		}
+	}
+	// Exact capacity: targets holds pointers into this slice, so it must not
+	// reallocate while it is being filled.
+	synth := make([]residualField, 0, nsynth)
 	var targets []*residualField
 	for c := range sh.kinds {
-		if sh.kinds[c] == residualKind {
-			targets = append(targets, findResidual(plan, sh.names[c]))
+		if sh.kinds[c] != residualKind {
+			continue
 		}
+		if rf := findResidual(plan, sh.names[c]); rf != nil {
+			targets = append(targets, rf)
+			continue
+		}
+		if col := findCol(plan, sh.names[c]); col != nil && col.desc != nil {
+			synth = append(synth, residualField{desc: col.desc, name: col.name, offset: col.offset})
+			targets = append(targets, &synth[len(synth)-1])
+			continue
+		}
+		targets = append(targets, nil) // the struct genuinely lacks this field
 	}
 	// Residual fields are row-major, not columnar columns: their slice/map/
 	// nested values may legitimately hold any number of elements, unrelated to
@@ -2705,4 +2734,154 @@ func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok b
 	default:
 		return 0, 0, false, false
 	}
+}
+
+// derivePartialPlan builds the plan for a batch where only some columns are
+// worth transposing: the winners stay columns, the losers join the residual
+// fields and are written row-major beside them.
+//
+// The source plan is cached per type and its name/kind slices are retained by
+// the shape table, so it is never edited — this returns a new plan.
+//
+// Order is inherited, not recomputed. encodeHybridColumnar writes the shape
+// from hybridNames, then the column bodies in plan.cols order, then the
+// residual block in plan.residual order, and the decoder pairs them up by
+// walking the shape. Those three lists must therefore agree. Rebuilding the
+// order from field offsets would be a second source of truth that can drift
+// from whatever the plan builder did; walking the source hybrid list and
+// flipping the demoted entries to residualKind cannot.
+func derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPlan {
+	// A pure plan carries no hybrid lists — buildColumnarPlan fills them only
+	// when the type has residual fields — so the walk below has to be given
+	// them. Demoting a column turns a pure plan into a hybrid one, and the
+	// hybrid encoder reads the shape from these two slices: leaving them nil
+	// writes a container with no fields in it.
+	srcNames, srcKinds := plan.hybridNames, plan.hybridKinds
+	if srcNames == nil {
+		srcNames = plan.colNames
+		srcKinds = plan.colKinds
+	}
+
+	out := &columnarPlan{
+		stride:      plan.stride,
+		hybridNames: srcNames, // names never change, only kinds do
+		hybridKinds: make([]colKind, len(srcKinds)),
+		cols:        make([]colColumn, 0, len(plan.cols)),
+		residual:    make([]residualField, 0, len(plan.residual)+len(plan.cols)),
+	}
+	copy(out.hybridKinds, srcKinds)
+
+	// Walk the hybrid list — the wire's own order — and place each field.
+	ci, ri := 0, 0
+	for h := range srcNames {
+		if srcKinds[h] == residualKind {
+			out.residual = append(out.residual, plan.residual[ri])
+			ri++
+			continue
+		}
+		col := plan.cols[ci]
+		ci++
+		if keep[ci-1] {
+			out.cols = append(out.cols, col)
+			if col.kind == colKindString && !col.isByte {
+				out.hasStringCol = true
+			}
+			continue
+		}
+		// Demoted: it leaves the column list and joins the residual block in
+		// the same position it occupied in the shape.
+		out.hybridKinds[h] = residualKind
+		out.residual = append(out.residual, residualField{desc: col.desc, name: col.name, offset: col.offset})
+	}
+
+	out.colNames = make([]string, len(out.cols))
+	out.colKinds = make([]colKind, len(out.cols))
+	for i := range out.cols {
+		out.colNames[i] = out.cols[i].name
+		out.colKinds[i] = out.cols[i].kind
+	}
+	return out
+}
+
+// hybridColumnHeaderCost is what one emitted column costs before its body: a
+// codec tag and a row count. Reading it pessimistically is the right direction
+// for a gate that decides whether to pay for the container at all.
+const hybridColumnHeaderCost = 7
+
+// columnarSelect decides which container this batch gets and, when only some
+// columns are worth transposing, builds the plan for that.
+//
+// The old question — does the struct beat row-major — let one column's loss
+// veto another's win. This one asks whether the columns that win pay for the
+// container: a loser contributes nothing rather than a negative, because it
+// will simply be written row-major beside the residual fields.
+func (e *Encoder) columnarSelect(plan *columnarPlan, base unsafe.Pointer, n int, internAware bool) (*columnarPlan, bool) {
+	// Stack-resident for any ordinary struct: this runs once per batch, and an
+	// allocation here lands in the encoder's per-op figures.
+	var buf [32]bool
+	keep := buf[:0]
+	if len(plan.cols) <= len(buf) {
+		keep = buf[:len(plan.cols)]
+	} else {
+		keep = make([]bool, len(plan.cols))
+	}
+
+	colBytes, rowBytes := columnarProbeColumns(plan, base, n, e.fsst, e.fsstDict, internAware, keep)
+	if rowBytes == 0 {
+		return nil, false
+	}
+	won := 0
+	for c := range keep {
+		if keep[c] {
+			won++
+		}
+	}
+	gain := columnarMinGainPct
+	if internAware {
+		gain = columnarMinGainPctInternAware
+	}
+
+	switch won {
+	case 0:
+		// Nothing transposes: row-major, exactly as before this change.
+		return nil, false
+	case len(plan.cols):
+		// Every column wins: the old decision, on the old totals, producing the
+		// old bytes. This arm is what keeps existing payloads unmoved.
+		if colBytes*100 <= rowBytes*(100-gain) {
+			return plan, true
+		}
+		return nil, false
+	}
+
+	// Mixed, but the plan is pure: leave it alone. Demoting a column would turn
+	// a tagColStruct payload into a tagHybridColStruct one, and the two are not
+	// interchangeable — the column index (OptColumnIndex) is emitted only for
+	// the pure container, and predicate pushdown over a hybrid payload returns
+	// ErrUnsupported. Trading those away for a few bytes, silently, is not a
+	// trade this decision is allowed to make. A type whose fields are all
+	// transposable keeps the all-or-nothing verdict.
+	if plan.residual == nil {
+		if colBytes*100 <= rowBytes*(100-gain) {
+			return plan, true
+		}
+		return nil, false
+	}
+
+	// Mixed. Charge the container for what it costs over plain row-major: the
+	// shape declaration, plus a block header per emitted column. Shape interning
+	// amortises the declaration away after its first appearance in a stream, so
+	// charging it in full every time is the conservative side.
+	saving := rowBytes - colBytes
+	if saving <= 0 {
+		return nil, false
+	}
+	overhead := won * hybridColumnHeaderCost
+	for i := range plan.hybridNames {
+		overhead += 2 + len(plan.hybridNames[i])
+	}
+	if saving*100 <= overhead*(100+gain) {
+		return nil, false
+	}
+	return derivePartialPlan(plan, keep), true
 }

@@ -259,14 +259,20 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// falls through to row-major, byte-identical to today.
 		if colPlan != nil && n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
+			// internAware is unchanged here on purpose: this commit changes only
+			// WHICH columns are transposed, not how any column is scored. The
+			// scoring correction is a separate change so that a failure in
+			// either one names its own cause.
 			pure := colPlan.residual == nil
 			internAware := !pure && !e.fsst && colPlan.hasStringCol
-			if (pure || e.fsst || internAware) && columnarProbe(colPlan, hdr.Data, n, e.fsst, e.fsstDict, internAware) {
-				e.writeHeader()
-				if pure {
-					return e.encodeColumnar(colPlan, hdr.Data, n)
+			if pure || e.fsst || internAware {
+				if sel, ok := e.columnarSelect(colPlan, hdr.Data, n, internAware); ok {
+					e.writeHeader()
+					if sel.residual == nil {
+						return e.encodeColumnar(sel, hdr.Data, n)
+					}
+					return e.encodeHybridColumnar(sel, hdr.Data, n)
 				}
-				return e.encodeHybridColumnar(colPlan, hdr.Data, n)
 			}
 		}
 		e.WriteArrayHeader(n)
