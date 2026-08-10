@@ -124,6 +124,12 @@ type Decoder struct {
 	// through decodeMapStringShapeHeader. The batch decoder reaches struct
 	// headers via ReadStructHeader, whose public signature does not carry it.
 	lastWireShapeID uint32
+
+	// lastReadOwned marks that the bytes readStringBytes just returned are
+	// decoder-owned (a rebuilt tagStrDelta value) rather than an alias of the
+	// input buffer, so ReadString can hand them out without a second copy.
+	// Cleared at the top of every raw string read so it cannot leak forward.
+	lastReadOwned bool
 }
 
 // colLenOK reports whether a slice length is acceptable in the current

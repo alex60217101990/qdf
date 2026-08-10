@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/alex60217101990/qdf/internal/bumparena"
 	"github.com/alex60217101990/qdf/internal/internarena"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
@@ -1199,6 +1200,12 @@ type decState struct {
 	// its base still has to advance or the next value of that field decodes
 	// against a stale one — silently, because the types still line up.
 	strDeltaBase [][]string
+
+	// strDeltaBump packs reconstructed delta values. Reset drops it rather than
+	// rewinding: its bytes are referenced by the intern table and by strings
+	// handed to the previous caller, and Bump.Reset would hand the next message
+	// the same memory.
+	strDeltaBump bumparena.Bump
 }
 
 func newDecState() *decState {

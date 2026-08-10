@@ -1,6 +1,11 @@
 package qdf
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+
+	"github.com/alex60217101990/qdf/internal/bumparena"
+	"github.com/alex60217101990/qdf/internal/unsafestr"
+)
 
 // Front-delta string values (tagStrDelta) for the row-major struct path.
 //
@@ -37,6 +42,10 @@ const (
 	// compressible part-way through is recovered instead of forfeited. Worst
 	// case is one wasted comparison per 512 values, ~0.2%.
 	strDeltaRearmN = 512
+	// The delta is emitted only when its cost is below this fraction of the
+	// form it replaces: num/den = 1/2 means it must halve the value.
+	strDeltaMinGainNum = 1
+	strDeltaMinGainDen = 2
 )
 
 // strDeltaGate is the per-field probe state. Encoder-side only: the wire stays
@@ -76,8 +85,17 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 	won := false
 	if !g.muted {
 		strDeltaProbes.Add(1)
-		if strDeltaCost(*base, s) < internCost {
-			e.buf = appendStrDelta(e.buf, *base, s)
+		p := frontDeltaCommonPrefix(*base, s)
+		// The delta must not merely win, it must win BIG.
+		//
+		// A tagInternStr value costs the decoder nothing to materialise: its
+		// bytes are a sub-slice of the read buffer. A delta value is contiguous
+		// nowhere and must be copied, so every emission adds live bytes the GC
+		// then has to scan and release — measured as madvise time, not as
+		// allocation count. A value that saves two bytes of wire still pays a
+		// full copy, which is a bad trade; one that saves most of itself is not.
+		if strDeltaCostAt(p, s)*strDeltaMinGainDen < internCost*strDeltaMinGainNum {
+			e.buf = appendStrDeltaAt(e.buf, p, s)
 			strDeltaEmitted.Add(1)
 			won = true
 			g.wins++
@@ -120,12 +138,21 @@ func (e *Encoder) strDeltaEligible(s string) bool {
 // — and emits the delta only when it is strictly smaller, which is what makes
 // the form never worse by construction rather than by a gate.
 func strDeltaCost(base, s string) int {
-	p := frontDeltaCommonPrefix(base, s)
+	return strDeltaCostAt(frontDeltaCommonPrefix(base, s), s)
+}
+
+// strDeltaCostAt is the cost for a prefix already computed. The caller measures
+// once and writes with the same number: computing it twice — once to price the
+// form and once to emit it — doubled the encoder's only real work.
+func strDeltaCostAt(p int, s string) int {
 	return 1 + uvarintLen(uint64(p)) + uvarintLen(uint64(len(s)-p)) + (len(s) - p)
 }
 
 func appendStrDelta(buf []byte, base, s string) []byte {
-	p := frontDeltaCommonPrefix(base, s)
+	return appendStrDeltaAt(buf, frontDeltaCommonPrefix(base, s), s)
+}
+
+func appendStrDeltaAt(buf []byte, p int, s string) []byte {
 	buf = append(buf, tagStrDelta)
 	buf = appendUvarint(buf, uint64(p))
 	buf = appendUvarint(buf, uint64(len(s)-p))
@@ -140,6 +167,12 @@ func appendStrDelta(buf []byte, base, s string) []byte {
 // reader does not own — or a middle longer than the buffer. Both are rejected
 // here rather than deeper, where the copy would already have happened.
 func readStrDelta(buf []byte, base string) (string, int, error) {
+	return readStrDeltaInto(buf, base, nil)
+}
+
+// readStrDeltaInto is readStrDelta with the output cut from st's chunk arena
+// when st is non-nil, which is what keeps decode allocations flat.
+func readStrDeltaInto(buf []byte, base string, st *decState) (string, int, error) {
 	if len(buf) == 0 || buf[0] != tagStrDelta {
 		return "", 0, ErrBadTag
 	}
@@ -161,10 +194,18 @@ func readStrDelta(buf []byte, base string) (string, int, error) {
 		return "", 0, ErrShortBuffer
 	}
 	p, m := int(p64), int(m64)
-	out := make([]byte, p+m)
+	var out []byte
+	if st != nil {
+		out = st.strDeltaAlloc(p + m)
+	} else {
+		out = make([]byte, p+m)
+	}
 	copy(out, base[:p])
 	copy(out[p:], buf[i:i+m])
-	return string(out), i + m, nil
+	// The bytes are ours — cut from the arena or freshly made — so the header
+	// can alias them instead of paying a second copy. Copying here would undo
+	// the arena entirely.
+	return unsafestr.String(out), i + m, nil
 }
 
 // --- per-field base storage -------------------------------------------------
@@ -239,6 +280,9 @@ func (e *encState) strDeltaResetEnc() {
 }
 
 func (d *decState) strDeltaResetDec() {
+	// A fresh allocator, not Bump.Reset: the old block's bytes are referenced by
+	// the intern table and by strings handed to the previous caller.
+	d.strDeltaBump = bumparena.New()
 	for i := range d.strDeltaBase {
 		clear(d.strDeltaBase[i])
 	}
@@ -275,3 +319,14 @@ func strDeltaTagAdvancesBase(b byte) bool {
 	}
 	return false
 }
+
+// strDeltaAlloc returns n uninitialised bytes owned by the decoder state.
+//
+// A delta value is base[:pfx] + mid, contiguous nowhere: unlike tagInternStr —
+// whose bytes are a sub-slice of the read buffer and cost nothing — it must be
+// materialised. A make() per value doubled decode allocations on the access-log
+// profile (30.9k -> 60.7k) and cost most of the decode regression.
+//
+// It goes through the same bumparena the decoder already uses for arena-backed
+// strings rather than a second allocator beside it.
+func (d *decState) strDeltaAlloc(n int) []byte { return d.strDeltaBump.Alloc(n) }

@@ -217,6 +217,14 @@ func (d *Decoder) ReadString() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if d.lastReadOwned {
+		// A tagStrDelta value was rebuilt into decoder-owned arena memory, so
+		// these bytes do not alias the input buffer and nothing outlives them.
+		// Copying again would allocate a second time for the same value —
+		// which is what made the arena a no-op and doubled memmove.
+		d.lastReadOwned = false
+		return unsafestr.String(b), nil
+	}
 	if d.noCopy {
 		return unsafestr.String(b), nil
 	}
@@ -269,6 +277,7 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 }
 
 func (d *Decoder) readStringBytesRaw() ([]byte, error) {
+	d.lastReadOwned = false
 	t, err := d.next()
 	if err != nil {
 		return nil, err
@@ -354,24 +363,29 @@ func (d *Decoder) readStringBytesRaw() ([]byte, error) {
 			return nil, ErrBadTag
 		}
 		d.i-- // step back over the tag; readStrDelta expects to see it
-		v, adv, err := readStrDelta(d.buf[d.i:], *d.strDeltaBase)
+		if d.state == nil {
+			d.state = newDecState()
+		}
+		v, adv, err := readStrDeltaInto(d.buf[d.i:], *d.strDeltaBase, d.state)
 		if err != nil {
 			return nil, err
 		}
 		d.i += adv
-		if d.state == nil {
-			d.state = newDecState()
-		}
 		if len(d.state.values) >= maxInternEntries {
 			return nil, ErrInvalidLength
 		}
-		out := []byte(v)
+		// v already aliases decoder-owned arena bytes, so []byte(v) would copy
+		// the value a second time — 136 MB of the allocation profile on the
+		// access-log payload, for nothing. The table may alias them: the arena
+		// block outlives the message, and reset drops it rather than rewinding.
+		out := unsafestr.Bytes(v)
 		id := d.state.append(out)
 		if d.state.lastID != lruInvalidID {
 			d.state.pairRecord(d.state.lastID, id)
 		}
 		d.state.lastID = id
 		*d.strDeltaBase = v
+		d.lastReadOwned = true
 		return out, nil
 	case tagInternStr, tagInternBin:
 		// Read length-prefixed payload, then register it in the state table.
