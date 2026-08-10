@@ -41,7 +41,7 @@ func mkHintRows(n int) []hintRow {
 //
 // A change here means the wire format moved, which breaks every already-encoded
 // payload. Update it only alongside a note saying why the break is intended.
-const wantHintWireDigest = "fb6ced998e65b44732a44082d0a4d3491ed41102e1ac4d9d23deb6b166d4edd2"
+const wantHintWireDigest = "037d6d3f37e52edab0e025332a851d8f97c13aa60e7c6261b3c20adecd51b05f"
 
 func TestEncBufHintWireIdentity(t *testing.T) {
 	h := sha256.New()

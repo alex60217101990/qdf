@@ -75,35 +75,49 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 		*base = s
 		return
 	}
-	id, ok := st.lookupOrAssign(s)
-	if ok {
-		e.emitStateRef(id)
-		*base = s
-		return
-	}
-	internCost := 1 + uvarintLen(uint64(len(s))) + len(s)
-	won := false
+
+	// The prefix comparison runs BEFORE the intern lookup, and that ordering is
+	// the whole optimisation.
+	//
+	// A delta wins on values that are nearly unique — that is what makes them
+	// resemble the row above without repeating it. Such a value is almost never
+	// referenced again, so hashing it and inserting it into the intern table is
+	// work neither side gets anything back for: a full-string hash and an insert
+	// on the encoder, an append and its retention on the decoder. The prefix
+	// compare, in contrast, stops at the first differing word, so it is cheap
+	// exactly where it is about to lose.
+	//
+	// So measure first. When the delta wins, emit it and skip the intern
+	// machinery entirely; only a value the delta declines pays for the lookup.
 	if !g.muted {
 		strDeltaProbes.Add(1)
 		p := frontDeltaCommonPrefix(*base, s)
-		// The delta must not merely win, it must win BIG.
-		//
-		// A tagInternStr value costs the decoder nothing to materialise: its
-		// bytes are a sub-slice of the read buffer. A delta value is contiguous
-		// nowhere and must be copied, so every emission adds live bytes the GC
-		// then has to scan and release — measured as madvise time, not as
-		// allocation count. A value that saves two bytes of wire still pays a
-		// full copy, which is a bad trade; one that saves most of itself is not.
-		if strDeltaCostAt(p, s)*strDeltaMinGainDen < internCost*strDeltaMinGainNum {
-			e.buf = appendStrDeltaAt(e.buf, p, s)
-			strDeltaEmitted.Add(1)
-			won = true
+		internCost := 1 + uvarintLen(uint64(len(s))) + len(s)
+		// The delta must not merely win, it must win BIG: every emission adds
+		// bytes the decoder has to materialise, because a delta value is
+		// contiguous nowhere and cannot alias the read buffer the way an
+		// interned one does. Saving two bytes of wire is not worth a full copy;
+		// halving the value is.
+		win := strDeltaCostAt(p, s)*strDeltaMinGainDen < internCost*strDeltaMinGainNum
+		g.seen++
+		if win {
 			g.wins++
 		}
-		g.seen++
 		if g.seen >= strDeltaProbeN {
 			g.muted = g.wins == 0
 			g.seen, g.wins = 0, 0
+		}
+		if win {
+			e.buf = appendStrDeltaAt(e.buf, p, s)
+			strDeltaEmitted.Add(1)
+			// Inline semantics: the value never entered the intern table, so a
+			// following tagStateRepeat must not resurrect whatever ID was last
+			// on the chain. The decoder drops it on every inline read; the
+			// encoder drops it here, or the two disagree about what "previous"
+			// means — a desync, not a bigger wire.
+			st.lastID = lruInvalidID
+			*base = s
+			return
 		}
 	} else {
 		g.seen++
@@ -111,11 +125,18 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 			g.muted, g.seen, g.wins = false, 0, 0
 		}
 	}
-	if !won {
-		e.buf = append(e.buf, tagInternStr)
-		e.buf = appendUvarint(e.buf, uint64(len(s)))
-		e.buf = appendString(e.buf, s)
+
+	// The delta declined (or the field is muted): the value takes the path it
+	// would have taken without this feature at all.
+	id, ok := st.lookupOrAssign(s)
+	if ok {
+		e.emitStateRef(id)
+		*base = s
+		return
 	}
+	e.buf = append(e.buf, tagInternStr)
+	e.buf = appendUvarint(e.buf, uint64(len(s)))
+	e.buf = appendString(e.buf, s)
 	if st.lastID != lruInvalidID && e.pairPred {
 		st.pairRecord(st.lastID, id)
 	}

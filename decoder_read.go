@@ -371,22 +371,15 @@ func (d *Decoder) readStringBytesRaw() ([]byte, error) {
 			return nil, err
 		}
 		d.i += adv
-		if len(d.state.values) >= maxInternEntries {
-			return nil, ErrInvalidLength
-		}
-		// v already aliases decoder-owned arena bytes, so []byte(v) would copy
-		// the value a second time — 136 MB of the allocation profile on the
-		// access-log payload, for nothing. The table may alias them: the arena
-		// block outlives the message, and reset drops it rather than rewinding.
-		out := unsafestr.Bytes(v)
-		id := d.state.append(out)
-		if d.state.lastID != lruInvalidID {
-			d.state.pairRecord(d.state.lastID, id)
-		}
-		d.state.lastID = id
+		// The value is NOT registered in the intern table. The encoder does not
+		// register it either: a delta wins on near-unique values, which are
+		// never referenced again, so an entry on both sides would be pure cost.
+		// That makes this an inline read, and an inline read drops lastID so a
+		// following tagStateRepeat cannot resurrect a stale reference.
+		d.state.lastID = lruInvalidID
 		*d.strDeltaBase = v
 		d.lastReadOwned = true
-		return out, nil
+		return unsafestr.Bytes(v), nil
 	case tagInternStr, tagInternBin:
 		// Read length-prefixed payload, then register it in the state table.
 		n64, n := readUvarint(d.buf[d.i:])
