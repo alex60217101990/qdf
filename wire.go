@@ -206,7 +206,24 @@ const (
 	//                    zones whose [min,max] cannot match, without decoding them.
 	//                    Opt-in size-for-query-speed trade; without OptZoneMap the
 	//                    column uses the normal codec and the wire is unchanged.
-	// 0xF2 unassigned (reserved for a future MessagePack-style ext type).
+	// tagStrDelta encodes a string as its difference from the previous value of
+	// the same struct field:
+	//
+	//	0xF2, varuint(pfx), varuint(midLen), midLen bytes
+	//
+	// where the value is base[:pfx] + mid and base is that field's previous
+	// value on this encoder's state.
+	//
+	// It is a cheaper spelling of tagInternStr, not an inline string: both sides
+	// register the reconstructed value in the intern table, set lastID and record
+	// the pair transition, so the Markov / MTF / pair chain continues across it.
+	// It never replaces a state-ref — a repeated value already costs one or two
+	// bytes and this form needs at least three, so there is nothing to win there
+	// and the existing path is left untouched.
+	//
+	// This was the last unassigned value tag. It is spent here because free text
+	// is ~93% of a realistic access-log wire and Balanced compressed it 0.99x.
+	tagStrDelta  = 0xF2
 	tagTimestamp = 0xF3
 
 	// ALP (Adaptive Lossless floating-Point, CWI 2023), decimal path,
