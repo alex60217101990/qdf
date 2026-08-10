@@ -26,11 +26,14 @@ func TestStrDeltaBasesArePerType(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := newEncState()
-	st.strDeltaBases(tdA, 1)[0] = "from-a"
-	if got := st.strDeltaBases(tdB, 1)[0]; got == "from-a" {
+	bA, _ := st.strDeltaBases(tdA, 1)
+	bA[0] = "from-a"
+	bB, _ := st.strDeltaBases(tdB, 1)
+	if got := bB[0]; got == "from-a" {
 		t.Fatal("two types share one base slice")
 	}
-	if got := st.strDeltaBases(tdA, 1)[0]; got != "from-a" {
+	bA2, _ := st.strDeltaBases(tdA, 1)
+	if got := bA2[0]; got != "from-a" {
 		t.Fatalf("type a's base did not survive a lookup of type b: %q", got)
 	}
 }
@@ -44,9 +47,11 @@ func TestStrDeltaBasesResetWithState(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := newEncState()
-	st.strDeltaBases(td, 1)[0] = "stale"
+	b0, _ := st.strDeltaBases(td, 1)
+	b0[0] = "stale"
 	st.reset()
-	if got := st.strDeltaBases(td, 1)[0]; got != "" {
+	b1, _ := st.strDeltaBases(td, 1)
+	if got := b1[0]; got != "" {
 		t.Fatalf("base survived reset: %q", got)
 	}
 }
