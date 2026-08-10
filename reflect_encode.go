@@ -1913,6 +1913,23 @@ func decodeAnyPackedSlice(d *Decoder) (any, error) {
 		var s []float32
 		err := decodeSliceFloat32(d, unsafe.Pointer(&s))
 		return s, err
+	case qpackKindChimp64:
+		// Chimp128 (tagPackGorilla) and ALP-RD (tagPackALP) share this kind
+		// byte — they are told apart by the TAG, not the kind — so both land
+		// here and decodeSliceFloat64 dispatches on the tag it re-reads.
+		//
+		// Without this case a []float64 that Chimp or ALP-RD compressed could
+		// not be decoded into an interface{} at all: decodeAny reached the pack
+		// dispatch, which routed here, and here fell through to ErrBadTag. The
+		// typed path was unaffected, which is why it went unnoticed — only a
+		// value decoded into any / map[string]any hit it.
+		var s []float64
+		err := decodeSliceFloat64(d, unsafe.Pointer(&s))
+		return s, err
+	case qpackKindALPRD32:
+		var s []float32
+		err := decodeSliceFloat32(d, unsafe.Pointer(&s))
+		return s, err
 	default:
 		// The remaining narrow kinds (Int8/Uint8) never reach a pack tag — they
 		// encode as a plain array (or []byte for uint8), handled by decodeAny's
