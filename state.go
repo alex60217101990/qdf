@@ -305,6 +305,16 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// encoder allocates — accessed only on intern miss, kept at the
 	// end so the hot fields above share earlier cache lines.
 	arena internarena.Arena
+
+	// strDeltaBase holds, per bound struct type, the previous value of each
+	// string field, indexed by field position; tagStrDelta codes against it.
+	// Appended at the tail deliberately: this struct carries a
+	// betteralign:ignore because its hot scalars are laid out first on purpose,
+	// and these three are touched once per struct, not once per value.
+	strDeltaTd     []*typeDesc
+	strDeltaBase   [][]string
+	lastDeltaTd    *typeDesc
+	lastDeltaBases []string
 }
 
 // shapeBinding is a (typeDesc → wire shape ID) pair. Stored in a
@@ -462,6 +472,7 @@ const (
 )
 
 func (e *encState) reset() {
+	e.strDeltaResetEnc()
 	// Adaptive retention. A pooled encoder that just handled a large
 	// (high-cardinality / wide-batch) message would, under a fixed cap, drop
 	// its grown backing arrays and reallocate them from scratch on the very
@@ -1180,6 +1191,12 @@ type decState struct {
 	// retainStreak counts consecutive small (sub-cap) messages for the
 	// adaptive-retention policy in reset(). Cold — touched once per reset.
 	retainStreak uint8
+
+	// strDeltaBase mirrors the encoder's, keyed by WIRE shape ID rather than by
+	// type: a field the target struct does not declare has no typeDesc here, and
+	// its base still has to advance or the next value of that field decodes
+	// against a stale one — silently, because the types still line up.
+	strDeltaBase [][]string
 }
 
 func newDecState() *decState {
@@ -1195,6 +1212,7 @@ func newDecState() *decState {
 }
 
 func (d *decState) reset() {
+	d.strDeltaResetDec()
 	// Symmetric to encState.reset's adaptive-retention policy: retain grown
 	// backing arrays (reuse in place) while messages stay large so a steady
 	// large-batch decode workload amortizes the table allocation, releasing
