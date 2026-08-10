@@ -73,6 +73,32 @@ func (a *Bump) appendStrGrow(b []byte) string {
 	return unsafe.String(unsafe.SliceData(dst), n)
 }
 
+// Alloc reserves n bytes and returns them uninitialised, for a caller that
+// builds a value from more than one source and would otherwise assemble it in a
+// temporary and copy twice. The bytes are NOT zeroed — write all n before
+// exposing them.
+//
+// Same packing and same geometric growth as AppendStr; the two share a cursor,
+// so values from both pack contiguously.
+func (a *Bump) Alloc(n int) []byte {
+	off := a.off
+	if off+n > len(a.buf) {
+		return a.allocGrow(n)
+	}
+	a.off = off + n
+	return a.buf[off : off+n : off+n]
+}
+
+//go:noinline
+func (a *Bump) allocGrow(n int) []byte {
+	a.buf = unsafestr.DirtBytes(max(a.next, n))
+	if a.next < blockCap {
+		a.next *= 2
+	}
+	a.off = n
+	return a.buf[:n:n]
+}
+
 // Reset rewinds the cursor to reuse the current block. It does NOT clear or
 // zero memory; the next AppendStr overwrites it. Callers must ensure every
 // string previously returned is dead before calling Reset.

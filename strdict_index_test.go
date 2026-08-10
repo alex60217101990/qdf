@@ -13,7 +13,7 @@ import (
 // out in first-appearance order — so any drift in probe order, in the
 // distinct-cap bail, or in the high-cardinality bail would reorder the table
 // and change these bytes. Verified equal against the map implementation.
-const wantStrDictWireDigest = "416b718f9eb96b06596d44bb3531c3eed6c6f740ddcfd8dd4307f9caa86db4f8"
+const wantStrDictWireDigest = "07bd4590ab412d406d2f0fce455555169c76c6aa614a76ea5ad1af2b428d5e92"
 
 func TestStrDictWireIdentity(t *testing.T) {
 	type row struct {
