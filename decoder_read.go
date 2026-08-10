@@ -252,6 +252,23 @@ func (d *Decoder) materializeStr(b []byte) string {
 // allocating; the returned slice aliases the input buffer or the decoder
 // state table.
 func (d *Decoder) readStringBytes() ([]byte, error) {
+	b, err := d.readStringBytesRaw()
+	// Inside a struct field, EVERY string read advances that field's delta
+	// base — not only the delta-coded ones. The encoder advances its base on
+	// every value it writes, so a decoder that advanced only on tagStrDelta
+	// would drift the moment one value took the intern form, and the next
+	// delta would rebuild against the wrong prefix.
+	//
+	// The base aliases the read buffer rather than copying: it is only read
+	// again within this message, and the bases are cleared when the pooled
+	// state resets.
+	if err == nil && d.strDeltaBase != nil {
+		*d.strDeltaBase = unsafestr.String(b)
+	}
+	return b, err
+}
+
+func (d *Decoder) readStringBytesRaw() ([]byte, error) {
 	t, err := d.next()
 	if err != nil {
 		return nil, err
@@ -323,6 +340,38 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 		if invalidateLast {
 			d.state.lastID = lruInvalidID
 		}
+		return out, nil
+	case tagStrDelta:
+		// A cheaper spelling of tagInternStr: the value is this field's previous
+		// value with a fresh tail. It registers and chains exactly as the intern
+		// branch below does — it is NOT an inline read, so invalidateLast must
+		// not fire here. Treating it as inline would drop lastID on the decoder
+		// while the encoder kept it, and every following tagStateRepeat would
+		// resolve to the wrong string.
+		if d.strDeltaBase == nil {
+			// No field context: the form is only ever emitted for a struct
+			// field, so this is a malformed or hostile stream.
+			return nil, ErrBadTag
+		}
+		d.i-- // step back over the tag; readStrDelta expects to see it
+		v, adv, err := readStrDelta(d.buf[d.i:], *d.strDeltaBase)
+		if err != nil {
+			return nil, err
+		}
+		d.i += adv
+		if d.state == nil {
+			d.state = newDecState()
+		}
+		if len(d.state.values) >= maxInternEntries {
+			return nil, ErrInvalidLength
+		}
+		out := []byte(v)
+		id := d.state.append(out)
+		if d.state.lastID != lruInvalidID {
+			d.state.pairRecord(d.state.lastID, id)
+		}
+		d.state.lastID = id
+		*d.strDeltaBase = v
 		return out, nil
 	case tagInternStr, tagInternBin:
 		// Read length-prefixed payload, then register it in the state table.
