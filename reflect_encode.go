@@ -1201,6 +1201,33 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 	}
 }
 
+// encodeStructValues writes a struct's field values in declaration order,
+// routing string fields through writeStringField so they can take the
+// tagStrDelta form when it is smaller than the first-sighting one.
+//
+// Shared by every value-emitting loop in encodeStruct. Duplicating the loop per
+// path is how one of them silently keeps the old behaviour: a payload that
+// takes the declaration path on its first row and the shape-reuse path after
+// would then delta-code all rows but the first, and the base would be one row
+// out of step on decode.
+func (e *Encoder) encodeStructValues(td *typeDesc, fields []fieldDesc, p unsafe.Pointer) error {
+	var bases []string
+	if e.state != nil {
+		bases = e.state.strDeltaBases(td, len(fields))
+	}
+	for i := range fields {
+		f := &fields[i]
+		if bases != nil && f.desc.kind == reflect.String {
+			e.writeStringField(*(*string)(unsafe.Add(p, f.offset)), &bases[i])
+			continue
+		}
+		if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 	fields := td.fields
 	return func(e *Encoder, p unsafe.Pointer) error {
@@ -1218,13 +1245,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			if id := e.state.shapeForType(td); id != 0 {
 				e.buf = append(e.buf, tagMapShape)
 				e.buf = appendUvarint(e.buf, uint64(id))
-				for i := range fields {
-					f := &fields[i]
-					if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
-						return err
-					}
-				}
-				return nil
+				return e.encodeStructValues(td, fields, p)
 			}
 			// First time: declare and emit keys via the standard intern path.
 			shapeID := e.state.shapeDeclareEnc()
@@ -1258,13 +1279,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 					st.lastID = lruInvalidID
 				}
 			}
-			for i := range fields {
-				f := &fields[i]
-				if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
-					return err
-				}
-			}
-			return nil
+			return e.encodeStructValues(td, fields, p)
 		}
 		// Dense without OptShapeIntern: tagMap8/16/32 header + per-field
 		// intern via WriteString. Keys still go through the intern
@@ -1274,6 +1289,9 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			e.WriteMapHeader(n)
 			st := e.state
 			pairOn := e.pairPred
+			// No delta on this path: it emits tagMap8/16/32 with no shape ID,
+			// so the decoder has nothing to key a per-field base on. Balanced
+			// always carries OptShapeIntern and takes the path above.
 			for i := range fields {
 				f := &fields[i]
 				if len(f.name) >= e.minIntern && !e.stateSuspended && int(st.internLoad) < e.maxStateEntries {
@@ -1375,6 +1393,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 				d.state = newDecState()
 			}
 			var fieldNames []string
+			var effShapeID uint32
 			if shapeID == 0 {
 				// Declaration: read count, then N keys, then N values.
 				cnt64, n := readUvarint(d.buf[d.i:])
@@ -1400,15 +1419,21 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 				}
 				sh.names = keys
 				fieldNames = keys
+				effShapeID = uint32(len(d.state.shapes))
 			} else {
 				sh := d.state.shapeLookup(uint32(shapeID))
 				if sh == nil {
 					return ErrUnknownStateID
 				}
 				fieldNames = sh.names
+				effShapeID = uint32(shapeID)
 			}
+			// Bases are keyed by WIRE field position, not by the target
+			// struct's field order: a field the struct does not declare has no
+			// target index, and its base still has to advance.
+			bases := d.state.strDeltaBases(effShapeID, len(fieldNames))
 			cur := 0
-			for _, name := range fieldNames {
+			for wi, name := range fieldNames {
 				var fd *fieldDesc
 				if cur < len(indexed) && indexed[cur].name == name {
 					fd = indexed[cur].f
@@ -1417,12 +1442,30 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					fd = resolveField(name)
 				}
 				if fd == nil {
+					// The struct lacks this field, but a delta-coded value
+					// cannot simply be stepped over: skipping it leaves this
+					// field's base stale and the intern table one entry short
+					// of the encoder's, so the NEXT value of this field — and
+					// every later state-ref — resolves to the wrong string.
+					// Silently, because the types still line up.
+					if d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
+						d.strDeltaBase = &bases[wi]
+						_, err := d.readStringBytes()
+						d.strDeltaBase = nil
+						if err != nil {
+							return err
+						}
+						continue
+					}
 					if err := d.Skip(); err != nil {
 						return err
 					}
 					continue
 				}
-				if err := fd.desc.decode(d, unsafe.Add(p, fd.offset)); err != nil {
+				d.strDeltaBase = &bases[wi]
+				err := fd.desc.decode(d, unsafe.Add(p, fd.offset))
+				d.strDeltaBase = nil
+				if err != nil {
 					return err
 				}
 			}
@@ -1621,6 +1664,13 @@ func decodeAny(d *Decoder) (any, error) {
 		return v, err
 	case tag >= tagFixstr && tag <= tagFixstr|tagFixstrMask:
 		return d.ReadString()
+	case tag == tagStrDelta:
+		// Reads through the same path the typed decoder uses, against the base
+		// the enclosing shape loop set. A dynamic read is still a read: it
+		// registers the value and advances the base exactly as a typed one does,
+		// so a payload decoded into `any` leaves the state where a payload
+		// decoded into a struct would.
+		return d.ReadString()
 	case tag >= tagFixarr && tag <= tagFixarr|tagFixarrMask:
 		n, err := d.ReadArrayHeader()
 		if err != nil {
@@ -1760,6 +1810,7 @@ func decodeAny(d *Decoder) (any, error) {
 			d.state = newDecState()
 		}
 		var names []string
+		var effShapeID uint32
 		if shapeID == 0 {
 			cnt64, n := readUvarint(d.buf[d.i:])
 			if n <= 0 {
@@ -1783,16 +1834,24 @@ func decodeAny(d *Decoder) (any, error) {
 				sh.names = append(sh.names, d.keyCache.Make(kb))
 			}
 			names = sh.names
+			effShapeID = uint32(len(d.state.shapes))
 		} else {
 			sh := d.state.shapeLookup(uint32(shapeID))
 			if sh == nil {
 				return nil, ErrUnknownStateID
 			}
 			names = sh.names
+			effShapeID = uint32(shapeID)
 		}
+		// The dynamic reader carries the same per-field delta bases the typed
+		// one does. It has no target struct, but tagStrDelta does not need one:
+		// the base is keyed by wire field position, which this loop has.
+		bases := d.state.strDeltaBases(effShapeID, len(names))
 		out := popOrMakeMap[string, any](d, len(names))
-		for _, name := range names {
+		for wi, name := range names {
+			d.strDeltaBase = &bases[wi]
 			v, err := decodeAny(d)
+			d.strDeltaBase = nil
 			if err != nil {
 				return nil, err
 			}

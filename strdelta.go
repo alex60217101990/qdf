@@ -1,5 +1,7 @@
 package qdf
 
+import "sync/atomic"
+
 // Front-delta string values (tagStrDelta) for the row-major struct path.
 //
 // The columnar path has its own front-delta codec (qpack_strfrontdelta.go): a
@@ -12,6 +14,64 @@ package qdf
 // 64-bit XOR is zero exactly when eight bytes match, and TrailingZeros64>>3
 // turns the first differing bit into the first differing byte. Measured 3x
 // faster than a byte loop on this codebase's string lengths.
+
+// strDeltaEmitted counts tagStrDelta emissions across the process. Acceptance
+// tests assert on it rather than on wire size, because a size assertion here is
+// vacuous: interning alone shrinks these payloads, so a smaller wire proves
+// nothing about whether this form ran. That is precisely how the columnar codec
+// on this branch looked healthy while never running once.
+var strDeltaEmitted atomic.Int64
+
+// writeStringField writes one struct string field.
+//
+// It differs from WriteString in exactly one place: when the value is a FIRST
+// SIGHTING — the case WriteString spells as tagInternStr — the delta against
+// this field's previous value may be smaller, and then it is written instead.
+// Both forms register the value and continue the state chain identically, so
+// the choice is a plain byte count between two interchangeable encodings.
+//
+// An already-interned value is not considered at all. emitStateRef spends one
+// or two bytes there and this form needs at least three, so there is nothing to
+// win — and a repeated value, where pfx == len(s) makes the delta look
+// cheapest, is exactly where a careless comparison would lose bytes.
+func (e *Encoder) writeStringField(s string, base *string) {
+	st := e.state
+	if !e.strDeltaEligible(s) {
+		e.WriteString(s)
+		*base = s
+		return
+	}
+	id, ok := st.lookupOrAssign(s)
+	if ok {
+		e.emitStateRef(id)
+		*base = s
+		return
+	}
+	internCost := 1 + uvarintLen(uint64(len(s))) + len(s)
+	if strDeltaCost(*base, s) < internCost {
+		e.buf = appendStrDelta(e.buf, *base, s)
+		strDeltaEmitted.Add(1)
+	} else {
+		e.buf = append(e.buf, tagInternStr)
+		e.buf = appendUvarint(e.buf, uint64(len(s)))
+		e.buf = appendString(e.buf, s)
+	}
+	if st.lastID != lruInvalidID && e.pairPred {
+		st.pairRecord(st.lastID, id)
+	}
+	st.lastID = id
+	*base = s
+}
+
+// strDeltaEligible reports whether the delta form may be considered at all:
+// Dense, a live and unsuspended state table, and a string long enough to be
+// interned. Outside that the existing path runs verbatim, so nothing about
+// non-Dense encoding changes.
+func (e *Encoder) strDeltaEligible(s string) bool {
+	st := e.state
+	return st != nil && !e.stateSuspended && e.opts.Has(OptDense) &&
+		len(s) >= e.minIntern && int(st.internLoad) < e.maxStateEntries
+}
 
 // strDeltaCost is the exact byte count appendStrDelta will write. The caller
 // compares it against the first-sighting form — 1 + uvarintLen(len(s)) + len(s)
@@ -136,4 +196,36 @@ func (d *decState) strDeltaResetDec() {
 	for i := range d.strDeltaBase {
 		clear(d.strDeltaBase[i])
 	}
+}
+
+// strDeltaTagAdvancesBase reports whether a value opening with this tag would
+// be read through readStringBytes — and so would advance the current field's
+// delta base.
+//
+// It exists for fields the target struct does not declare. The encoder advances
+// a field's base on every value it writes for that field, so the decoder must
+// advance it too; calling Skip() instead leaves the base a row behind and the
+// next delta on that field rebuilds against the wrong prefix.
+//
+// State-ref forms are included: they resolve to strings and the encoder counted
+// them. Binary forms are included as well, and that is deliberate — a []byte
+// field never has a delta written for it, so its base is never consulted and a
+// spurious advance costs nothing, whereas guessing wrong in the other direction
+// corrupts a string field.
+func strDeltaTagAdvancesBase(b byte) bool {
+	switch {
+	case b >= tagFixstr && b <= tagFixstr|tagFixstrMask:
+		return true
+	case b == tagStr8, b == tagStr16, b == tagStr32:
+		return true
+	case b == tagBin8, b == tagBin16, b == tagBin32:
+		return true
+	case b == tagInternStr, b == tagInternBin, b == tagStateRef:
+		return true
+	case b == tagStateRepeat, b == tagStateMTF, b == tagStatePair:
+		return true
+	case b == tagStrDelta:
+		return true
+	}
+	return false
 }

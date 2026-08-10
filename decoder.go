@@ -113,6 +113,17 @@ type Decoder struct {
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice apply so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
 	keyIdxBusy bool
+
+	// strDeltaBase points at the current struct field's previous value while a
+	// value is being decoded, or is nil outside that. tagStrDelta codes against
+	// it. Set by decodeStruct per wire field — including fields the target
+	// struct does not declare, whose base still has to advance.
+	strDeltaBase *string
+
+	// lastWireShapeID is the shape ID of the most recent struct header read
+	// through decodeMapStringShapeHeader. The batch decoder reaches struct
+	// headers via ReadStructHeader, whose public signature does not carry it.
+	lastWireShapeID uint32
 }
 
 // colLenOK reports whether a slice length is acceptable in the current

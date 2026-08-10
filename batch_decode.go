@@ -351,9 +351,18 @@ func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows 
 		if shaped {
 			// Shape-interned struct: values follow positionally in names order,
 			// no per-value key on the wire.
-			for _, name := range names {
+			//
+			// Bases are keyed by wire field position, exactly as decodeStruct
+			// and Skip key them. A field this plan does not carry is still read
+			// rather than stepped over, because its base has to advance — see
+			// scatterBatchRowMajorField.
+			bases := d.state.strDeltaBases(d.lastWireShapeID, len(names))
+			for wi, name := range names {
 				nb := unsafe.Slice(unsafe.StringData(name), len(name))
-				if ferr := scatterBatchRowMajorField(d, plan, slab, rowDst, nb); ferr != nil {
+				d.strDeltaBase = &bases[wi]
+				ferr := scatterBatchRowMajorField(d, plan, slab, rowDst, nb)
+				d.strDeltaBase = nil
+				if ferr != nil {
 					return 0, true, ferr
 				}
 			}
@@ -398,6 +407,16 @@ func batchPlanFieldByName(plan *batchPlan, name []byte) *batchField {
 func scatterBatchRowMajorField(d *Decoder, plan *batchPlan, slab *batchSlab, rowDst unsafe.Pointer, name []byte) error {
 	f := batchPlanFieldByName(plan, name)
 	if f == nil {
+		// Not in the plan — but a string value still has to be READ rather than
+		// stepped over. The encoder advanced this field's delta base when it
+		// wrote the value; skipping leaves the base a row behind and the intern
+		// table an entry short, so the next row's delta for this field rebuilds
+		// against the wrong prefix and every later state-ref resolves to the
+		// wrong string. Silently, because the types still line up.
+		if d.strDeltaBase != nil && d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
+			_, err := d.readStringBytes()
+			return err
+		}
 		return d.Skip() // wire field not in plan → skip its single value
 	}
 	dst := unsafe.Add(rowDst, f.off)

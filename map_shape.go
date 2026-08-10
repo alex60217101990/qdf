@@ -153,11 +153,17 @@ func decodeMapStringShapeHeader(d *Decoder) ([]string, error) {
 			keys = append(keys, d.keyCache.Make(kb))
 		}
 		sh.names = keys
+		// Record which shape this header opened. tagStrDelta codes against a
+		// per-field base keyed by wire shape ID, and ReadStructHeader — the
+		// entry point the batch decoder uses — cannot return the ID without a
+		// public signature change.
+		d.lastWireShapeID = uint32(len(d.state.shapes))
 		return keys, nil
 	}
 	sh := d.state.shapeLookup(uint32(shapeID))
 	if sh == nil {
 		return nil, ErrUnknownStateID
 	}
+	d.lastWireShapeID = uint32(shapeID)
 	return sh.names, nil
 }

@@ -236,6 +236,7 @@ func (d *Decoder) Skip() error {
 			d.state = newDecState()
 		}
 		var cnt int
+		var effShapeID uint32
 		if shapeID == 0 {
 			cnt64, n := readUvarint(d.buf[d.i:])
 			if n <= 0 {
@@ -258,14 +259,35 @@ func (d *Decoder) Skip() error {
 				}
 				sh.names = append(sh.names, d.keyCache.Make(kb))
 			}
+			effShapeID = uint32(len(d.state.shapes))
 		} else {
 			sh := d.state.shapeLookup(uint32(shapeID))
 			if sh == nil {
 				return ErrUnknownStateID
 			}
 			cnt = len(sh.names)
+			effShapeID = uint32(shapeID)
 		}
+		// Skipping a struct still has to advance its per-field delta bases. The
+		// encoder advanced them when it wrote the values; a decoder that walked
+		// past without advancing would leave every base a row behind, and the
+		// next struct of this shape that IS decoded would rebuild its deltas
+		// against the wrong prefix — silently, because the types still line up.
+		//
+		// This is also why the tagStrDelta form cannot be walked by byte count
+		// alone: the walk needs the base to reconstruct the value it advances
+		// the base to.
+		bases := d.state.strDeltaBases(effShapeID, cnt)
 		for i := 0; i < cnt; i++ {
+			if d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
+				d.strDeltaBase = &bases[i]
+				_, err := d.readStringBytes()
+				d.strDeltaBase = nil
+				if err != nil {
+					return err
+				}
+				continue
+			}
 			if err := d.Skip(); err != nil {
 				return err
 			}
