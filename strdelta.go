@@ -169,8 +169,11 @@ func strDeltaCostAt(p int, s string) int {
 	return 1 + uvarintLen(uint64(p)) + uvarintLen(uint64(len(s)-p)) + (len(s) - p)
 }
 
-func appendStrDelta(buf []byte, base, s string) []byte {
-	return appendStrDeltaAt(buf, frontDeltaCommonPrefix(base, s), s)
+// appendStrDelta encodes s against base into a fresh slice. The encoder writes
+// through appendStrDeltaAt with a prefix it has already measured; this form
+// exists for callers that have neither, and computes the prefix itself.
+func appendStrDelta(base, s string) []byte {
+	return appendStrDeltaAt(nil, frontDeltaCommonPrefix(base, s), s)
 }
 
 func appendStrDeltaAt(buf []byte, p int, s string) []byte {

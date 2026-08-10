@@ -16,7 +16,7 @@ func TestStrDeltaRoundTrip(t *testing.T) {
 		{strings.Repeat("x", 300), strings.Repeat("x", 300) + "y"},
 	}
 	for _, c := range cases {
-		buf := appendStrDelta(nil, c.base, c.s)
+		buf := appendStrDelta(c.base, c.s)
 		if len(buf) != strDeltaCost(c.base, c.s) {
 			t.Fatalf("base=%q s=%q: wrote %d bytes, cost said %d",
 				c.base, c.s, len(buf), strDeltaCost(c.base, c.s))
@@ -37,7 +37,7 @@ func TestStrDeltaRoundTrip(t *testing.T) {
 // A prefix longer than the base would read out of bounds. The reader must
 // reject it rather than slice past the end.
 func TestStrDeltaRejectsOverlongPrefix(t *testing.T) {
-	buf := appendStrDelta(nil, "abcdef", "abcdefgh")
+	buf := appendStrDelta("abcdef", "abcdefgh")
 	bad := append([]byte(nil), buf...)
 	bad[1] = 200 // buf[0] is the tag, buf[1] the prefix varint
 	if _, _, err := readStrDelta(bad, "abc"); err == nil {
@@ -46,7 +46,7 @@ func TestStrDeltaRejectsOverlongPrefix(t *testing.T) {
 }
 
 func TestStrDeltaRejectsTruncation(t *testing.T) {
-	full := appendStrDelta(nil, "/api/v1/users/1000", "/api/v1/users/1001")
+	full := appendStrDelta("/api/v1/users/1000", "/api/v1/users/1001")
 	for i := range full {
 		if _, _, err := readStrDelta(full[:i], "/api/v1/users/1000"); err == nil {
 			t.Fatalf("reader accepted a %d-byte truncation of a %d-byte value", i, len(full))
@@ -58,7 +58,7 @@ func TestStrDeltaRejectsTruncation(t *testing.T) {
 // reader can account for — never read out of bounds and never panic.
 func TestStrDeltaSurvivesEverySingleByteCorruption(t *testing.T) {
 	base := "/api/v1/tenants/9f3a/users/100000"
-	full := appendStrDelta(nil, base, "/api/v1/tenants/9f3a/users/100001")
+	full := appendStrDelta(base, "/api/v1/tenants/9f3a/users/100001")
 	for i := range full {
 		for b := range 256 {
 			if byte(b) == full[i] {
