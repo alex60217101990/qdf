@@ -64,3 +64,76 @@ func readStrDelta(buf []byte, base string) (string, int, error) {
 	copy(out[p:], buf[i:i+m])
 	return string(out), i + m, nil
 }
+
+// --- per-field base storage -------------------------------------------------
+//
+// tagStrDelta codes against the previous value of the SAME field, so the base
+// has to outlive the row: each row is its own encodeStruct call. It therefore
+// lives on the pooled state, beside the shape bindings that key it.
+//
+// The encoder keys by *typeDesc, which it always has. The decoder cannot: a
+// field the target struct does not declare has no typeDesc, and that field's
+// base still has to advance or the next value of it decodes against a stale
+// one. So the decoder keys by wire shape ID instead.
+
+// strDeltaBases returns this type's per-field base slice, growing it if the
+// type is seen with more fields than before.
+//
+// The one-entry cache is the whole point: a slice of one struct type — the case
+// that matters — hits it on every row, so the lookup is a pointer compare
+// rather than a scan.
+func (e *encState) strDeltaBases(td *typeDesc, nFields int) []string {
+	if e.lastDeltaTd == td && len(e.lastDeltaBases) >= nFields {
+		return e.lastDeltaBases
+	}
+	for i, t := range e.strDeltaTd {
+		if t == td {
+			b := e.strDeltaBase[i]
+			if len(b) < nFields {
+				b = append(b, make([]string, nFields-len(b))...)
+				e.strDeltaBase[i] = b
+			}
+			e.lastDeltaTd, e.lastDeltaBases = td, b
+			return b
+		}
+	}
+	b := make([]string, nFields)
+	e.strDeltaTd = append(e.strDeltaTd, td)
+	e.strDeltaBase = append(e.strDeltaBase, b)
+	e.lastDeltaTd, e.lastDeltaBases = td, b
+	return b
+}
+
+// strDeltaBases returns the per-field base slice for a wire shape ID.
+func (d *decState) strDeltaBases(shapeID uint32, nFields int) []string {
+	if int(shapeID) >= len(d.strDeltaBase) {
+		grow := int(shapeID) + 1 - len(d.strDeltaBase)
+		d.strDeltaBase = append(d.strDeltaBase, make([][]string, grow)...)
+	}
+	b := d.strDeltaBase[shapeID]
+	if len(b) < nFields {
+		b = append(b, make([]string, nFields-len(b))...)
+		d.strDeltaBase[shapeID] = b
+	}
+	return b
+}
+
+// strDeltaResetEnc clears the encoder's bases in place. The slices hold string
+// headers from the previous message; a bare truncation would keep them live in
+// the tail and pin that message's memory for the lifetime of the pooled state —
+// the same hazard decState.reset documents for stringValues.
+func (e *encState) strDeltaResetEnc() {
+	for i := range e.strDeltaBase {
+		clear(e.strDeltaBase[i])
+	}
+	clear(e.strDeltaTd)
+	e.strDeltaTd = e.strDeltaTd[:0]
+	e.strDeltaBase = e.strDeltaBase[:0]
+	e.lastDeltaTd, e.lastDeltaBases = nil, nil
+}
+
+func (d *decState) strDeltaResetDec() {
+	for i := range d.strDeltaBase {
+		clear(d.strDeltaBase[i])
+	}
+}
