@@ -22,6 +22,31 @@ import "sync/atomic"
 // on this branch looked healthy while never running once.
 var strDeltaEmitted atomic.Int64
 
+// strDeltaProbes counts prefix comparisons performed. The gate's whole purpose
+// is to keep this well below the number of eligible values on data the delta
+// cannot help, and only a counter shows that — strDeltaEmitted stays at zero
+// with or without a gate there.
+var strDeltaProbes atomic.Int64
+
+const (
+	// strDeltaProbeN values with no win mute a field. Small enough that a
+	// hostile field pays the comparison only briefly.
+	strDeltaProbeN = 32
+	// strDeltaRearmN values later, probing resumes. The gate may cost CPU and
+	// must never cost wire, so it cannot latch: a field whose data turns
+	// compressible part-way through is recovered instead of forfeited. Worst
+	// case is one wasted comparison per 512 values, ~0.2%.
+	strDeltaRearmN = 512
+)
+
+// strDeltaGate is the per-field probe state. Encoder-side only: the wire stays
+// self-describing, so there is no decoder mirror and nothing to desynchronise.
+type strDeltaGate struct {
+	seen  uint16
+	wins  uint16
+	muted bool
+}
+
 // writeStringField writes one struct string field.
 //
 // It differs from WriteString in exactly one place: when the value is a FIRST
@@ -34,7 +59,7 @@ var strDeltaEmitted atomic.Int64
 // or two bytes there and this form needs at least three, so there is nothing to
 // win — and a repeated value, where pfx == len(s) makes the delta look
 // cheapest, is exactly where a careless comparison would lose bytes.
-func (e *Encoder) writeStringField(s string, base *string) {
+func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 	st := e.state
 	if !e.strDeltaEligible(s) {
 		e.WriteString(s)
@@ -48,10 +73,27 @@ func (e *Encoder) writeStringField(s string, base *string) {
 		return
 	}
 	internCost := 1 + uvarintLen(uint64(len(s))) + len(s)
-	if strDeltaCost(*base, s) < internCost {
-		e.buf = appendStrDelta(e.buf, *base, s)
-		strDeltaEmitted.Add(1)
+	won := false
+	if !g.muted {
+		strDeltaProbes.Add(1)
+		if strDeltaCost(*base, s) < internCost {
+			e.buf = appendStrDelta(e.buf, *base, s)
+			strDeltaEmitted.Add(1)
+			won = true
+			g.wins++
+		}
+		g.seen++
+		if g.seen >= strDeltaProbeN {
+			g.muted = g.wins == 0
+			g.seen, g.wins = 0, 0
+		}
 	} else {
+		g.seen++
+		if g.seen >= strDeltaRearmN {
+			g.muted, g.seen, g.wins = false, 0, 0
+		}
+	}
+	if !won {
 		e.buf = append(e.buf, tagInternStr)
 		e.buf = appendUvarint(e.buf, uint64(len(s)))
 		e.buf = appendString(e.buf, s)
@@ -142,26 +184,29 @@ func readStrDelta(buf []byte, base string) (string, int, error) {
 // The one-entry cache is the whole point: a slice of one struct type — the case
 // that matters — hits it on every row, so the lookup is a pointer compare
 // rather than a scan.
-func (e *encState) strDeltaBases(td *typeDesc, nFields int) []string {
+func (e *encState) strDeltaBases(td *typeDesc, nFields int) ([]string, []strDeltaGate) {
 	if e.lastDeltaTd == td && len(e.lastDeltaBases) >= nFields {
-		return e.lastDeltaBases
+		return e.lastDeltaBases, e.lastDeltaGates
 	}
 	for i, t := range e.strDeltaTd {
 		if t == td {
-			b := e.strDeltaBase[i]
+			b, g := e.strDeltaBase[i], e.strDeltaGate[i]
 			if len(b) < nFields {
 				b = append(b, make([]string, nFields-len(b))...)
-				e.strDeltaBase[i] = b
+				g = append(g, make([]strDeltaGate, nFields-len(g))...)
+				e.strDeltaBase[i], e.strDeltaGate[i] = b, g
 			}
-			e.lastDeltaTd, e.lastDeltaBases = td, b
-			return b
+			e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = td, b, g
+			return b, g
 		}
 	}
 	b := make([]string, nFields)
+	g := make([]strDeltaGate, nFields)
 	e.strDeltaTd = append(e.strDeltaTd, td)
 	e.strDeltaBase = append(e.strDeltaBase, b)
-	e.lastDeltaTd, e.lastDeltaBases = td, b
-	return b
+	e.strDeltaGate = append(e.strDeltaGate, g)
+	e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = td, b, g
+	return b, g
 }
 
 // strDeltaBases returns the per-field base slice for a wire shape ID.
@@ -189,7 +234,8 @@ func (e *encState) strDeltaResetEnc() {
 	clear(e.strDeltaTd)
 	e.strDeltaTd = e.strDeltaTd[:0]
 	e.strDeltaBase = e.strDeltaBase[:0]
-	e.lastDeltaTd, e.lastDeltaBases = nil, nil
+	e.strDeltaGate = e.strDeltaGate[:0]
+	e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = nil, nil, nil
 }
 
 func (d *decState) strDeltaResetDec() {

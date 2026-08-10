@@ -1212,13 +1212,14 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 // out of step on decode.
 func (e *Encoder) encodeStructValues(td *typeDesc, fields []fieldDesc, p unsafe.Pointer) error {
 	var bases []string
+	var gates []strDeltaGate
 	if e.state != nil {
-		bases = e.state.strDeltaBases(td, len(fields))
+		bases, gates = e.state.strDeltaBases(td, len(fields))
 	}
 	for i := range fields {
 		f := &fields[i]
 		if bases != nil && f.desc.kind == reflect.String {
-			e.writeStringField(*(*string)(unsafe.Add(p, f.offset)), &bases[i])
+			e.writeStringField(*(*string)(unsafe.Add(p, f.offset)), &bases[i], &gates[i])
 			continue
 		}
 		if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
