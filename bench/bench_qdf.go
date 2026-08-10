@@ -54,7 +54,7 @@ func (v *LogBatch) EncodeQDF(e *qdf.Encoder) error {
 	e.StructShape(&qdfShapeTok_LogBatch, qdfFieldHdrs_LogBatch)
 	if v.Entries == nil {
 		e.WriteNil()
-	} else if len(v.Entries) >= 16 { // columnarMinElems
+	} else if len(v.Entries) >= 16 && !e.Suspended() { // columnarMinElems
 		col2 := v.Entries
 		e.WriteColStructHeader(len(col2), qdfColNames_LogEntry, qdfColKinds_LogEntry)
 		sec4 := e.ScratchInt(len(col2))
@@ -135,8 +135,12 @@ func (v *LogBatch) DecodeQDF(d *qdf.Decoder) error {
 		return err
 	}
 	if shaped {
-		for _, name := range names {
-			if err := v.decodeQDFField(d, name); err != nil {
+		shapeID := d.ShapeID()
+		for i, name := range names {
+			d.EnterField(shapeID, len(names), i)
+			err := v.decodeQDFField(d, name)
+			d.LeaveField()
+			if err != nil {
 				return err
 			}
 		}
@@ -395,8 +399,12 @@ func (v *LogEntry) DecodeQDF(d *qdf.Decoder) error {
 		return err
 	}
 	if shaped {
-		for _, name := range names {
-			if err := v.decodeQDFField(d, name); err != nil {
+		shapeID := d.ShapeID()
+		for i, name := range names {
+			d.EnterField(shapeID, len(names), i)
+			err := v.decodeQDFField(d, name)
+			d.LeaveField()
+			if err != nil {
 				return err
 			}
 		}
