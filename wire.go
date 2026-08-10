@@ -244,6 +244,19 @@ const (
 	//   varuint(M), ceil(M*ceil(log2 d)/8) LSB-first index body (absent
 	//   when d==1). Chosen by the column emitter only when the bitpacked
 	//   index body beats the per-value run cost, so it never grows the wire.
+	// COLUMN-BODY TAG SPACE — separate from the value tag space above.
+	//
+	// The tags from here to tagColStrDictQ appear only inside a columnar
+	// container's column body, never as a value. A value-level reader
+	// (readStringBytes, Skip, decodeAny) never dispatches on them, so their byte
+	// values are simultaneously FREE in the value space — tagColStrFrontDelta
+	// already relies on the same split, sitting at 0xD9 where the value stream
+	// reads negfixint.
+	//
+	// That reuse is safe only while column bodies stay unreachable from a
+	// value-level switch. If a future change lets one be read as a value, the
+	// two meanings collide and the reader misreads without erroring. Check that
+	// property before spending one of these bytes on a value form.
 	tagColStrDict = 0xF5
 	tagColStrFSST = 0xF6 // FSST-coded string column (inside tagColStruct)
 
