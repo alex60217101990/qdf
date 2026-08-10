@@ -76,7 +76,7 @@ func (v *GenHost) EncodeQDF(e *qdf.Encoder) error {
 	e.StructShape(&qdfShapeTok_GenHost, qdfFieldHdrs_GenHost)
 	if v.Services == nil {
 		e.WriteNil()
-	} else if len(v.Services) >= 16 { // columnarMinElems
+	} else if len(v.Services) >= 16 && !e.Suspended() { // columnarMinElems
 		col3 := v.Services
 		e.WriteHybridColStructHeader(len(col3), qdfHybNames_GenService, qdfHybKinds_GenService)
 		c4 := e.ScratchString(len(col3))
@@ -163,7 +163,7 @@ func (v *GenHost) EncodeQDF(e *qdf.Encoder) error {
 	}
 	if v.Tasks == nil {
 		e.WriteNil()
-	} else if len(v.Tasks) >= 16 { // columnarMinElems
+	} else if len(v.Tasks) >= 16 && !e.Suspended() { // columnarMinElems
 		col19 := v.Tasks
 		e.WriteHybridColStructHeader(len(col19), qdfHybNames_GenTask, qdfHybKinds_GenTask)
 		c20 := e.ScratchString(len(col19))
@@ -219,14 +219,14 @@ func (v *GenHost) EncodeQDF(e *qdf.Encoder) error {
 					for _, k28 := range ks30 {
 						vv29 := col19[i27].Definition[k28]
 						e.WriteString(string(k28))
-						if err := e.EncodeValue(vv29); err != nil {
+						if err := e.EncodeAny(vv29); err != nil {
 							return err
 						}
 					}
 				} else {
 					for k28, vv29 := range col19[i27].Definition {
 						e.WriteString(string(k28))
-						if err := e.EncodeValue(vv29); err != nil {
+						if err := e.EncodeAny(vv29); err != nil {
 							return err
 						}
 					}
@@ -252,8 +252,12 @@ func (v *GenHost) DecodeQDF(d *qdf.Decoder) error {
 		return err
 	}
 	if shaped {
-		for _, name := range names {
-			if err := v.decodeQDFField(d, name); err != nil {
+		shapeID := d.ShapeID()
+		for i, name := range names {
+			d.EnterField(shapeID, len(names), i)
+			err := v.decodeQDFField(d, name)
+			d.LeaveField()
+			if err != nil {
 				return err
 			}
 		}
@@ -623,8 +627,12 @@ func (v *GenMetric) DecodeQDF(d *qdf.Decoder) error {
 		return err
 	}
 	if shaped {
-		for _, name := range names {
-			if err := v.decodeQDFField(d, name); err != nil {
+		shapeID := d.ShapeID()
+		for i, name := range names {
+			d.EnterField(shapeID, len(names), i)
+			err := v.decodeQDFField(d, name)
+			d.LeaveField()
+			if err != nil {
 				return err
 			}
 		}
@@ -752,7 +760,7 @@ func (v *GenMetricHost) EncodeQDF(e *qdf.Encoder) error {
 	e.WriteString(string(v.Host))
 	if v.Metrics == nil {
 		e.WriteNil()
-	} else if len(v.Metrics) >= 16 { // columnarMinElems
+	} else if len(v.Metrics) >= 16 && !e.Suspended() { // columnarMinElems
 		col82 := v.Metrics
 		e.WriteColStructHeader(len(col82), qdfColNames_GenMetric, qdfColKinds_GenMetric)
 		c83 := e.ScratchInt(len(col82))
@@ -809,8 +817,12 @@ func (v *GenMetricHost) DecodeQDF(d *qdf.Decoder) error {
 		return err
 	}
 	if shaped {
-		for _, name := range names {
-			if err := v.decodeQDFField(d, name); err != nil {
+		shapeID := d.ShapeID()
+		for i, name := range names {
+			d.EnterField(shapeID, len(names), i)
+			err := v.decodeQDFField(d, name)
+			d.LeaveField()
+			if err != nil {
 				return err
 			}
 		}
@@ -1029,8 +1041,12 @@ func (v *GenService) DecodeQDF(d *qdf.Decoder) error {
 		return err
 	}
 	if shaped {
-		for _, name := range names {
-			if err := v.decodeQDFField(d, name); err != nil {
+		shapeID := d.ShapeID()
+		for i, name := range names {
+			d.EnterField(shapeID, len(names), i)
+			err := v.decodeQDFField(d, name)
+			d.LeaveField()
+			if err != nil {
 				return err
 			}
 		}
@@ -1254,14 +1270,14 @@ func (v *GenTask) EncodeQDF(e *qdf.Encoder) error {
 			for _, k137 := range ks139 {
 				vv138 := v.Definition[k137]
 				e.WriteString(string(k137))
-				if err := e.EncodeValue(vv138); err != nil {
+				if err := e.EncodeAny(vv138); err != nil {
 					return err
 				}
 			}
 		} else {
 			for k137, vv138 := range v.Definition {
 				e.WriteString(string(k137))
-				if err := e.EncodeValue(vv138); err != nil {
+				if err := e.EncodeAny(vv138); err != nil {
 					return err
 				}
 			}
@@ -1283,8 +1299,12 @@ func (v *GenTask) DecodeQDF(d *qdf.Decoder) error {
 		return err
 	}
 	if shaped {
-		for _, name := range names {
-			if err := v.decodeQDFField(d, name); err != nil {
+		shapeID := d.ShapeID()
+		for i, name := range names {
+			d.EnterField(shapeID, len(names), i)
+			err := v.decodeQDFField(d, name)
+			d.LeaveField()
+			if err != nil {
 				return err
 			}
 		}

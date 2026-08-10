@@ -655,8 +655,20 @@ func (g *gen) emitUnmarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "\tnames, plainN, shaped, err := d.ReadStructHeader()\n")
 	fmt.Fprintf(w, "\tif err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(w, "\tif shaped {\n")
-	fmt.Fprintf(w, "\t\tfor _, name := range names {\n")
-	fmt.Fprintf(w, "\t\t\tif err := v.decodeQDFField(d, name); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n")
+	// The shape ID is captured before any field is decoded: a nested struct
+	// reads its own header and overwrites the decoder's record, so re-reading
+	// it per field would bind the remaining fields to the child's shape.
+	//
+	// EnterField wraps EVERY field, not only the string ones. The encoder
+	// advances a field's delta base on every value it writes for that field;
+	// binding only some of them leaves the base a row behind, and the failure
+	// is silent because the types still line up.
+	fmt.Fprintf(w, "\t\tshapeID := d.ShapeID()\n")
+	fmt.Fprintf(w, "\t\tfor i, name := range names {\n")
+	fmt.Fprintf(w, "\t\t\td.EnterField(shapeID, len(names), i)\n")
+	fmt.Fprintf(w, "\t\t\terr := v.decodeQDFField(d, name)\n")
+	fmt.Fprintf(w, "\t\t\td.LeaveField()\n")
+	fmt.Fprintf(w, "\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n")
 	fmt.Fprintf(w, "\t\t}\n")
 	fmt.Fprintf(w, "\t\treturn nil\n")
 	fmt.Fprintf(w, "\t}\n")

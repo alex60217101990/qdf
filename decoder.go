@@ -169,6 +169,34 @@ func (d *Decoder) PeekTag() (byte, error) { return d.peekTag() }
 // map (e.g. from a non-shaped encoder, an older generated type, or the reflect
 // path under OptSpeed) without a wire-format negotiation. Exported for
 // cmd/qdfgen-generated code.
+// ShapeID reports the wire shape ID of the struct header ReadStructHeader just
+// read, or 0 if that header carried no shape.
+//
+// Generated decoders capture it in a local BEFORE decoding any field: a nested
+// struct reads its own header and overwrites the decoder's record, so a parent
+// that re-read it between fields would bind its remaining fields to the child's
+// shape.
+func (d *Decoder) ShapeID() uint32 { return d.lastWireShapeID }
+
+// EnterField binds wire field i of the given shape as the context for the next
+// value read, so a tagStrDelta value can rebuild against that field's previous
+// value. Pair every call with LeaveField.
+//
+// A generated decoder must call this around EVERY field, not only string ones:
+// the encoder advances a field's base on every value it writes for that field,
+// and a decoder that binds only some of them leaves the base a row behind. The
+// failure is silent — the types still line up.
+func (d *Decoder) EnterField(shapeID uint32, nFields, i int) {
+	if d.state == nil || shapeID == 0 || i < 0 || i >= nFields {
+		return
+	}
+	bases := d.state.strDeltaBases(shapeID, nFields)
+	d.strDeltaBase = &bases[i]
+}
+
+// LeaveField unbinds the field context set by EnterField.
+func (d *Decoder) LeaveField() { d.strDeltaBase = nil }
+
 func (d *Decoder) ReadStructHeader() (names []string, plainN int, shaped bool, err error) {
 	tag, err := d.peekTag()
 	if err != nil {
