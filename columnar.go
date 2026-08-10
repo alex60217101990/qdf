@@ -2819,7 +2819,7 @@ func (e *Encoder) columnarSelect(plan *columnarPlan, base unsafe.Pointer, n int,
 	// Stack-resident for any ordinary struct: this runs once per batch, and an
 	// allocation here lands in the encoder's per-op figures.
 	var buf [32]bool
-	keep := buf[:0]
+	var keep []bool
 	if len(plan.cols) <= len(buf) {
 		keep = buf[:len(plan.cols)]
 	} else {
