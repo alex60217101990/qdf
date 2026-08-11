@@ -2750,7 +2750,7 @@ func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok b
 // order from field offsets would be a second source of truth that can drift
 // from whatever the plan builder did; walking the source hybrid list and
 // flipping the demoted entries to residualKind cannot.
-func derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPlan {
+func (e *Encoder) derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPlan {
 	// A pure plan carries no hybrid lists — buildColumnarPlan fills them only
 	// when the type has residual fields — so the walk below has to be given
 	// them. Demoting a column turns a pure plan into a hybrid one, and the
@@ -2762,14 +2762,19 @@ func derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPlan {
 		srcKinds = plan.colKinds
 	}
 
-	out := &columnarPlan{
-		stride:      plan.stride,
-		hybridNames: srcNames, // names never change, only kinds do
-		hybridKinds: make([]colKind, len(srcKinds)),
-		cols:        make([]colColumn, 0, len(plan.cols)),
-		residual:    make([]residualField, 0, len(plan.residual)+len(plan.cols)),
-	}
-	copy(out.hybridKinds, srcKinds)
+	// The derived plan and its three slices are rebuilt for every batch, and
+	// their contents depend on the DATA — which columns won — so they cannot be
+	// cached per type. They can be REUSED: the encoder holds one scratch plan
+	// and refills it. Allocating fresh ones was half the extra objects on the
+	// OTLP compression encode, which is a stream of small batches where nothing
+	// amortises.
+	out := &e.derivedPlan
+	out.stride = plan.stride
+	out.hybridNames = srcNames // names never change, only kinds do
+	out.hybridKinds = append(out.hybridKinds[:0], srcKinds...)
+	out.cols = out.cols[:0]
+	out.residual = out.residual[:0]
+	out.hasStringCol = false
 
 	// Walk the hybrid list — the wire's own order — and place each field.
 	ci, ri := 0, 0
@@ -2901,5 +2906,5 @@ func (e *Encoder) columnarSelect(plan *columnarPlan, base unsafe.Pointer, n int,
 	if saving*100 <= overhead*(100+gain) {
 		return nil, false
 	}
-	return derivePartialPlan(plan, keep), true
+	return e.derivePartialPlan(plan, keep), true
 }
