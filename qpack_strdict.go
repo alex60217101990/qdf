@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"hash/maphash"
 	"slices"
+	"sync/atomic"
 
 	"github.com/alex60217101990/qdf/internal/bitpack"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
@@ -37,6 +38,13 @@ const (
 	qpackStrDictSampleN      = 64
 	qpackStrDictSampleMaxPct = 70 // distinct% over the sample above which we bail
 )
+
+// strDictEmitted counts tagColStrDict blocks, so tests can assert the codec
+// was chosen instead of scanning the wire for its tag byte. The scan cannot
+// tell a column tag from a value tag that shares the byte — the two live in
+// separate namespaces by design — so it reports the codec as used when it was
+// not.
+var strDictEmitted atomic.Int64
 
 // tryWriteStringColumnDict attempts to emit strs as a tagColStrDict block.
 // It returns true when the dictionary form was written (and is strictly
@@ -218,6 +226,9 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 			e.buf = out
 			e.emitQPackUint64(idx, codec, mn, forBits, first, minDelta, deltaBits, pforBits)
 			return true
+		}
+		if strDeltaCount {
+			strDictEmitted.Add(1)
 		}
 		out = append(out, tagColStrDict)
 		out = appendUvarint(out, uint64(d))

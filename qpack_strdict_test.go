@@ -129,11 +129,12 @@ func TestStrDict_HighCardinalityFallback(t *testing.T) {
 	for i := range rows {
 		rows[i].ID = fmt.Sprintf("id-%08x-%d", i*2654435761, i)
 	}
+	before := strDictEmitted.Load()
 	enc, err := Marshal(rows, OptBalanced&^OptRANS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strdictHasByte(enc, tagColStrDict) {
+	if strDictEmitted.Load() != before {
 		t.Fatal("high-cardinality column must not use the string-dict codec")
 	}
 	var got []row

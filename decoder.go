@@ -49,7 +49,7 @@ type Decoder struct {
 	// value is being decoded, or is nil outside that. tagStrDelta codes against
 	// it. Set by decodeStruct per wire field — including fields the target
 	// struct does not declare, whose base still has to advance.
-	strDeltaBase *string
+	strField *decFieldState
 
 	buf []byte
 
@@ -197,12 +197,12 @@ func (d *Decoder) EnterField(shapeID uint32, nFields, i int) {
 	if d.state == nil || shapeID == 0 || i < 0 || i >= nFields {
 		return
 	}
-	bases := d.state.strDeltaBases(shapeID, nFields)
-	d.strDeltaBase = &bases[i]
+	bases := d.state.strFieldStates(shapeID, nFields)
+	d.strField = &bases[i]
 }
 
 // LeaveField unbinds the field context set by EnterField.
-func (d *Decoder) LeaveField() { d.strDeltaBase = nil }
+func (d *Decoder) LeaveField() { d.strField = nil }
 
 func (d *Decoder) ReadStructHeader() (names []string, plainN int, shaped bool, err error) {
 	tag, err := d.peekTag()

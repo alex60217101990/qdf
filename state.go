@@ -1235,7 +1235,7 @@ type decState struct {
 	// type: a field the target struct does not declare has no typeDesc here, and
 	// its base still has to advance or the next value of that field decodes
 	// against a stale one — silently, because the types still line up.
-	strDeltaBase [][]string
+	strDeltaBase [][]decFieldState
 
 	// strDeltaBump packs reconstructed delta values. Reset drops it rather than
 	// rewinding: its bytes are referenced by the intern table and by strings

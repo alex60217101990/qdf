@@ -356,12 +356,12 @@ func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows 
 			// and Skip key them. A field this plan does not carry is still read
 			// rather than stepped over, because its base has to advance — see
 			// scatterBatchRowMajorField.
-			bases := d.state.strDeltaBases(d.lastWireShapeID, len(names))
+			bases := d.state.strFieldStates(d.lastWireShapeID, len(names))
 			for wi, name := range names {
 				nb := unsafe.Slice(unsafe.StringData(name), len(name))
-				d.strDeltaBase = &bases[wi]
+				d.strField = &bases[wi]
 				ferr := scatterBatchRowMajorField(d, plan, slab, rowDst, nb)
-				d.strDeltaBase = nil
+				d.strField = nil
 				if ferr != nil {
 					return 0, true, ferr
 				}
@@ -413,7 +413,7 @@ func scatterBatchRowMajorField(d *Decoder, plan *batchPlan, slab *batchSlab, row
 		// table an entry short, so the next row's delta for this field rebuilds
 		// against the wrong prefix and every later state-ref resolves to the
 		// wrong string. Silently, because the types still line up.
-		if d.strDeltaBase != nil && d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
+		if d.strField != nil && d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
 			_, err := d.readStringBytes()
 			return err
 		}

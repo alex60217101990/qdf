@@ -1480,7 +1480,7 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 			// Bases are keyed by WIRE field position, not by the target
 			// struct's field order: a field the struct does not declare has no
 			// target index, and its base still has to advance.
-			bases := d.state.strDeltaBases(effShapeID, len(fieldNames))
+			bases := d.state.strFieldStates(effShapeID, len(fieldNames))
 			cur := 0
 			for wi, name := range fieldNames {
 				var fd *fieldDesc
@@ -1498,9 +1498,9 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					// every later state-ref — resolves to the wrong string.
 					// Silently, because the types still line up.
 					if d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
-						d.strDeltaBase = &bases[wi]
+						d.strField = &bases[wi]
 						_, err := d.readStringBytes()
-						d.strDeltaBase = nil
+						d.strField = nil
 						if err != nil {
 							return err
 						}
@@ -1511,9 +1511,9 @@ func decodeStruct(td *typeDesc) func(*Decoder, unsafe.Pointer) error {
 					}
 					continue
 				}
-				d.strDeltaBase = &bases[wi]
+				d.strField = &bases[wi]
 				err := fd.desc.decode(d, unsafe.Add(p, fd.offset))
-				d.strDeltaBase = nil
+				d.strField = nil
 				if err != nil {
 					return err
 				}
@@ -1713,6 +1713,11 @@ func decodeAny(d *Decoder) (any, error) {
 		return v, err
 	case tag >= tagFixstr && tag <= tagFixstr|tagFixstrMask:
 		return d.ReadString()
+	case tag == tagStrAlpha:
+		// Reads through the same path the typed decoder uses, against the table
+		// the enclosing shape loop bound. A dynamic read is still a read: it
+		// advances the field's state exactly as a typed one does.
+		return d.ReadString()
 	case tag == tagStrDelta:
 		// Reads through the same path the typed decoder uses, against the base
 		// the enclosing shape loop set. A dynamic read is still a read: it
@@ -1895,12 +1900,12 @@ func decodeAny(d *Decoder) (any, error) {
 		// The dynamic reader carries the same per-field delta bases the typed
 		// one does. It has no target struct, but tagStrDelta does not need one:
 		// the base is keyed by wire field position, which this loop has.
-		bases := d.state.strDeltaBases(effShapeID, len(names))
+		bases := d.state.strFieldStates(effShapeID, len(names))
 		out := popOrMakeMap[string, any](d, len(names))
 		for wi, name := range names {
-			d.strDeltaBase = &bases[wi]
+			d.strField = &bases[wi]
 			v, err := decodeAny(d)
-			d.strDeltaBase = nil
+			d.strField = nil
 			if err != nil {
 				return nil, err
 			}

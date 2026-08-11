@@ -270,8 +270,8 @@ func (d *Decoder) readStringBytes() ([]byte, error) {
 	// The base aliases the read buffer rather than copying: it is only read
 	// again within this message, and the bases are cleared when the pooled
 	// state resets.
-	if err == nil && d.strDeltaBase != nil {
-		*d.strDeltaBase = unsafestr.String(b)
+	if err == nil && d.strField != nil {
+		d.strField.base = unsafestr.String(b)
 	}
 	return b, err
 }
@@ -350,6 +350,29 @@ func (d *Decoder) readStringBytesRaw() ([]byte, error) {
 			d.state.lastID = lruInvalidID
 		}
 		return out, nil
+	case tagStrAlpha:
+		if d.strField == nil {
+			// The form is only ever emitted for a struct field; without a field
+			// context this is a malformed or hostile stream. Same guard the
+			// delta uses, and for the same reason.
+			return nil, ErrBadTag
+		}
+		if d.state == nil {
+			d.state = newDecState()
+		}
+		d.i-- // step back over the tag; readStrAlpha expects to see it
+		v, adv, err := readStrAlpha(d.buf[d.i:], &d.strField.alpha, d.state)
+		if err != nil {
+			return nil, err
+		}
+		d.i += adv
+		// Not registered in the intern table, and lastID is dropped: this is an
+		// inline form for the same reason tagStrDelta is. A value worth packing
+		// is nearly unique and would never be referenced again.
+		d.state.lastID = lruInvalidID
+		d.strField.base = v
+		d.lastReadOwned = true
+		return unsafestr.Bytes(v), nil
 	case tagStrDelta:
 		// A cheaper spelling of tagInternStr: the value is this field's previous
 		// value with a fresh tail. It registers and chains exactly as the intern
@@ -357,7 +380,7 @@ func (d *Decoder) readStringBytesRaw() ([]byte, error) {
 		// not fire here. Treating it as inline would drop lastID on the decoder
 		// while the encoder kept it, and every following tagStateRepeat would
 		// resolve to the wrong string.
-		if d.strDeltaBase == nil {
+		if d.strField == nil {
 			// No field context: the form is only ever emitted for a struct
 			// field, so this is a malformed or hostile stream.
 			return nil, ErrBadTag
@@ -366,7 +389,7 @@ func (d *Decoder) readStringBytesRaw() ([]byte, error) {
 		if d.state == nil {
 			d.state = newDecState()
 		}
-		v, adv, err := readStrDeltaInto(d.buf[d.i:], *d.strDeltaBase, d.state)
+		v, adv, err := readStrDeltaInto(d.buf[d.i:], d.strField.base, d.state)
 		if err != nil {
 			return nil, err
 		}
@@ -377,7 +400,7 @@ func (d *Decoder) readStringBytesRaw() ([]byte, error) {
 		// That makes this an inline read, and an inline read drops lastID so a
 		// following tagStateRepeat cannot resurrect a stale reference.
 		d.state.lastID = lruInvalidID
-		*d.strDeltaBase = v
+		d.strField.base = v
 		d.lastReadOwned = true
 		return unsafestr.Bytes(v), nil
 	case tagInternStr, tagInternBin:
