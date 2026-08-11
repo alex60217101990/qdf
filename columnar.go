@@ -2868,6 +2868,24 @@ func (e *Encoder) columnarSelect(plan *columnarPlan, base unsafe.Pointer, n int,
 		return nil, false
 	}
 
+	// Mixed, and the payload would NOT have been columnar without this change:
+	// leave it alone.
+	//
+	// Demotion refines a decision the encoder was already going to make; it must
+	// not reverse one. Emitting a container where row-major was chosen before is
+	// not free in the way the byte arithmetic below suggests —
+	// encodeHybridColumnar builds per-column scratch sized to the row count, and
+	// on a 200k-record payload that was measured at 18 MB/op becoming 66 MB/op
+	// while the wire did not move at all. The saving here counts wire bytes and
+	// cannot see that.
+	//
+	// So the old all-or-nothing verdict stays a precondition: a payload it sends
+	// row-major goes row-major, and per-column demotion only improves payloads
+	// that were already going to be transposed.
+	if colBytes*100 > rowBytes*(100-gain) {
+		return nil, false
+	}
+
 	// Mixed. Charge the container for what it costs over plain row-major: the
 	// shape declaration, plus a block header per emitted column. Shape interning
 	// amortises the declaration away after its first appearance in a stream, so

@@ -352,3 +352,32 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 		}
 	})
 }
+
+// A payload the encoder sends row-major must stay row-major. Per-column
+// demotion refines a columnar decision; it must never reverse a row-major one,
+// because emitting a container builds per-column scratch sized to the row count
+// — on this payload that was 18 MB/op becoming 66 MB/op while the wire did not
+// move at all, and it reached CI as a 3.65x memory alert.
+//
+// Asserted on the container, not on allocation: the container is what changed,
+// it is deterministic, and an allocation ceiling measured through
+// testing.Benchmark inside a test does not reproduce the benchmark's own
+// amortisation. The byte budget itself is watched by bench-trend, which is what
+// caught this in the first place.
+func TestLargePayloadEncodeStaysRowMajor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the 200k-record fixture under -short")
+	}
+	v := makeLargeBatch(200_000, 1)
+	b, err := qdf.Marshal(v, qdf.OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Byte 5 is the first tag after the 5-byte header. 0xF7 is
+	// tagHybridColStruct; anything else means the root did not become a
+	// columnar container.
+	if b[5] == 0xF7 {
+		t.Fatalf("the root encoded as a hybrid columnar container — per-column demotion reversed a row-major decision")
+	}
+	t.Logf("root tag=0x%02x wire=%d", b[5], len(b))
+}

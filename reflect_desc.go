@@ -83,6 +83,10 @@ type typeDesc struct {
 	tightPOD bool
 	// keyed reports whether a ,key-tagged field is present (keyOff/keyDesc valid).
 	keyed bool
+
+	// hasStrField is true when any field of this struct is a plain string, the
+	// only kind the per-field delta applies to.
+	hasStrField bool
 }
 
 type fieldDesc struct {
@@ -369,6 +373,17 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 			return err
 		}
 		td.fields = fields
+		// Computed once here so the encoder's per-struct path can skip the
+		// per-field delta state entirely for a type that has no string field.
+		// Looking it up per struct — allocating a base and a gate slice for a
+		// type that will never use them — showed up as extra allocs/op on small
+		// payloads, where nothing amortises.
+		for i := range fields {
+			if fields[i].desc.kind == reflect.String {
+				td.hasStrField = true
+				break
+			}
+		}
 		// Record []float32/[]float64 fields for the batched lossy vector codec.
 		// Detect via the field's reflect type: the typed slice fast paths set the
 		// encode/decode closures but leave td.elem nil, so the kind is read from

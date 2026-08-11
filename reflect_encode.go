@@ -1213,7 +1213,7 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 func (e *Encoder) encodeStructValues(td *typeDesc, fields []fieldDesc, p unsafe.Pointer) error {
 	var bases []string
 	var gates []strDeltaGate
-	if e.state != nil {
+	if e.state != nil && td.hasStrField {
 		bases, gates = e.state.strDeltaBases(td, len(fields))
 	}
 	for i := range fields {

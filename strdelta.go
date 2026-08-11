@@ -292,16 +292,39 @@ func (d *decState) strDeltaBases(shapeID uint32, nFields int) []string {
 // headers from the previous message; a bare truncation would keep them live in
 // the tail and pin that message's memory for the lifetime of the pooled state —
 // the same hazard decState.reset documents for stringValues.
+// strDeltaResetEnc clears the per-field state for the next message while
+// KEEPING the per-type slices themselves.
+//
+// Dropping the type bindings would make the next message reallocate a base and
+// a gate slice for every struct type it touches — measured at +10 allocs/op on
+// a small nested payload, which never amortizes because a small payload is
+// encoded once. typeDesc pointers are process-global and stay valid, so the
+// bindings survive; only the values in them must not.
+//
+// Bounded: a process that encodes an unbounded variety of types would otherwise
+// accumulate one entry per type forever. Past the cap the table is dropped
+// whole rather than grown, matching how the intern table releases after a
+// streak of small messages.
 func (e *encState) strDeltaResetEnc() {
+	if len(e.strDeltaTd) > maxRetainedDeltaTypes {
+		clear(e.strDeltaTd)
+		e.strDeltaTd = e.strDeltaTd[:0]
+		e.strDeltaBase = e.strDeltaBase[:0]
+		e.strDeltaGate = e.strDeltaGate[:0]
+		e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = nil, nil, nil
+		return
+	}
 	for i := range e.strDeltaBase {
 		clear(e.strDeltaBase[i])
+		clear(e.strDeltaGate[i])
 	}
-	clear(e.strDeltaTd)
-	e.strDeltaTd = e.strDeltaTd[:0]
-	e.strDeltaBase = e.strDeltaBase[:0]
-	e.strDeltaGate = e.strDeltaGate[:0]
-	e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = nil, nil, nil
+	// The one-entry cache still points at a live slice, so it stays: a stream of
+	// the same type hits it on the first field of the next message too.
 }
+
+// maxRetainedDeltaTypes caps how many struct types keep their per-field state
+// across a pooled reset.
+const maxRetainedDeltaTypes = 64
 
 func (d *decState) strDeltaResetDec() {
 	// A fresh allocator, not Bump.Reset: the old block's bytes are referenced by
