@@ -27,6 +27,15 @@ import (
 // on this branch looked healthy while never running once.
 var strDeltaEmitted atomic.Int64
 
+// strDeltaCount gates the two counters below. They exist so acceptance tests can
+// assert how many values took the delta form — a wire-size assertion is vacuous
+// here, since interning alone shrinks these payloads. But an atomic increment on
+// every eligible string is not free: it was 14% of writeStringField's profile on
+// the RTB encode, spent entirely on instrumentation.
+//
+// A package-level bool costs a predictable branch instead. Only tests set it.
+var strDeltaCount bool
+
 // strDeltaProbes counts prefix comparisons performed. The gate's whole purpose
 // is to keep this well below the number of eligible values on data the delta
 // cannot help, and only a counter shows that — strDeltaEmitted stays at zero
@@ -90,7 +99,9 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 	// So measure first. When the delta wins, emit it and skip the intern
 	// machinery entirely; only a value the delta declines pays for the lookup.
 	if !g.muted {
-		strDeltaProbes.Add(1)
+		if strDeltaCount {
+			strDeltaProbes.Add(1)
+		}
 		p := frontDeltaCommonPrefix(*base, s)
 		internCost := 1 + uvarintLen(uint64(len(s))) + len(s)
 		// The delta must not merely win, it must win BIG: every emission adds
@@ -109,7 +120,9 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 		}
 		if win {
 			e.buf = appendStrDeltaAt(e.buf, p, s)
-			strDeltaEmitted.Add(1)
+			if strDeltaCount {
+				strDeltaEmitted.Add(1)
+			}
 			// Inline semantics: the value never entered the intern table, so a
 			// following tagStateRepeat must not resurrect whatever ID was last
 			// on the chain. The decoder drops it on every inline read; the
@@ -250,7 +263,18 @@ func readStrDeltaInto(buf []byte, base string, st *decState) (string, int, error
 // that matters — hits it on every row, so the lookup is a pointer compare
 // rather than a scan.
 func (e *encState) strDeltaBases(td *typeDesc, nFields int) ([]string, []strDeltaGate) {
+	// TWO cache slots, not one. A nested struct alternates between the parent's
+	// type and the child's on every field, so a single slot misses every time
+	// and falls through to the linear scan below — measured at 37 ns on a 222 ns
+	// nested encode, 16.7% of it. Two slots turn that alternation into a hit.
 	if e.lastDeltaTd == td && len(e.lastDeltaBases) >= nFields {
+		return e.lastDeltaBases, e.lastDeltaGates
+	}
+	if e.prevDeltaTd == td && len(e.prevDeltaBases) >= nFields {
+		// Promote so a run on this type keeps hitting the first slot.
+		e.lastDeltaTd, e.prevDeltaTd = e.prevDeltaTd, e.lastDeltaTd
+		e.lastDeltaBases, e.prevDeltaBases = e.prevDeltaBases, e.lastDeltaBases
+		e.lastDeltaGates, e.prevDeltaGates = e.prevDeltaGates, e.lastDeltaGates
 		return e.lastDeltaBases, e.lastDeltaGates
 	}
 	for i, t := range e.strDeltaTd {
@@ -261,6 +285,7 @@ func (e *encState) strDeltaBases(td *typeDesc, nFields int) ([]string, []strDelt
 				g = append(g, make([]strDeltaGate, nFields-len(g))...)
 				e.strDeltaBase[i], e.strDeltaGate[i] = b, g
 			}
+			e.prevDeltaTd, e.prevDeltaBases, e.prevDeltaGates = e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates
 			e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = td, b, g
 			return b, g
 		}
@@ -270,6 +295,7 @@ func (e *encState) strDeltaBases(td *typeDesc, nFields int) ([]string, []strDelt
 	e.strDeltaTd = append(e.strDeltaTd, td)
 	e.strDeltaBase = append(e.strDeltaBase, b)
 	e.strDeltaGate = append(e.strDeltaGate, g)
+	e.prevDeltaTd, e.prevDeltaBases, e.prevDeltaGates = e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates
 	e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = td, b, g
 	return b, g
 }
@@ -312,6 +338,7 @@ func (e *encState) strDeltaResetEnc() {
 		e.strDeltaBase = e.strDeltaBase[:0]
 		e.strDeltaGate = e.strDeltaGate[:0]
 		e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = nil, nil, nil
+		e.prevDeltaTd, e.prevDeltaBases, e.prevDeltaGates = nil, nil, nil
 		return
 	}
 	for i := range e.strDeltaBase {

@@ -318,6 +318,9 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	lastDeltaTd    *typeDesc
 	lastDeltaBases []string
 	lastDeltaGates []strDeltaGate
+	prevDeltaTd    *typeDesc
+	prevDeltaBases []string
+	prevDeltaGates []strDeltaGate
 }
 
 // shapeBinding is a (typeDesc → wire shape ID) pair. Stored in a
@@ -1097,6 +1100,19 @@ type decColShape struct {
 // scalars stay packed together (lastID/lruHead/mruHead/mruRing) so the
 // per-emit MTF update still touches one contiguous span.
 type decState struct {
+
+	// zeroTimeBox caches the boxed `any` of the zero time.Time (the value
+	// unset time fields — DeletedAt, ExpiresAt, … — decode to en masse). It is
+	// a universal, immutable constant, so it is boxed once and shared across
+	// every occurrence AND across decodes on this pooled state (never reset):
+	// one alloc replaces N. decodeAny gates on time.IsZero(), a single cheap
+	// branch, so non-zero timestamps pay nothing.
+	zeroTimeBox any
+
+	// mapDec pools reflect holders for the generic (reflect) string-keyed map
+	// decode path so it does not reflect.New per map entry (OptMapShape).
+	mapDec mapHolderCache
+
 	// values holds the decoded byte slices indexed by intern id —
 	// each entry aliases the wire buffer (zero-copy).
 	values [][]byte
@@ -1121,14 +1137,6 @@ type decState struct {
 	// overhead — the wire's own intern encoding is the adaptivity signal.
 	// Sharing an immutable boxed scalar across map/slice slots is safe.
 	boxValues []any
-
-	// zeroTimeBox caches the boxed `any` of the zero time.Time (the value
-	// unset time fields — DeletedAt, ExpiresAt, … — decode to en masse). It is
-	// a universal, immutable constant, so it is boxed once and shared across
-	// every occurrence AND across decodes on this pooled state (never reset):
-	// one alloc replaces N. decodeAny gates on time.IsZero(), a single cheap
-	// branch, so non-zero timestamps pay nothing.
-	zeroTimeBox any
 
 	// LRU mirror of encState's. Decoder maintains the same MTF chain
 	// the encoder did so tagStateMTF + rank resolves to the same ID.
@@ -1171,9 +1179,17 @@ type decState struct {
 	// a FlagColIndex columnar payload (one uint32 byte-length per column).
 	colLenScratch []uint32
 
-	// mapDec pools reflect holders for the generic (reflect) string-keyed map
-	// decode path so it does not reflect.New per map entry (OptMapShape).
-	mapDec mapHolderCache
+	// strDeltaBase mirrors the encoder's, keyed by WIRE shape ID rather than by
+	// type: a field the target struct does not declare has no typeDesc here, and
+	// its base still has to advance or the next value of that field decodes
+	// against a stale one — silently, because the types still line up.
+	strDeltaBase [][]string
+
+	// strDeltaBump packs reconstructed delta values. Reset drops it rather than
+	// rewinding: its bytes are referenced by the intern table and by strings
+	// handed to the previous caller, and Bump.Reset would hand the next message
+	// the same memory.
+	strDeltaBump bumparena.Bump
 
 	// Hot scalars — touched on every tagState* read. Packing them with the
 	// mruRing/head update keeps the per-emit footprint contiguous.
@@ -1194,18 +1210,6 @@ type decState struct {
 	// retainStreak counts consecutive small (sub-cap) messages for the
 	// adaptive-retention policy in reset(). Cold — touched once per reset.
 	retainStreak uint8
-
-	// strDeltaBase mirrors the encoder's, keyed by WIRE shape ID rather than by
-	// type: a field the target struct does not declare has no typeDesc here, and
-	// its base still has to advance or the next value of that field decodes
-	// against a stale one — silently, because the types still line up.
-	strDeltaBase [][]string
-
-	// strDeltaBump packs reconstructed delta values. Reset drops it rather than
-	// rewinding: its bytes are referenced by the intern table and by strings
-	// handed to the previous caller, and Bump.Reset would hand the next message
-	// the same memory.
-	strDeltaBump bumparena.Bump
 }
 
 func newDecState() *decState {

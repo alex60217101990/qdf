@@ -17,7 +17,6 @@ import (
 // int counters, then the 1-byte flags last so the interspersed bools do not
 // each force their own padding word (176 bytes vs 208 for the source order).
 type Decoder struct {
-	buf   []byte
 	state *decState
 
 	// arena, when non-nil, receives copied inline string bodies (bump-packed)
@@ -26,25 +25,6 @@ type Decoder struct {
 	// to the pool so a pooled decoder never pins a caller's arena. Ignored when
 	// noCopy is set (aliasing already avoids the copy).
 	arena *Arena
-
-	// keyCache dedupes map keys and other short repeated strings across
-	// Unmarshal calls on the same pooled decoder.
-	keyCache intern.Cache
-
-	// selectFields, when non-nil, restricts the columnar map (any) decode to
-	// the named columns: unrequested columns are skipped via the column-length
-	// index when present, or simply not stored when it is absent. Set by
-	// UnmarshalColumns for the duration of one decode; must be cleared on
-	// reset / return-to-pool / SetInput so it never leaks across decodes.
-	selectFields []string
-
-	// selectKeys is the UnmarshalKeys projection: the keys to keep from the
-	// ROOT map. It is deliberately separate from selectFields (column names)
-	// — sharing one field made a column projection filter map entries and
-	// vice versa — and is consumed one-shot by the root map's decode loop, so
-	// nothing nested (values, Skip, nested maps, columnar containers) ever
-	// sees a live filter.
-	selectKeys []string
 
 	// query, when non-nil, makes a columnar decode filter rows by the plan's
 	// predicates (AND) and project the plan's columns. Set by Unmarshal when
@@ -64,6 +44,33 @@ type Decoder struct {
 	// backing is dropped on the apply reset path so a one-off huge slice never
 	// pins a large map across pooled reuse.
 	keyIdx map[string]int
+
+	// strDeltaBase points at the current struct field's previous value while a
+	// value is being decoded, or is nil outside that. tagStrDelta codes against
+	// it. Set by decodeStruct per wire field — including fields the target
+	// struct does not declare, whose base still has to advance.
+	strDeltaBase *string
+
+	buf []byte
+
+	// keyCache dedupes map keys and other short repeated strings across
+	// Unmarshal calls on the same pooled decoder.
+	keyCache intern.Cache
+
+	// selectFields, when non-nil, restricts the columnar map (any) decode to
+	// the named columns: unrequested columns are skipped via the column-length
+	// index when present, or simply not stored when it is absent. Set by
+	// UnmarshalColumns for the duration of one decode; must be cleared on
+	// reset / return-to-pool / SetInput so it never leaks across decodes.
+	selectFields []string
+
+	// selectKeys is the UnmarshalKeys projection: the keys to keep from the
+	// ROOT map. It is deliberately separate from selectFields (column names)
+	// — sharing one field made a column projection filter map entries and
+	// vice versa — and is consumed one-shot by the root map's decode loop, so
+	// nothing nested (values, Skip, nested maps, columnar containers) ever
+	// sees a live filter.
+	selectKeys []string
 
 	// deltaScratch is a reused unpack buffer for the Delta+FOR readers: the
 	// bit-unpacked deltas are a transient intermediate (the prefix sum writes
@@ -89,6 +96,11 @@ type Decoder struct {
 	// tiny body before the per-element allocation.
 	colMaxLen int
 
+	// lastWireShapeID is the shape ID of the most recent struct header read
+	// through decodeMapStringShapeHeader. The batch decoder reaches struct
+	// headers via ReadStructHeader, whose public signature does not carry it.
+	lastWireShapeID uint32
+
 	mode Mode
 
 	// noCopy returns aliased string / []byte values instead of copies.
@@ -113,17 +125,6 @@ type Decoder struct {
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice apply so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
 	keyIdxBusy bool
-
-	// strDeltaBase points at the current struct field's previous value while a
-	// value is being decoded, or is nil outside that. tagStrDelta codes against
-	// it. Set by decodeStruct per wire field — including fields the target
-	// struct does not declare, whose base still has to advance.
-	strDeltaBase *string
-
-	// lastWireShapeID is the shape ID of the most recent struct header read
-	// through decodeMapStringShapeHeader. The batch decoder reaches struct
-	// headers via ReadStructHeader, whose public signature does not carry it.
-	lastWireShapeID uint32
 
 	// lastReadOwned marks that the bytes readStringBytes just returned are
 	// decoder-owned (a rebuilt tagStrDelta value) rather than an alias of the
