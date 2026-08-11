@@ -2768,7 +2768,23 @@ func (e *Encoder) derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPl
 	// and refills it. Allocating fresh ones was half the extra objects on the
 	// OTLP compression encode, which is a stream of small batches where nothing
 	// amortises.
-	out := &e.derivedPlan
+	// The scratch is safe only while ONE derived plan is live at a time, and
+	// that is not structurally guaranteed: a residual field is by definition a
+	// non-transposable one — a map, a nested struct, or a SLICE — so a residual
+	// slice of a columnar-eligible struct re-enters this function while the
+	// outer encode is still walking the plan it returned. No payload in either
+	// module does that today, verified with a re-entrancy panic held across 16
+	// real derives, but "no test reaches it" is not "cannot happen".
+	//
+	// Depth decides: the outer derive takes the scratch, a nested one allocates
+	// its own. The caller drops the depth once it has finished with the plan.
+	var out *columnarPlan
+	if e.deriveDepth == 0 {
+		out = &e.derivedPlan
+	} else {
+		out = new(columnarPlan)
+	}
+	e.deriveDepth++
 	out.stride = plan.stride
 	out.hybridNames = srcNames // names never change, only kinds do
 	out.hybridKinds = append(out.hybridKinds[:0], srcKinds...)
