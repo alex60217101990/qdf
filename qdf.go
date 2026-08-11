@@ -365,7 +365,28 @@ const (
 	// unchanged. v1 covers int/uint columns; string/float are a follow-up.
 	OptZoneMap // bit 13
 
-	// Bits 14..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptStringAlphabet packs a struct string field against the alphabet that
+	// field actually uses (tagStrAlpha, 0xF5), at ceil(log2 distinct) bits per
+	// character instead of eight. A field of hex ids halves; one of decimal
+	// digits halves; a field whose character set is restricted but not standard
+	// declares its table once and references it thereafter.
+	//
+	// Opt-in, and the measurements say why. The gain is real but narrow: on the
+	// bench corpora it is -11.6% wire for OpenTelemetry spans and -7.1% for
+	// OpenRTB bid requests, and 0.0% for access logs, event streams and IoT
+	// samples, whose string fields have no restricted alphabet to exploit.
+	// Under OptCompression it nearly vanishes — -1.8% and -0.7% — because the
+	// entropy coder already removes the same redundancy. Against that, encoding
+	// a corpus where it fires hard costs about 2.4% CPU; nothing else moves.
+	//
+	// So it is worth having and not worth defaulting to: a payload of trace ids
+	// or numeric keys serialized without entropy coding gains a tenth of its
+	// wire, and everyone else would pay for a codec that cannot help them. Set
+	// the bit when the wire matters more than the CPU and the fields are shaped
+	// for it. Requires OptDense.
+	OptStringAlphabet // bit 14
+
+	// Bits 15..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.

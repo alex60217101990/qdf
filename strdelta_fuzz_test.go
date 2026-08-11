@@ -225,7 +225,7 @@ func FuzzStrDeltaWireIsSelfConsistent(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, n int, seed uint32, prefixLen int) {
 		rows := fuzzMakeRows(n, seed, prefixLen)
-		opts := OptBalanced | OptCanonical
+		opts := OptBalanced | OptStringAlphabet | OptCanonical
 		b, err := Marshal(rows, opts)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
