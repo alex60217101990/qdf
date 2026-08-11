@@ -312,7 +312,10 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	pairPred bool
 	// denseOn mirrors opts.Has(OptDense), folded once in applyOpts.
 	denseOn bool
-	mtf     bool
+	// inRepeated is true while encoding the elements of a slice or array — the
+	// only place a struct field can have a previous value to delta against.
+	inRepeated bool
+	mtf        bool
 
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.

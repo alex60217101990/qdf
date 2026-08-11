@@ -205,6 +205,7 @@ func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 
 func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
+
 		if e.encodeNilSlice(p) { // nil slice → tagNil (distinct from empty)
 			return nil
 		}
@@ -288,16 +289,23 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// are emitted exactly once.
 		const sliceProbeSize = 32
 		if n <= sliceProbeSize {
+			prev := e.inRepeated
+			e.inRepeated = true
 			for i := range n {
 				if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
+					e.inRepeated = prev
 					return err
 				}
 			}
+			e.inRepeated = prev
 			return nil
 		}
+		prev := e.inRepeated
+		e.inRepeated = true
 		probeStart := len(e.buf)
 		for i := range sliceProbeSize {
 			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
+				e.inRepeated = prev
 				return err
 			}
 		}
@@ -317,9 +325,11 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		}
 		for i := sliceProbeSize; i < n; i++ {
 			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
+				e.inRepeated = prev
 				return err
 			}
 		}
+		e.inRepeated = prev
 		return nil
 	}
 }
@@ -461,6 +471,7 @@ func decodeFixedByteArray(n int) func(*Decoder, unsafe.Pointer) error {
 
 func encodeArray(elem *typeDesc, stride uintptr, n int) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
+
 		// Depth guard mirroring Decoder.descend in decodeArray (see encodeSlice).
 		if e.maxDepth != 0 {
 			e.depth++
@@ -471,11 +482,15 @@ func encodeArray(elem *typeDesc, stride uintptr, n int) func(*Encoder, unsafe.Po
 			defer func() { e.depth-- }()
 		}
 		e.WriteArrayHeader(n)
+		prev := e.inRepeated
+		e.inRepeated = true
 		for i := range n {
 			if err := elem.encode(e, unsafe.Add(p, uintptr(i)*stride)); err != nil {
+				e.inRepeated = prev
 				return err
 			}
 		}
+		e.inRepeated = prev
 		return nil
 	}
 }
@@ -1243,7 +1258,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			if id := e.state.shapeForType(td); id != 0 {
 				e.buf = append(e.buf, tagMapShape)
 				e.buf = appendUvarint(e.buf, uint64(id))
-				if td.hasStrField && e.state != nil {
+				if td.hasStrField && e.inRepeated && e.state != nil {
 					return e.encodeStructValues(td, fields, p)
 				}
 				// A struct with no string field has nothing this feature can do, and
@@ -1291,7 +1306,7 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 					st.lastID = lruInvalidID
 				}
 			}
-			if td.hasStrField && e.state != nil {
+			if td.hasStrField && e.inRepeated && e.state != nil {
 				return e.encodeStructValues(td, fields, p)
 			}
 			// A struct with no string field has nothing this feature can do, and
