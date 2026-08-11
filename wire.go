@@ -257,6 +257,24 @@ const (
 	// value-level switch. If a future change lets one be read as a value, the
 	// two meanings collide and the reader misreads without erroring. Check that
 	// property before spending one of these bytes on a value form.
+	// tagStrAlpha packs a struct string field at ceil(log2 |A|) bits per
+	// character. It SHARES the byte 0xF5 with tagColStrDict below, which is
+	// legal because that one appears only inside a column body — see the
+	// namespace note above, and re-read it before giving this byte a third
+	// meaning.
+	//
+	//	<0xF5> <selector> [table] <uvarint(nchars)> <packed body>
+	//
+	// selector 1..0xFE  a well-known alphabet, named by the selector itself;
+	//                   carries no table and needs no per-field memory, so a
+	//                   reader decodes it with no recollection of the field
+	// selector 0x00     a declared table: uvarint(a), then a alphabet bytes
+	// selector 0xFF     the table this field declared earlier
+	//
+	// The body packs each character's code LSB-first, exactly as
+	// tryWriteStringColumnAlpha does for a whole column.
+	tagStrAlpha = 0xF5
+
 	tagColStrDict = 0xF5
 	tagColStrFSST = 0xF6 // FSST-coded string column (inside tagColStruct)
 
