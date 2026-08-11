@@ -111,8 +111,24 @@ type decFieldState struct {
 type strAlphaLearn struct {
 	symbols []byte
 	stable  uint16
-	seen    [256]bool
-	code    [256]uint8
+	// bits is the packed width for the current symbol count, kept here so the
+	// per-value path does not recompute it.
+	bits uint8
+	// code maps a byte to its index in symbols, or strAlphaNotMember.
+	//
+	// One table rather than a membership array beside it. "Not a member" is a
+	// value the code can carry, which halves the struct — this used to be 512
+	// bytes of per-field state — and lets the common test, is every byte of
+	// this value already known, run by OR-ing codes with no branch per byte.
+	code [256]uint8
+}
+
+func newStrAlphaLearn() *strAlphaLearn {
+	l := &strAlphaLearn{}
+	for i := range l.code {
+		l.code[i] = strAlphaNotMember
+	}
+	return l
 }
 
 // writeStringField writes one struct string field.

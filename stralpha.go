@@ -79,6 +79,11 @@ func buildStrAlphaSets() [6]*strAlphaSet {
 	return out
 }
 
+// strAlphaNotMember marks a byte outside a learned alphabet in its code table.
+// Real codes are below qpackStrAlphaMaxAlphabet, so the high bit is unambiguous
+// and survives an OR — which is what makes the membership test branchless.
+const strAlphaNotMember = 0xFF
+
 const (
 	strAlphaOnes = 0x0101010101010101
 	strAlphaHigh = 0x8080808080808080
@@ -151,6 +156,16 @@ func strAlphaAllIn(b []byte, set *strAlphaSet) bool {
 		}
 	}
 	return true
+}
+
+// strAlphaWorthIt reports whether a value of n characters packed at the given
+// width clears the gain bar.
+//
+// Length and width only, never the bytes — which is the point. The bar cannot
+// depend on content, so it belongs BEFORE the membership scan rather than
+// after it: a value too short to profit is declined without being read at all.
+func strAlphaWorthIt(n, bits, baselineCost int) bool {
+	return strAlphaCost(n, bits, strAlphaSelRef, 0)*strAlphaMinGainDen < baselineCost*strAlphaMinGainNum
 }
 
 // strAlphaCost is the exact byte count the matching append writes. tableLen is
@@ -413,49 +428,69 @@ func (e *Encoder) tryWriteStringFieldAlphaInner(s string, fs *strFieldState, bas
 	// outside the set, which makes it cheap exactly where it is about to fail.
 	if fs.learn == nil {
 		if fs.alphaID == 0 {
+			// Discovery is a scan of the whole value, so an O(1) test comes
+			// first. The narrowest well-known alphabet is ten symbols at four
+			// bits, so a length that four bits cannot make pay is a length no
+			// well-known set can.
+			if !strAlphaWorthIt(len(s), 4, baselineCost) {
+				return false
+			}
 			fs.alphaID = strAlphaWellKnown(s)
-		} else if !strAlphaAllIn(unsafestr.Bytes(s), strAlphaSets[fs.alphaID]) {
-			fs.alphaID = 0 // a value fell outside the set this field had matched
 		}
 		if id := fs.alphaID; id != 0 {
 			set := strAlphaSets[id]
-			if strAlphaCost(len(s), set.bits, id, 0)*strAlphaMinGainDen < baselineCost*strAlphaMinGainNum {
+			switch {
+			case !strAlphaWorthIt(len(s), set.bits, baselineCost):
+				// This set cannot pay at this length. Two different reasons,
+				// and they must not be confused: if not even a one-bit table
+				// could win, the value is simply short and the field keeps the
+				// alphabet it matched — dropping it here would cost every
+				// later long value. Otherwise the set is wider than the field
+				// needs, and a learned table is worth trying: values of
+				// nothing but lowercase letters match the 36-symbol set at six
+				// bits where their real 26 symbols pack at five.
+				if !strAlphaWorthIt(len(s), 1, baselineCost) {
+					return false
+				}
+				fs.alphaID = 0
+			case strAlphaAllIn(unsafestr.Bytes(s), set):
 				e.buf = appendStrAlphaWellKnown(e.buf, id, s)
 				if strDeltaCount {
 					strAlphaEmittedWK.Add(1)
 				}
 				return true
+			default:
+				fs.alphaID = 0 // a value fell outside the set this field matched
 			}
-			// Matched but not worth it — and that is not the end of the matter.
-			// A well-known set is a superset of what the field actually uses:
-			// values of nothing but lowercase letters match the 36-symbol
-			// lowercase-and-digits set at six bits, where the 26 symbols they
-			// really use would pack at five. Returning here would leave the
-			// field on the wider set forever, so fall through and learn the
-			// narrow one instead.
-			fs.alphaID = 0
 		}
-		fs.learn = &strAlphaLearn{}
+		fs.learn = newStrAlphaLearn()
 	}
 
 	// Accumulate, and declare when the set stops growing.
 	l := fs.learn
-	grew := false
+	// A byte this field has not seen contributes the sentinel, whose high bit
+	// survives the OR, so the settled case — every byte already known, which is
+	// what a field looks like once it has stabilised — costs one OR per byte
+	// and a single test, rather than a branch per byte.
+	var unknown uint8
 	for i := range len(s) {
-		c := s[i]
-		if l.seen[c] {
-			continue
-		}
+		unknown |= l.code[s[i]]
+	}
+	if unknown&0x80 != 0 {
 		if fs.alphaDeclared {
 			// The table is on the wire and the decoder built its mapping from
-			// those exact bytes, so it can never be revised: widening it here
-			// would re-number every symbol and change the packed width, and
-			// every later reference would decode against a table the reader
-			// does not have. Not a bigger wire — a desync. The value takes its
-			// ordinary form and the table stays as declared.
+			// those exact bytes, so it can never be revised: widening it would
+			// re-number every symbol and change the packed width, and every
+			// later reference would decode against a table the reader does not
+			// have. Not a bigger wire — a desync. The value takes its ordinary
+			// form and the table stays as declared.
 			return false
 		}
-		{
+		for i := range len(s) {
+			c := s[i]
+			if l.code[c] != strAlphaNotMember {
+				continue
+			}
 			if len(l.symbols) >= qpackStrAlphaMaxAlphabet {
 				// Too wide to pack below eight bits per character. Marking the
 				// field off is what keeps the scan from being spent on it again.
@@ -463,27 +498,23 @@ func (e *Encoder) tryWriteStringFieldAlphaInner(s string, fs *strFieldState, bas
 				fs.learn = nil
 				return false
 			}
-			l.seen[c] = true
 			l.code[c] = uint8(len(l.symbols))
 			l.symbols = append(l.symbols, c)
-			grew = true
 		}
-	}
-	if grew {
+		l.bits = uint8(bitsForDistinct(len(l.symbols)))
 		l.stable = 0
 		// A table already on the wire cannot be revised, so a value that
-		// introduces a new symbol takes its ordinary form. Out of scope by
-		// design; see the spec.
+		// introduces a new symbol takes its ordinary form.
 		return false
 	}
 	if len(l.symbols) < 2 {
 		return false
 	}
 	l.stable++
-	bits := bitsForDistinct(len(l.symbols))
+	bits := int(l.bits)
 
 	if fs.alphaDeclared {
-		if strAlphaCost(len(s), bits, strAlphaSelRef, 0)*strAlphaMinGainDen >= baselineCost*strAlphaMinGainNum {
+		if !strAlphaWorthIt(len(s), bits, baselineCost) {
 			return false
 		}
 		e.buf = appendStrAlphaRef(e.buf, &l.code, bits, s)
@@ -507,7 +538,7 @@ func (e *Encoder) tryWriteStringFieldAlphaInner(s string, fs *strFieldState, bas
 	// stops after the declaration has lost a bounded number of bytes once; one
 	// that continues, which the stability run is evidence of, is ahead from the
 	// next value on.
-	if strAlphaCost(len(s), bits, strAlphaSelRef, 0)*strAlphaMinGainDen >= baselineCost*strAlphaMinGainNum {
+	if !strAlphaWorthIt(len(s), bits, baselineCost) {
 		return false
 	}
 	tableCost := 2 + len(l.symbols)
