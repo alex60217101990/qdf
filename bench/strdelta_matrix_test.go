@@ -60,6 +60,9 @@ func strDeltaOptionSets() []struct {
 		{"balanced-shape", qdf.OptBalanced &^ qdf.OptShapeIntern},
 		{"balanced-mtf", qdf.OptBalanced &^ qdf.OptMTF},
 		{"balanced-pair", qdf.OptBalanced &^ qdf.OptPairPred},
+		{"balanced+stralpha", qdf.OptBalanced | qdf.OptStringAlphabet},
+		{"compression+stralpha", qdf.OptCompression | qdf.OptStringAlphabet},
+		{"balanced+stralpha+canonical", qdf.OptBalanced | qdf.OptStringAlphabet | qdf.OptCanonical},
 	}
 }
 

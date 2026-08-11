@@ -20,7 +20,7 @@ type saRow struct {
 // End-to-end behaviour is covered by the round-trip tests below.
 func writeN(t *testing.T, vals []string) (wk, decl, ref int64) {
 	t.Helper()
-	e := NewEncoderWith(OptBalanced)
+	e := NewEncoderWith(OptBalanced | OptStringAlphabet)
 	var fs strFieldState
 	w0, d0, r0 := strAlphaEmittedWK.Load(), strAlphaEmittedDecl.Load(), strAlphaEmittedRef.Load()
 	for _, v := range vals {
@@ -89,7 +89,7 @@ func TestStrAlphaGivesUpOnAWideField(t *testing.T) {
 // something: break it and the field must start being offered again. Without
 // this the previous test passes whether or not the gate ever engages.
 func TestStrAlphaGiveUpGuardIsNotVacuous(t *testing.T) {
-	e := NewEncoderWith(OptBalanced)
+	e := NewEncoderWith(OptBalanced | OptStringAlphabet)
 	var fs strFieldState
 	for i := range 64 {
 		b := make([]byte, 40)
@@ -136,11 +136,15 @@ func TestStrAlphaRoundTripsEveryShape(t *testing.T) {
 			return fmt.Sprintf("mixed value with spaces %d", i)
 		},
 	}
+	// Both with and without the bit: the codec must be invisible when it is off
+	// and correct when it is on, and every value must survive either way.
 	opts := []Options{
+		OptBalanced | OptStringAlphabet,
+		OptBalanced | OptStringAlphabet | OptCanonical,
+		OptBalanced | OptStringAlphabet&^OptMTF,
+		OptBalanced | OptStringAlphabet&^OptPairPred,
+		OptCompression | OptStringAlphabet,
 		OptBalanced,
-		OptBalanced | OptCanonical,
-		OptBalanced &^ OptMTF,
-		OptBalanced &^ OptPairPred,
 		OptCompression,
 		OptSpeed,
 	}

@@ -310,6 +310,11 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// opts.Has() several times per repeated value. Set in applyOpts, cleared in
 	// Reset — same pattern as qpack/rans/fsst/colIndex.
 	pairPred bool
+	// strAlpha mirrors OptStringAlphabet, folded here for the same reason: the
+	// alphabet packer is offered a value on every string field of every
+	// repeated struct, and the codec is off by default, so the common case must
+	// be a bool load rather than a mask test.
+	strAlpha bool
 	// denseOn mirrors opts.Has(OptDense), folded once in applyOpts.
 	denseOn bool
 	// inRepeated is true while encoding the elements of a slice or array — the
@@ -390,6 +395,7 @@ func (e *Encoder) applyOpts(opts Options) {
 	e.zonemap = e.qpack && opts.Has(OptZoneMap)
 	e.fsst = e.qpack && opts.Has(OptFSST)
 	e.pairPred = opts.Has(OptPairPred)
+	e.strAlpha = opts.Has(OptStringAlphabet)
 	// Folded once so the per-value eligibility test is a bool load rather than
 	// a mask test: Options.Has showed up at 1.21% of the Deep16 encode profile,
 	// spent re-deriving something that cannot change while encoding.
@@ -432,6 +438,8 @@ func NewEncoder(mode Mode) *Encoder {
 		// flags this constructor sets by hand (it bypasses applyOpts).
 		e.pairPred = true
 		e.mtf = true
+		// OptBalanced does NOT include OptStringAlphabet — it is opt-in.
+		e.strAlpha = false
 	} else {
 		e.opts = OptSpeed
 	}
@@ -477,6 +485,7 @@ func (e *Encoder) Reset() {
 	e.zonemap = false
 	e.pairPred = false
 	e.mtf = false
+	e.strAlpha = false
 	e.fsstDict = nil
 	// Drop the streaming FSST table cache so a pooled encoder does not carry
 	// stale table data into the next caller's workload.
