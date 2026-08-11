@@ -220,12 +220,54 @@ jobs:
       - name: FuzzDecoder_NeverPanics (30s)
         env:
           GOMEMLIMIT: 2GiB
-        run: go test -run=^$ -fuzz=FuzzDecoder_NeverPanics -fuzztime=30s -timeout=2m -parallel=2
+        # Same gate as fuzz-extended.yml: the engine can exit non-zero at the
+        # -fuzztime boundary WITHOUT finding anything (golang/go#51484), which is
+        # what this job hit on PR #180 — 305k execs, "context deadline exceeded",
+        # no reproducer. Gate on the reproducer, not the exit code: fail iff one
+        # was written, tolerate the bare boundary flake, and still fail on any
+        # other non-zero exit we do not recognise.
+        run: |
+          set +e
+          out="$(go test -run='^$' -fuzz=FuzzDecoder_NeverPanics -fuzztime=30s -timeout=2m -parallel=2 2>&1)"
+          code=$?
+          echo "$out"
+          [ $code -eq 0 ] && exit 0
+          if echo "$out" | grep -q 'Failing input written to'; then
+            echo "::error::FuzzDecoder_NeverPanics: reproducer written — real fuzz finding"
+            exit 1
+          fi
+          if echo "$out" | grep -q 'context deadline exceeded'; then
+            echo "::warning::FuzzDecoder_NeverPanics: fuzztime-boundary flake (golang/go#51484), no reproducer written — tolerated"
+            exit 0
+          fi
+          echo "::error::FuzzDecoder_NeverPanics: fuzz failed (exit $code) with no reproducer and no known-flake signature"
+          exit $code
 
       - name: FuzzRoundTrip_StringSlice (30s)
         env:
           GOMEMLIMIT: 2GiB
-        run: go test -run=^$ -fuzz=FuzzRoundTrip_StringSlice -fuzztime=30s -timeout=2m -parallel=2
+        # Same gate as fuzz-extended.yml: the engine can exit non-zero at the
+        # -fuzztime boundary WITHOUT finding anything (golang/go#51484), which is
+        # what this job hit on PR #180 — 305k execs, "context deadline exceeded",
+        # no reproducer. Gate on the reproducer, not the exit code: fail iff one
+        # was written, tolerate the bare boundary flake, and still fail on any
+        # other non-zero exit we do not recognise.
+        run: |
+          set +e
+          out="$(go test -run='^$' -fuzz=FuzzRoundTrip_StringSlice -fuzztime=30s -timeout=2m -parallel=2 2>&1)"
+          code=$?
+          echo "$out"
+          [ $code -eq 0 ] && exit 0
+          if echo "$out" | grep -q 'Failing input written to'; then
+            echo "::error::FuzzRoundTrip_StringSlice: reproducer written — real fuzz finding"
+            exit 1
+          fi
+          if echo "$out" | grep -q 'context deadline exceeded'; then
+            echo "::warning::FuzzRoundTrip_StringSlice: fuzztime-boundary flake (golang/go#51484), no reproducer written — tolerated"
+            exit 0
+          fi
+          echo "::error::FuzzRoundTrip_StringSlice: fuzz failed (exit $code) with no reproducer and no known-flake signature"
+          exit $code
 
       # Re-run the seed + persisted corpus as a regression check.
       - name: Fuzz corpus regression
