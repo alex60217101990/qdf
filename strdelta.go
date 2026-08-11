@@ -79,6 +79,22 @@ type strDeltaGate struct {
 // cheapest, is exactly where a careless comparison would lose bytes.
 func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 	st := e.state
+	// An empty base means this is the field's FIRST value — there is no previous
+	// row to resemble, the common prefix is zero, and the delta loses by
+	// construction. Checking that first costs one compare and skips the
+	// eligibility test, the prefix scan and the cost arithmetic.
+	//
+	// It is not a micro-optimisation for the first row of a batch; it is the
+	// whole cost for a struct encoded ONCE. A payload that is a single struct
+	// rather than a slice of them has no second row for any field, so every
+	// value took the full delta path to reach a conclusion that was fixed in
+	// advance — measured as the entire regression on the Flat, Nested and Deep16
+	// encodes, which are exactly that shape.
+	if *base == "" {
+		e.WriteString(s)
+		*base = s
+		return
+	}
 	if !e.strDeltaEligible(s) {
 		e.WriteString(s)
 		*base = s
