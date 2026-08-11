@@ -1211,14 +1211,11 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 // would then delta-code all rows but the first, and the base would be one row
 // out of step on decode.
 func (e *Encoder) encodeStructValues(td *typeDesc, fields []fieldDesc, p unsafe.Pointer) error {
-	var bases []string
-	var gates []strDeltaGate
-	if e.state != nil && td.hasStrField {
-		bases, gates = e.state.strDeltaBases(td, len(fields))
-	}
+	// Callers check td.hasStrField and e.state before getting here.
+	bases, gates := e.state.strDeltaBases(td, len(fields))
 	for i := range fields {
 		f := &fields[i]
-		if bases != nil && f.desc.kind == reflect.String {
+		if f.desc.kind == reflect.String {
 			e.writeStringField(*(*string)(unsafe.Add(p, f.offset)), &bases[i], &gates[i])
 			continue
 		}
@@ -1246,7 +1243,21 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 			if id := e.state.shapeForType(td); id != 0 {
 				e.buf = append(e.buf, tagMapShape)
 				e.buf = appendUvarint(e.buf, uint64(id))
-				return e.encodeStructValues(td, fields, p)
+				if td.hasStrField && e.state != nil {
+					return e.encodeStructValues(td, fields, p)
+				}
+				// A struct with no string field has nothing this feature can do, and
+				// the call to reach that conclusion is itself the cost: Deep16 nests
+				// sixteen such structs inside a 292 ns operation. The guard belongs
+				// HERE and not inside the callee — with it there, the non-inlined
+				// call was still paid on every one of them.
+				for i := range fields {
+					f := &fields[i]
+					if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
+						return err
+					}
+				}
+				return nil
 			}
 			// First time: declare and emit keys via the standard intern path.
 			shapeID := e.state.shapeDeclareEnc()
@@ -1280,7 +1291,21 @@ func encodeStruct(td *typeDesc) func(*Encoder, unsafe.Pointer) error {
 					st.lastID = lruInvalidID
 				}
 			}
-			return e.encodeStructValues(td, fields, p)
+			if td.hasStrField && e.state != nil {
+				return e.encodeStructValues(td, fields, p)
+			}
+			// A struct with no string field has nothing this feature can do, and
+			// the call to reach that conclusion is itself the cost: Deep16 nests
+			// sixteen such structs inside a 292 ns operation. The guard belongs
+			// HERE and not inside the callee — with it there, the non-inlined
+			// call was still paid on every one of them.
+			for i := range fields {
+				f := &fields[i]
+				if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		// Dense without OptShapeIntern: tagMap8/16/32 header + per-field
 		// intern via WriteString. Keys still go through the intern
