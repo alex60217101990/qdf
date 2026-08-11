@@ -43,14 +43,14 @@ var strAlphaOrder = [...]uint8{
 }
 
 type strAlphaSet struct {
-	member  [256]bool
-	code    [256]uint8
 	symbols []byte
-	bits    int
 	// ranges holds the closed byte ranges the alphabet is the union of, which
 	// is what lets the membership test run a word at a time. Every well-known
 	// alphabet here is such a union; an arbitrary set would not be.
 	ranges [][2]byte
+	bits   int
+	member [256]bool
+	code   [256]uint8
 }
 
 var strAlphaSets = buildStrAlphaSets()
