@@ -169,15 +169,31 @@ func appendStrAlphaBody(buf []byte, code *[256]uint8, bits int, s string) []byte
 	start := len(buf)
 	buf = append(buf, make([]byte, (len(s)*bits+7)/8)...)
 	body := buf[start:]
-	bit := 0
+	// Shift register: characters accumulate into a 64-bit window and leave four
+	// bytes at a time. The obvious form tests and sets one bit per iteration —
+	// len(s)*bits branches for every value — which profiled at 11.7% of RTB
+	// encode, the largest single cost in this package's own code.
+	//
+	// The window can hold 31 leftover bits plus an 8-bit code, so it never
+	// overflows, and a flush only happens with 32 whole bits due, so the
+	// four-byte store is always inside the body.
+	var acc uint64
+	nb, pos := 0, 0
 	for i := range len(s) {
-		v := uint32(code[s[i]])
-		for b := range bits {
-			if v&(1<<uint(b)) != 0 {
-				body[bit>>3] |= 1 << uint(bit&7)
-			}
-			bit++
+		acc |= uint64(code[s[i]]) << uint(nb)
+		nb += bits
+		if nb >= 32 {
+			binary.LittleEndian.PutUint32(body[pos:], uint32(acc))
+			acc >>= 32
+			nb -= 32
+			pos += 4
 		}
+	}
+	for nb > 0 {
+		body[pos] = byte(acc)
+		acc >>= 8
+		nb -= 8
+		pos++
 	}
 	return buf
 }
@@ -281,17 +297,37 @@ func readStrAlpha(buf []byte, tbl *strAlphaTable, st *decState) (string, int, er
 	} else {
 		out = make([]byte, nchars)
 	}
-	bit := 0
+	// The mirror of the writer's shift register, and for the same reason: a bit
+	// at a time is bits branches per character on a path that runs for every
+	// packed value on the wire.
 	mask := uint32(1)<<uint(bits) - 1
+	var acc uint64
+	nb, pos := 0, 0
 	for k := range nchars {
-		var v uint32
-		for b := range bits {
-			if body[bit>>3]&(1<<uint(bit&7)) != 0 {
-				v |= 1 << uint(b)
+		if nb < bits {
+			// Refill. nb is below eight here, so a 32-bit load can never push
+			// the window past 64.
+			if pos+4 <= len(body) {
+				acc |= uint64(binary.LittleEndian.Uint32(body[pos:])) << uint(nb)
+				nb += 32
+				pos += 4
+			} else {
+				for pos < len(body) && nb <= 56 {
+					acc |= uint64(body[pos]) << uint(nb)
+					nb += 8
+					pos++
+				}
 			}
-			bit++
+			if nb < bits {
+				// The length prefix promised more characters than the body can
+				// hold. Validated above, so this is belt and braces on a path
+				// that parses untrusted bytes.
+				return "", 0, ErrShortBuffer
+			}
 		}
-		v &= mask
+		v := uint32(acc) & mask
+		acc >>= uint(bits)
+		nb -= bits
 		if int(v) >= len(alphabet) {
 			return "", 0, ErrInvalidLength
 		}
@@ -366,14 +402,9 @@ func (e *Encoder) tryWriteStringFieldAlpha(s string, fs *strFieldState, baseline
 }
 
 func (e *Encoder) tryWriteStringFieldAlphaInner(s string, fs *strFieldState, baselineCost int) bool {
-	if fs.alphaOff || len(s) == 0 {
-		return false
-	}
-	if fs.alphaMuted {
-		fs.alphaProbe++
-		if fs.alphaProbe >= strAlphaRearmN {
-			fs.alphaMuted, fs.alphaProbe = false, 0
-		}
+	// alphaOff and alphaMuted are checked by the caller, which is what keeps a
+	// declined field from paying for this call at all.
+	if len(s) == 0 {
 		return false
 	}
 

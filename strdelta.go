@@ -242,7 +242,18 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 	// resemblance to the row above. Measured per field, the two swap places —
 	// trace_id -45.4% alpha against +5.9% delta, referer -33.3% alpha against
 	// -71.6% delta.
-	if e.tryWriteStringFieldAlpha(s, fs, 1+uvarintLen(uint64(len(s)))+len(s)) {
+	// The mute check sits here rather than inside the callee: the packer is far
+	// past the inlining budget, so a muted field would pay a real call on every
+	// value only to be told no. Same shape as the hasStrField guard, and found
+	// the same way — by profiling, not by reading.
+	if fs.alphaOff {
+		// nothing to offer
+	} else if fs.alphaMuted {
+		fs.alphaProbe++
+		if fs.alphaProbe >= strAlphaRearmN {
+			fs.alphaMuted, fs.alphaProbe = false, 0
+		}
+	} else if e.tryWriteStringFieldAlpha(s, fs, 1+uvarintLen(uint64(len(s)))+len(s)) {
 		// Inline semantics, exactly as the delta's win branch: the value never
 		// entered the intern table, so a following tagStateRepeat must not
 		// resurrect whatever ID was last on the chain.
