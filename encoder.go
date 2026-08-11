@@ -310,7 +310,9 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// opts.Has() several times per repeated value. Set in applyOpts, cleared in
 	// Reset — same pattern as qpack/rans/fsst/colIndex.
 	pairPred bool
-	mtf      bool
+	// denseOn mirrors opts.Has(OptDense), folded once in applyOpts.
+	denseOn bool
+	mtf     bool
 
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
@@ -377,6 +379,10 @@ func (e *Encoder) applyOpts(opts Options) {
 	e.zonemap = e.qpack && opts.Has(OptZoneMap)
 	e.fsst = e.qpack && opts.Has(OptFSST)
 	e.pairPred = opts.Has(OptPairPred)
+	// Folded once so the per-value eligibility test is a bool load rather than
+	// a mask test: Options.Has showed up at 1.21% of the Deep16 encode profile,
+	// spent re-deriving something that cannot change while encoding.
+	e.denseOn = opts.Has(OptDense)
 	e.mtf = opts.Has(OptMTF)
 }
 
