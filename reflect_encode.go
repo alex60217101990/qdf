@@ -1235,11 +1235,11 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 // out of step on decode.
 func (e *Encoder) encodeStructValues(td *typeDesc, fields []fieldDesc, p unsafe.Pointer) error {
 	// Callers check td.hasStrField and e.state before getting here.
-	bases, gates := e.state.strDeltaBases(td, len(fields))
+	st := e.state.strFieldStates(td, len(fields))
 	for i := range fields {
 		f := &fields[i]
 		if f.desc.kind == reflect.String {
-			e.writeStringField(*(*string)(unsafe.Add(p, f.offset)), &bases[i], &gates[i])
+			e.writeStringField(*(*string)(unsafe.Add(p, f.offset)), &st[i])
 			continue
 		}
 		if err := f.desc.encode(e, unsafe.Add(p, f.offset)); err != nil {
