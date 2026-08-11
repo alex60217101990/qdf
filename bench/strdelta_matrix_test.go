@@ -32,6 +32,7 @@ func strDeltaPayloads() []struct {
 		{"log", mkLogBatch(2048)},
 		{"event", mkEventBatch(2048)},
 		{"rtb", mkRTBBatch(512)},
+		{"alpha", mkAlphaBatch(1024)},
 	}
 }
 
@@ -60,6 +61,82 @@ func strDeltaOptionSets() []struct {
 		{"balanced-mtf", qdf.OptBalanced &^ qdf.OptMTF},
 		{"balanced-pair", qdf.OptBalanced &^ qdf.OptPairPred},
 	}
+}
+
+// alphaRow is built for the alphabet packer rather than the delta: fields with
+// a restricted character set and no resemblance to the row above.
+//
+// The strings live in a SHORT NESTED SLICE, which is not decoration. A flat
+// batch of these rows is taken by the columnar container before the row-major
+// writer ever sees it, and the packer never runs — the first version of this
+// payload added nothing but the appearance of coverage. A handful of elements
+// per row is below what the columnar probe accepts, so those values go
+// row-major, which is the only path this codec is on. Same reason RTB is the
+// payload where it fires.
+type alphaSpan struct {
+	TraceID string `qdf:"trace_id"`
+	SpanID  string `qdf:"span_id"`
+	Token   string `qdf:"token"`
+	Escapee string `qdf:"escapee"`
+	Free    string `qdf:"free"`
+}
+
+type alphaRow struct {
+	Seq   int64             `qdf:"seq"`
+	Spans []alphaSpan       `qdf:"spans"`
+	Attrs map[string]string `qdf:"attrs"`
+}
+
+// mkAlphaBatch produces every form the packer can emit and, deliberately, the
+// values that must make it back off: a field that declares a table and then
+// meets a byte outside it, and a field too wide to pack at all. Running this
+// through the matrix puts each of those forms in front of all four decode
+// entry points under all sixteen option sets.
+func mkAlphaBatch(n int) []alphaRow {
+	const hexDigits = "0123456789abcdef"
+	rows := make([]alphaRow, n)
+	seed := uint64(0x9E3779B97F4A7C15)
+	next := func() uint64 {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return seed >> 33
+	}
+	hex := func(w int) string {
+		b := make([]byte, w)
+		for j := range b {
+			b[j] = hexDigits[next()%16]
+		}
+		return string(b)
+	}
+	lower := func(w int) []byte {
+		b := make([]byte, w)
+		for j := range b {
+			b[j] = byte('a' + next()%26)
+		}
+		return b
+	}
+	for i := range rows {
+		spans := make([]alphaSpan, 1+next()%3)
+		for k := range spans {
+			esc := lower(20)
+			// Every so often a byte outside the table this field has declared.
+			if (i*4+k)%37 == 36 {
+				esc[next()%20] = byte('!' + next()%14)
+			}
+			free := make([]byte, 24)
+			for j := range free {
+				free[j] = byte(32 + next()%95)
+			}
+			spans[k] = alphaSpan{
+				TraceID: hex(32),
+				SpanID:  hex(16),
+				Token:   string(lower(20)),
+				Escapee: string(esc),
+				Free:    string(free),
+			}
+		}
+		rows[i] = alphaRow{Seq: int64(i), Spans: spans, Attrs: map[string]string{"k": hex(8)}}
+	}
+	return rows
 }
 
 // TestStrDeltaMatrixTypedRoundTrip: decode into the original type and compare

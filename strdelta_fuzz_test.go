@@ -44,11 +44,16 @@ type fuzzOnlyLast struct {
 	E string `qdf:"e"`
 }
 
-// fuzzMakeRows builds rows whose string fields exercise the three cases the
-// delta chooses between: a fresh value with a long shared prefix (delta wins),
-// a repeat of the previous value (a one-byte state-ref wins), and a value with
-// no prefix in common (the plain intern form wins). The seed decides which
-// case each field takes on each row, so the forms interleave.
+// fuzzMakeRows builds rows whose string fields exercise every form the string
+// path can choose between: a fresh value with a long shared prefix (delta
+// wins), a repeat of the previous value (a one-byte state-ref wins), a value
+// with no prefix in common (the plain intern form wins), a well-known alphabet
+// (packed with no table), a restricted alphabet that has to be learned and
+// declared, a value that falls just outside such a table, and a value too wide
+// to pack. The seed decides which case each field takes on each row, so the
+// forms interleave — which is the point. A declared table is per-field state
+// carried across values, exactly like the delta base, and it desyncs the same
+// way if a form in between fails to maintain it.
 func fuzzMakeRows(n int, seed uint32, prefixLen int) []fuzzWide {
 	if n < 1 {
 		n = 1
@@ -76,14 +81,42 @@ func fuzzMakeRows(n int, seed uint32, prefixLen int) []fuzzWide {
 		s ^= s << 5
 		return s
 	}
+	const hexDigits = "0123456789abcdef"
 	val := func(field string, i int) string {
-		switch next() % 3 {
+		switch next() % 7 {
 		case 0: // shared prefix, fresh tail — the delta's territory
 			return pfx + field + strconv.Itoa(i)
 		case 1: // repeat of a small pool — a state-ref should win
 			return pfx + field + strconv.Itoa(i%3)
-		default: // no shared prefix
+		case 2: // no shared prefix
 			return strconv.Itoa(int(next())) + field
+		case 3: // a well-known alphabet, packed with no table at all
+			b := make([]byte, 32)
+			for j := range b {
+				b[j] = hexDigits[next()%16]
+			}
+			return string(b)
+		case 4: // a restricted alphabet that is nobody's well-known set, so the
+			// field has to learn a table and declare it
+			b := make([]byte, 20)
+			for j := range b {
+				b[j] = byte('a' + next()%26)
+			}
+			return string(b)
+		case 5: // one byte outside that learned set — the value that must NOT
+			// be allowed to widen a table already on the wire
+			b := make([]byte, 20)
+			for j := range b {
+				b[j] = byte('a' + next()%26)
+			}
+			b[next()%20] = byte('!' + next()%14)
+			return string(b)
+		default: // too wide to pack at all
+			b := make([]byte, 24)
+			for j := range b {
+				b[j] = byte(32 + next()%95)
+			}
+			return string(b)
 		}
 	}
 	for i := range rows {
@@ -100,8 +133,11 @@ func fuzzMakeRows(n int, seed uint32, prefixLen int) []fuzzWide {
 
 // FuzzStrDeltaSchemaEvolution encodes the wide shape and decodes it into
 // narrower ones. Every dropped field is skipped by the decoder, and every
-// skipped delta value still has to advance its base — otherwise the fields that
-// ARE decoded rebuild against a stale prefix.
+// skipped value still has to advance that field's state — its delta base and,
+// for a field that declared one, its alphabet table. A table announced inside a
+// value the decoder throws away is the sharpest case: the reader never returns
+// the string, but it must still have built the mapping, or the next reference
+// to that field decodes against a table it does not have.
 func FuzzStrDeltaSchemaEvolution(f *testing.F) {
 	f.Add(64, uint32(1), 24)
 	f.Add(3, uint32(7), 0)
