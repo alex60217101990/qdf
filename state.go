@@ -982,7 +982,62 @@ func (e *encState) lruMoveFront(id uint32) {
 // on real workloads; the path exists so a hostile input cannot
 // crash the encoder.
 //
+// lookupOnly reports whether key is already interned, WITHOUT installing it.
+//
+// The string delta needs this: it must not offer its form for a value the intern
+// table can spell in one or two bytes, and it must not install the value while
+// finding that out — installing is exactly what the codec avoids for the values
+// it does claim, since those are near-unique and an entry for them buys nothing
+// on either side.
+//
+// Same hash and same probe order as lookupOrAssign, so a hit here is a hit
+// there. It stops at the first empty slot: the install path never skips one, so
+// an empty slot means the key is absent.
+//
+// It returns the hash it computed so a caller that goes on to install can pass
+// it to assignHashed instead of hashing the same string twice — which cost 10%
+// of the RTB encode when the two were independent.
+//
 //go:nosplit
+func (e *encState) lookupOnly(key string) (id uint32, found bool, h uint64) {
+	h = maphash.String(internHashSeed, key)
+	if h == 0 {
+		h = 1
+	}
+	if len(e.internTable) == 0 {
+		return 0, false, h
+	}
+	mask := uint64(len(e.internTable) - 1)
+	for i := h & mask; ; i = (i + 1) & mask {
+		slot := &e.internTable[i]
+		if slot.hash == 0 {
+			return 0, false, h
+		}
+		if slot.hash == h && slot.key == key {
+			return slot.id, true, h
+		}
+	}
+}
+
+// assignHashed installs key with a hash the caller already computed. Only valid
+// straight after a lookupOnly that reported the key absent: it re-probes from
+// the same start and installs at the first empty slot, which is where
+// lookupOrAssign would have put it.
+func (e *encState) assignHashed(key string, h uint64) uint32 {
+	if len(e.internTable) == 0 {
+		id, _ := e.lookupOrAssign(key)
+		return id
+	}
+	mask := uint64(len(e.internTable) - 1)
+	i := h & mask
+	slot := &e.internTable[i]
+	if slot.hash == 0 {
+		return e.installInternSlot(slot, h, key)
+	}
+	id, _ := e.lookupOrAssignSlow(h, key, i)
+	return id
+}
+
 func (e *encState) lookupOrAssign(key string) (uint32, bool) {
 	// Hot-path fast lookup: hash + one slot probe. Inlinable (no
 	// loop, no allocs); the slow tail (collision probing, miss-
