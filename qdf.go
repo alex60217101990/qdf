@@ -371,19 +371,40 @@ const (
 	// digits halves; a field whose character set is restricted but not standard
 	// declares its table once and references it thereafter.
 	//
-	// Opt-in, and the measurements say why. The gain is real but narrow: on the
-	// bench corpora it is -11.6% wire for OpenTelemetry spans and -7.1% for
-	// OpenRTB bid requests, and 0.0% for access logs, event streams and IoT
-	// samples, whose string fields have no restricted alphabet to exploit.
-	// Under OptCompression it nearly vanishes — -1.8% and -0.7% — because the
-	// entropy coder already removes the same redundancy. Against that, encoding
-	// a corpus where it fires hard costs about 2.4% CPU; nothing else moves.
+	// Opt-in, ignored under entropy coding, and narrow. The measurements say
+	// why on all three counts.
 	//
-	// So it is worth having and not worth defaulting to: a payload of trace ids
-	// or numeric keys serialized without entropy coding gains a tenth of its
-	// wire, and everyone else would pay for a codec that cannot help them. Set
-	// the bit when the wire matters more than the CPU and the fields are shaped
-	// for it. Requires OptDense.
+	// Where it belongs: a high-cardinality identifier field with a restricted
+	// character set, sitting on the row-major path, serialized without an
+	// entropy coder. Every one of those clauses is load-bearing — the columnar
+	// container has its own alphabet codec, an entropy coder does the job
+	// better, a low-cardinality field is cheaper interned, and a field whose
+	// values resemble the row above belongs to the string delta. Measured on
+	// batches of such fields:
+	//
+	//   git SHA, 40 hex        -43.6%      dashed UUID, 36        -29.9%
+	//   trace id, 32 hex       -42.1%      lowercase only, 24     -28.5%
+	//   account no, 18 digits  -37.1%      phone, 11 digits       -27.4%
+	//   span id, 16 hex        -35.7%      MAC address, 17         -23.9%
+	//   base64url token, 32      0.0%
+	//
+	// A base64url token gains nothing on purpose: 64 symbols need six bits,
+	// which saves a quarter before overhead and does not clear the gain bar.
+	// Four- and five-bit alphabets are what this codec is for.
+	//
+	// On mixed payloads the share of such fields decides the result: -11.6% for
+	// OpenTelemetry spans and -7.1% for OpenRTB bid requests, and 0.0% for
+	// access logs, event streams and IoT samples, which have no restricted
+	// alphabet to exploit. Encoding a payload where it fires hard costs about
+	// 2.4% CPU; nothing else moves.
+	//
+	// Setting the bit alongside OptRANS or OptFSST does nothing: packing to five
+	// bits destroys the byte-level skew those coders feed on, so the two
+	// together lose to either alone — a dashed UUID field measured 17.5% WORSE
+	// under OptCompression with this bit than without it. The encoder ignores
+	// the bit there rather than trusting it.
+	//
+	// Requires OptDense.
 	OptStringAlphabet // bit 14
 
 	// Bits 15..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
