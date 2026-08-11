@@ -95,6 +95,20 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 		*base = s
 		return
 	}
+	if s == *base {
+		// A consecutive repeat. The intern path spends ONE byte on it
+		// (tagStateRepeat) and the delta cannot go below three, so the delta
+		// must not be offered — but with the prefix compare running before the
+		// intern lookup it would score pfx == len(s), a cost of ~3 bytes, and
+		// win the threshold against the FIRST-SIGHTING cost it is compared
+		// with. That is a wire regression on exactly the low-cardinality
+		// fields this codec is supposed to leave alone.
+		//
+		// The compare is also cheaper than what it replaces: a full-length
+		// prefix scan of two identical strings.
+		e.WriteString(s)
+		return
+	}
 	if !e.strDeltaEligible(s) {
 		e.WriteString(s)
 		*base = s

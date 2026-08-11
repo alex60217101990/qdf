@@ -102,3 +102,34 @@ func TestStrDeltaNeverGrowsTheWire(t *testing.T) {
 		t.Logf("%-14s wire=%d", name, len(b))
 	}
 }
+
+// A repeated value must take the one-byte state-ref, not the delta.
+//
+// Called directly, because the payloads that would exercise this through
+// Marshal take the columnar path instead — TestStrDeltaDoesNotDisplaceRepeats
+// passes vacuously for that reason, and this is the assertion that does not.
+//
+// The hazard is specific to the order writeStringField uses: the prefix compare
+// runs before the intern lookup, so a value identical to the base scores
+// pfx == len(s) and a delta cost of about three bytes, which beats the
+// first-sighting cost the threshold compares against. Without the equality fast
+// path it emitted 0xF2 and three bytes where tagStateRepeat spends one.
+func TestStrDeltaRepeatTakesTheStateRef(t *testing.T) {
+	const s = "/healthz/ready/probe/endpoint"
+	e := NewEncoderWith(OptBalanced)
+	base := ""
+	var g strDeltaGate
+
+	e.writeStringField(s, &base, &g)
+	first := len(e.buf)
+	e.writeStringField(s, &base, &g)
+	repeat := len(e.buf) - first
+	tag := e.buf[first]
+
+	if repeat > 2 {
+		t.Fatalf("a repeated value cost %d bytes (tag 0x%02x); a state-ref spends one", repeat, tag)
+	}
+	if tag == tagStrDelta {
+		t.Fatalf("a repeated value took the delta form")
+	}
+}
