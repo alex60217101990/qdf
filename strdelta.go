@@ -206,7 +206,7 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 // non-Dense encoding changes.
 func (e *Encoder) strDeltaEligible(s string) bool {
 	st := e.state
-	return st != nil && !e.stateSuspended && e.opts.Has(OptDense) &&
+	return st != nil && e.denseOn && !e.stateSuspended &&
 		len(s) >= e.minIntern && int(st.internLoad) < e.maxStateEntries
 }
 
