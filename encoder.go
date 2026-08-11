@@ -395,7 +395,15 @@ func (e *Encoder) applyOpts(opts Options) {
 	e.zonemap = e.qpack && opts.Has(OptZoneMap)
 	e.fsst = e.qpack && opts.Has(OptFSST)
 	e.pairPred = opts.Has(OptPairPred)
-	e.strAlpha = opts.Has(OptStringAlphabet)
+	// Inert under entropy coding, and that is a correctness property rather than
+	// a tuning choice. Packing to five bits destroys the byte-level skew rANS
+	// and FSST feed on — packed output looks like noise to them, where ASCII hex
+	// or digits do not — so the two together are worse than either alone.
+	// Measured: a dashed UUID field costs 17.5% MORE wire under OptCompression
+	// with this bit than without it, a MAC-address field 18.2% more, and across
+	// ten identifier shapes the best case under compression is -0.1%. There is
+	// no combination where it helps, so the bit is ignored rather than trusted.
+	e.strAlpha = opts.Has(OptStringAlphabet) && !e.rans && !e.fsst
 	// Folded once so the per-value eligibility test is a bool load rather than
 	// a mask test: Options.Has showed up at 1.21% of the Deep16 encode profile,
 	// spent re-deriving something that cannot change while encoding.

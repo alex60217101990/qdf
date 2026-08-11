@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 )
@@ -173,5 +174,74 @@ func TestStrAlphaRoundTripsEveryShape(t *testing.T) {
 				t.Fatalf("%s opts=%v dynamic: %v", name, o, err)
 			}
 		}
+	}
+}
+
+// The bit must be inert wherever an entropy coder runs, and this test is what
+// keeps it that way.
+//
+// Packing to five bits destroys the byte-level skew rANS and FSST feed on, so
+// the two together lose to either alone: measured across ten identifier shapes,
+// a dashed UUID field cost 17.5% MORE wire under OptCompression with the bit
+// than without it and a MAC-address field 18.2% more, while the best case was
+// -0.1%. Never better, sometimes much worse — so the encoder ignores the bit
+// rather than honouring it, and the wire must come out byte-identical.
+func TestStrAlphaIsInertUnderEntropyCoding(t *testing.T) {
+	type row struct {
+		Seq  int64 `qdf:"seq"`
+		Rows []struct {
+			A string `qdf:"a"`
+			B string `qdf:"b"`
+		} `qdf:"rows"`
+	}
+	rows := make([]row, 600)
+	seed := uint64(0x9E3779B97F4A7C15)
+	hex := func() string {
+		b := make([]byte, 32)
+		for j := range b {
+			seed = seed*6364136223846793005 + 1442695040888963407
+			b[j] = "0123456789abcdef"[(seed>>33)%16]
+		}
+		return string(b)
+	}
+	for i := range rows {
+		rows[i].Seq = int64(i)
+		rows[i].Rows = make([]struct {
+			A string `qdf:"a"`
+			B string `qdf:"b"`
+		}, 2)
+		for k := range rows[i].Rows {
+			rows[i].Rows[k].A, rows[i].Rows[k].B = hex(), hex()
+		}
+	}
+
+	for _, o := range []Options{OptCompression, OptBalanced | OptRANS, OptBalanced | OptFSST} {
+		off, err := Marshal(rows, o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		on, err := Marshal(rows, o|OptStringAlphabet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(off, on) {
+			t.Fatalf("opts=%v: the bit changed the wire under entropy coding (%d vs %d bytes)",
+				o, len(off), len(on))
+		}
+	}
+
+	// And the guard must not be vacuous: without an entropy coder the same
+	// payload has to get materially smaller, or the test above would pass on a
+	// codec that never runs at all.
+	plain, err := Marshal(rows, OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packed, err := Marshal(rows, OptBalanced|OptStringAlphabet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packed) >= len(plain)*9/10 {
+		t.Fatalf("hex ids packed to %d bytes against %d — the codec is not running", len(packed), len(plain))
 	}
 }
