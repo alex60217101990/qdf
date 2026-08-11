@@ -315,7 +315,12 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// inRepeated is true while encoding the elements of a slice or array — the
 	// only place a struct field can have a previous value to delta against.
 	inRepeated bool
-	mtf        bool
+
+	// derivedPlan is the scratch columnarPlan per-column demotion refills each
+	// batch. Its contents depend on the data, so it cannot be cached per type —
+	// but its slices can be reused instead of reallocated.
+	derivedPlan columnarPlan
+	mtf         bool
 
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
