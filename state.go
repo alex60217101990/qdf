@@ -312,15 +312,12 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// Appended at the tail deliberately: this struct carries a
 	// betteralign:ignore because its hot scalars are laid out first on purpose,
 	// and these three are touched once per struct, not once per value.
-	strDeltaTd     []*typeDesc
-	strDeltaBase   [][]string
-	strDeltaGate   [][]strDeltaGate
-	lastDeltaTd    *typeDesc
-	lastDeltaBases []string
-	lastDeltaGates []strDeltaGate
-	prevDeltaTd    *typeDesc
-	prevDeltaBases []string
-	prevDeltaGates []strDeltaGate
+	strDeltaTd      []*typeDesc
+	strDeltaField   [][]strFieldState
+	lastDeltaTd     *typeDesc
+	lastDeltaFields []strFieldState
+	prevDeltaTd     *typeDesc
+	prevDeltaFields []strFieldState
 }
 
 // shapeBinding is a (typeDesc → wire shape ID) pair. Stored in a

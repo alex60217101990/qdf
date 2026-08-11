@@ -117,12 +117,11 @@ func TestStrDeltaNeverGrowsTheWire(t *testing.T) {
 func TestStrDeltaRepeatTakesTheStateRef(t *testing.T) {
 	const s = "/healthz/ready/probe/endpoint"
 	e := NewEncoderWith(OptBalanced)
-	base := ""
-	var g strDeltaGate
+	var fs strFieldState
 
-	e.writeStringField(s, &base, &g)
+	e.writeStringField(s, &fs)
 	first := len(e.buf)
-	e.writeStringField(s, &base, &g)
+	e.writeStringField(s, &fs)
 	repeat := len(e.buf) - first
 	tag := e.buf[first]
 
@@ -146,13 +145,12 @@ func TestStrDeltaOlderValueTakesTheStateRef(t *testing.T) {
 	const a = "/api/v1/tenants/9f3a/users/100000"
 	const b = "/api/v1/tenants/9f3a/users/100001"
 	e := NewEncoderWith(OptBalanced)
-	base := ""
-	var g strDeltaGate
+	var fs strFieldState
 
-	e.writeStringField(a, &base, &g) // first sighting of a
-	e.writeStringField(b, &base, &g) // b: a delta against a
+	e.writeStringField(a, &fs) // first sighting of a
+	e.writeStringField(b, &fs) // b: a delta against a
 	mark := len(e.buf)
-	e.writeStringField(a, &base, &g) // a again — interned, base is b
+	e.writeStringField(a, &fs) // a again — interned, base is b
 	back := len(e.buf) - mark
 	tag := e.buf[mark]
 

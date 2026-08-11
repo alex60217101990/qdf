@@ -65,6 +65,39 @@ type strDeltaGate struct {
 	muted bool
 }
 
+// strFieldState is everything the string codecs remember about one struct
+// field. One record rather than parallel slices: the three parts are touched
+// together on every value, so they share a cache line instead of costing three
+// lookups, three allocations per type and three cache slots.
+//
+// The alphabet's learning table is 512 bytes of membership and code arrays, far
+// too much to carry on a field that will never pack. It hangs off a pointer
+// allocated only when a field actually starts learning one; a field matched by
+// a well-known alphabet never allocates at all, which is where the largest
+// measured wins are (trace_id -45.4%, span_id -41.2%).
+type strFieldState struct {
+	base  string
+	learn *strAlphaLearn
+	gate  strDeltaGate
+	// alphaID is the well-known alphabet that has matched every value of this
+	// field so far, or 0 when none has been established.
+	alphaID uint8
+	// alphaOff marks a field whose characters are too varied to pack, so the
+	// membership scan is not spent on it again.
+	alphaOff bool
+}
+
+// strAlphaLearn accumulates a field's alphabet as values are written — never by
+// buffering them. Early values go out in their ordinary form while their
+// characters fold in here, and once the set has not grown for strAlphaStableN
+// values the next value declares it.
+type strAlphaLearn struct {
+	seen    [256]bool
+	code    [256]uint8
+	symbols []byte
+	stable  uint16
+}
+
 // writeStringField writes one struct string field.
 //
 // It differs from WriteString in exactly one place: when the value is a FIRST
@@ -77,7 +110,8 @@ type strDeltaGate struct {
 // or two bytes there and this form needs at least three, so there is nothing to
 // win — and a repeated value, where pfx == len(s) makes the delta look
 // cheapest, is exactly where a careless comparison would lose bytes.
-func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
+func (e *Encoder) writeStringField(s string, fs *strFieldState) {
+	base, g := &fs.base, &fs.gate
 	st := e.state
 	// An empty base means this is the field's FIRST value — there is no previous
 	// row to resemble, the common prefix is zero, and the delta loses by
@@ -305,42 +339,38 @@ func readStrDeltaInto(buf []byte, base string, st *decState) (string, int, error
 // The one-entry cache is the whole point: a slice of one struct type — the case
 // that matters — hits it on every row, so the lookup is a pointer compare
 // rather than a scan.
-func (e *encState) strDeltaBases(td *typeDesc, nFields int) ([]string, []strDeltaGate) {
+func (e *encState) strFieldStates(td *typeDesc, nFields int) []strFieldState {
 	// TWO cache slots, not one. A nested struct alternates between the parent's
 	// type and the child's on every field, so a single slot misses every time
 	// and falls through to the linear scan below — measured at 37 ns on a 222 ns
 	// nested encode, 16.7% of it. Two slots turn that alternation into a hit.
-	if e.lastDeltaTd == td && len(e.lastDeltaBases) >= nFields {
-		return e.lastDeltaBases, e.lastDeltaGates
+	if e.lastDeltaTd == td && len(e.lastDeltaFields) >= nFields {
+		return e.lastDeltaFields
 	}
-	if e.prevDeltaTd == td && len(e.prevDeltaBases) >= nFields {
+	if e.prevDeltaTd == td && len(e.prevDeltaFields) >= nFields {
 		// Promote so a run on this type keeps hitting the first slot.
 		e.lastDeltaTd, e.prevDeltaTd = e.prevDeltaTd, e.lastDeltaTd
-		e.lastDeltaBases, e.prevDeltaBases = e.prevDeltaBases, e.lastDeltaBases
-		e.lastDeltaGates, e.prevDeltaGates = e.prevDeltaGates, e.lastDeltaGates
-		return e.lastDeltaBases, e.lastDeltaGates
+		e.lastDeltaFields, e.prevDeltaFields = e.prevDeltaFields, e.lastDeltaFields
+		return e.lastDeltaFields
 	}
 	for i, t := range e.strDeltaTd {
 		if t == td {
-			b, g := e.strDeltaBase[i], e.strDeltaGate[i]
-			if len(b) < nFields {
-				b = append(b, make([]string, nFields-len(b))...)
-				g = append(g, make([]strDeltaGate, nFields-len(g))...)
-				e.strDeltaBase[i], e.strDeltaGate[i] = b, g
+			f := e.strDeltaField[i]
+			if len(f) < nFields {
+				f = append(f, make([]strFieldState, nFields-len(f))...)
+				e.strDeltaField[i] = f
 			}
-			e.prevDeltaTd, e.prevDeltaBases, e.prevDeltaGates = e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates
-			e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = td, b, g
-			return b, g
+			e.prevDeltaTd, e.prevDeltaFields = e.lastDeltaTd, e.lastDeltaFields
+			e.lastDeltaTd, e.lastDeltaFields = td, f
+			return f
 		}
 	}
-	b := make([]string, nFields)
-	g := make([]strDeltaGate, nFields)
+	f := make([]strFieldState, nFields)
 	e.strDeltaTd = append(e.strDeltaTd, td)
-	e.strDeltaBase = append(e.strDeltaBase, b)
-	e.strDeltaGate = append(e.strDeltaGate, g)
-	e.prevDeltaTd, e.prevDeltaBases, e.prevDeltaGates = e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates
-	e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = td, b, g
-	return b, g
+	e.strDeltaField = append(e.strDeltaField, f)
+	e.prevDeltaTd, e.prevDeltaFields = e.lastDeltaTd, e.lastDeltaFields
+	e.lastDeltaTd, e.lastDeltaFields = td, f
+	return f
 }
 
 // strDeltaBases returns the per-field base slice for a wire shape ID.
@@ -378,15 +408,16 @@ func (e *encState) strDeltaResetEnc() {
 	if len(e.strDeltaTd) > maxRetainedDeltaTypes {
 		clear(e.strDeltaTd)
 		e.strDeltaTd = e.strDeltaTd[:0]
-		e.strDeltaBase = e.strDeltaBase[:0]
-		e.strDeltaGate = e.strDeltaGate[:0]
-		e.lastDeltaTd, e.lastDeltaBases, e.lastDeltaGates = nil, nil, nil
-		e.prevDeltaTd, e.prevDeltaBases, e.prevDeltaGates = nil, nil, nil
+		e.strDeltaField = e.strDeltaField[:0]
+		e.lastDeltaTd, e.lastDeltaFields = nil, nil
+		e.prevDeltaTd, e.prevDeltaFields = nil, nil
 		return
 	}
-	for i := range e.strDeltaBase {
-		clear(e.strDeltaBase[i])
-		clear(e.strDeltaGate[i])
+	for i := range e.strDeltaField {
+		// clear() zeroes every record, which drops the previous message's base
+		// strings AND any learned alphabet: a table carried into the next
+		// message would let it emit a reference the decoder never saw declared.
+		clear(e.strDeltaField[i])
 	}
 	// The one-entry cache still points at a live slice, so it stays: a stream of
 	// the same type hits it on the first field of the next message too.
