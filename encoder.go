@@ -320,6 +320,9 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// batch. Its contents depend on the data, so it cannot be cached per type —
 	// but its slices can be reused instead of reallocated.
 	derivedPlan columnarPlan
+	// deriveDepth counts live derived plans. Non-zero means the scratch above is
+	// already in use and a nested derive must allocate its own.
+	deriveDepth int
 	mtf         bool
 
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
@@ -498,6 +501,10 @@ func (e *Encoder) resetForReuse() {
 		e.buf = make([]byte, 0, e.bufHint)
 	}
 	e.customFramed = false
+	// A panic mid-encode can leave a derived plan counted but never released;
+	// a pooled encoder must not start its next message believing the scratch is
+	// taken, or every derive from then on allocates.
+	e.deriveDepth = 0
 	// Row-scaled ALP staging scratch: retain across batches, drop only past the
 	// hard ceiling so a one-off giant float slice can't pin unbounded memory.
 	// Pure []uint64 (no pointers) so no clear is needed.

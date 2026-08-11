@@ -269,10 +269,18 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 			if pure || e.fsst || internAware {
 				if sel, ok := e.columnarSelect(colPlan, hdr.Data, n, internAware); ok {
 					e.writeHeader()
+					var err error
 					if sel.residual == nil {
-						return e.encodeColumnar(sel, hdr.Data, n)
+						err = e.encodeColumnar(sel, hdr.Data, n)
+					} else {
+						err = e.encodeHybridColumnar(sel, hdr.Data, n)
 					}
-					return e.encodeHybridColumnar(sel, hdr.Data, n)
+					// sel != colPlan means columnarSelect derived a partial plan
+					// and took a depth slot; it is finished with now.
+					if sel != colPlan {
+						e.deriveDepth--
+					}
+					return err
 				}
 			}
 		}
