@@ -128,6 +128,22 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 	//
 	// So measure first. When the delta wins, emit it and skip the intern
 	// machinery entirely; only a value the delta declines pays for the lookup.
+	// A value the intern table already holds costs one or two bytes there, which
+	// no delta can undercut — its cheapest form is three. Ask WITHOUT
+	// installing: installing is what this codec avoids for the values it does
+	// claim, and doing it here to answer a question would give that up.
+	//
+	// The equality fast path above catches only a value identical to the base.
+	// This catches one identical to any earlier value of the field, which the
+	// prefix compare would otherwise let win the threshold whenever it happens
+	// to share a long prefix with the base.
+	id, interned, keyHash := st.lookupOnly(s)
+	if interned {
+		e.emitStateRef(id)
+		*base = s
+		return
+	}
+
 	if !g.muted {
 		if strDeltaCount {
 			strDeltaProbes.Add(1)
@@ -171,12 +187,9 @@ func (e *Encoder) writeStringField(s string, base *string, g *strDeltaGate) {
 
 	// The delta declined (or the field is muted): the value takes the path it
 	// would have taken without this feature at all.
-	id, ok := st.lookupOrAssign(s)
-	if ok {
-		e.emitStateRef(id)
-		*base = s
-		return
-	}
+	// Absent, and lookupOnly already hashed it: install with that hash rather
+	// than paying for a second one.
+	id = st.assignHashed(s, keyHash)
 	e.buf = append(e.buf, tagInternStr)
 	e.buf = appendUvarint(e.buf, uint64(len(s)))
 	e.buf = appendString(e.buf, s)

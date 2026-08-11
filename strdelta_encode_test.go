@@ -133,3 +133,33 @@ func TestStrDeltaRepeatTakesTheStateRef(t *testing.T) {
 		t.Fatalf("a repeated value took the delta form")
 	}
 }
+
+// A value equal to an OLDER entry of the field — not to the base — must also
+// take the state-ref. The equality fast path does not see it, and the prefix
+// compare would let it win the threshold whenever it shares a long prefix with
+// the base, which values of one field usually do.
+//
+// This is what lookupOnly closes: it answers "is this already interned" without
+// installing, since installing is what the codec avoids for the values it
+// claims.
+func TestStrDeltaOlderValueTakesTheStateRef(t *testing.T) {
+	const a = "/api/v1/tenants/9f3a/users/100000"
+	const b = "/api/v1/tenants/9f3a/users/100001"
+	e := NewEncoderWith(OptBalanced)
+	base := ""
+	var g strDeltaGate
+
+	e.writeStringField(a, &base, &g) // first sighting of a
+	e.writeStringField(b, &base, &g) // b: a delta against a
+	mark := len(e.buf)
+	e.writeStringField(a, &base, &g) // a again — interned, base is b
+	back := len(e.buf) - mark
+	tag := e.buf[mark]
+
+	if tag == tagStrDelta {
+		t.Fatalf("a value already in the intern table took the delta form (%d bytes)", back)
+	}
+	if back > 2 {
+		t.Fatalf("an interned value cost %d bytes (tag 0x%02x); a state-ref spends one or two", back, tag)
+	}
+}
