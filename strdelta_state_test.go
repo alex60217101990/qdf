@@ -58,9 +58,9 @@ func TestStrDeltaBasesResetWithState(t *testing.T) {
 
 func TestStrDeltaDecBasesResetWithState(t *testing.T) {
 	d := newDecState()
-	d.strDeltaBases(1, 2)[0] = "stale"
+	d.strFieldStates(1, 2)[0].base = "stale"
 	d.reset()
-	if got := d.strDeltaBases(1, 2)[0]; got != "" {
+	if got := d.strFieldStates(1, 2)[0].base; got != "" {
 		t.Fatalf("decoder base survived reset: %q", got)
 	}
 }
@@ -68,12 +68,12 @@ func TestStrDeltaDecBasesResetWithState(t *testing.T) {
 // A wider shape must grow its slice rather than index out of range.
 func TestStrDeltaDecBasesGrow(t *testing.T) {
 	d := newDecState()
-	d.strDeltaBases(3, 2)[1] = "two"
-	b := d.strDeltaBases(3, 5)
+	d.strFieldStates(3, 2)[1].base = "two"
+	b := d.strFieldStates(3, 5)
 	if len(b) < 5 {
 		t.Fatalf("slice did not grow: len=%d", len(b))
 	}
-	if b[1] != "two" {
-		t.Fatalf("growing dropped an existing base: %q", b[1])
+	if b[1].base != "two" {
+		t.Fatalf("growing dropped an existing base: %q", b[1].base)
 	}
 }

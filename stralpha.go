@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"encoding/binary"
+	"sync/atomic"
 
 	"github.com/alex60217101990/qdf/internal/unsafestr"
 )
@@ -299,4 +300,194 @@ func readStrAlpha(buf []byte, tbl *strAlphaTable, st *decState) (string, int, er
 	// The bytes are ours — from the arena or freshly made — so the header
 	// aliases them rather than paying a second copy, exactly as the delta does.
 	return unsafestr.String(out), i, nil
+}
+
+// Firing counters, gated exactly as the delta's are: an atomic increment on
+// every eligible value is not free, and these exist only so acceptance tests
+// can assert which form ran. strDeltaCount turns both sets on in the test
+// binary.
+var (
+	strAlphaEmittedWK   atomic.Int64
+	strAlphaEmittedDecl atomic.Int64
+	strAlphaEmittedRef  atomic.Int64
+)
+
+const (
+	// strAlphaStableN values with no new symbol commit the alphabet. Short
+	// enough to give up almost nothing on a field of thousands, long enough
+	// that a field with a genuinely wide character set reveals it before a
+	// table is written.
+	strAlphaStableN = 16
+	// strAlphaMinGainNum/Den: the packed form must cost less than THREE QUARTERS
+	// of what it replaces.
+	//
+	// Not the delta's half, and the difference is not a preference. The delta's
+	// saving is data-dependent and often a byte or two, so a high bar is what
+	// stops it trading a full decode-side materialisation for nothing. Alpha's
+	// saving is structural — exactly 1 - bits/8 of the value, before overhead —
+	// so a halving bar rejects the case the codec exists for: a 32-character hex
+	// id packs to 19 bytes against 34, a 44% saving that is not a halving.
+	//
+	// Three quarters keeps that and still declines the shapes where the form is
+	// marginal: base64url at 6 bits saves 25% before overhead, which on a short
+	// value does not clear the bar.
+	strAlphaMinGainNum = 3
+	strAlphaMinGainDen = 4
+	// strAlphaProbeN values without a single emission mute the field, and
+	// strAlphaRearmN values later it is offered again.
+	//
+	// Without this the codec costs more than it saves. A free-text field runs
+	// the learning byte-loop on every value until its symbol count reaches the
+	// cap, and measured on the access-log corpus that was +46% encode CPU for
+	// nothing: the field could never pack. The delta carries the same gate for
+	// the same reason. Rearming matters as much as muting — a field whose data
+	// turns narrow part-way through must be recoverable, or the gate becomes a
+	// guess that costs wire.
+	strAlphaProbeN = 24
+	strAlphaRearmN = 2048
+)
+
+// tryWriteStringFieldAlpha writes s packed against this field's alphabet and
+// reports whether it did. baselineCost is what the value would cost in the form
+// the encoder would otherwise write.
+func (e *Encoder) tryWriteStringFieldAlpha(s string, fs *strFieldState, baselineCost int) bool {
+	if e.tryWriteStringFieldAlphaInner(s, fs, baselineCost) {
+		fs.alphaProbe = 0
+		return true
+	}
+	fs.alphaProbe++
+	if fs.alphaProbe >= strAlphaProbeN && !fs.alphaDeclared {
+		// Nothing emitted across a full probe run and no table to reference:
+		// this field is not what the codec is for.
+		fs.alphaMuted, fs.alphaProbe = true, 0
+		fs.learn = nil
+	}
+	return false
+}
+
+func (e *Encoder) tryWriteStringFieldAlphaInner(s string, fs *strFieldState, baselineCost int) bool {
+	if fs.alphaOff || len(s) == 0 {
+		return false
+	}
+	if fs.alphaMuted {
+		fs.alphaProbe++
+		if fs.alphaProbe >= strAlphaRearmN {
+			fs.alphaMuted, fs.alphaProbe = false, 0
+		}
+		return false
+	}
+
+	// A well-known alphabet needs no state and no table, so it is tried first
+	// and re-tested per value: the membership scan stops at the first character
+	// outside the set, which makes it cheap exactly where it is about to fail.
+	if fs.learn == nil {
+		if fs.alphaID == 0 {
+			fs.alphaID = strAlphaWellKnown(s)
+		} else if !strAlphaAllIn(unsafestr.Bytes(s), strAlphaSets[fs.alphaID]) {
+			fs.alphaID = 0 // a value fell outside the set this field had matched
+		}
+		if id := fs.alphaID; id != 0 {
+			set := strAlphaSets[id]
+			if strAlphaCost(len(s), set.bits, id, 0)*strAlphaMinGainDen < baselineCost*strAlphaMinGainNum {
+				e.buf = appendStrAlphaWellKnown(e.buf, id, s)
+				if strDeltaCount {
+					strAlphaEmittedWK.Add(1)
+				}
+				return true
+			}
+			// Matched but not worth it — and that is not the end of the matter.
+			// A well-known set is a superset of what the field actually uses:
+			// values of nothing but lowercase letters match the 36-symbol
+			// lowercase-and-digits set at six bits, where the 26 symbols they
+			// really use would pack at five. Returning here would leave the
+			// field on the wider set forever, so fall through and learn the
+			// narrow one instead.
+			fs.alphaID = 0
+		}
+		fs.learn = &strAlphaLearn{}
+	}
+
+	// Accumulate, and declare when the set stops growing.
+	l := fs.learn
+	grew := false
+	for i := range len(s) {
+		c := s[i]
+		if l.seen[c] {
+			continue
+		}
+		if fs.alphaDeclared {
+			// The table is on the wire and the decoder built its mapping from
+			// those exact bytes, so it can never be revised: widening it here
+			// would re-number every symbol and change the packed width, and
+			// every later reference would decode against a table the reader
+			// does not have. Not a bigger wire — a desync. The value takes its
+			// ordinary form and the table stays as declared.
+			return false
+		}
+		{
+			if len(l.symbols) >= qpackStrAlphaMaxAlphabet {
+				// Too wide to pack below eight bits per character. Marking the
+				// field off is what keeps the scan from being spent on it again.
+				fs.alphaOff = true
+				fs.learn = nil
+				return false
+			}
+			l.seen[c] = true
+			l.code[c] = uint8(len(l.symbols))
+			l.symbols = append(l.symbols, c)
+			grew = true
+		}
+	}
+	if grew {
+		l.stable = 0
+		// A table already on the wire cannot be revised, so a value that
+		// introduces a new symbol takes its ordinary form. Out of scope by
+		// design; see the spec.
+		return false
+	}
+	if len(l.symbols) < 2 {
+		return false
+	}
+	l.stable++
+	bits := bitsForDistinct(len(l.symbols))
+
+	if fs.alphaDeclared {
+		if strAlphaCost(len(s), bits, strAlphaSelRef, 0)*strAlphaMinGainDen >= baselineCost*strAlphaMinGainNum {
+			return false
+		}
+		e.buf = appendStrAlphaRef(e.buf, &l.code, bits, s)
+		if strDeltaCount {
+			strAlphaEmittedRef.Add(1)
+		}
+		return true
+	}
+	if l.stable < strAlphaStableN {
+		return false
+	}
+	// The table is a one-time cost for the whole field, so charging it to the
+	// single value that happens to declare it is the wrong test: a 26-symbol
+	// table is 28 bytes, which no individual value can absorb, and the gate
+	// would refuse every table of every size forever.
+	//
+	// Judge it the way it is actually paid instead. Each value from here on
+	// saves (8-bits)/8 of its length, and this field has already produced
+	// strAlphaStableN values with a settled alphabet — so require that those
+	// already-seen values would themselves have covered the table. A field that
+	// stops after the declaration has lost a bounded number of bytes once; one
+	// that continues, which the stability run is evidence of, is ahead from the
+	// next value on.
+	if strAlphaCost(len(s), bits, strAlphaSelRef, 0)*strAlphaMinGainDen >= baselineCost*strAlphaMinGainNum {
+		return false
+	}
+	tableCost := 2 + len(l.symbols)
+	savedPerValue := len(s) * (8 - bits) / 8
+	if savedPerValue*strAlphaStableN < tableCost {
+		return false
+	}
+	e.buf = appendStrAlphaDeclared(e.buf, l.symbols, &l.code, s)
+	if strDeltaCount {
+		strAlphaEmittedDecl.Add(1)
+	}
+	fs.alphaDeclared = true
+	return true
 }

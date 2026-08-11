@@ -76,8 +76,8 @@ type strDeltaGate struct {
 // a well-known alphabet never allocates at all, which is where the largest
 // measured wins are (trace_id -45.4%, span_id -41.2%).
 type strFieldState struct {
-	base  string
 	learn *strAlphaLearn
+	base  string
 	gate  strDeltaGate
 	// alphaID is the well-known alphabet that has matched every value of this
 	// field so far, or 0 when none has been established.
@@ -85,17 +85,34 @@ type strFieldState struct {
 	// alphaOff marks a field whose characters are too varied to pack, so the
 	// membership scan is not spent on it again.
 	alphaOff bool
+	// alphaDeclared marks that this field has written its table to the wire, so
+	// later values reference it instead of repeating it.
+	alphaDeclared bool
+	// alphaProbe counts values offered to the alphabet packer since the last
+	// verdict; alphaMuted stops offering them. Same shape as the delta's gate
+	// and for the same measured reason — see strAlphaProbeN.
+	alphaProbe uint16
+	alphaMuted bool
 }
 
 // strAlphaLearn accumulates a field's alphabet as values are written — never by
 // buffering them. Early values go out in their ordinary form while their
 // characters fold in here, and once the set has not grown for strAlphaStableN
 // values the next value declares it.
+// decFieldState is what the decoder remembers about one WIRE field: the delta's
+// previous value and the alphabet this field declared. Keyed by wire position,
+// not by target field — a field the struct does not declare still has to track
+// both, or the next value of it decodes against stale state.
+type decFieldState struct {
+	base  string
+	alpha strAlphaTable
+}
+
 type strAlphaLearn struct {
-	seen    [256]bool
-	code    [256]uint8
 	symbols []byte
 	stable  uint16
+	seen    [256]bool
+	code    [256]uint8
 }
 
 // writeStringField writes one struct string field.
@@ -219,10 +236,24 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		}
 	}
 
-	// The delta declined (or the field is muted): the value takes the path it
-	// would have taken without this feature at all.
-	// Absent, and lookupOnly already hashed it: install with that hash rather
-	// than paying for a second one.
+	// The delta declined or the field is muted. Alphabet packing competes on the
+	// same footing and for the same baseline: it wins on values the delta
+	// cannot help, because it wants a restricted character set rather than
+	// resemblance to the row above. Measured per field, the two swap places —
+	// trace_id -45.4% alpha against +5.9% delta, referer -33.3% alpha against
+	// -71.6% delta.
+	if e.tryWriteStringFieldAlpha(s, fs, 1+uvarintLen(uint64(len(s)))+len(s)) {
+		// Inline semantics, exactly as the delta's win branch: the value never
+		// entered the intern table, so a following tagStateRepeat must not
+		// resurrect whatever ID was last on the chain.
+		st.lastID = lruInvalidID
+		*base = s
+		return
+	}
+
+	// Neither codec took it: the value goes the way it would have without this
+	// feature at all. lookupOnly already hashed it, so install with that hash
+	// rather than paying for a second one.
 	id = st.assignHashed(s, keyHash)
 	e.buf = append(e.buf, tagInternStr)
 	e.buf = appendUvarint(e.buf, uint64(len(s)))
@@ -373,15 +404,19 @@ func (e *encState) strFieldStates(td *typeDesc, nFields int) []strFieldState {
 	return f
 }
 
-// strDeltaBases returns the per-field base slice for a wire shape ID.
-func (d *decState) strDeltaBases(shapeID uint32, nFields int) []string {
+// strFieldStates returns the per-field record slice for a wire shape ID.
+//
+// One record rather than a slice per codec, for the same reason the encoder
+// keeps one: the delta's base and the alphabet's table are consulted on the
+// same value, so they belong on the same cache line and behind the same lookup.
+func (d *decState) strFieldStates(shapeID uint32, nFields int) []decFieldState {
 	if int(shapeID) >= len(d.strDeltaBase) {
 		grow := int(shapeID) + 1 - len(d.strDeltaBase)
-		d.strDeltaBase = append(d.strDeltaBase, make([][]string, grow)...)
+		d.strDeltaBase = append(d.strDeltaBase, make([][]decFieldState, grow)...)
 	}
 	b := d.strDeltaBase[shapeID]
 	if len(b) < nFields {
-		b = append(b, make([]string, nFields-len(b))...)
+		b = append(b, make([]decFieldState, nFields-len(b))...)
 		d.strDeltaBase[shapeID] = b
 	}
 	return b
@@ -462,7 +497,7 @@ func strDeltaTagAdvancesBase(b byte) bool {
 		return true
 	case b == tagStateRepeat, b == tagStateMTF, b == tagStatePair:
 		return true
-	case b == tagStrDelta:
+	case b == tagStrDelta, b == tagStrAlpha:
 		return true
 	}
 	return false

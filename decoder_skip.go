@@ -277,12 +277,12 @@ func (d *Decoder) Skip() error {
 		// This is also why the tagStrDelta form cannot be walked by byte count
 		// alone: the walk needs the base to reconstruct the value it advances
 		// the base to.
-		bases := d.state.strDeltaBases(effShapeID, cnt)
+		bases := d.state.strFieldStates(effShapeID, cnt)
 		for i := 0; i < cnt; i++ {
 			if d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
-				d.strDeltaBase = &bases[i]
+				d.strField = &bases[i]
 				_, err := d.readStringBytes()
-				d.strDeltaBase = nil
+				d.strField = nil
 				if err != nil {
 					return err
 				}
