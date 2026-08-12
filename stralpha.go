@@ -312,13 +312,18 @@ func readStrAlpha(buf []byte, tbl *strAlphaTable, st *decState) (string, int, er
 	} else {
 		out = make([]byte, nchars)
 	}
+	// Reslice to exactly nchars and range over it below: the arena's Alloc does
+	// not inline, so len(out) is opaque to the prover and the store in the
+	// unpack loop carried a bounds check PER DECODED CHARACTER. Ranging over a
+	// slice of known length removes it.
+	out = out[:nchars]
 	// The mirror of the writer's shift register, and for the same reason: a bit
 	// at a time is bits branches per character on a path that runs for every
 	// packed value on the wire.
 	mask := uint32(1)<<uint(bits) - 1
 	var acc uint64
 	nb, pos := 0, 0
-	for k := range nchars {
+	for k := range out {
 		if nb < bits {
 			// Refill. nb is below eight here, so a 32-bit load can never push
 			// the window past 64.
