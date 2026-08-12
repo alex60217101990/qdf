@@ -39,8 +39,7 @@ type typeDesc struct {
 	// resolved at descriptor build so the slice encoder binds the scope with a
 	// pointer load rather than an interface assertion per slice. nil for types
 	// that do not name one.
-	scopeToken  *byte
-	scopeFields int
+	scopeToken *byte
 
 	fields []fieldDesc // structs only
 
@@ -50,6 +49,8 @@ type typeDesc struct {
 	// (tagVecBatchStruct) to gather one column's vectors across all rows into a
 	// single count=N block. Pure type info (option-independent), set at build.
 	vecFields []vecBatchField
+
+	scopeFields int
 
 	// schemaFP is the structural fingerprint of this descriptor's full subtree
 	// (kind + field names + recursive field/element kinds). Computed once at build
