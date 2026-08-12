@@ -644,7 +644,7 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 		// Underlying().(*types.Basic) with Kind() == types.String matches
 		// `string` and defined types over it, and nothing else: a []string, a
 		// *string and a map[string]string field all still take the generic path.
-		if b, ok := f.Field.Type().Underlying().(*types.Basic); ok && b.Kind() == types.String {
+		if isPlainStringField(f.Field.Type()) {
 			fmt.Fprintf(w, "\te.WriteStringField(%d, string(%s))\n", i, expr)
 			continue
 		}
@@ -816,6 +816,31 @@ func (g *gen) emitEncodeBasic(w io.Writer, expr string, b *types.Basic, indent s
 		return fmt.Errorf("unsupported basic kind %v", k)
 	}
 	return nil
+}
+
+// isPlainStringField reports whether a struct field may take WriteStringField:
+// its underlying type is string AND it has no codec of its own.
+//
+// The second half is not a refinement, it is the whole correctness condition. A
+// named type over string with its own MarshalQDF must route through that method
+// — reflect does, checking Marshaler before the Kind switch — and sending it to
+// WriteStringField emits the bare string where the wire expects the codec's
+// frame. The two encoders then disagree on bytes for the same value, silently,
+// which is what internal/codegen_test's TestNamedCodecFieldRoutesThroughCodec
+// exists to catch and did.
+//
+// Matching on Underlying() alone also has to stay narrow in the other
+// direction: []string, *string and map[string]string are not *types.Basic, so
+// they keep the generic path, which is where they belong.
+func isPlainStringField(t types.Type) bool {
+	b, ok := t.Underlying().(*types.Basic)
+	if !ok || b.Kind() != types.String {
+		return false
+	}
+	if n, ok := t.(*types.Named); ok && hasMethod(n, "MarshalQDF") {
+		return false
+	}
+	return true
 }
 
 func (g *gen) emitEncodeNamed(w io.Writer, expr string, n *types.Named, indent string) error {

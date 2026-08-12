@@ -188,7 +188,8 @@ func TestStrAlphaSurvivesTruncationAndCorruption(t *testing.T) {
 // supports, must be rejected before anything is indexed by it.
 func TestStrAlphaRejectsImpossibleTables(t *testing.T) {
 	for _, a := range []byte{0, 1, qpackStrAlphaMaxAlphabet + 1, 200} {
-		buf := []byte{tagStrAlpha, strAlphaSelDeclare, a}
+		buf := make([]byte, 0, 11)
+		buf = append(buf, tagStrAlpha, strAlphaSelDeclare, a)
 		buf = append(buf, make([]byte, 8)...)
 		var tbl strAlphaTable
 		if _, _, err := readStrAlpha(buf, &tbl, nil); err == nil {

@@ -269,18 +269,19 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 	// past the inlining budget, so a muted field would pay a real call on every
 	// value only to be told no. Same shape as the hasStrField guard, and found
 	// the same way — by profiling, not by reading.
-	if !e.strAlpha {
+	switch {
+	case !e.strAlpha:
 		// The codec is opt-in; see OptStringAlphabet for the measurements. The
 		// flag is read off the encoder rather than tested through Options.Has
 		// on every value, for the same reason the other hot-path bits are.
-	} else if fs.alphaOff {
-		// nothing to offer
-	} else if fs.alphaMuted {
+	case fs.alphaOff:
+		// A field whose characters proved too varied to pack; nothing to offer.
+	case fs.alphaMuted:
 		fs.alphaProbe++
 		if fs.alphaProbe >= strAlphaRearmN {
 			fs.alphaMuted, fs.alphaProbe = false, 0
 		}
-	} else if e.tryWriteStringFieldAlpha(s, fs, 1+uvarintLen(uint64(len(s)))+len(s)) {
+	case e.tryWriteStringFieldAlpha(s, fs, 1+uvarintLen(uint64(len(s)))+len(s)):
 		// Inline semantics, exactly as the delta's win branch: the value never
 		// entered the intern table, so a following tagStateRepeat must not
 		// resurrect whatever ID was last on the chain.
