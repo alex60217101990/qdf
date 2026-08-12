@@ -310,6 +310,12 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// opts.Has() several times per repeated value. Set in applyOpts, cleared in
 	// Reset — same pattern as qpack/rans/fsst/colIndex.
 	pairPred bool
+	// curFields is the per-field codec state bound for the struct type generated
+	// code is currently writing, or nil. Non-nil means two things at once, and
+	// deliberately so: WHERE the state lives, and that we are inside a repeated
+	// slice — the exact condition under which the reflect path enables the
+	// delta. One flag cannot drift from the other if there is only one.
+	curFields []strFieldState
 	// strAlpha mirrors OptStringAlphabet, folded here for the same reason: the
 	// alphabet packer is offered a value on every string field of every
 	// repeated struct, and the codec is off by default, so the common case must
@@ -493,6 +499,7 @@ func (e *Encoder) Reset() {
 	e.zonemap = false
 	e.pairPred = false
 	e.mtf = false
+	e.curFields = nil
 	e.strAlpha = false
 	e.fsstDict = nil
 	// Drop the streaming FSST table cache so a pooled encoder does not carry
