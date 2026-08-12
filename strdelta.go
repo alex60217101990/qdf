@@ -89,6 +89,12 @@ type strFieldState struct {
 	// alphaDeclared marks that this field has written its table to the wire, so
 	// later values reference it instead of repeating it.
 	alphaDeclared bool
+	// alphaWarm counts values seen before learning starts. Separate from
+	// alphaProbe on purpose: warm-up values are not probes, and counting them
+	// as such would spend the mute budget before a table could ever be
+	// declared — sixteen to warm plus sixteen to settle is past the
+	// twenty-four that mutes.
+	alphaWarm uint16
 	// alphaProbe counts values offered to the alphabet packer since the last
 	// verdict; alphaMuted stops offering them. Same shape as the delta's gate
 	// and for the same measured reason — see strAlphaProbeN.
