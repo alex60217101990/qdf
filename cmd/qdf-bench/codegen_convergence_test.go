@@ -319,3 +319,111 @@ func TestCodegenWireRoundTrips(t *testing.T) {
 		}
 	}
 }
+
+// The two encoders and the two decoders have to interoperate, and only one of
+// the two directions currently does.
+//
+// TestCodegenWireRoundTrips covers codegen->codegen only: it decodes into
+// []GenService, and GenService carries a DecodeQDF, so Unmarshal dispatches to
+// generated code on both ends. The off-diagonal combinations are the ones that
+// get used in anger — a producer built with qdfgen and a consumer that only has
+// the plain struct, or the reverse across a version skew — and they were
+// untested.
+//
+// Measured, and the same on merged main (23a3b18), so this is not the string
+// codecs and not this branch:
+//
+//   - A wire written by generated code decodes into the plain type at every
+//     length and every option set. Asserted strictly below.
+//   - A wire written by reflect FAILS to decode into the generated type from
+//     sixteen elements under OptBalanced and OptCompression, with "type
+//     mismatch on decode". Reflect picks the hybrid columnar container
+//     (tagHybridColStruct, 0xF7) and generated decoders do not read that form.
+//     Under OptSpeed reflect never goes columnar, so it works there.
+//
+// The broken direction is asserted as what it is: it must fail CLEANLY. An
+// error is recoverable and visible; silent corruption is neither, and that is
+// the property worth pinning while the container decision remains split
+// between a static threshold on one side and a data probe on the other.
+func TestCodegenAndReflectWiresAreInterchangeable(t *testing.T) {
+	for _, n := range []int{1, 2, 15, 16, 64} {
+		plain := mkServices(n)
+		gen := make([]GenService, n)
+		for k := range plain {
+			gen[k] = GenService(plain[k])
+		}
+		for _, o := range convergenceOptions() {
+			rb, err := qdf.Marshal(plain, o.opts)
+			if err != nil {
+				t.Fatalf("n=%d %s reflect encode: %v", n, o.name, err)
+			}
+			gb, err := qdf.Marshal(gen, o.opts)
+			if err != nil {
+				t.Fatalf("n=%d %s codegen encode: %v", n, o.name, err)
+			}
+
+			// Generated wire into the plain type: must always work.
+			var intoPlain []Service
+			if err := qdf.Unmarshal(gb, &intoPlain); err != nil {
+				t.Fatalf("n=%d %s codegen wire into the plain type: %v", n, o.name, err)
+			}
+			if !reflect.DeepEqual(intoPlain, plain) {
+				t.Fatalf("n=%d %s: codegen wire decoded into the plain type differs", n, o.name)
+			}
+
+			// Reflect wire into the generated type. The property pinned here is
+			// the one that matters and holds unconditionally: never silent
+			// corruption. Either the value comes back intact, or the decode
+			// fails with an error a caller can see and handle.
+			//
+			// Which lengths fail is deliberately NOT asserted from the root
+			// tag: under OptCompression the container is wrapped and the tag
+			// varies (0xBD, 0xEF, 0xD7 were all observed), so a byte test there
+			// would be guessing. TestReflectWireIntoGeneratedTypeBoundary pins
+			// the boundary separately, where it can be measured rather than
+			// inferred.
+			var intoGen []GenService
+			if err := qdf.Unmarshal(rb, &intoGen); err == nil {
+				if !reflect.DeepEqual(intoGen, gen) {
+					t.Fatalf("n=%d %s: reflect wire decoded into the generated type "+
+						"WITHOUT error but with the wrong value — silent corruption",
+						n, o.name)
+				}
+			}
+		}
+	}
+}
+
+// Where the reverse direction stops working, pinned so that fixing it or
+// breaking it further are both noticed.
+//
+// A wire written by reflect decodes into the generated type until reflect
+// switches to the columnar container; generated decoders do not read that form.
+// Measured here and identically on merged main (23a3b18), so it is neither the
+// string codecs nor this branch — it is the same split that leaves the
+// generator deciding its container with a static len >= 16 while reflect probes
+// the data.
+func TestReflectWireIntoGeneratedTypeBoundary(t *testing.T) {
+	type result struct {
+		n  int
+		ok bool
+	}
+	var got []result
+	for _, n := range []int{2, 15, 16, 17, 64} {
+		plain := mkServices(n)
+		rb, err := qdf.Marshal(plain, qdf.OptBalanced)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var into []GenService
+		got = append(got, result{n, qdf.Unmarshal(rb, &into) == nil})
+	}
+	want := []result{{2, true}, {15, true}, {16, false}, {17, false}, {64, false}}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("n=%d: reflect wire into the generated type decodes=%v, was %v — "+
+				"the boundary moved; if this is a fix, update the expectation",
+				got[i].n, got[i].ok, want[i].ok)
+		}
+	}
+}
