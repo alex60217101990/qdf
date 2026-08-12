@@ -631,13 +631,38 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "// through nested values instead of allocating an encoder per value.\n")
 	fmt.Fprintf(w, "func (v *%s) EncodeQDF(e *qdf.Encoder) error {\n", typeName)
 	fmt.Fprintf(w, "\te.StructShape(&%s, %s)\n", shapeTok, hdrsVar)
-	for _, f := range fields {
+	for i, f := range fields {
 		expr := "v." + f.Access
+		// A plain string FIELD carries its index; nothing else does. The codecs
+		// behind WriteStringField code a value against the previous row of the
+		// SAME field, so an index borrowed from elsewhere is a wrong answer
+		// rather than a missing one. Slice elements, map values and columnar
+		// rows keep going through emitEncodeValue, which has no index and needs
+		// none — which is why this is here and not in emitEncodeBasic, where
+		// the obvious one-line change would have reached all of them.
+		//
+		// Underlying().(*types.Basic) with Kind() == types.String matches
+		// `string` and defined types over it, and nothing else: a []string, a
+		// *string and a map[string]string field all still take the generic path.
+		if b, ok := f.Field.Type().Underlying().(*types.Basic); ok && b.Kind() == types.String {
+			fmt.Fprintf(w, "\te.WriteStringField(%d, string(%s))\n", i, expr)
+			continue
+		}
 		if err := g.emitEncodeValue(w, expr, f.Field.Type(), "\t"); err != nil {
 			return fmt.Errorf("%s.%s: %w", typeName, f.GoName, err)
 		}
 	}
 	fmt.Fprintf(w, "\treturn nil\n")
+	fmt.Fprintf(w, "}\n\n")
+
+	// QDFFieldScope names this type's field-state identity so a caller looping
+	// over a slice of it binds the string codecs' state once for the whole
+	// slice instead of once per element.
+	fmt.Fprintf(w, "// QDFFieldScope names this type's field-state identity, so a caller looping\n")
+	fmt.Fprintf(w, "// over a slice of it can bind the string codecs' state once for the whole\n")
+	fmt.Fprintf(w, "// slice. The token is the same one StructShape keys the shape table with.\n")
+	fmt.Fprintf(w, "func (v *%s) QDFFieldScope() (*byte, int) {\n", typeName)
+	fmt.Fprintf(w, "\treturn &%s, %d\n", shapeTok, len(fields))
 	fmt.Fprintf(w, "}\n\n")
 	return nil
 }
@@ -1196,13 +1221,54 @@ func (g *gen) emitEncodeSlice(w io.Writer, expr string, s *types.Slice, indent s
 // path and the columnar emitter's short-slice fallback.
 func (g *gen) emitEncodeSliceRowMajorBody(w io.Writer, expr string, elem types.Type, indent string) error {
 	fmt.Fprintf(w, "%se.WriteArrayHeader(len(%s))\n", indent, expr)
+
+	// Bind the element type's field-state scope ONCE around the loop, not once
+	// per element: the lookup is a token compare, and hoisting it turns one per
+	// row into one per slice. A bound scope is also what enables the row-major
+	// string codecs — they code a value against the previous row of the same
+	// field, which is meaningful only inside a loop like this one.
+	//
+	// Only for element types generated in this run. A hand-written or
+	// stale-generation element has no token to name, and binding a scope it
+	// will not use would only clear the parent's for the duration.
+	scopeVar := ""
+	if named, ok := elem.(*types.Named); ok && g.targets[named.Obj().Name()] {
+		en := named.Obj().Name()
+		scopeVar = g.fresh("sc")
+		fmt.Fprintf(w, "%s%s := e.PushFieldScope(&qdfShapeTok_%s, len(qdfFieldHdrs_%s))\n",
+			indent, scopeVar, en, en)
+	}
+
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, loopVar, expr)
-	if err := g.emitEncodeValue(w, expr+"["+loopVar+"]", elem, indent+"\t"); err != nil {
+	if err := g.emitEncodeValueScoped(w, expr+"["+loopVar+"]", elem, indent+"\t", scopeVar); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "%s}\n", indent)
+	if scopeVar != "" {
+		fmt.Fprintf(w, "%se.PopFieldScope(%s)\n", indent, scopeVar)
+	}
 	return nil
+}
+
+// emitEncodeValueScoped is emitEncodeValue with a field scope to release before
+// any early return inside the loop. Leaving a scope bound after a failed encode
+// would hand whatever runs next another type's field state.
+func (g *gen) emitEncodeValueScoped(w io.Writer, expr string, t types.Type, indent, scopeVar string) error {
+	if scopeVar == "" {
+		return g.emitEncodeValue(w, expr, t, indent)
+	}
+	var buf bytes.Buffer
+	if err := g.emitEncodeValue(&buf, expr, t, indent); err != nil {
+		return err
+	}
+	// The generated element encode returns early on error; release the scope on
+	// the way out. Textual because the emitter writes whole statements.
+	body := strings.ReplaceAll(buf.String(),
+		"return err",
+		"e.PopFieldScope("+scopeVar+")\n"+indent+"\t\treturn err")
+	_, err := w.Write([]byte(body))
+	return err
 }
 
 // emitEncodeColumnarSlice emits a compile-time transpose of a []struct into the
