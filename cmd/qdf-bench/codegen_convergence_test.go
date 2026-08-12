@@ -235,26 +235,33 @@ func codegenParity[P any, G any](t *testing.T, name string, lens []int,
 	}
 }
 
-// Lengths outside the columnar window, where the row-major string codecs are
-// the whole difference. See TestCodegenColumnarWindowIsAKnownGap for 16..29.
+// Lengths where BOTH sides stay row-major, which is exactly where the string
+// codecs decide the outcome. Reflect switches to the columnar container from
+// sixteen elements on this fixture and generated code does not, so from there
+// the comparison measures the container decision instead — see
+// TestCodegenColumnarWindowIsAKnownGap.
 func TestCodegenIsNeverLargerThanReflect(t *testing.T) {
-	codegenParity(t, "service", []int{1, 2, 5, 12, 15, 30, 64},
+	codegenParity(t, "service", []int{1, 2, 5, 12, 15},
 		mkServices, func(s Service) GenService { return GenService(s) })
-	codegenParity(t, "task", []int{1, 2, 5, 12, 15, 30, 64},
+	codegenParity(t, "task", []int{1, 2, 5, 12, 15},
 		mkTasks, func(x Task) GenTask { return GenTask(x) })
 }
 
-// Between 16 and 29 elements reflect takes the columnar container and generated
-// code does not: the generator decides with a static len >= 16 where reflect
-// probes the data. Giving generated encoders the string codecs cannot close
-// this — the reflect side is not using them there either.
+// From sixteen elements reflect takes the columnar container (root 0xF7) and
+// generated code stays row-major, so the comparison stops being about the
+// string codecs and becomes about the container decision.
+//
+// A top-level slice of a generated type is driven by reflect, which calls
+// EncodeQDF per element — the generator's own columnar path is emitted for a
+// slice FIELD inside a struct and never runs here. So codegen is row-major at
+// every length at top level, while reflect probes the data and switches.
 //
 // Asserted rather than skipped, so the gap stays visible and cannot quietly
 // widen. Closing it is separate work on the container decision, recorded as a
-// known open problem in the design note.
+// known open problem.
 func TestCodegenColumnarWindowIsAKnownGap(t *testing.T) {
-	const knownWorstRatio = 3.5
-	for _, n := range []int{16, 17, 29} {
+	const knownWorstRatio = 1.6
+	for _, n := range []int{16, 17, 29, 30, 64} {
 		plain := mkServices(n)
 		gen := make([]GenService, n)
 		for k := range plain {

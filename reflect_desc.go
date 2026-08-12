@@ -35,6 +35,13 @@ type typeDesc struct {
 	// without a key tag. See keyOff / keyed below. Set once at build.
 	keyDesc *typeDesc // descriptor of the key field's type
 
+	// scopeToken / scopeFields carry a generated type's field-state identity,
+	// resolved at descriptor build so the slice encoder binds the scope with a
+	// pointer load rather than an interface assertion per slice. nil for types
+	// that do not name one.
+	scopeToken  *byte
+	scopeFields int
+
 	fields []fieldDesc // structs only
 
 	// vecFields lists the []float32/[]float64 fields of a struct, in declaration
@@ -215,6 +222,15 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 	if reflect.PointerTo(t).Implements(marshalerType) {
 		td.marshalerKind = 1
 		td.encode = encodeMarshaler(t)
+		// Generated types name their field-state identity. Resolve it ONCE
+		// here rather than asserting the interface per slice: a slice of such
+		// a type is usually driven by reflect's slice encoder — qdf.Marshal on
+		// a []GenService reaches EncodeQDF per element — and without the scope
+		// bound around that loop the string codecs are reachable only when
+		// generated code drives the loop itself.
+		if fs, ok := reflect.New(t).Interface().(FieldScoper); ok {
+			td.scopeToken, td.scopeFields = fs.QDFFieldScope()
+		}
 	}
 	if reflect.PointerTo(t).Implements(unmarshalerType) {
 		td.decode = decodeUnmarshaler(t)
