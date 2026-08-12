@@ -3,6 +3,7 @@ package qdf
 import (
 	"reflect"
 	"testing"
+	"unsafe"
 )
 
 type sdBaseA struct {
@@ -26,13 +27,13 @@ func TestStrDeltaBasesArePerType(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := newEncState()
-	bA := st.strFieldStates(tdA, 1)
+	bA := st.strFieldStates(unsafe.Pointer(tdA), 1)
 	bA[0].base = "from-a"
-	bB := st.strFieldStates(tdB, 1)
+	bB := st.strFieldStates(unsafe.Pointer(tdB), 1)
 	if got := bB[0].base; got == "from-a" {
 		t.Fatal("two types share one base slice")
 	}
-	bA2 := st.strFieldStates(tdA, 1)
+	bA2 := st.strFieldStates(unsafe.Pointer(tdA), 1)
 	if got := bA2[0].base; got != "from-a" {
 		t.Fatalf("type a's base did not survive a lookup of type b: %q", got)
 	}
@@ -47,10 +48,10 @@ func TestStrDeltaBasesResetWithState(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := newEncState()
-	b0 := st.strFieldStates(td, 1)
+	b0 := st.strFieldStates(unsafe.Pointer(td), 1)
 	b0[0].base = "stale"
 	st.reset()
-	b1 := st.strFieldStates(td, 1)
+	b1 := st.strFieldStates(unsafe.Pointer(td), 1)
 	if got := b1[0].base; got != "" {
 		t.Fatalf("base survived reset: %q", got)
 	}

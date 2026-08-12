@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/bumparena"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
@@ -401,37 +402,37 @@ func readStrDeltaInto(buf []byte, base string, st *decState) (string, int, error
 // The one-entry cache is the whole point: a slice of one struct type — the case
 // that matters — hits it on every row, so the lookup is a pointer compare
 // rather than a scan.
-func (e *encState) strFieldStates(td *typeDesc, nFields int) []strFieldState {
+func (e *encState) strFieldStates(key unsafe.Pointer, nFields int) []strFieldState {
 	// TWO cache slots, not one. A nested struct alternates between the parent's
 	// type and the child's on every field, so a single slot misses every time
 	// and falls through to the linear scan below — measured at 37 ns on a 222 ns
 	// nested encode, 16.7% of it. Two slots turn that alternation into a hit.
-	if e.lastDeltaTd == td && len(e.lastDeltaFields) >= nFields {
+	if e.lastDeltaKey == key && len(e.lastDeltaFields) >= nFields {
 		return e.lastDeltaFields
 	}
-	if e.prevDeltaTd == td && len(e.prevDeltaFields) >= nFields {
+	if e.prevDeltaKey == key && len(e.prevDeltaFields) >= nFields {
 		// Promote so a run on this type keeps hitting the first slot.
-		e.lastDeltaTd, e.prevDeltaTd = e.prevDeltaTd, e.lastDeltaTd
+		e.lastDeltaKey, e.prevDeltaKey = e.prevDeltaKey, e.lastDeltaKey
 		e.lastDeltaFields, e.prevDeltaFields = e.prevDeltaFields, e.lastDeltaFields
 		return e.lastDeltaFields
 	}
-	for i, t := range e.strDeltaTd {
-		if t == td {
+	for i, k := range e.strDeltaKey {
+		if k == key {
 			f := e.strDeltaField[i]
 			if len(f) < nFields {
 				f = append(f, make([]strFieldState, nFields-len(f))...)
 				e.strDeltaField[i] = f
 			}
-			e.prevDeltaTd, e.prevDeltaFields = e.lastDeltaTd, e.lastDeltaFields
-			e.lastDeltaTd, e.lastDeltaFields = td, f
+			e.prevDeltaKey, e.prevDeltaFields = e.lastDeltaKey, e.lastDeltaFields
+			e.lastDeltaKey, e.lastDeltaFields = key, f
 			return f
 		}
 	}
 	f := make([]strFieldState, nFields)
-	e.strDeltaTd = append(e.strDeltaTd, td)
+	e.strDeltaKey = append(e.strDeltaKey, key)
 	e.strDeltaField = append(e.strDeltaField, f)
-	e.prevDeltaTd, e.prevDeltaFields = e.lastDeltaTd, e.lastDeltaFields
-	e.lastDeltaTd, e.lastDeltaFields = td, f
+	e.prevDeltaKey, e.prevDeltaFields = e.lastDeltaKey, e.lastDeltaFields
+	e.lastDeltaKey, e.lastDeltaFields = key, f
 	return f
 }
 
@@ -471,12 +472,12 @@ func (d *decState) strFieldStates(shapeID uint32, nFields int) []decFieldState {
 // whole rather than grown, matching how the intern table releases after a
 // streak of small messages.
 func (e *encState) strDeltaResetEnc() {
-	if len(e.strDeltaTd) > maxRetainedDeltaTypes {
-		clear(e.strDeltaTd)
-		e.strDeltaTd = e.strDeltaTd[:0]
+	if len(e.strDeltaKey) > maxRetainedDeltaTypes {
+		clear(e.strDeltaKey)
+		e.strDeltaKey = e.strDeltaKey[:0]
 		e.strDeltaField = e.strDeltaField[:0]
-		e.lastDeltaTd, e.lastDeltaFields = nil, nil
-		e.prevDeltaTd, e.prevDeltaFields = nil, nil
+		e.lastDeltaKey, e.lastDeltaFields = nil, nil
+		e.prevDeltaKey, e.prevDeltaFields = nil, nil
 		return
 	}
 	for i := range e.strDeltaField {
