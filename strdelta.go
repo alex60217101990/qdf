@@ -130,11 +130,20 @@ type strAlphaLearn struct {
 	code [256]uint8
 }
 
+// strAlphaUnseen is a pre-filled "nothing seen yet" code table. Copying it is
+// one memmove; the loop it replaces compiled to 256 single-byte stores and
+// showed up at 1.33% of an alpha-firing encode, paid once per learning field
+// per message.
+var strAlphaUnseen = func() (t [256]uint8) {
+	for i := range t {
+		t[i] = strAlphaNotMember
+	}
+	return
+}()
+
 func newStrAlphaLearn() *strAlphaLearn {
 	l := &strAlphaLearn{}
-	for i := range l.code {
-		l.code[i] = strAlphaNotMember
-	}
+	l.code = strAlphaUnseen
 	return l
 }
 
@@ -189,23 +198,21 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		return
 	}
 
-	// The prefix comparison runs BEFORE the intern lookup, and that ordering is
+	// The intern lookup runs BEFORE the prefix comparison, and that ordering is
 	// the whole optimisation.
 	//
-	// A delta wins on values that are nearly unique — that is what makes them
-	// resemble the row above without repeating it. Such a value is almost never
-	// referenced again, so hashing it and inserting it into the intern table is
-	// work neither side gets anything back for: a full-string hash and an insert
-	// on the encoder, an append and its retention on the decoder. The prefix
-	// compare, in contrast, stops at the first differing word, so it is cheap
-	// exactly where it is about to lose.
+	// A value the table already holds costs one or two bytes through
+	// emitStateRef, and no delta can undercut that — its cheapest form is
+	// three. So the cheap question comes first, and a hit ends the matter
+	// without the value ever being scanned.
 	//
-	// So measure first. When the delta wins, emit it and skip the intern
-	// machinery entirely; only a value the delta declines pays for the lookup.
-	// A value the intern table already holds costs one or two bytes there, which
-	// no delta can undercut — its cheapest form is three. Ask WITHOUT
-	// installing: installing is what this codec avoids for the values it does
-	// claim, and doing it here to answer a question would give that up.
+	// It is asked WITHOUT installing, which is the other half. A delta wins on
+	// values that are nearly unique — that is what makes them resemble the row
+	// above without repeating it — and such a value is almost never referenced
+	// again, so inserting it buys neither side anything: an insert on the
+	// encoder, an append and its retention on the decoder. Installing here just
+	// to answer the question would give that up, so the hash is computed once
+	// and threaded to assignHashed only if the value ends up on the plain path.
 	//
 	// The equality fast path above catches only a value identical to the base.
 	// This catches one identical to any earlier value of the field, which the
@@ -218,12 +225,15 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		return
 	}
 
+	// What the value costs in the form it would take without either codec. Both
+	// gates score against it, so it is computed once rather than per offer.
+	internCost := 1 + uvarintLen(uint64(len(s))) + len(s)
+
 	if !g.muted {
 		if strDeltaCount {
 			strDeltaProbes.Add(1)
 		}
 		p := frontDeltaCommonPrefix(*base, s)
-		internCost := 1 + uvarintLen(uint64(len(s))) + len(s)
 		// The delta must not merely win, it must win BIG: every emission adds
 		// bytes the decoder has to materialise, because a delta value is
 		// contiguous nowhere and cannot alias the read buffer the way an
@@ -281,7 +291,7 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		if fs.alphaProbe >= strAlphaRearmN {
 			fs.alphaMuted, fs.alphaProbe = false, 0
 		}
-	case e.tryWriteStringFieldAlpha(s, fs, 1+uvarintLen(uint64(len(s)))+len(s)):
+	case e.tryWriteStringFieldAlpha(s, fs, internCost):
 		// Inline semantics, exactly as the delta's win branch: the value never
 		// entered the intern table, so a following tagStateRepeat must not
 		// resurrect whatever ID was last on the chain.

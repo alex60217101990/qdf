@@ -66,6 +66,37 @@ func benchCodegenNested(b *testing.B, n int, opts qdf.Options) {
 	})
 }
 
+// The alphabet only EMITS on the hostile fixture at 64 elements — everywhere
+// else it finds nothing to pack and the wire comes out byte-identical with the
+// bit and without it (2778/2778 realistic at 64 and 512, 2892/2892 hostile at
+// 15). So every other alpha benchmark prices the codec's cost and never its
+// win: a regression in the packer or the pack loop would not show up in any of
+// them. This one fires — 11288 -> 10003, -11.4% — and has a decode twin,
+// because the decode side had no alpha benchmark at all.
+func BenchmarkCodegenTop64Alpha(b *testing.B) {
+	benchCodegenTopLevel(b, 64, qdf.OptBalanced|qdf.OptStringAlphabet)
+}
+
+func BenchmarkCodegenTop64AlphaDecode(b *testing.B) {
+	const opts = qdf.OptBalanced | qdf.OptStringAlphabet
+	plain := mkServices(64)
+	gen := make([]GenService, 64)
+	for k := range plain {
+		gen[k] = GenService(plain[k])
+	}
+	wire, err := qdf.Marshal(gen, opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		var out []GenService
+		if err := qdf.Unmarshal(wire, &out); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkCodegenTop15(b *testing.B) { benchCodegenTopLevel(b, 15, qdf.OptBalanced) }
 func BenchmarkCodegenTop15Alpha(b *testing.B) {
 	benchCodegenTopLevel(b, 15, qdf.OptBalanced|qdf.OptStringAlphabet)
