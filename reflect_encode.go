@@ -1235,7 +1235,7 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 // out of step on decode.
 func (e *Encoder) encodeStructValues(td *typeDesc, fields []fieldDesc, p unsafe.Pointer) error {
 	// Callers check td.hasStrField and e.state before getting here.
-	st := e.state.strFieldStates(td, len(fields))
+	st := e.state.strFieldStates(unsafe.Pointer(td), len(fields))
 	for i := range fields {
 		f := &fields[i]
 		if f.desc.kind == reflect.String {

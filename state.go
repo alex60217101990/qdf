@@ -312,11 +312,16 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// Appended at the tail deliberately: this struct carries a
 	// betteralign:ignore because its hot scalars are laid out first on purpose,
 	// and these three are touched once per struct, not once per value.
-	strDeltaTd      []*typeDesc
+	// The key is an opaque pointer, not a *typeDesc, because generated encoders
+	// have no typeDesc — they identify a type by the same token pointer
+	// StructShape keys the shape table with. Two callers, one store: a type is
+	// encoded through the reflect path or through generated code, never both,
+	// so the entries never collide.
+	strDeltaKey     []unsafe.Pointer
 	strDeltaField   [][]strFieldState
-	lastDeltaTd     *typeDesc
+	lastDeltaKey    unsafe.Pointer
 	lastDeltaFields []strFieldState
-	prevDeltaTd     *typeDesc
+	prevDeltaKey    unsafe.Pointer
 	prevDeltaFields []strFieldState
 }
 
