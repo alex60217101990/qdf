@@ -10,6 +10,13 @@ import (
 // sides of every pair encode the same data: "codegen" through the generated
 // methods, "reflect" through the plain twin, so a run shows what the codecs
 // cost AND what they cost relative to the path that already paid for them.
+//
+// qdf.Marshal per iteration, NOT a reused encoder with Reset(). Reset() sets
+// opts back to OptSpeed, so a loop that builds the encoder once and resets it
+// measures OptSpeed from the second iteration on — every codec silently off.
+// The first version of this file did exactly that and produced a confident
+// +144%; the profile gave it away by showing writeStringInline on a path that
+// should have been interning. This is the pattern bench/competitor.go uses.
 func benchCodegenTopLevel(b *testing.B, n int, opts qdf.Options) {
 	plain := mkServices(n)
 	gen := make([]GenService, n)
@@ -17,21 +24,17 @@ func benchCodegenTopLevel(b *testing.B, n int, opts qdf.Options) {
 		gen[k] = GenService(plain[k])
 	}
 	b.Run("codegen", func(b *testing.B) {
-		e := qdf.NewEncoderWith(opts)
-		b.ResetTimer()
+		b.ReportAllocs()
 		for b.Loop() {
-			e.Reset()
-			if err := e.EncodeValue(gen); err != nil {
+			if _, err := qdf.Marshal(gen, opts); err != nil {
 				b.Fatal(err)
 			}
 		}
 	})
 	b.Run("reflect", func(b *testing.B) {
-		e := qdf.NewEncoderWith(opts)
-		b.ResetTimer()
+		b.ReportAllocs()
 		for b.Loop() {
-			e.Reset()
-			if err := e.EncodeValue(plain); err != nil {
+			if _, err := qdf.Marshal(plain, opts); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -54,11 +57,9 @@ func benchCodegenNested(b *testing.B, n int, opts qdf.Options) {
 	}
 	gh := GenHost{Services: gsvc, Tasks: gtsk}
 	b.Run("codegen", func(b *testing.B) {
-		e := qdf.NewEncoderWith(opts)
-		b.ResetTimer()
+		b.ReportAllocs()
 		for b.Loop() {
-			e.Reset()
-			if err := e.EncodeValue(gh); err != nil {
+			if _, err := qdf.Marshal(gh, opts); err != nil {
 				b.Fatal(err)
 			}
 		}
