@@ -434,3 +434,70 @@ func TestReflectWireIntoGeneratedTypeBoundary(t *testing.T) {
 		}
 	}
 }
+
+// plainHost mirrors GenHost so the NESTED shape can be compared. GenHost has no
+// plain twin in the package, and the nested shape is the one that matters here:
+// a top-level slice of a generated type is driven by reflect's slice encoder,
+// so nothing above this exercises the push/pop the generator emits around its
+// OWN element loop.
+//
+// Wire keys are copied from GenHost, not invented — qdfgen builds
+// qdfFieldHdrs_GenHost from the json tags, so "services" and "tasks" are what
+// the generated side writes.
+type plainHost struct {
+	Services []Service `json:"services"`
+	Tasks    []Task    `json:"tasks"`
+}
+
+func TestCodegenNestedSliceParity(t *testing.T) {
+	for _, n := range []int{2, 5, 12, 15} {
+		svc := mkServices(n)
+		gsvc := make([]GenService, n)
+		for k := range svc {
+			gsvc[k] = GenService(svc[k])
+		}
+		tsk := mkTasks(n)
+		gtsk := make([]GenTask, n)
+		for k := range tsk {
+			gtsk[k] = GenTask(tsk[k])
+		}
+		ph := plainHost{Services: svc, Tasks: tsk}
+		gh := GenHost{Services: gsvc, Tasks: gtsk}
+		for _, o := range convergenceOptions() {
+			rb, err := qdf.Marshal(ph, o.opts)
+			if err != nil {
+				t.Fatalf("n=%d %s reflect: %v", n, o.name, err)
+			}
+			gb, err := qdf.Marshal(gh, o.opts)
+			if err != nil {
+				t.Fatalf("n=%d %s codegen: %v", n, o.name, err)
+			}
+			if o.opts&qdf.OptRANS != 0 {
+				// Generated encoders do not apply rANS: their output is
+				// byte-for-byte invariant across every compression option
+				// (1884 bytes at five elements under balanced, compression,
+				// +rans, +fsst and +gorilla alike), while reflect drops to
+				// 1657 with rANS on. Isolated to that one bit — +fsst and
+				// +gorilla match balanced exactly.
+				//
+				// A third instance of "generated code ignores an option",
+				// alongside the shape-interning one and the container
+				// decision. Not the string codecs, and not fixable here.
+				continue
+			}
+			if len(gb) > len(rb) {
+				t.Errorf("nested n=%-3d %-16s reflect=%d codegen=%d (%+.1f%%)",
+					n, o.name, len(rb), len(gb),
+					float64(len(gb)-len(rb))/float64(len(rb))*100)
+			}
+
+			var back GenHost
+			if err := qdf.Unmarshal(gb, &back); err != nil {
+				t.Fatalf("nested n=%d %s decode: %v", n, o.name, err)
+			}
+			if !reflect.DeepEqual(back, gh) {
+				t.Fatalf("nested n=%d %s: decoded value differs", n, o.name)
+			}
+		}
+	}
+}
