@@ -630,6 +630,32 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	fmt.Fprintf(w, "// EncodeQDF writes v's fields into e. It lets a parent thread one encoder\n")
 	fmt.Fprintf(w, "// through nested values instead of allocating an encoder per value.\n")
 	fmt.Fprintf(w, "func (v *%s) EncodeQDF(e *qdf.Encoder) error {\n", typeName)
+	// A type binds its OWN field scope, here rather than at the call sites.
+	//
+	// Binding it only where a slice loop is emitted was a silent corruption: a
+	// nested struct reached through EncodeNested kept whatever scope its parent
+	// had bound, so its WriteStringField calls indexed the PARENT's per-field
+	// state while the decoder keyed by the child's own shape. The two sides
+	// then delta against different bases and a string comes back built from a
+	// neighbouring field — no error, just wrong text.
+	//
+	// Binding here covers every entry path by construction: a nested value, a
+	// pointer element, an array element, a map value, an alias, and a slice
+	// driven by reflect. Doing it at call sites means every container shape has
+	// to remember, and four of them did not.
+	//
+	// The cost is one binding per struct instead of one per slice. The lookup
+	// is a pointer compare against a two-slot cache, so a run over one type
+	// hits the first slot every time.
+	fmt.Fprintf(w, "\tqsc := e.PushFieldScope(&%s, len(%s))\n", shapeTok, hdrsVar)
+	fmt.Fprintf(w, "\terr := v.encodeQDFFields(e)\n")
+	fmt.Fprintf(w, "\te.PopFieldScope(qsc)\n")
+	fmt.Fprintf(w, "\treturn err\n")
+	fmt.Fprintf(w, "}\n\n")
+	// A thin wrapper rather than a defer: one push, one pop, every error return
+	// inside the body covered, and no defer on a path where one measured +7.3%
+	// on OTLP and +10.4% on RTB.
+	fmt.Fprintf(w, "func (v *%s) encodeQDFFields(e *qdf.Encoder) error {\n", typeName)
 	fmt.Fprintf(w, "\te.StructShape(&%s, %s)\n", shapeTok, hdrsVar)
 	for i, f := range fields {
 		expr := "v." + f.Access
@@ -837,7 +863,12 @@ func isPlainStringField(t types.Type) bool {
 	if !ok || b.Kind() != types.String {
 		return false
 	}
-	if n, ok := t.(*types.Named); ok && hasMethod(n, "MarshalQDF") {
+	// Unalias first: with gotypesalias on — the default since Go 1.22 — an
+	// alias to a named string type is a *types.Alias, the assertion below
+	// fails, and the alias slips past the codec check that the named type
+	// itself is caught by. Encode then writes the bare string while decode
+	// routes through the codec, and a value comes back mangled.
+	if n, ok := types.Unalias(t).(*types.Named); ok && hasMethod(n, "MarshalQDF") {
 		return false
 	}
 	return true
@@ -1247,53 +1278,13 @@ func (g *gen) emitEncodeSlice(w io.Writer, expr string, s *types.Slice, indent s
 func (g *gen) emitEncodeSliceRowMajorBody(w io.Writer, expr string, elem types.Type, indent string) error {
 	fmt.Fprintf(w, "%se.WriteArrayHeader(len(%s))\n", indent, expr)
 
-	// Bind the element type's field-state scope ONCE around the loop, not once
-	// per element: the lookup is a token compare, and hoisting it turns one per
-	// row into one per slice. A bound scope is also what enables the row-major
-	// string codecs — they code a value against the previous row of the same
-	// field, which is meaningful only inside a loop like this one.
-	//
-	// Only for element types generated in this run. A hand-written or
-	// stale-generation element has no token to name, and binding a scope it
-	// will not use would only clear the parent's for the duration.
-	scopeVar := ""
-	if named, ok := elem.(*types.Named); ok && g.targets[named.Obj().Name()] {
-		en := named.Obj().Name()
-		scopeVar = g.fresh("sc")
-		fmt.Fprintf(w, "%s%s := e.PushFieldScope(&qdfShapeTok_%s, len(qdfFieldHdrs_%s))\n",
-			indent, scopeVar, en, en)
-	}
-
 	loopVar := g.fresh("i")
 	fmt.Fprintf(w, "%sfor %s := range %s {\n", indent, loopVar, expr)
-	if err := g.emitEncodeValueScoped(w, expr+"["+loopVar+"]", elem, indent+"\t", scopeVar); err != nil {
+	if err := g.emitEncodeValue(w, expr+"["+loopVar+"]", elem, indent+"\t"); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "%s}\n", indent)
-	if scopeVar != "" {
-		fmt.Fprintf(w, "%se.PopFieldScope(%s)\n", indent, scopeVar)
-	}
 	return nil
-}
-
-// emitEncodeValueScoped is emitEncodeValue with a field scope to release before
-// any early return inside the loop. Leaving a scope bound after a failed encode
-// would hand whatever runs next another type's field state.
-func (g *gen) emitEncodeValueScoped(w io.Writer, expr string, t types.Type, indent, scopeVar string) error {
-	if scopeVar == "" {
-		return g.emitEncodeValue(w, expr, t, indent)
-	}
-	var buf bytes.Buffer
-	if err := g.emitEncodeValue(&buf, expr, t, indent); err != nil {
-		return err
-	}
-	// The generated element encode returns early on error; release the scope on
-	// the way out. Textual because the emitter writes whole statements.
-	body := strings.ReplaceAll(buf.String(),
-		"return err",
-		"e.PopFieldScope("+scopeVar+")\n"+indent+"\t\treturn err")
-	_, err := w.Write([]byte(body))
-	return err
 }
 
 // emitEncodeColumnarSlice emits a compile-time transpose of a []struct into the

@@ -296,35 +296,23 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// The probe cost is negligible because the same elements
 		// are emitted exactly once.
 		const sliceProbeSize = 32
-		// A generated element type names its field-state identity, resolved at
-		// descriptor build. Bind it once around the loop so the row-major string
-		// codecs apply to a slice reflect is driving — qdf.Marshal on a
-		// []GenService reaches EncodeQDF per element, and without this the
-		// codecs would be reachable only when generated code drives the loop.
-		// scopeToken is nil for every other type, and PushFieldScope then binds
-		// nothing.
 		if n <= sliceProbeSize {
 			prev := e.inRepeated
 			e.inRepeated = true
-			esc := e.PushFieldScope(elem.scopeToken, elem.scopeFields)
 			for i := range n {
 				if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
-					e.PopFieldScope(esc)
 					e.inRepeated = prev
 					return err
 				}
 			}
-			e.PopFieldScope(esc)
 			e.inRepeated = prev
 			return nil
 		}
 		prev := e.inRepeated
 		e.inRepeated = true
-		esc := e.PushFieldScope(elem.scopeToken, elem.scopeFields)
 		probeStart := len(e.buf)
 		for i := range sliceProbeSize {
 			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
-				e.PopFieldScope(esc)
 				e.inRepeated = prev
 				return err
 			}
@@ -345,12 +333,10 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		}
 		for i := sliceProbeSize; i < n; i++ {
 			if err := elem.encode(e, unsafe.Add(base, uintptr(i)*stride)); err != nil {
-				e.PopFieldScope(esc)
 				e.inRepeated = prev
 				return err
 			}
 		}
-		e.PopFieldScope(esc)
 		e.inRepeated = prev
 		return nil
 	}

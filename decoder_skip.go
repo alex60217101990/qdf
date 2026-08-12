@@ -217,6 +217,21 @@ func (d *Decoder) Skip() error {
 	case tagStateRef, tagStateRepeat, tagStateMTF, tagStatePair:
 		_, err := d.readStringBytes()
 		return err
+	case tagStrDelta, tagStrAlpha:
+		// Read rather than step over, for the same reason the intern forms do:
+		// both carry per-field state that must advance even when the value is
+		// thrown away. A delta value that is skipped without advancing its base
+		// leaves the next value of that field rebuilding against a stale
+		// prefix, and a skipped alphabet DECLARATION leaves the table unrecorded
+		// so the next reference to it fails.
+		//
+		// Reached from generated decoders, which route every wire field the
+		// target type does not declare to Skip. The reflect decoder never comes
+		// here — it reads such fields through readStringBytes itself — which is
+		// why the gap stayed invisible until generated encoders started
+		// emitting these tags.
+		_, err := d.readStringBytes()
+		return err
 	case tagMapShape:
 		// Wire form mirrors the decode path: either a declaration
 		// (shapeID==0, varuint(N), N keys, N values) or a reuse
