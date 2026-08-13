@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -352,6 +353,18 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	elemDynamic := elemType == reflect.TypeFor[map[string]any]() || elemType.Kind() == reflect.Interface
 	elemPF := noPointers(elemType)     // gate for backing reuse (computed once per type)
 	elemHasMap := typeDescHasMap(elem) // gate the map-recycle harvest (once per type)
+	// elemCustomCodec marks the one class that can reach the columnar fallback
+	// below: a struct element whose descriptor carries no columnar plan because
+	// it has a codec of its own. Decided once per type so the decode path pays a
+	// branch on a constant rather than an interface check per slice.
+	elemCustomCodec := colPlan == nil && !elemDynamic && elemType.Kind() == reflect.Struct &&
+		(reflect.PointerTo(elemType).Implements(reflect.TypeFor[Marshaler]()) ||
+			reflect.PointerTo(elemType).Implements(reflect.TypeFor[Unmarshaler]()))
+	// Built at most once, on the first columnar frame this type actually meets.
+	// An atomic pointer rather than sync.Once: two racing builders produce
+	// equivalent plans, one wins, and the result is immutable — while sync.Once
+	// would put its cost on every read, which is the path that matters.
+	var fallbackPlan atomic.Pointer[columnarPlan]
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if d.decodeNilSlice(p) { // tagNil → nil slice (distinct from empty)
 			return nil
@@ -385,6 +398,33 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 					}
 					return decodeHybridColumnar(d, t, colPlan, p)
 				}
+			}
+		}
+		// A columnar frame written for an element type that has its own codec.
+		// The frame could only have come from the structural encoder — a
+		// hand-written codec writes its own format — so reading it structurally
+		// reproduces what the producer wrote. Refusing it loses a value that is
+		// fully described on the wire, which is what happened before this branch.
+		if elemCustomCodec {
+			if tag, err := d.peekTag(); err == nil &&
+				(tag == tagColStruct || tag == tagHybridColStruct) {
+				plan := fallbackPlan.Load()
+				if plan == nil {
+					if plan = structuralColumnarPlan(elemType); plan == nil {
+						return ErrTypeMismatch // not describable — as before
+					}
+					fallbackPlan.Store(plan)
+				}
+				if d.query != nil {
+					if tag == tagHybridColStruct {
+						return ErrUnsupported // v1: query/Select over a hybrid payload
+					}
+					return decodeColumnarQuery(d, t, plan, p)
+				}
+				if tag == tagHybridColStruct {
+					return decodeHybridColumnar(d, t, plan, p)
+				}
+				return decodeColumnar(d, t, plan, p)
 			}
 		}
 		if elemDynamic {
