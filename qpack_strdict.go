@@ -2,7 +2,9 @@ package qdf
 
 import (
 	"cmp"
+	"encoding/binary"
 	"hash/maphash"
+	"math/bits"
 	"slices"
 	"sync/atomic"
 
@@ -252,27 +254,60 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 	return true
 }
 
+// strDiscriminator is a cheap key that AGREES on equal strings and should
+// DISAGREE on unequal ones. It reads the length and BOTH ENDS, because the data
+// this library exists for shares long prefixes — service names, paths, ACLs — so
+// a key taken from the head alone would collide on exactly the input that
+// matters.
+//
+// A collision costs one full compare, which still runs, so the distinct count is
+// exact and the codec decision it feeds is unchanged.
+func strDiscriminator(s string) uint64 {
+	n := len(s)
+	k := uint64(n) * 0x9E3779B97F4A7C15
+	if n >= 8 {
+		b := unsafestr.Bytes(s)
+		k ^= binary.LittleEndian.Uint64(b[n-8:])
+		k = bits.RotateLeft64(k, 27)
+		k ^= binary.LittleEndian.Uint64(b[:8])
+		return k
+	}
+	for i := range n {
+		k = k*31 + uint64(s[i])
+	}
+	return k
+}
+
 // dictSampleHighCard reports whether a leading sample of strs is mostly distinct
-// (> qpackStrDictSampleMaxPct), using a fixed stack array and a linear scan — no
+// (> qpackStrDictSampleMaxPct), using fixed stack arrays and a linear scan — no
 // map, no allocation. It mirrors the in-loop high-cardinality bail of
 // tryWriteStringColumnDict so a mostly-distinct column can exit before the hash
-// map is built. The linear O(sample²) compares are cheap because distinct values
-// (random IDs) diverge in their first bytes, so most comparisons fail fast.
+// map is built.
+//
+// The scan compares DISCRIMINATORS, not strings. It used to compare the strings
+// themselves, resting on a documented assumption — "distinct values (random IDs)
+// diverge in their first bytes, so most comparisons fail fast" — that the data
+// this library targets violates: service names, paths and ACLs share long
+// prefixes, so every comparison walked the whole prefix before it could differ.
+// runtime.memequal was 30.6% of a profiled columnar encode.
 func dictSampleHighCard(strs []string) bool {
 	sampleN := min(len(strs), qpackStrDictSampleN)
 	var seen [qpackStrDictSampleN]string
+	var keys [qpackStrDictSampleN]uint64
 	distinct := 0
 	for i := range sampleN {
 		s := strs[i]
+		k := strDiscriminator(s)
 		fresh := true
 		for j := 0; j < distinct; j++ {
-			if seen[j] == s {
+			if keys[j] == k && seen[j] == s {
 				fresh = false
 				break
 			}
 		}
 		if fresh {
 			seen[distinct] = s
+			keys[distinct] = k
 			distinct++
 		}
 	}
