@@ -3,7 +3,6 @@ package qdf
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"runtime"
 	"testing"
 )
 
@@ -142,41 +141,45 @@ func TestWideScratchSurvivesLargeColumns(t *testing.T) {
 		return wideCol{Data: d}
 	}
 
-	measure := func(v wideCol) uint64 {
-		for range 50 { // let the pooled scratch settle
-			if _, err := Marshal(v, OptBalanced); err != nil {
-				t.Fatal(err)
-			}
-		}
-		var a, b runtime.MemStats
-		runtime.ReadMemStats(&a)
-		const runs = 100
-		for range runs {
-			if _, err := Marshal(v, OptBalanced); err != nil {
-				t.Fatal(err)
-			}
-		}
-		runtime.ReadMemStats(&b)
-		return (b.TotalAlloc - a.TotalAlloc) / runs
-	}
-
-	const largeN = 100000 // over the former 1<<14 ceiling, under the current 1<<17
-	small := measure(mk(8192))
-	large := measure(mk(largeN))
-
-	// The scratch is []uint64, so dropping and rebuilding it costs exactly 8
-	// bytes per element per message. Bound the whole message by that figure:
-	// well above what the column legitimately allocates, well below what it
-	// costs to rebuild the scratch on top of that.
+	// The property is what putEnc does with the widening scratch on release:
+	// keep it when it is within the retention ceiling, drop it when it is a
+	// one-off spike. Asserted on the scratch itself.
 	//
-	// The bound is absolute rather than a multiple of the small column because
-	// -race inflates every allocation, and by different factors on different
-	// runners. Measured per element: 2.1 B fixed without -race, up to 6.0 B
-	// fixed under it, against 10.2 B with the ceiling back at 1<<14 — so 8 B
-	// separates the two regimes in both modes.
-	if limit := uint64(8 * largeN); large > limit {
-		t.Errorf("a %d-element column allocates %d B/op (limit %d, small column %d) — the widening scratch is being dropped every message",
-			largeN, large, limit, small)
+	// It used to be inferred from a MemStats delta over 100 pooled Marshal
+	// calls, and that measurement could not see what it claimed to. In a full
+	// suite it failed about one run in three, blaming the scratch, while a
+	// memory profile of a failing run put widenI64 at 2.6% of allocation and
+	// resetForReuse at all the rest: the buffer HINT (encoder.go:524)
+	// pre-allocates cap(previous output) whenever a pooled encoder comes back
+	// with an empty buffer, so a hint left by a neighbouring test dominated the
+	// figure. Which encoder the pool returned depended on GC timing, so the
+	// verdict inverted with GOGC — off failed 5/5, GOGC=1 passed 3/3, the
+	// opposite of what a scratch-retention test should do.
+	release := func(n int) (retained int, ceiling int) {
+		enc := NewEncoderWith(OptBalanced)
+		if err := enc.EncodeValue(mk(n)); err != nil {
+			t.Fatalf("n=%d: %v", n, err)
+		}
+		if cap(enc.wideI64) == 0 {
+			t.Fatalf("n=%d: encoding an []int32 column did not widen anything — the test "+
+				"is no longer exercising the path it names", n)
+		}
+		putEnc(enc, &encPool)
+		return cap(enc.wideI64), maxRetainedWideScratch
 	}
-	t.Logf("8192 elems: %d B/op   %d elems: %d B/op (%.1f B/elem)", small, largeN, large, float64(large)/largeN)
+
+	// Under the ceiling: kept, so the next message of the same shape reuses it.
+	const largeN = 100000 // over the former 1<<14 ceiling, under the current 1<<17
+	if got, ceiling := release(largeN); got == 0 {
+		t.Errorf("a %d-element column released its widening scratch (ceiling %d) — every "+
+			"message of this shape now rebuilds it", largeN, ceiling)
+	}
+
+	// Over the ceiling: dropped, so one spike does not pin megabytes on a
+	// pooled encoder forever. Without this arm the test would pass with the
+	// retention check deleted and the scratch simply kept unconditionally.
+	if got, ceiling := release(maxRetainedWideScratch + 1); got != 0 {
+		t.Errorf("a spike-sized column kept a %d-element widening scratch (ceiling %d) — "+
+			"it is pinned on the pooled encoder", got, ceiling)
+	}
 }
