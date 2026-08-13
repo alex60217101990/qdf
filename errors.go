@@ -6,16 +6,24 @@ import (
 )
 
 var (
-	ErrShortBuffer    = errors.New("qdf: short buffer")
-	ErrBadMagic       = errors.New("qdf: bad magic / not a qdf stream")
-	ErrBadVersion     = errors.New("qdf: unsupported wire version")
-	ErrBadTag         = errors.New("qdf: unknown tag")
-	ErrTypeMismatch   = errors.New("qdf: type mismatch on decode")
-	ErrInvalidLength  = errors.New("qdf: invalid length prefix")
-	ErrUnknownStateID = errors.New("qdf: unknown state-table id")
-	ErrUnsupported    = errors.New("qdf: unsupported type")
-	ErrCycleDetected  = errors.New("qdf: pointer cycle detected (max depth exceeded)")
-	ErrFieldNotFound  = errors.New("qdf: query predicate field not found")
+	ErrShortBuffer   = errors.New("qdf: short buffer")
+	ErrBadMagic      = errors.New("qdf: bad magic / not a qdf stream")
+	ErrBadVersion    = errors.New("qdf: unsupported wire version")
+	ErrBadTag        = errors.New("qdf: unknown tag")
+	ErrTypeMismatch  = errors.New("qdf: type mismatch on decode")
+	ErrInvalidLength = errors.New("qdf: invalid length prefix")
+	// ErrAppendAfterFrame is returned when a Marshaler is asked to append into a
+	// buffer whose body has already been framed — compressed, in practice. Its
+	// bytes are one sealed unit, so appending plain tags after them does not
+	// extend the message; it corrupts the frame and destroys the value that was
+	// there. Appending after a completed message never produced a readable
+	// two-value wire, so this reports what was always true rather than removing
+	// a capability.
+	ErrAppendAfterFrame = errors.New("qdf: cannot append to an already-framed (compressed) buffer")
+	ErrUnknownStateID   = errors.New("qdf: unknown state-table id")
+	ErrUnsupported      = errors.New("qdf: unsupported type")
+	ErrCycleDetected    = errors.New("qdf: pointer cycle detected (max depth exceeded)")
+	ErrFieldNotFound    = errors.New("qdf: query predicate field not found")
 	// ErrStreamBadFlags is returned by StreamDecoder.Decode when the stream
 	// header carries whole-payload flags that do not apply to a frame stream
 	// (FlagRANS / FlagColIndex). A conforming StreamEncoder never sets them; a
