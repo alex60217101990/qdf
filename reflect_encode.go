@@ -365,6 +365,11 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 	// equivalent plans, one wins, and the result is immutable — while sync.Once
 	// would put its cost on every read, which is the path that matters.
 	var fallbackPlan atomic.Pointer[columnarPlan]
+	// And the refusal is remembered too. Without it an element that cannot be
+	// described structurally walks its fields, allocates them and throws the lot
+	// away on EVERY decode — unbounded repeated work on the one path that gets
+	// nothing for it.
+	var fallbackRefused atomic.Bool
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if d.decodeNilSlice(p) { // tagNil → nil slice (distinct from empty)
 			return nil
@@ -410,7 +415,11 @@ func decodeSlice(t reflect.Type, elem *typeDesc, stride uintptr, colPlan *column
 				(tag == tagColStruct || tag == tagHybridColStruct) {
 				plan := fallbackPlan.Load()
 				if plan == nil {
+					if fallbackRefused.Load() {
+						return ErrTypeMismatch // decided once, on the first frame
+					}
 					if plan = structuralColumnarPlan(elemType); plan == nil {
+						fallbackRefused.Store(true)
 						return ErrTypeMismatch // not describable — as before
 					}
 					fallbackPlan.Store(plan)
