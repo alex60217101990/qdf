@@ -67,10 +67,17 @@ func TestTopLevelGeneratedStructIsRANSFramed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The framing bit is the property this test is named for, and unlike a size
+	// comparison it cannot be satisfied by degrading the other side: a
+	// regression that INFLATED the OptBalanced wire would make a
+	// smaller-than-balanced assertion easier to pass, not harder.
+	if structRANS[4]&qdf.FlagRANS == 0 {
+		t.Errorf("a top-level generated struct came back with header flag %08b, "+
+			"FlagRANS clear — the body was not framed", structRANS[4])
+	}
 	if len(structRANS) >= len(structBal) {
 		t.Errorf("a top-level generated struct went %d -> %d with rANS (no change), "+
-			"while the same rows as a slice went %d -> %d (%.1f%% off) — the struct "+
-			"is not being framed",
+			"while the same rows as a slice went %d -> %d (%.1f%% off)",
 			len(structBal), len(structRANS), len(sliceBal), len(sliceRANS),
 			float64(len(sliceBal)-len(sliceRANS))/float64(len(sliceBal))*100)
 	}
@@ -103,61 +110,12 @@ func TestTopLevelGeneratedStructIsRANSFramed(t *testing.T) {
 	}
 }
 
-// handBlob is a HAND-WRITTEN Marshaler in the shape this repository already
-// uses for one (see GenTag): a self-delimiting body it writes and reads itself,
-// with no reference to the encoder's Options at all.
+// The hand-written side of this distinction is NOT tested here on purpose.
+// marshaler_framing_test.go in the root package already covers it and covers it
+// more strictly — it asserts the flag byte is zero, where a version of this test
+// only compared two wires for equality and would have missed a Balanced header
+// stamped onto a hand-written body while rANS declined.
 //
-// That is precisely the contract customFramed protects. Reframing such a body
-// would stamp FlagRANS onto bytes that were never produced under those options,
-// and the fix below must not touch it.
-type handBlob struct {
-	Payload string
-}
-
-func (h handBlob) MarshalQDF(dst []byte) ([]byte, error) {
-	dst = append(dst, 'B', byte(len(h.Payload)>>8), byte(len(h.Payload)))
-	return append(dst, h.Payload...), nil
-}
-
-func (h *handBlob) UnmarshalQDF(src []byte) (int, error) {
-	if len(src) < 3 || src[0] != 'B' {
-		return 0, qdfErrShort
-	}
-	n := int(src[1])<<8 | int(src[2])
-	if len(src) < 3+n {
-		return 0, qdfErrShort
-	}
-	h.Payload = string(src[3 : 3+n])
-	return 3 + n, nil
-}
-
-// The protection must survive the fix: a hand-written Marshaler stays unframed.
-//
-// Its body is opts-invariant by contract, so the bytes come out identical with
-// rANS on and off — and they must, or the decoder is handed a FlagRANS frame
-// around a payload that was never compressed.
-func TestHandWrittenMarshalerIsNotReframed(t *testing.T) {
-	// Long and entirely uniform, so rANS would certainly take it if allowed to.
-	v := handBlob{Payload: string(make([]byte, 4096))}
-
-	plain, err := qdf.Marshal(v, qdf.OptBalanced)
-	if err != nil {
-		t.Fatal(err)
-	}
-	framed, err := qdf.Marshal(v, qdf.OptBalanced|qdf.OptRANS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(plain) != string(framed) {
-		t.Fatalf("a hand-written Marshaler's bytes changed with rANS: %d vs %d — its body "+
-			"is opts-invariant by contract and must not be reframed",
-			len(plain), len(framed))
-	}
-	var got handBlob
-	if err := qdf.Unmarshal(framed, &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if got.Payload != v.Payload {
-		t.Fatal("hand-written Marshaler did not round-trip")
-	}
-}
+// That test was also verified to fail if this change is made too broadly (the
+// kind distinction dropped, customFramed never set), so the guard is real and
+// duplicating it here would only be a second thing to maintain.
