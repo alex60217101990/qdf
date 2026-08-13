@@ -288,6 +288,41 @@ func buildColumnarPlan(td *typeDesc) *columnarPlan {
 	return plan
 }
 
+// structuralColumnarPlan builds a columnar plan for et from a SYNTHETIC
+// descriptor, for the one case the shared descriptor cannot serve: an element
+// type that carries a codec of its own.
+//
+// fillDesc returns early for such a type with no fields, so buildColumnarPlan
+// yields nil for its shared descriptor and the slice decoder has no plan to read
+// a columnar frame with. descBuild cannot help — it consults typeCache first and
+// would hand back that same fieldless descriptor.
+//
+// The result is used ONLY on decode, and only once a columnar frame has actually
+// been seen. That is what makes reading the type structurally faithful rather
+// than a guess: a hand-written codec writes its own format and never produces a
+// columnar frame, so meeting one is evidence the producer was the structural
+// encoder.
+//
+// The synthetic descriptor is deliberately not published to typeCache and never
+// replaces the shared one. Giving the shared descriptor fields would also give it
+// a columnar plan, and that plan feeds the slice ENCODER — which would start
+// transposing a type whose codec must be called.
+//
+// nil for anything that cannot be described structurally; the caller then behaves
+// exactly as it did before.
+func structuralColumnarPlan(et reflect.Type) *columnarPlan {
+	if et.Kind() != reflect.Struct {
+		return nil
+	}
+	ctx := &buildCtx{inProgress: make(map[reflect.Type]*typeDesc)}
+	fields, err := buildStructFields(et, ctx)
+	if err != nil {
+		return nil
+	}
+	// buildColumnarPlan reads exactly these three.
+	return buildColumnarPlan(&typeDesc{kind: reflect.Struct, rType: et, fields: fields})
+}
+
 // colShapeDeclare registers a new columnar shape (names + kinds) on the encoder
 // and returns its 1-based wire ID. Always appends; call colShapeFor first to
 // avoid duplicates.
