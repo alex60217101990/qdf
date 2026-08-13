@@ -205,6 +205,22 @@ func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 }
 
 func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*Encoder, unsafe.Pointer) error {
+	// elemGenerated marks an element type that qdfgen produced: it carries the
+	// FieldScoper marker, which only generated code emits. That is what makes
+	// transposing it faithful — a generated encoder is structural, so the
+	// columnar form reproduces the same values, while a hand-written MarshalQDF
+	// may write anything and must never be bypassed.
+	//
+	// Decided once per type, so the hot path pays a branch on a constant.
+	elemGenerated := colPlan == nil && elem != nil && elem.rType != nil &&
+		elem.rType.Kind() == reflect.Struct &&
+		reflect.PointerTo(elem.rType).Implements(reflect.TypeFor[FieldScoper]())
+	// Built at most once, and only for an encoder that asked for it. It cannot
+	// live on the descriptor: typeCache is keyed by reflect.Type alone, so one
+	// descriptor serves encoders built with different options, and attaching the
+	// plan there would let the first encoder to touch a type decide for all of
+	// them. The closure is per-type and per-descriptor, which is the right scope.
+	var genPlan atomic.Pointer[columnarPlan]
 	return func(e *Encoder, p unsafe.Pointer) error {
 
 		if e.encodeNilSlice(p) { // nil slice → tagNil (distinct from empty)
@@ -259,16 +275,25 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// string columns are compressed by the symbol table (AD/log/RTB win at
 		// OptCompression). A hybrid plan with no string column and no FSST still
 		// falls through to row-major, byte-identical to today.
-		if colPlan != nil && n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
+		plan := colPlan
+		if plan == nil && elemGenerated && n >= columnarMinElems &&
+			e.opts.Has(OptColumnarGenerated) {
+			if plan = genPlan.Load(); plan == nil {
+				if plan = structuralColumnarPlan(elem.rType); plan != nil {
+					genPlan.Store(plan)
+				}
+			}
+		}
+		if plan != nil && n >= columnarMinElems && e.state != nil && !e.stateSuspended &&
 			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
 			// internAware is unchanged here on purpose: this commit changes only
 			// WHICH columns are transposed, not how any column is scored. The
 			// scoring correction is a separate change so that a failure in
 			// either one names its own cause.
-			pure := colPlan.residual == nil
-			internAware := !pure && !e.fsst && colPlan.hasStringCol
+			pure := plan.residual == nil
+			internAware := !pure && !e.fsst && plan.hasStringCol
 			if pure || e.fsst || internAware {
-				if sel, ok := e.columnarSelect(colPlan, hdr.Data, n, internAware); ok {
+				if sel, ok := e.columnarSelect(plan, hdr.Data, n, internAware); ok {
 					e.writeHeader()
 					var err error
 					if sel.residual == nil {
@@ -276,9 +301,13 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 					} else {
 						err = e.encodeHybridColumnar(sel, hdr.Data, n)
 					}
-					// sel != colPlan means columnarSelect derived a partial plan
-					// and took a depth slot; it is finished with now.
-					if sel != colPlan {
+					// sel != plan means columnarSelect derived a partial plan
+					// and took a depth slot; it is finished with now. Compared
+					// against plan, not colPlan: under OptColumnarGenerated the
+					// latter is nil while the former is the plan actually used,
+					// so comparing colPlan would count a derivation on every
+					// transposed slice and drift deriveDepth downwards.
+					if sel != plan {
 						e.deriveDepth--
 					}
 					return err
