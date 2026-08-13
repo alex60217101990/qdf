@@ -2075,21 +2075,36 @@ func encodeMarshaler(t reflect.Type) func(*Encoder, unsafe.Pointer) error {
 		// and the decoder allocates dense state it never uses. Nested
 		// Marshaler fields (header already emitted) are unaffected: their
 		// custom body is written inline as before.
-		if !e.headerOut {
-			savedMode, savedQPack := e.mode, e.qpack
-			e.mode, e.qpack = Fast, false
-			e.writeHeader()
-			e.mode, e.qpack = savedMode, savedQPack
-			// The top-level Marshaler owns the framing (Fast). Mark it so the
-			// post-encode rANS pass leaves the body opts-invariant.
-			e.customFramed = true
-		}
 		m := reflect.NewAt(t, p).Interface().(Marshaler)
-		// Thread the shared encoder when the type supports it (generated code):
-		// no fresh encoder (and its state) per element, and shape/intern state is
-		// shared across a slice so it can be interned. The top-level framing above
-		// has already run; EncodeQDF writes the body into e directly.
-		if em, ok := m.(EncoderMarshaler); ok {
+		// Which KIND of Marshaler decides the framing, so it has to be known
+		// before the header is written.
+		//
+		// An EncoderMarshaler — generated code — writes its body into THIS
+		// encoder and honours its mode: StructShape and WriteStringField both
+		// respect Dense. Its bytes are not opts-invariant, so the header must
+		// state the real mode and the post-encode rANS pass may reframe them.
+		// Forcing Fast and marking customFramed for it cost a top-level
+		// generated struct every byte rANS would have saved — measured at 2205
+		// against 1084->925 for the same rows as a slice.
+		//
+		// A plain Marshaler emits its own Fast body and never looks at Options,
+		// which is the contract the Fast header and customFramed exist for.
+		em, threaded := m.(EncoderMarshaler)
+		if !e.headerOut {
+			if threaded {
+				e.writeHeader()
+			} else {
+				savedMode, savedQPack := e.mode, e.qpack
+				e.mode, e.qpack = Fast, false
+				e.writeHeader()
+				e.mode, e.qpack = savedMode, savedQPack
+				e.customFramed = true
+			}
+		}
+		// Thread the shared encoder when the type supports it: no fresh encoder
+		// (and its state) per element, and shape/intern state is shared across a
+		// slice so it can be interned.
+		if threaded {
 			return em.EncodeQDF(e)
 		}
 		out, err := m.MarshalQDF(e.buf)

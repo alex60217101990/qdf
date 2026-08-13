@@ -14,9 +14,16 @@ import (
 func TestNamedCodecFieldRoutesThroughCodec(t *testing.T) {
 	v := GenNamedCodec{Label: "hello", N: 42}
 
-	// Interop invariant: generated MarshalQDF must produce byte-identical wire to
-	// the reflect encoder (which routes GenTag through MarshalQDF). A bypass emits
-	// the bare string instead of the codec frame → the wires differ.
+	// Interop invariant: generated MarshalQDF must produce the same BODY as the
+	// reflect encoder (which routes GenTag through MarshalQDF). A bypass emits
+	// the bare string instead of the codec frame → the bodies differ.
+	//
+	// Bodies, not whole wires. The two entry points frame differently by design:
+	// MarshalQDF builds its own encoder at qdf.Fast and ignores Options, while
+	// qdf.Marshal states the mode it was asked for. They agreed only while the
+	// reflect path forced a Fast header onto every top-level Marshaler, which
+	// also cost generated structs their rANS framing. The header is five bytes
+	// and is not what this test is about.
 	gb, err := any(&v).(interface{ MarshalQDF([]byte) ([]byte, error) }).MarshalQDF(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -25,8 +32,13 @@ func TestNamedCodecFieldRoutesThroughCodec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(gb, rb) {
-		t.Fatalf("generated wire diverges from reflect (codec bypassed):\n gen=%q\nrefl=%q", gb, rb)
+	const hdr = 5
+	if len(gb) < hdr || len(rb) < hdr {
+		t.Fatalf("wire shorter than a header: gen=%d refl=%d", len(gb), len(rb))
+	}
+	if !bytes.Equal(gb[hdr:], rb[hdr:]) {
+		t.Fatalf("generated body diverges from reflect (codec bypassed):\n gen=%q\nrefl=%q",
+			gb[hdr:], rb[hdr:])
 	}
 
 	// Round-trip via the generated codec preserves the value.
