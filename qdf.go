@@ -412,18 +412,32 @@ const (
 	// element's own EncodeQDF.
 	//
 	// It is OFF by default and in every preset, because it is a trade rather than
-	// an improvement. Measured on a 512-element service fixture, OptBalanced:
+	// an improvement — and one whose SIGN depends on the data.
+	//
+	// It wins on values that differ in the MIDDLE, where the row-major per-field
+	// string delta has little to code. Measured on a 512-element service fixture,
+	// OptBalanced:
 	//
 	//	                wire     encode    decode   encode B/op  decode allocs
 	//	row-major      88,035   110.5us   105.8us     94.9 KiB          2063
 	//	columnar       54,141   172.2us   136.4us     56.8 KiB            30
 	//	                -38.5%    +55.8%    +28.9%       -40.1%        -98.6%
 	//
-	// At 64 elements the encode cost is +242.7%. Reach for this when bytes are
-	// scarce — a network hop, a stored blob — and leave it off in a hot encode
-	// loop. The cost is not an implementation defect: more than half of a
-	// columnar encode is choosing a codec per column, and those scans are what
-	// make the wire small.
+	// At 64 elements the encode cost is +242.7%.
+	//
+	// It LOSES on pure-prefix values, which the row-major delta codes almost
+	// perfectly and a per-column layout cannot match: a 64-element fixture of
+	// "com.acme.platform.worker.service."+counter strings goes 1,084 bytes
+	// row-major to 2,197 transposed — twice as large. Nested struct fields hurt
+	// it further, since they become residual columns.
+	//
+	// So measure it on YOUR data before enabling it; there is no size gate here
+	// to protect you, unlike the per-column codecs, which decline when they would
+	// grow the wire. Reach for it when bytes are scarce — a network hop, a stored
+	// blob — and leave it off in a hot encode loop. The CPU cost is not an
+	// implementation defect: more than half of a columnar encode is choosing a
+	// codec per column, and those scans are what make the wire small when it is
+	// small at all.
 	//
 	// The bytes produced are exactly what the same data written as a PLAIN struct
 	// slice already produces, so every existing reader handles them, and a
