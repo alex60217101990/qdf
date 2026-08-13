@@ -602,6 +602,15 @@ func (g *gen) emitMarshal(typeName string, fields []fieldInfo) error {
 	// Decide whether dst already contains a QDF stream (nested call) or is
 	// a fresh buffer (top-level call). We use the magic bytes to detect.
 	fmt.Fprintf(w, "\thadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2\n")
+	// A framed body is one sealed unit. Appending plain tags after it does not
+	// extend the message — it corrupts the frame, and the value that WAS
+	// readable stops being so. Before entropy framing could reach these bodies
+	// the same append merely produced trailing bytes every decoder ignored, so
+	// nothing usable is being taken away; the difference is that the failure is
+	// now reported instead of silently destroying data.
+	fmt.Fprintf(w, "\tif hadHeader && dst[4]&qdf.FlagRANS != 0 {\n")
+	fmt.Fprintf(w, "\t\treturn nil, qdf.ErrAppendAfterFrame\n")
+	fmt.Fprintf(w, "\t}\n")
 	fmt.Fprintf(w, "\te := qdf.NewEncoderOnBuf(dst, qdf.Fast)\n")
 	fmt.Fprintf(w, "\tif hadHeader {\n\t\te.MarkHeaderWritten()\n\t} else {\n\t\te.EnsureHeader()\n\t}\n")
 	fmt.Fprintf(w, "\tif err := v.EncodeQDF(e); err != nil {\n\t\treturn nil, err\n\t}\n")

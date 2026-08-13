@@ -94,10 +94,23 @@ func DecodeNested(d *Decoder, u Unmarshaler) error {
 // from a QDF wire-format slice. Implementations should consume exactly one
 // value from src and return the number of bytes consumed.
 //
-// A custom UnmarshalQDF reads the Fast wire format. Marshal honours this: a
-// type implementing Marshaler always emits its Fast-format body and is framed
-// as Fast regardless of the Options passed, so Marshaler+Unmarshaler types
-// round-trip under any Options. A type that implements Unmarshaler WITHOUT
+// A custom UnmarshalQDF reads the Fast wire format, and Marshal honours that
+// for a HAND-WRITTEN Marshaler: such a type emits its own Fast body and is
+// framed as Fast regardless of the Options passed, so it round-trips under any
+// Options and its wire may be read by stripping the five-byte header and
+// calling UnmarshalQDF directly.
+//
+// An EncoderMarshaler — generated code — is different, and the difference
+// matters to anyone reading its bytes by hand. It writes its body into the
+// caller's encoder and honours that encoder's Options, so its framing follows
+// them too: under OptRANS or OptCompression the body is entropy-coded and
+// everything after the header is a compressed blob, not a tag stream. Read it
+// through Unmarshal or UnmarshalDirect, which unframe first. Stripping five
+// bytes and calling UnmarshalQDF on the remainder was never guaranteed and now
+// fails outright on a framed body — usually with an error, but a compressed
+// blob is arbitrary bytes and a parser can be unlucky.
+//
+// A type that implements Unmarshaler WITHOUT
 // also implementing Marshaler is encoded structurally; under a Dense/QPack
 // tier that produces a Dense body its Fast-only UnmarshalQDF cannot read.
 // Implement both interfaces (or neither) to avoid this — generated code from

@@ -2067,14 +2067,8 @@ func decodeTime(d *Decoder, p unsafe.Pointer) error {
 
 func encodeMarshaler(t reflect.Type) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
-		// A Marshaler emits its own Fast-format body and ignores the
-		// encoder's Options. When it is the top-level value, frame the
-		// stream honestly as Fast (flag 0) instead of stamping the
-		// encoder's Dense/QPack mode onto a Fast body — otherwise the
-		// header lies, UnmarshalDirect takes a needless reflect fallback,
-		// and the decoder allocates dense state it never uses. Nested
-		// Marshaler fields (header already emitted) are unaffected: their
-		// custom body is written inline as before.
+		// Nested Marshaler fields (header already emitted) are unaffected by
+		// any of the framing below: their custom body is written inline.
 		m := reflect.NewAt(t, p).Interface().(Marshaler)
 		// Which KIND of Marshaler decides the framing, so it has to be known
 		// before the header is written.

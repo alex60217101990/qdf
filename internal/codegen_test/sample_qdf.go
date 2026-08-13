@@ -80,6 +80,9 @@ var qdfHybKinds_GenRow = []byte{0x00, 0x04, 0xff, 0xff}
 // the extended slice.
 func (v *Edge) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -304,6 +307,9 @@ func (v *Edge) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, er
 // the extended slice.
 func (v *GenAnyBox) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -435,6 +441,9 @@ func (v *GenAnyBox) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (in
 // the extended slice.
 func (v *GenBlobRow) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -580,6 +589,9 @@ func (v *GenBlobRow) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (i
 // the extended slice.
 func (v *GenBlobSet) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -799,6 +811,9 @@ func (v *GenBlobSet) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (i
 // the extended slice.
 func (v *GenEmbedTime) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -935,6 +950,9 @@ func (v *GenEmbedTime) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) 
 // the extended slice.
 func (v *GenEvent) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -1089,6 +1107,9 @@ func (v *GenEvent) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int
 // the extended slice.
 func (v *GenEventLog) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -1337,6 +1358,9 @@ func (v *GenEventLog) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (
 // the extended slice.
 func (v *GenFloatMap) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -1522,6 +1546,9 @@ func (v *GenFloatMap) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (
 // the extended slice.
 func (v *GenMetric) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -1682,6 +1709,9 @@ func (v *GenMetric) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (in
 // the extended slice.
 func (v *GenMetricBatch) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -1949,6 +1979,9 @@ func (v *GenMetricBatch) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena
 // the extended slice.
 func (v *GenName) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -2082,6 +2115,9 @@ func (v *GenName) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int,
 // the extended slice.
 func (v *GenNameList) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -2300,6 +2336,9 @@ func (v *GenNameList) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (
 // the extended slice.
 func (v *GenNamedCodec) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -2431,6 +2470,9 @@ func (v *GenNamedCodec) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena)
 // the extended slice.
 func (v *GenOpt) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -2642,6 +2684,9 @@ func (v *GenOpt) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, 
 // the extended slice.
 func (v *GenOptSet) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -2952,6 +2997,9 @@ func (v *GenOptSet) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (in
 // the extended slice.
 func (v *GenRow) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -3150,6 +3198,9 @@ func (v *GenRow) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, 
 // the extended slice.
 func (v *GenRowInner) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -3283,6 +3334,9 @@ func (v *GenRowInner) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (
 // the extended slice.
 func (v *GenRowSet) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -3541,6 +3595,9 @@ func (v *GenRowSet) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (in
 // the extended slice.
 func (v *GenTrailed) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -3844,6 +3901,9 @@ func (v *GenTrailed) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (i
 // the extended slice.
 func (v *Inner) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()
@@ -3977,6 +4037,9 @@ func (v *Inner) UnmarshalQDFArena(src []byte, noCopy bool, a *qdf.Arena) (int, e
 // the extended slice.
 func (v *Sample) MarshalQDF(dst []byte) ([]byte, error) {
 	hadHeader := len(dst) >= 5 && dst[0] == qdf.Magic0 && dst[1] == qdf.Magic1 && dst[2] == qdf.Magic2
+	if hadHeader && dst[4]&qdf.FlagRANS != 0 {
+		return nil, qdf.ErrAppendAfterFrame
+	}
 	e := qdf.NewEncoderOnBuf(dst, qdf.Fast)
 	if hadHeader {
 		e.MarkHeaderWritten()

@@ -1,6 +1,7 @@
 package cgsample
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -119,3 +120,47 @@ func TestTopLevelGeneratedStructIsRANSFramed(t *testing.T) {
 // That test was also verified to fail if this change is made too broadly (the
 // kind distinction dropped, customFramed never set), so the guard is real and
 // duplicating it here would only be a second thing to maintain.
+
+// Appending into a buffer whose body is already framed must FAIL, not corrupt.
+//
+// A framed body is one sealed unit; plain tags written after it do not extend
+// the message, they invalidate the frame. Before entropy framing could reach a
+// generated body the same append merely left trailing bytes every decoder
+// ignored — so nothing that worked is being taken away. What changed is that
+// the failure is reported instead of destroying the value that was readable:
+// without the guard, decoding the extended buffer returns "tans: corrupt
+// stream" and zero rows where it previously returned all of them.
+func TestAppendIntoFramedBufferIsRefused(t *testing.T) {
+	rows := ransRows(64)
+	base, err := qdf.Marshal(GenRowSet{Rows: rows}, qdf.OptBalanced|qdf.OptRANS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base[4]&qdf.FlagRANS == 0 {
+		t.Fatalf("fixture is not framed (flag %08b) — this test would prove nothing", base[4])
+	}
+
+	extra := GenRowInner{X: 7, Y: "y"}
+	if _, err := extra.MarshalQDF(base); !errors.Is(err, qdf.ErrAppendAfterFrame) {
+		t.Fatalf("appending into a framed buffer returned %v, want ErrAppendAfterFrame", err)
+	}
+
+	// The refusal must leave the original readable — reporting a failure is only
+	// an improvement if nothing was damaged reaching it.
+	var got GenRowSet
+	if err := qdf.Unmarshal(base, &got); err != nil {
+		t.Fatalf("the original buffer no longer decodes: %v", err)
+	}
+	if len(got.Rows) != len(rows) {
+		t.Fatalf("original decoded to %d rows, want %d", len(got.Rows), len(rows))
+	}
+
+	// An UNframed buffer still accepts the append, as it always did.
+	plain, err := qdf.Marshal(GenRowSet{Rows: rows}, qdf.OptBalanced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extra.MarshalQDF(plain); err != nil {
+		t.Fatalf("appending into an unframed buffer failed: %v", err)
+	}
+}
