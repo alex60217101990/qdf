@@ -407,7 +407,33 @@ const (
 	// Requires OptDense.
 	OptStringAlphabet // bit 14
 
-	// Bits 15..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
+	// OptColumnarGenerated lets reflection transpose a slice whose element type
+	// was produced by qdfgen, instead of writing it row-major through the
+	// element's own EncodeQDF.
+	//
+	// It is OFF by default and in every preset, because it is a trade rather than
+	// an improvement. Measured on a 512-element service fixture, OptBalanced:
+	//
+	//	                wire     encode    decode   encode B/op  decode allocs
+	//	row-major      88,035   110.5us   105.8us     94.9 KiB          2063
+	//	columnar       54,141   172.2us   136.4us     56.8 KiB            30
+	//	                -38.5%    +55.8%    +28.9%       -40.1%        -98.6%
+	//
+	// At 64 elements the encode cost is +242.7%. Reach for this when bytes are
+	// scarce — a network hop, a stored blob — and leave it off in a hot encode
+	// loop. The cost is not an implementation defect: more than half of a
+	// columnar encode is choosing a codec per column, and those scans are what
+	// make the wire small.
+	//
+	// The bytes produced are exactly what the same data written as a PLAIN struct
+	// slice already produces, so every existing reader handles them, and a
+	// generated type reads them back through the columnar fallback in decodeSlice.
+	//
+	// Only types carrying qdfgen's FieldScoper marker qualify. A hand-written
+	// MarshalQDF may write anything at all and is never transposed.
+	OptColumnarGenerated // bit 15
+
+	// Bits 16..31 reserved for future codecs (LZ77, n-gram dictionary, etc.).
 
 	// OptSpeed is the zero-bit preset: Fast mode, no codecs, no
 	// predictors. Maximum throughput, smallest CPU footprint.
