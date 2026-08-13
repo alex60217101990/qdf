@@ -14,16 +14,26 @@ import (
 func TestNamedCodecFieldRoutesThroughCodec(t *testing.T) {
 	v := GenNamedCodec{Label: "hello", N: 42}
 
-	// Interop invariant: generated MarshalQDF must produce the same BODY as the
-	// reflect encoder (which routes GenTag through MarshalQDF). A bypass emits
-	// the bare string instead of the codec frame → the bodies differ.
+	// A bypass emits the bare string where the codec's frame belongs, and the
+	// way to see that is to encode the same value under TWO DIFFERENT MODES and
+	// compare the bodies.
 	//
-	// Bodies, not whole wires. The two entry points frame differently by design:
-	// MarshalQDF builds its own encoder at qdf.Fast and ignores Options, while
-	// qdf.Marshal states the mode it was asked for. They agreed only while the
-	// reflect path forced a Fast header onto every top-level Marshaler, which
-	// also cost generated structs their rANS framing. The header is five bytes
-	// and is not what this test is about.
+	// That is the whole mechanism, and it is easy to break by "improving" it.
+	// MarshalQDF builds its own encoder at qdf.Fast; qdf.Marshal here runs
+	// OptBalanced — and note it also reaches generated code, since Marshal
+	// dispatches to EncodeQDF for an EncoderMarshaler, so this is not a reflect
+	// encode despite appearances. A value that went through the codec is
+	// mode-invariant — the codec writes its own bytes and never consults
+	// Options — so the two agree. A bypassed bare string is mode-SENSITIVE:
+	// Balanced interns it, Fast does not, and the bodies diverge.
+	//
+	// Levelling both sides to OptSpeed makes the comparison look tidier and
+	// blinds it completely: a bypassed string then matches too. Measured — with
+	// the bypass reintroduced and both sides at OptSpeed, this assertion passes
+	// and only the round-trip below notices.
+	//
+	// Bodies, not whole wires: the two entry points frame differently by design,
+	// and the five-byte header is not what this test is about.
 	gb, err := any(&v).(interface{ MarshalQDF([]byte) ([]byte, error) }).MarshalQDF(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +47,7 @@ func TestNamedCodecFieldRoutesThroughCodec(t *testing.T) {
 		t.Fatalf("wire shorter than a header: gen=%d refl=%d", len(gb), len(rb))
 	}
 	if !bytes.Equal(gb[hdr:], rb[hdr:]) {
-		t.Fatalf("generated body diverges from reflect (codec bypassed):\n gen=%q\nrefl=%q",
+		t.Fatalf("generated body diverges from the Balanced encode (codec bypassed):\n gen=%q\nbal=%q",
 			gb[hdr:], rb[hdr:])
 	}
 
