@@ -6,6 +6,15 @@ import (
 	qdf "github.com/alex60217101990/qdf"
 )
 
+// transposed reports whether a wire's root is one of the columnar containers.
+// Which one depends on the SHAPE — a struct with a residual field takes the
+// hybrid form (0xF7), a fully columnar-eligible one takes the pure form (0xEF) —
+// so a test that pins a single tag fails on a legitimate shape change and
+// blames the wrong thing.
+func transposed(wire []byte) bool {
+	return wire[5] == 0xF7 || wire[5] == 0xEF
+}
+
 // handRow has a codec of its own that is NOT structural: it writes a fixed
 // payload that has nothing to do with its fields. Transposing it would produce a
 // completely different value, so it must never be transposed — with the option
@@ -40,8 +49,8 @@ func TestHandWrittenCodecIsNeverTransposed(t *testing.T) {
 			"MarshalQDF was bypassed and the value is not what the type says it is",
 			len(plain), len(opted))
 	}
-	if opted[5] == 0xF7 {
-		t.Fatal("a hand-written codec's slice was transposed (root 0xF7)")
+	if transposed(opted) {
+		t.Fatalf("a hand-written codec's slice was transposed (root 0x%02x)", opted[5])
 	}
 }
 
@@ -57,10 +66,10 @@ func TestGeneratedTypeIsTransposedWithTheOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if off[5] == 0xF7 {
+	if transposed(off) {
 		t.Fatalf("the default already transposes (root 0x%02x)", off[5])
 	}
-	if on[5] != 0xF7 {
+	if !transposed(on) {
 		t.Fatalf("the option did not transpose a generated type: root 0x%02x", on[5])
 	}
 	// Deliberately NO size assertion. Whether transposing SAVES depends on the

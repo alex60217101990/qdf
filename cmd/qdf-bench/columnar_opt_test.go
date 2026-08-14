@@ -8,6 +8,15 @@ import (
 )
 
 // The bit must be its own, not an alias of a neighbour.
+// transposed reports whether a wire's root is one of the columnar containers.
+// Which one depends on the SHAPE — a struct with a residual field takes the
+// hybrid form (0xF7), a fully columnar-eligible one takes the pure form (0xEF) —
+// so a test that pins a single tag fails on a legitimate shape change and blames
+// the wrong thing.
+func transposed(wire []byte) bool {
+	return wire[5] == 0xF7 || wire[5] == 0xEF
+}
+
 func TestColumnarGeneratedBitIsDistinct(t *testing.T) {
 	for _, o := range []struct {
 		name string
@@ -82,11 +91,12 @@ func TestColumnarGeneratedIsOffByDefault(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if a[5] == 0xF7 {
+		if transposed(a) {
 			t.Errorf("n=%d: the default already encodes columnar (0x%02x) — the bit is not a choice", n, a[5])
 		}
-		if b[5] != 0xF7 {
-			t.Errorf("n=%d: with the bit the root tag is 0x%02x, want 0xF7 — the bit did nothing", n, b[5])
+		if !transposed(b) {
+			t.Errorf("n=%d: with the bit the root tag is 0x%02x, neither columnar container — "+
+				"the bit did nothing", n, b[5])
 		}
 	}
 }
