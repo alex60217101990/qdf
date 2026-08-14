@@ -411,33 +411,42 @@ const (
 	// was produced by qdfgen, instead of writing it row-major through the
 	// element's own EncodeQDF.
 	//
-	// It is OFF by default and in every preset, because it is a trade rather than
-	// an improvement — and one whose SIGN depends on the data.
+	// It is OFF by default and in every preset, because its effect depends on the
+	// shape of the data — strongly enough that both the size and the SIGN change.
 	//
-	// It wins on values that differ in the MIDDLE, where the row-major per-field
-	// string delta has little to code. Measured on a 512-element service fixture,
-	// OptBalanced:
+	// Where it pays, it pays on every axis at once. A 2048-element telemetry
+	// shape (timestamp, a four-value level, an int32 code, a message), OptBalanced:
 	//
-	//	                wire     encode    decode   encode B/op  decode allocs
-	//	row-major      88,035   110.5us   105.8us     94.9 KiB          2063
-	//	columnar       54,141   172.2us   136.4us     56.8 KiB            30
-	//	                -38.5%    +55.8%    +28.9%       -40.1%        -98.6%
+	//	           wire      encode        encode B/op   decode        decode allocs
+	//	row-major  111,291   151.3us       120.9 KiB     125.7us       2056
+	//	columnar    63,845   145.7us        64.9 KiB     144.8us         16
+	//	            -42.6%     -3.7%         -46.3%       +15.1%       -99.2%
 	//
-	// At 64 elements the encode cost is +242.7%.
+	// Under OptCompression the same data goes 77,661 -> 17,534 bytes, a 77.4%
+	// cut, because a transposed column of timestamps or levels is what the
+	// entropy coder wants. Encode is FASTER here, not slower: columns of numbers,
+	// timestamps and low-cardinality enums are decided by their codecs almost
+	// immediately, and writing them packed is less work than writing every row.
 	//
-	// It LOSES on pure-prefix values, which the row-major delta codes almost
-	// perfectly and a per-column layout cannot match: a 64-element fixture of
-	// "com.acme.platform.worker.service."+counter strings goes 1,084 bytes
-	// row-major to 2,197 transposed — twice as large. Nested struct fields hurt
-	// it further, since they become residual columns.
+	// Decode is the one axis that gets worse, and read the second number before
+	// judging the first: 281% more bytes but 128x fewer allocations, because the
+	// values arrive as one slab instead of thousands of separate strings. For a
+	// GC-sensitive service that is usually the better shape.
 	//
-	// So measure it on YOUR data before enabling it; there is no size gate here
-	// to protect you, unlike the per-column codecs, which decline when they would
-	// grow the wire. Reach for it when bytes are scarce — a network hop, a stored
-	// blob — and leave it off in a hot encode loop. The CPU cost is not an
-	// implementation defect: more than half of a columnar encode is choosing a
-	// codec per column, and those scans are what make the wire small when it is
-	// small at all.
+	// Where it does NOT pay is a struct of many high-cardinality free-text fields.
+	// A 512-element fixture of ten such columns costs +55.8% encode (+242.7% at
+	// 64 elements) for -38.5% wire, because every column pays a full alphabet
+	// scan to decide. And on pure-prefix values it LOSES outright: a 64-element
+	// fixture of "com.acme.platform.worker.service."+counter goes 1,084 bytes
+	// row-major to 2,197 transposed, twice as large, because the row-major
+	// per-field string delta codes that almost perfectly and a per-column layout
+	// cannot match it. Nested struct fields hurt further, becoming residual
+	// columns.
+	//
+	// The rule of thumb: columns of numbers, timestamps and small enums win big
+	// and cheap; columns of unique free text pay for a decision that then
+	// declines. Measure YOUR data — unlike the per-column codecs, which decline
+	// when they would grow the wire, this bit has no size gate to protect you.
 	//
 	// The bytes produced are exactly what the same data written as a PLAIN struct
 	// slice already produces, so every existing reader handles them, and a
