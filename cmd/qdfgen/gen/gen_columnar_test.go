@@ -83,4 +83,20 @@ func TestColumnarSkipsCustomCodecElem(t *testing.T) {
 			t.Fatalf("[]NamedByte field should encode via the generic per-element path (WriteArrayHeader):\n%s", src)
 		}
 	})
+
+	// The ARRAY twin of the case above. [16]NamedByte is not [16]byte either, so
+	// the flat-blob path is just as wrong there: WriteBytes(v.K[:]) hands a
+	// []NamedByte to a []byte parameter, and copy(v.K[:], b) copies between
+	// different element types. The slice paths gated on elem (not
+	// elem.Underlying()) from the start; the array paths did not.
+	t.Run("defined_byte_elem_array_not_bytes_blob", func(t *testing.T) {
+		src := gen(t, "NamedByteArray")
+		if strings.Contains(src, "e.WriteBytes(v.K[:])") {
+			t.Fatalf("[16]NamedByte was emitted as a flat byte blob (non-compiling: "+
+				"WriteBytes wants []byte):\n%s", src)
+		}
+		if !strings.Contains(src, "WriteArrayHeader") {
+			t.Fatalf("[16]NamedByte should encode through the generic per-element path:\n%s", src)
+		}
+	})
 }

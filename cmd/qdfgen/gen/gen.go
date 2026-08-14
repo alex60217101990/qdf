@@ -1507,7 +1507,11 @@ func (g *gen) emitEncodeArray(w io.Writer, expr string, a *types.Array, indent s
 	elem := a.Elem()
 	// [N]byte fast path: one flat binary blob (matches the reflect encoder), not
 	// N tagged elements. Smaller wire for real byte data, single memcpy.
-	if b, ok := elem.Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
+	// elem, not elem.Underlying(): a DEFINED byte element (`type B byte; [16]B`)
+	// cannot take the flat []byte blob path — WriteBytes wants []byte and copy
+	// wants matching element types, neither of which a []B satisfies. The slice
+	// paths already gate this way and say why; the array paths did not.
+	if b, ok := elem.(*types.Basic); ok && b.Kind() == types.Uint8 {
 		fmt.Fprintf(w, "%se.WriteBytes(%s[:])\n", indent, expr)
 		return nil
 	}
@@ -2073,7 +2077,11 @@ func (g *gen) emitDecodeArray(w io.Writer, lhs string, a *types.Array, indent st
 	elem := a.Elem()
 	// [N]byte fast path: read the flat blob straight into the inline array via
 	// one length-checked memcpy (matches the reflect decoder), zero allocation.
-	if b, ok := elem.Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
+	// elem, not elem.Underlying(): a DEFINED byte element (`type B byte; [16]B`)
+	// cannot take the flat []byte blob path — WriteBytes wants []byte and copy
+	// wants matching element types, neither of which a []B satisfies. The slice
+	// paths already gate this way and say why; the array paths did not.
+	if b, ok := elem.(*types.Basic); ok && b.Kind() == types.Uint8 {
 		bv := g.fresh("ab")
 		fmt.Fprintf(w, "%s{\n", indent)
 		fmt.Fprintf(w, "%s\t%s, err := d.ReadStringBytes()\n", indent, bv)

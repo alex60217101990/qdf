@@ -56,6 +56,15 @@ type NamedByteHolder struct {
 	Rows []NamedByteElem
 }
 
+// NamedByteArray carries the ARRAY form of the same hazard. [16]NamedByte is not
+// [16]byte: the flat-blob path would emit WriteBytes(v.K[:]) — a []NamedByte
+// where []byte is wanted — and copy(v.K[:], b) between different element types.
+// Both are compile errors, so this type is the array-side twin of NamedByteElem.
+type NamedByteArray struct {
+	ID int64
+	K  [16]NamedByte
+}
+
 // Tag is a defined STRING type with a hand-written codec (not a struct). A field
 // of this type must route through its MarshalQDF/UnmarshalQDF, NOT be emitted
 // structurally as a bare string (which bypasses the codec).

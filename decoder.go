@@ -213,6 +213,14 @@ func (d *Decoder) ReadStructHeader() (names []string, plainN int, shaped bool, e
 		names, err = decodeMapStringShapeHeader(d)
 		return names, 0, true, err
 	}
+	// A plain map header carries no shape, so ShapeID must not keep reporting the
+	// last SHAPED one. EnterField already treats id 0 as "nothing to bind"; this
+	// is what lets that guard fire. In-repo generated decoders read ShapeID only
+	// inside the shaped branch, so nothing today can observe the stale value —
+	// but it is a public API, and reporting another struct's shape id would bind
+	// its per-field delta bases and rebuild strings against the wrong previous
+	// value, silently.
+	d.lastWireShapeID = 0
 	n, err := d.ReadMapHeader()
 	return nil, n, false, err
 }
