@@ -58,27 +58,28 @@ func TestDictSampleHighCardMatchesAReference(t *testing.T) {
 		}
 		return len(seen)*100 > n*qpackStrDictSampleMaxPct
 	}
-	cases := [][]string{
+	cases := make([][]string, 0, 7)
+	cases = append(cases, [][]string{
 		{},
 		{"a"},
 		{"a", "a", "a"},
 		{"a", "b", "c"},
-	}
+	}...)
 	// Shared prefix, differing tail — the codec's own territory.
-	var pre []string
+	pre := make([]string, 0, 100)
 	for i := range 100 {
 		pre = append(pre, "com.acme.platform.worker."+fmt.Sprintf("%06d", i%7))
 	}
 	cases = append(cases, pre)
 	// Shared SUFFIX, differing head — the mirror case, which a tail-only key
 	// would collide on if the head were not folded in.
-	var suf []string
+	suf := make([]string, 0, 100)
 	for i := range 100 {
 		suf = append(suf, fmt.Sprintf("%06d", i%7)+".worker.platform.acme.com")
 	}
 	cases = append(cases, suf)
 	// Equal length, all distinct.
-	var eq []string
+	eq := make([]string, 0, 100)
 	for i := range 100 {
 		eq = append(eq, fmt.Sprintf("%032x", uint64(i)*11400714819323198485))
 	}
