@@ -380,8 +380,20 @@ func (d *decState) colShapeLookup(id uint32) *decColShape {
 // shape ID 3 and columnar shape ID 3 are independent. The kinds slice carries
 // residualKind (0xFF) for residual fields and a real colKind for eligible ones.
 func (e *encState) hybridShapeDeclare(names []string, kinds []colKind) uint32 {
+	// kinds is COPIED, names is not, and the asymmetry is the point.
+	//
+	// A hybrid shape can arrive here from derivePartialPlan, whose kinds slice is
+	// e.derivedPlan.hybridKinds — an encoder scratch rewritten by the next derive
+	// (columnar.go: "out.hybridKinds = append(out.hybridKinds[:0], srcKinds...)").
+	// Retaining it by reference lets a later derive rewrite an entry the wire has
+	// already referred to by id, and hybridShapeFor would then match the new kinds
+	// against the mutated entry and hand back an id declared for a different
+	// layout. Names come from the immutable per-type plan and are never rewritten.
+	//
+	// One copy per DECLARED shape, not per message: shapes are interned, so this
+	// runs once per distinct layout per encoder.
 	e.hybridShapeNames = append(e.hybridShapeNames, names)
-	e.hybridShapeKinds = append(e.hybridShapeKinds, kinds)
+	e.hybridShapeKinds = append(e.hybridShapeKinds, append([]colKind(nil), kinds...))
 	return uint32(len(e.hybridShapeNames)) // ids start at 1
 }
 
