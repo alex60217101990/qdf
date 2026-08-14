@@ -221,6 +221,11 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 	// plan there would let the first encoder to touch a type decide for all of
 	// them. The closure is per-type and per-descriptor, which is the right scope.
 	var genPlan atomic.Pointer[columnarPlan]
+	// And the refusal is remembered, mirroring the decode side: an element with
+	// no columnar-eligible field — a generated struct of maps, say — would
+	// otherwise walk its fields, allocate them and discard the lot on EVERY
+	// encode, unbounded work on the one path that gets nothing for it.
+	var genRefused atomic.Bool
 	return func(e *Encoder, p unsafe.Pointer) error {
 
 		if e.encodeNilSlice(p) { // nil slice → tagNil (distinct from empty)
@@ -277,10 +282,13 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 		// falls through to row-major, byte-identical to today.
 		plan := colPlan
 		if plan == nil && elemGenerated && n >= columnarMinElems &&
-			e.opts.Has(OptColumnarGenerated) {
-			if plan = genPlan.Load(); plan == nil {
+			e.opts.Has(OptColumnarGenerated) && e.state != nil && !e.stateSuspended &&
+			e.opts.Has(OptDense) && e.opts.Has(OptShapeIntern) {
+			if plan = genPlan.Load(); plan == nil && !genRefused.Load() {
 				if plan = structuralColumnarPlan(elem.rType); plan != nil {
 					genPlan.Store(plan)
+				} else {
+					genRefused.Store(true)
 				}
 			}
 		}
