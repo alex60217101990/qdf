@@ -320,6 +320,17 @@ func (d *Decoder) readStringColumnFrontDelta(n int) ([]string, error) {
 		}
 		rowLen := int(p) + int(q) + int(m)
 		total += rowLen
+		// total is a SUM of reconstructed lengths, so unlike the raw column —
+		// whose total is one wire value bounded by the remaining buffer — it can
+		// legitimately exceed the body. That is the compression. But a row may
+		// reuse its predecessor whole (p == prevLen, m == 0) for two or three
+		// bytes of wire, so a crafted column adds prevLen per row indefinitely
+		// and the slab below would be sized by the product of two independent
+		// wire values. Bound it by the same ceiling the rest of the columnar
+		// decoder uses.
+		if total > maxColumnarBytes {
+			return nil, ErrInvalidLength
+		}
 		prevLen = rowLen
 	}
 	if sumMid != totalMid {
