@@ -483,6 +483,21 @@ func fpHashReflect(h *maphash.Hash, v reflect.Value, depth int) {
 			fpHashReflect(h, v.Field(i), depth+1)
 		}
 	case reflect.Slice, reflect.Array:
+		// Nil marker and length, like the non-reflect fpHash writes for a slice.
+		// Without them the element bytes run together with whatever follows, and
+		// two different values hash the same: {"ab": {}} and {"a": {"b"}} both
+		// reduce to the bytes 'a','b'. The fingerprint exists to REJECT a patch
+		// built from a different base, so a collision there is not a lost
+		// optimisation — it is a patch applied to a value it was not built from,
+		// silently.
+		if v.Kind() == reflect.Slice && v.IsNil() {
+			_ = h.WriteByte(0)
+			return
+		}
+		_ = h.WriteByte(1)
+		var lb [8]byte
+		binary.LittleEndian.PutUint64(lb[:], uint64(v.Len()))
+		_, _ = h.Write(lb[:])
 		for i := range v.Len() {
 			fpHashReflect(h, v.Index(i), depth+1)
 		}
@@ -494,7 +509,13 @@ func fpHashReflect(h *maphash.Hash, v reflect.Value, depth int) {
 			fpHashReflect(h, v.Elem(), depth+1)
 		}
 	case reflect.String:
-		_, _ = h.WriteString(v.String())
+		// Length-prefixed for the same reason as the slice above: "ab" and the
+		// pair ("a","b") must not produce the same bytes.
+		sv := v.String()
+		var lb [8]byte
+		binary.LittleEndian.PutUint64(lb[:], uint64(len(sv)))
+		_, _ = h.Write(lb[:])
+		_, _ = h.WriteString(sv)
 	case reflect.Bool:
 		if v.Bool() {
 			_ = h.WriteByte(1)
