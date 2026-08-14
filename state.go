@@ -595,6 +595,14 @@ func (e *encState) reset() {
 	e.lastMapShapeKeys = nil
 	e.lastMapShapeIdx = 0
 	e.mapEnc = mapHolderCache{}
+	// canonKeysBusy is a re-entrancy flag for the canonical key gathers, and the
+	// reflect ones release it explicitly rather than with defer
+	// (reflect_encode.go:930). A panic through a StreamEncoder — which is not
+	// discarded the way a pooled encoder is — would otherwise leave it set for
+	// the life of the stream, and every later canonical map encode would allocate
+	// a fresh key slice instead of reusing the pooled one. Output is unaffected;
+	// this is the allocation, not the bytes.
+	e.canonKeysBusy = false
 
 	if cap(e.colShapeNames) > maxRetainedShapeCap && release {
 		e.colShapeNames = nil
@@ -657,6 +665,12 @@ func (e *encState) reset() {
 	}
 	if cap(e.fsstScratch) > maxRetainedColScratch {
 		e.fsstScratch = nil
+	}
+	// fsstLens gets its OWN ceiling: it counts rows while fsstScratch counts
+	// compressed bytes, and a column of many short highly-compressible strings
+	// drives the row count up while the byte count stays under the bound — so
+	// gating one on the other retains an 8 B/row slice that is never dropped.
+	if cap(e.fsstLens) > maxRetainedColScratch {
 		e.fsstLens = nil
 	}
 	// fsstSamples holds []byte views into caller strings; clear the headers to
@@ -1334,6 +1348,14 @@ func (d *decState) reset() {
 		d.shapes = nil
 	} else {
 		d.shapes = d.shapes[:0]
+	}
+	// strDeltaBase is indexed by WIRE shape id, so its length is chosen by the
+	// payload. strDeltaResetDec clears each record but cannot bound the outer
+	// slice, and without this a single message declaring many shapes pins one
+	// []decFieldState per shape on this pooled decoder until the pool itself is
+	// collected. Same policy as d.shapes above, which is keyed the same way.
+	if len(d.strDeltaBase) > maxRetainedShapeCap && release {
+		d.strDeltaBase = nil
 	}
 	if cap(d.colShapes) > maxRetainedShapeCap && release {
 		d.colShapes = nil
