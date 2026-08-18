@@ -62,33 +62,12 @@ func TestShrink_SteadyLargeRetainsInternTable(t *testing.T) {
 	}
 }
 
-// LRU slice: retained on the first post-burst reset, released after the
-// workload stays small for retainReleaseStreak consecutive messages.
-func TestShrink_EncStateReleasesLRUAfterStreak(t *testing.T) {
-	st := newEncState()
-	for i := range maxRetainedLRUCap + 64 {
-		st.lookupOrAssign(fmt.Sprintf("lru-%05d", i))
-	}
-	if cap(st.lruLink) <= maxRetainedLRUCap {
-		t.Fatalf("test premise: lruLink should exceed cap (%d), got %d",
-			maxRetainedLRUCap, cap(st.lruLink))
-	}
-	burstCap := cap(st.lruLink)
+// The encoder's LRU chain used to be retained and released here. It is gone:
+// nothing on the encode side ever read it. State-ref ranks come from the MRU
+// ring (encState.mruRank), and a ring miss emits the raw id rather than walking
+// a chain — so the chain was maintained on every emission and consumed by no
+// one. The decoder keeps its own, which decState still exercises.
 
-	// First reset right after the burst RETAINS (internLoad was large).
-	st.reset()
-	if cap(st.lruLink) != burstCap {
-		t.Fatalf("lruLink dropped on first post-burst reset (should retain): burst=%d post=%d",
-			burstCap, cap(st.lruLink))
-	}
-	// After retainReleaseStreak small (internLoad==0) resets, release.
-	for range retainReleaseStreak {
-		st.reset()
-	}
-	if st.lruLink != nil {
-		t.Fatalf("lruLink not released after %d small resets: cap=%d", retainReleaseStreak, cap(st.lruLink))
-	}
-}
 
 // pairPred slice — same retain-then-release contract as LRU.
 func TestShrink_EncStateReleasesPairPredAfterStreak(t *testing.T) {
@@ -124,7 +103,7 @@ func TestShrink_EncStateKeepsCapsUnderThreshold(t *testing.T) {
 		st.lookupOrAssign(fmt.Sprintf("steady-%05d", i))
 	}
 	preIDs := int(st.internLoad)
-	preLRU := cap(st.lruLink)
+	preTable := cap(st.internTable)
 	st.reset()
 	if preIDs > maxRetainedIDs {
 		t.Skipf("steady-state breached maxRetainedIDs (%d > %d)", preIDs, maxRetainedIDs)
@@ -133,8 +112,10 @@ func TestShrink_EncStateKeepsCapsUnderThreshold(t *testing.T) {
 	for i := range 100 {
 		st.lookupOrAssign(fmt.Sprintf("steady-after-%05d", i))
 	}
-	if cap(st.lruLink) > preLRU*2 {
-		t.Fatalf("lruLink cap grew unexpectedly: pre=%d post=%d", preLRU, cap(st.lruLink))
+	// The intern table is what this test now watches: the encoder's LRU chain
+	// it used to check is gone, since nothing on the encode side read it.
+	if cap(st.internTable) > preTable*2 {
+		t.Fatalf("internTable cap grew unexpectedly: pre=%d post=%d", preTable, cap(st.internTable))
 	}
 }
 
@@ -176,16 +157,15 @@ func TestShrink_BurstThenSteadyState(t *testing.T) {
 	}
 	st.pairRecord(uint32(int(st.internLoad)-1), 0)
 
-	burstLRUCap := cap(st.lruLink)
 	burstPairCap := cap(st.pairPred)
 	burstArena := st.arena.BytesUsed()
-	t.Logf("burst peak: ids=%d lruCap=%d pairCap=%d arenaUsed=%d KiB",
-		int(st.internLoad), burstLRUCap, burstPairCap, burstArena/1024)
+	t.Logf("burst peak: ids=%d pairCap=%d arenaUsed=%d KiB",
+		int(st.internLoad), burstPairCap, burstArena/1024)
 
-	// First post-burst reset retains the grown LRU/pair backings.
+	// First post-burst reset retains the grown pair backing.
 	st.reset()
-	if burstLRUCap > maxRetainedLRUCap && cap(st.lruLink) != burstLRUCap {
-		t.Fatalf("lruLink dropped on first post-burst reset: burst=%d post=%d", burstLRUCap, cap(st.lruLink))
+	if burstPairCap > maxRetainedPairCap && cap(st.pairPred) != burstPairCap {
+		t.Fatalf("pairPred dropped on first post-burst reset: burst=%d post=%d", burstPairCap, cap(st.pairPred))
 	}
 
 	// Quiet phase: small messages for the full streak → release.
@@ -196,10 +176,6 @@ func TestShrink_BurstThenSteadyState(t *testing.T) {
 		st.reset()
 	}
 
-	if cap(st.lruLink) >= burstLRUCap && burstLRUCap > maxRetainedLRUCap {
-		t.Fatalf("lruLink cap did not shrink after burst→quiet: burst=%d post=%d",
-			burstLRUCap, cap(st.lruLink))
-	}
 	if cap(st.pairPred) >= burstPairCap && burstPairCap > maxRetainedPairCap {
 		t.Fatalf("pairPred cap did not shrink: burst=%d post=%d",
 			burstPairCap, cap(st.pairPred))
@@ -227,7 +203,6 @@ func TestShrink_SmallSteadyIsInert(t *testing.T) {
 	st.reset()
 	fill(1)
 	warmCap := cap(st.internTable)
-	warmLRU := cap(st.lruLink)
 	if warmCap > maxRetainedIDs*2 {
 		t.Fatalf("test premise: small workload should stay under cap, got internTable cap=%d", warmCap)
 	}
@@ -240,11 +215,8 @@ func TestShrink_SmallSteadyIsInert(t *testing.T) {
 		if got := cap(st.internTable); got != warmCap {
 			t.Fatalf("cycle %d: internTable cap changed (realloc/drop churn): warm=%d got=%d", c, warmCap, got)
 		}
-		if got := cap(st.lruLink); got != warmLRU {
-			t.Fatalf("cycle %d: lruLink cap changed: warm=%d got=%d", c, warmLRU, got)
-		}
 	}
-	if st.internTable == nil || st.lruLink == nil {
+	if st.internTable == nil {
 		t.Fatal("small steady workload wrongly released under-cap backings")
 	}
 }
