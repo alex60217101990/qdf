@@ -77,7 +77,11 @@ func mapStringShapeOrder[V any](e *Encoder, m map[string]V) []string {
 	for i := range st.mapShapes {
 		s := &st.mapShapes[i]
 		if s.setHash == setHash && s.n == n && mapHasAll(m, s.keys) {
-			st.lastMapShapeID, st.lastMapShapeKeys = s.id, s.keys
+			// lastMapShapeIdx travels with the id and the keys. The reflect
+			// memo (reflect_encode.go) indexes mapShapes with it while emitting
+			// lastMapShapeID, so leaving it behind here would let one shape's id
+			// go on the wire with another shape's slot ordering.
+			st.lastMapShapeID, st.lastMapShapeKeys, st.lastMapShapeIdx = s.id, s.keys, i
 			e.buf = append(e.buf, tagMapShape)
 			e.buf = appendUvarint(e.buf, uint64(s.id))
 			return s.keys
@@ -90,7 +94,7 @@ func mapStringShapeOrder[V any](e *Encoder, m map[string]V) []string {
 	slices.Sort(keys)
 	id := st.shapeDeclareEnc()
 	st.mapShapeRegister(setHash, n, keys, id)
-	st.lastMapShapeID, st.lastMapShapeKeys = id, keys
+	st.lastMapShapeID, st.lastMapShapeKeys, st.lastMapShapeIdx = id, keys, len(st.mapShapes)-1
 	e.buf = append(e.buf, tagMapShape)
 	e.buf = appendUvarint(e.buf, 0)
 	e.buf = appendUvarint(e.buf, uint64(n))

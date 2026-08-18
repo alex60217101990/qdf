@@ -1085,7 +1085,11 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 	// encode targeting the outer binding with a different valType.
 	if st.lastMapShapeID != 0 && len(st.lastMapShapeKeys) == n {
 		s := &st.mapShapes[st.lastMapShapeIdx]
-		if !s.busy && hasAllAndCollect(s) {
+		// s.id, not just the length of lastMapShapeKeys: the memo's three parts
+		// are written by two different paths (here and mapStringShapeOrder), and
+		// a length match alone would let a stale index emit one shape's id with
+		// another's slot ordering.
+		if s.id == st.lastMapShapeID && !s.busy && hasAllAndCollect(s) {
 			e.buf = append(e.buf, tagMapShape)
 			e.buf = appendUvarint(e.buf, uint64(st.lastMapShapeID))
 			return emitSlotsOrdered(st.lastMapShapeIdx)
