@@ -17,7 +17,7 @@ func encodeMapStringString(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteString(v)
@@ -129,7 +129,7 @@ func encodeMapStringBool(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteBool(v)
@@ -241,7 +241,7 @@ func encodeMapStringInt8(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteInt(int64(v))
@@ -355,7 +355,7 @@ func encodeMapStringInt16(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteInt(int64(v))
@@ -469,7 +469,7 @@ func encodeMapStringInt32(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteInt(int64(v))
@@ -583,7 +583,7 @@ func encodeMapStringInt(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteInt(int64(v))
@@ -697,7 +697,7 @@ func encodeMapStringInt64(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteInt(int64(v))
@@ -809,7 +809,7 @@ func encodeMapStringUint8(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteUint(uint64(v))
@@ -923,7 +923,7 @@ func encodeMapStringUint16(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteUint(uint64(v))
@@ -1037,7 +1037,7 @@ func encodeMapStringUint32(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteUint(uint64(v))
@@ -1151,7 +1151,7 @@ func encodeMapStringUint(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteUint(uint64(v))
@@ -1265,7 +1265,7 @@ func encodeMapStringUint64(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteUint(uint64(v))
@@ -1377,7 +1377,7 @@ func encodeMapStringFloat32(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteFloat32(v)
@@ -1489,7 +1489,7 @@ func encodeMapStringFloat64(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			e.WriteFloat64(v)
@@ -1601,7 +1601,7 @@ func encodeMapStringBytes(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			if v == nil {
@@ -1743,7 +1743,7 @@ func encodeMapStringStringSlice(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			if v == nil {
@@ -1916,7 +1916,7 @@ func encodeMapStringAny(e *Encoder, p unsafe.Pointer) error {
 		e.WriteNil()
 		return nil
 	}
-	if len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
+	if len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {
 		for _, k := range mapStringShapeOrder(e, m) {
 			v := m[k]
 			if err := encodeIface(e, unsafe.Pointer(&v)); err != nil {
