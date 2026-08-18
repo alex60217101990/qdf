@@ -26,6 +26,16 @@ import (
 // vacuous: interning alone shrinks these payloads, so a smaller wire proves
 // nothing about whether this form ran. That is precisely how the columnar codec
 // on this branch looked healthy while never running once.
+// strDeltaCheckBaseID turns on an O(table) verification that a cached baseID
+// still names the value being written. Off in production — it exists so a test
+// can assert the invalidation discipline directly, which a round-trip cannot:
+// a stale id only produces wrong bytes when a later value happens to equal the
+// base the id no longer belongs to, and no fixture reliably lands there.
+//
+// Same shape as strDeltaCount below: a package-level bool, one predictable
+// branch, set only by tests.
+var strDeltaCheckBaseID bool
+
 var strDeltaEmitted atomic.Int64
 
 // strDeltaCount gates the two counters below. They exist so acceptance tests can
@@ -78,6 +88,11 @@ type strDeltaGate struct {
 // measured wins are (trace_id -45.4%, span_id -41.2%).
 type strFieldState struct {
 	learn *strAlphaLearn
+	// baseID is the intern id of the value currently in base, stored as id+1 so
+	// the zero value means "not interned" — clear() zeroes these records on
+	// reset, and 0 is a valid id. Set only where the id is already in hand;
+	// every other path that moves base clears it.
+	baseID uint32
 	base  string
 	gate  strDeltaGate
 	// alphaID is the well-known alphabet that has matched every value of this
@@ -175,7 +190,7 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 	// encodes, which are exactly that shape.
 	if *base == "" {
 		e.WriteString(s)
-		*base = s
+		*base, fs.baseID = s, 0
 		return
 	}
 	if s == *base {
@@ -189,12 +204,43 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		//
 		// The compare is also cheaper than what it replaces: a full-length
 		// prefix scan of two identical strings.
+		//
+		// And when the base's intern id is already known, the emit does not need
+		// WriteString to re-derive it: this branch has just PROVEN the value
+		// equals the base, so hashing it and probing the table would answer a
+		// question already answered. The gates WriteString would apply still
+		// hold — dense does not change mid-encode, and referencing an existing
+		// id needs no room in the table — except suspension, which is checked.
+		if id := fs.baseID; id != 0 && st != nil && !e.stateSuspended {
+			id--
+			if strDeltaCheckBaseID {
+				ok := false
+				for i := range st.internTable {
+					if st.internTable[i].hash != 0 && st.internTable[i].id == id {
+						ok = st.internTable[i].key == s
+						break
+					}
+				}
+				if !ok {
+					panic("qdf: cached baseID does not name the value being written")
+				}
+			}
+			if st.lastID == id {
+				e.buf = append(e.buf, tagStateRepeat)
+				if e.pairPred {
+					st.pairRecord(id, id)
+				}
+				return
+			}
+			e.emitStateRef(id)
+			return
+		}
 		e.WriteString(s)
 		return
 	}
 	if !e.strDeltaEligible(s) {
 		e.WriteString(s)
-		*base = s
+		*base, fs.baseID = s, 0
 		return
 	}
 
@@ -221,7 +267,7 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 	id, interned, keyHash := st.lookupOnly(s)
 	if interned {
 		e.emitStateRef(id)
-		*base = s
+		*base, fs.baseID = s, id+1
 		return
 	}
 
@@ -259,7 +305,7 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 			// encoder drops it here, or the two disagree about what "previous"
 			// means — a desync, not a bigger wire.
 			st.lastID = lruInvalidID
-			*base = s
+			*base, fs.baseID = s, 0
 			return
 		}
 	} else {
@@ -296,7 +342,7 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		// entered the intern table, so a following tagStateRepeat must not
 		// resurrect whatever ID was last on the chain.
 		st.lastID = lruInvalidID
-		*base = s
+		*base, fs.baseID = s, 0
 		return
 	}
 
@@ -311,7 +357,7 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		st.pairRecord(st.lastID, id)
 	}
 	st.lastID = id
-	*base = s
+	*base, fs.baseID = s, id+1
 }
 
 // strDeltaEligible reports whether the delta form may be considered at all:
