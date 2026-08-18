@@ -305,7 +305,15 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	if p.K.suffix == "String" {
 		// OptMapShape fast path: recurring key-sets emit a shape header +
 		// values in canonical order via the shared generic helper.
-		fmt.Fprintf(buf, "\tif len(m) > 0 && e.state != nil && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {\n")
+		//
+		// !OptCanonical, matching the reflect encoder, which documents that the
+		// canonical emit takes precedence over this branch "regardless of the
+		// other shape bits". Both forms are deterministic on their own, but they
+		// are DIFFERENT BYTES, and OptCanonical promises that one logical value
+		// has one encoding — bytes callers are invited to hash, sign and
+		// content-address. Letting the branch depend on whether a (K,V) pair
+		// happens to have a generated fast path breaks exactly that.
+		fmt.Fprintf(buf, "\tif len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {\n")
 		fmt.Fprintf(buf, "\t\tfor _, k := range mapStringShapeOrder(e, m) {\n")
 		fmt.Fprintf(buf, "\t\t\tv := m[k]\n")
 		fmt.Fprintf(buf, "\t\t\t%s\n", p.V.writeBlock("v"))
@@ -316,8 +324,8 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	// serialize byte-identically. The key type is concrete, so slices.Sort is
 	// directly monomorphized (no reflect). Reuse the pooled canonKeys* scratch
 	// when state is available; fall back to a local slice otherwise. Canonical
-	// is independent of the OptMapShape/OptDense shape branch above (which is
-	// String-keyed only and already deterministic via mapStringShapeOrder).
+	// now takes precedence over the OptMapShape/OptDense shape branch above,
+	// which is gated on !OptCanonical for the reason stated there.
 	emitCanonicalEncode(buf, p)
 	fmt.Fprintf(buf, "\tfor k, v := range m {\n")
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.writeBlock("k")))
