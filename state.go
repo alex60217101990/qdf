@@ -911,7 +911,6 @@ func setLinkPrev(link, prev uint32) uint32 { return (link &^ 0xFFFF) | (prev & 0
 //go:nosplit
 func setLinkNext(link, next uint32) uint32 { return (link & 0xFFFF) | ((next & 0xFFFF) << 16) }
 
-
 // lookupOrAssign returns (id, hit). On a miss a fresh entry is
 // installed and (id, false) is returned; the caller is expected to
 // emit an intern record. The key bytes are copied into the encState
@@ -1044,6 +1043,10 @@ func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uin
 	slot.key = stored
 	slot.id = id
 	e.internLoad++
+	// A fresh id counts as an emission for the MRU ring, which is what
+	// mruRank answers from. This used to ride along inside lruAddFresh; the
+	// LRU chain is gone and the ring is not.
+	e.mruPush(id)
 	// Grow at 3/4 load, not 1/2. A denser table is smaller (better cache)
 	// and rehashes less often; with the well-distributed maphash the longer
 	// linear-probe chains cost less than the cache + rehash savings.

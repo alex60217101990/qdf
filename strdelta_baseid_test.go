@@ -39,16 +39,17 @@ type baseIDRow struct {
 func TestBaseIDCacheSurvivesEveryBaseTransition(t *testing.T) {
 
 	const stem = "com.acme.platform.worker.service."
-	rows := []baseIDRow{
-		{S: stem + "000001", T: "x"},          // first value of each field
-		{S: stem + "000001", T: "x"},          // consecutive repeat
-		{S: stem + "000002", T: "y"},          // delta-eligible change
-		{S: stem + "000002", T: "y"},          // repeat after a delta
-		{S: "s", T: "z"},                      // short: below minIntern, inline
-		{S: "s", T: "z"},                      // repeat of an inline value
-		{S: stem + "000001", T: "x"},          // back to an id seen long ago
-		{S: stem + "000001", T: "x"},          // and repeat it
-	}
+	rows := make([]baseIDRow, 0, 48)
+	rows = append(rows, []baseIDRow{
+		{S: stem + "000001", T: "x"}, // first value of each field
+		{S: stem + "000001", T: "x"}, // consecutive repeat
+		{S: stem + "000002", T: "y"}, // delta-eligible change
+		{S: stem + "000002", T: "y"}, // repeat after a delta
+		{S: "s", T: "z"},             // short: below minIntern, inline
+		{S: "s", T: "z"},             // repeat of an inline value
+		{S: stem + "000001", T: "x"}, // back to an id seen long ago
+		{S: stem + "000001", T: "x"}, // and repeat it
+	}...)
 	for i := range 40 {
 		rows = append(rows, baseIDRow{
 			S: stem + fmt.Sprintf("%06d", i%3),

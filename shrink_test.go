@@ -68,7 +68,6 @@ func TestShrink_SteadyLargeRetainsInternTable(t *testing.T) {
 // a chain — so the chain was maintained on every emission and consumed by no
 // one. The decoder keeps its own, which decState still exercises.
 
-
 // pairPred slice — same retain-then-release contract as LRU.
 func TestShrink_EncStateReleasesPairPredAfterStreak(t *testing.T) {
 	st := newEncState()
