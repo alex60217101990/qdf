@@ -93,8 +93,8 @@ type strFieldState struct {
 	// reset, and 0 is a valid id. Set only where the id is already in hand;
 	// every other path that moves base clears it.
 	baseID uint32
-	base  string
-	gate  strDeltaGate
+	base   string
+	gate   strDeltaGate
 	// alphaID is the well-known alphabet that has matched every value of this
 	// field so far, or 0 when none has been established.
 	alphaID uint8
