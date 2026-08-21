@@ -989,7 +989,7 @@ func (e *Encoder) emitStateRef(id uint32) {
 	// ≥1 byte) nor Pair (rank varuint =1 byte) can be strictly shorter,
 	// so we write the raw form directly and skip the LRU walk entirely.
 	if id < 0x80 {
-		st.lruMoveFront(id)
+		st.mruPush(id)
 		e.buf = append(e.buf, tagStateRef, byte(id))
 		if prevValid && pairOn {
 			st.pairRecord(prev, id)
@@ -1004,7 +1004,7 @@ func (e *Encoder) emitStateRef(id uint32) {
 	// excluded.
 	if prevValid && pairOn {
 		if st.pairLookup(prev, id) {
-			st.lruMoveFront(id)
+			st.mruPush(id)
 			// Top-1 predictor: rank is always 0 (see encState.pairLookup
 			// comment), so the rank byte is a hard-coded literal here.
 			e.buf = append(e.buf, tagStatePair, 0)
@@ -1031,7 +1031,7 @@ func (e *Encoder) emitStateRef(id uint32) {
 	idLen := uvarintLen(uint64(id))
 	if e.mtf {
 		if rank, ok := st.mruRank(id); ok {
-			st.lruMoveFront(id)
+			st.mruPush(id)
 			if rankLen := uvarintLen(uint64(rank)); rankLen < idLen {
 				e.buf = append(e.buf, tagStateMTF)
 				e.buf = appendUvarint(e.buf, uint64(rank))
@@ -1040,12 +1040,12 @@ func (e *Encoder) emitStateRef(id uint32) {
 				e.buf = appendUvarint(e.buf, uint64(id))
 			}
 		} else {
-			st.lruMoveFront(id)
+			st.mruPush(id)
 			e.buf = append(e.buf, tagStateRef)
 			e.buf = appendUvarint(e.buf, uint64(id))
 		}
 	} else {
-		st.lruMoveFront(id)
+		st.mruPush(id)
 		e.buf = append(e.buf, tagStateRef)
 		e.buf = appendUvarint(e.buf, uint64(id))
 	}

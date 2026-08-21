@@ -127,11 +127,10 @@ var mruRingSentinel = func() [mruRingSize]uint16 {
 
 type encState struct { // betteralign:ignore — hot-scalar-first layout is cache-critical; do not reorder
 	// Hot scalars first so they share a single cache line with the
-	// adjacent mruHead and the map header. lastID + lruHead + mruHead
+	// adjacent mruHead and the map header. lastID + mruHead
 	// are touched on every state-ref emit; co-locating them with
 	// mruRing keeps the per-emit footprint at 1-2 cache lines.
 	lastID     uint32
-	lruHead    uint32
 	mruHead    uint32
 	internLoad uint32 // number of occupied slots in internTable
 
@@ -150,16 +149,6 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// pattern sequential and predictable; load is kept below 0.5 by
 	// doubling on growth so probe chains stay short (typically 1).
 	internTable []internSlot
-
-	// Move-to-front LRU over intern IDs. lruHead is the ID at rank 0
-	// (most recently emitted state-ref or freshly interned). lruLink
-	// packs the previous + next ids for each chain slot into a single
-	// uint32 (low 16 bits = prev, high 16 bits = next). IDs are
-	// bounded by maxStateEntries (1 << 14) so they fit in 16 bits
-	// with 0xFFFF reserved as the "no neighbour" sentinel. Packing
-	// halves the cache lines a lruMoveFront has to touch (one array
-	// instead of two) while keeping the unlink/insert update O(1).
-	lruLink []uint32
 
 	// Pair predictor: top-1 successor per prev intern ID. Slot stores
 	// `succ+1` so zero = empty; this keeps Reset() on a memclr fast
@@ -434,7 +423,6 @@ func newEncState() *encState {
 	// allocated on first Put (see internarena.Arena.Put).
 	e := &encState{
 		internTable: make([]internSlot, internTableInitSize),
-		lruHead:     lruInvalidID,
 		lastID:      lruInvalidID,
 	}
 	// Prime ring with sentinels so a scan never matches id 0 by
@@ -552,12 +540,6 @@ func (e *encState) reset() {
 	}
 
 	e.lastID = lruInvalidID
-	e.lruHead = lruInvalidID
-	if cap(e.lruLink) > maxRetainedLRUCap && release {
-		e.lruLink = nil
-	} else {
-		e.lruLink = e.lruLink[:0]
-	}
 
 	// pairPred slice: clear in place (memclr-fast because the empty sentinel
 	// is zero); drop the backing array only when releasing.
@@ -929,57 +911,6 @@ func setLinkPrev(link, prev uint32) uint32 { return (link &^ 0xFFFF) | (prev & 0
 //go:nosplit
 func setLinkNext(link, next uint32) uint32 { return (link & 0xFFFF) | ((next & 0xFFFF) << 16) }
 
-// lruAddFresh inserts a brand-new ID (just assigned) at the head of
-// the LRU. Caller must have ensured id == len(ids)-1 (i.e. ids assigns
-// sequentially starting from 0). Also records the emit in the MRU
-// ring so the rank-discovery side-cache reflects the new chain head.
-func (e *encState) lruAddFresh(id uint32) {
-	for uint32(len(e.lruLink)) <= id {
-		e.lruLink = append(e.lruLink, lruLinkInvalid)
-	}
-	head := e.lruHead
-	// id.prev = invalid, id.next = head
-	if head == lruInvalidID {
-		e.lruLink[id] = lruLinkInvalid
-	} else {
-		e.lruLink[id] = lruLink16Invalid | (head << 16)
-		// head.prev = id
-		e.lruLink[head] = setLinkPrev(e.lruLink[head], id)
-	}
-	e.lruHead = id
-	e.mruPush(id)
-}
-
-// lruMoveFront performs the unlink+insert-at-head update of the LRU
-// but skips the rank walk. Use when the caller does not need the
-// rank (e.g. raw state-ref where MTF cannot win). Also records the
-// emit in the MRU ring so the rank side-cache mirrors the chain
-// head update.
-//
-//go:nosplit
-func (e *encState) lruMoveFront(id uint32) {
-	if e.lruHead == id {
-		e.mruPush(id)
-		return
-	}
-	link := e.lruLink[id]
-	p := linkPrev(link)
-	n := linkNext(link)
-	// p is always valid here (id was not head). Patch p.next = n.
-	e.lruLink[p] = setLinkNext(e.lruLink[p], n)
-	if n != lruLink16Invalid {
-		// Patch n.prev = p.
-		e.lruLink[n] = setLinkPrev(e.lruLink[n], p)
-	}
-	// Insert id at head: id.prev=invalid, id.next=head.
-	head := e.lruHead
-	e.lruLink[id] = lruLink16Invalid | (head << 16)
-	// head.prev = id (head is always valid here — id was in chain).
-	e.lruLink[head] = setLinkPrev(e.lruLink[head], id)
-	e.lruHead = id
-	e.mruPush(id)
-}
-
 // lookupOrAssign returns (id, hit). On a miss a fresh entry is
 // installed and (id, false) is returned; the caller is expected to
 // emit an intern record. The key bytes are copied into the encState
@@ -1112,7 +1043,10 @@ func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uin
 	slot.key = stored
 	slot.id = id
 	e.internLoad++
-	e.lruAddFresh(id)
+	// A fresh id counts as an emission for the MRU ring, which is what
+	// mruRank answers from. This used to ride along inside lruAddFresh; the
+	// LRU chain is gone and the ring is not.
+	e.mruPush(id)
 	// Grow at 3/4 load, not 1/2. A denser table is smaller (better cache)
 	// and rehashes less often; with the well-distributed maphash the longer
 	// linear-probe chains cost less than the cache + rehash savings.
