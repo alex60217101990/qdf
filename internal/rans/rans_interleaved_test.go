@@ -34,7 +34,11 @@ func mkSkewed(n int) []byte {
 
 func TestInterleavedRoundTrip(t *testing.T) {
 	inputs := [][]byte{
-		{}, {7}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4, 5},
+		{},
+		{7},
+		{1, 2},
+		{1, 2, 3},
+		{1, 2, 3, 4, 5},
 		[]byte("aaaaaaaaaabbbbbbccccd"),
 		mkSkewed(4096), mkSkewed(100000),
 	}

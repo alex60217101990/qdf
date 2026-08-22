@@ -93,7 +93,7 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// (~140–311 µs). Retrained every fsstReuseInterval batches so the table
 	// adapts when string distributions shift. Cleared by Reset() on pool
 	// recycle so a pooled encoder never carries stale data into the next
-	// caller; survives resetForReuse() so a streaming caller amortises training.
+	// caller; survives resetForReuse() so a streaming caller amortizes training.
 	fsstCachedTbl  *fsst.SymbolTable
 	fsstBatchCount int // consecutive reuses of fsstCachedTbl since last retrain
 
@@ -344,7 +344,7 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// (not reallocated) per diff call so large new-key sets above keyedLinearMax
 	// reuse the bucket storage instead of heap-allocating per call. Kept on the
 	// Encoder (not encState) next to keyIdx so both keyed-diff scratch fields
-	// share the same cache neighbourhood. newKeyIdxBusy guards against
+	// share the same cache neighborhood. newKeyIdxBusy guards against
 	// re-entrancy: a nested keyed slice sees true and falls back to a fresh map.
 	newKeyIdx     map[string]struct{}
 	newKeyIdxBusy bool

@@ -135,7 +135,7 @@ func TestNilCov_SliceOfMapsWithNil(t *testing.T) {
 // TestNilCov_TypedNilInterface documents the wire semantics of a
 // typed-nil pointer stored in an interface{}. Both this and a bare
 // nil interface should decode to a bare nil (or at least round-trip
-// consistently); this test pins the behaviour so a future codec
+// consistently); this test pins the behavior so a future codec
 // change cannot regress it silently.
 func TestNilCov_TypedNilInterface(t *testing.T) {
 	var typedNil *string
@@ -182,7 +182,7 @@ func TestNilCov_MapWithEmptyKey(t *testing.T) {
 // a nil **T and a non-nil **T pointing at a nil *T. Like JSON and
 // MessagePack, QDF collapses both to a single tagNil on the wire —
 // the receiver gets back a bare nil **T. The test pins this
-// behaviour so a future codec change can't silently start preserving
+// behavior so a future codec change can't silently start preserving
 // the distinction (which would be a wire-incompatible change).
 func TestNilCov_DeepPointerToNil(t *testing.T) {
 	var inner *nilCovLeaf

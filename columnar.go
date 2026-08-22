@@ -503,7 +503,7 @@ func columnarProbeColumns(plan *columnarPlan, base unsafe.Pointer, n int, fsstEn
 				}
 				if ndistinct <= 16 {
 					found := false
-					for j := 0; j < ndistinct; j++ {
+					for j := range ndistinct {
 						if seen[j] == key {
 							found = true
 							break
@@ -596,7 +596,7 @@ func columnarProbeColumns(plan *columnarPlan, base unsafe.Pointer, n int, fsstEn
 			for i := range sample {
 				s := loadStringField(base, plan.stride, col, i)
 				fresh := true
-				for j := 0; j < nseen; j++ {
+				for j := range nseen {
 					if seen[j] == s {
 						fresh = false
 						break
@@ -654,7 +654,7 @@ func columnarProbeColumns(plan *columnarPlan, base unsafe.Pointer, n int, fsstEn
 				alphaOK := true
 				for i := range sample {
 					s := loadStringField(base, plan.stride, col, i)
-					for k := 0; k < len(s); k++ {
+					for k := range len(s) {
 						if !alphaSeen[s[k]] {
 							if alphaCount >= qpackStrAlphaMaxAlphabet {
 								alphaOK = false
@@ -1517,7 +1517,7 @@ func (cv *colVals) anyAt(i int) any {
 // column, nil where not retained) and the surviving row indices.
 //
 // isProj reports whether wire column c should be retained for the caller to
-// materialise. isByte is forwarded to decodeColumnVals for column c (the typed
+// materialize. isByte is forwarded to decodeColumnVals for column c (the typed
 // path passes the target field's isByte; the map path passes false).
 func (d *Decoder) runQueryColumns(
 	sh *decColShape, colLens []uint32, n int,
@@ -1675,7 +1675,7 @@ func (d *Decoder) runQueryColumns(
 }
 
 // decodeColumnarQuery decodes a columnar struct slice applying d.query: it runs
-// the AND of the plan's predicates to select rows, then materialises only the
+// the AND of the plan's predicates to select rows, then materializes only the
 // matched rows of the projected columns into out (*[]Struct). Filter columns
 // need not be projected. Wire order is preserved.
 func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsafe.Pointer) error {
@@ -1684,7 +1684,7 @@ func decodeColumnarQuery(d *Decoder, t reflect.Type, plan *columnarPlan, p unsaf
 		return err
 	}
 	n, sh, colLens := cs.n, cs.sh, cs.colLens
-	// Bound by bytes before runQueryColumns materialises n-element column
+	// Bound by bytes before runQueryColumns materializes n-element column
 	// scratch (memory amplification from a compressed column count).
 	if err := checkColumnarBytes(n, t.Elem().Size()); err != nil {
 		return err
@@ -2043,7 +2043,7 @@ func (d *Decoder) decodeColumnInto(base unsafe.Pointer, plan *columnarPlan, col 
 	if col.kind.isNullable() {
 		return d.decodeNullableColumn(base, plan, col, n)
 	}
-	st := d.state // always non-nil: readColShape initialises it before the loop
+	st := d.state // always non-nil: readColShape initializes it before the loop
 	switch col.kind {
 	case colKindInt:
 		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
@@ -2814,7 +2814,7 @@ func (e *Encoder) derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPl
 	// cached per type. They can be REUSED: the encoder holds one scratch plan
 	// and refills it. Allocating fresh ones was half the extra objects on the
 	// OTLP compression encode, which is a stream of small batches where nothing
-	// amortises.
+	// amortizes.
 	// The scratch is safe only while ONE derived plan is live at a time, and
 	// that is not structurally guaranteed: a residual field is by definition a
 	// non-transposable one — a map, a nested struct, or a SLICE — so a residual
@@ -2956,7 +2956,7 @@ func (e *Encoder) columnarSelect(plan *columnarPlan, base unsafe.Pointer, n int,
 
 	// Mixed. Charge the container for what it costs over plain row-major: the
 	// shape declaration, plus a block header per emitted column. Shape interning
-	// amortises the declaration away after its first appearance in a stream, so
+	// amortizes the declaration away after its first appearance in a stream, so
 	// charging it in full every time is the conservative side.
 	saving := rowBytes - colBytes
 	if saving <= 0 {

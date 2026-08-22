@@ -208,7 +208,7 @@ func (d *Decoder) ReadFloat64() (float64, error) {
 // When the tag at the cursor resolves through the intern table —
 // tagInternStr, tagStateRef, tagStateMTF, tagStatePair, tagStateRepeat —
 // readStringBytes leaves d.state.lastID set to the entry it just
-// touched. We return the pre-materialised d.state.stringValues[id]
+// touched. We return the pre-materialized d.state.stringValues[id]
 // from that path instead of allocating a fresh `string(b)` copy on
 // every state-ref hit. Inline reads (fixstr, str8/16/32) set
 // lastID = lruInvalidID, fall through, and pay the copy as before.

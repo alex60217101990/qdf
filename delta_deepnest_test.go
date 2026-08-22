@@ -11,7 +11,7 @@ import (
 // lossless field kinds (int64/uint64/float64/string/[]byte/[N]byte/bool, nested
 // structs, maps with string/int64 keys, slices, pointers) so the oracle can be a
 // strict DeepEqual. Lossy kinds (int->int64 coercion, time.Time monotonic/zone
-// stripping, interface{} dynamic-int widening) are documented codec behaviours
+// stripping, interface{} dynamic-int widening) are documented codec behaviors
 // and are exercised elsewhere; they are excluded here so a failure is provably a
 // delta bug, not an inherent codec round-trip limitation.
 //

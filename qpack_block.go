@@ -361,7 +361,7 @@ func (d *Decoder) readBlockHeader(expectKind byte) (blk, n, offBase, bodyStart, 
 	// Validate the offset table once: offsets[0]==0, strictly increasing, each
 	// within the buffer. Selective and decode-all both rely on this.
 	prev := -1
-	for b := 0; b < nBlocks; b++ {
+	for b := range nBlocks {
 		off := int(binary.LittleEndian.Uint32(d.buf[offBase+4*b:]))
 		if b == 0 && off != 0 {
 			return 0, 0, 0, 0, 0, ErrInvalidLength

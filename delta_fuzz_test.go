@@ -37,7 +37,7 @@ func randRec(r *rand.Rand) fuzzRec {
 		rec.Tags = map[string]int{} // empty non-nil
 	default:
 		rec.Tags = map[string]int{}
-		for i := 0; i < 1+r.Intn(3); i++ {
+		for range 1 + r.Intn(3) {
 			rec.Tags[[]string{"k1", "k2", "k3"}[r.Intn(3)]] = r.Intn(50)
 		}
 	}
@@ -47,7 +47,7 @@ func randRec(r *rand.Rand) fuzzRec {
 	case 1:
 		rec.Items = []fuzzInner{} // empty non-nil
 	default:
-		for i := 0; i < 1+r.Intn(4); i++ {
+		for range 1 + r.Intn(4) {
 			rec.Items = append(rec.Items, fuzzInner{
 				A: int32(r.Intn(100)),
 				B: []string{"x", "y", "z"}[r.Intn(3)],

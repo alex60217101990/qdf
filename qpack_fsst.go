@@ -59,7 +59,7 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 		// the Build() cost (~140–311 µs) when the same Encoder is reused across
 		// consecutive batches. We retrain every fsstReuseInterval batches so the
 		// table adapts to drifting distributions. The wire format is unchanged:
-		// the table is always fully serialised (MarshalTo below) so the decoder
+		// the table is always fully serialized (MarshalTo below) so the decoder
 		// needs no protocol changes — caching is encoder-side only.
 		if e.fsstCachedTbl != nil && e.fsstBatchCount < fsstReuseInterval {
 			tbl = e.fsstCachedTbl

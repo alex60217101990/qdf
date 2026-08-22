@@ -418,7 +418,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 			h.minI64 = make([]int64, h.zoneCount)
 			h.maxI64 = make([]int64, h.zoneCount)
 		}
-		for z := 0; z < h.zoneCount; z++ {
+		for z := range h.zoneCount {
 			mnZ, nr := readUvarint(d.buf[d.i:])
 			if nr <= 0 {
 				return h, ErrInvalidLength
@@ -442,7 +442,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 			h.minU64 = make([]uint64, h.zoneCount)
 			h.maxU64 = make([]uint64, h.zoneCount)
 		}
-		for z := 0; z < h.zoneCount; z++ {
+		for z := range h.zoneCount {
 			mnZ, nr := readUvarint(d.buf[d.i:])
 			if nr <= 0 {
 				return h, ErrInvalidLength
@@ -468,7 +468,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 		if loadZonemap {
 			h.minF64 = make([]float64, h.zoneCount)
 			h.maxF64 = make([]float64, h.zoneCount)
-			for z := 0; z < h.zoneCount; z++ {
+			for z := range h.zoneCount {
 				h.minF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i:]))
 				h.maxF64[z] = math.Float64frombits(binary.LittleEndian.Uint64(d.buf[d.i+8:]))
 				d.i += 16
@@ -491,7 +491,7 @@ func (d *Decoder) readZoneChunkHeader(loadZonemap bool) (zoneChunkHeader, error)
 // each in-buffer. Call after h.bodyStart is set.
 func (h *zoneChunkHeader) validateOffsets(d *Decoder) error {
 	prev := -1
-	for z := 0; z < h.zoneCount; z++ {
+	for z := range h.zoneCount {
 		off := int(binary.LittleEndian.Uint32(d.buf[h.offBase+4*z:]))
 		if z == 0 && off != 0 {
 			return ErrInvalidLength
@@ -567,7 +567,7 @@ var zoneSkippedZones atomic.Int64
 // intersect at least one of the referencing leaves' bounds and evaluates each
 // leaf's predicate over those zones into the leaf's precompT mask (zones that
 // cannot match are skipped — their rows stay FALSE). It is FILTER-only: it never
-// materialises projected values, because a row matched via an OR/NOT sibling can
+// materializes projected values, because a row matched via an OR/NOT sibling can
 // live in a zone this column's bounds skipped, so projection must follow the
 // FINAL matched set (decodeZoneChunkSelective), not the leaf bounds. The column
 // starts at byte offset start (pointing at the tag); the caller repositions d.i

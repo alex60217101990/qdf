@@ -1,6 +1,6 @@
 // internal/mapsgen — code generator for typed map encode/decode fast
 // paths. Reflect-driven maps are 3–4× slower than typed paths because
-// of per-element reflect.Value materialisation. Each generated pair
+// of per-element reflect.Value materialization. Each generated pair
 // inlines WriteX / ReadX calls directly, keeping the encoder inliner
 // happy while covering the common map shapes Go programs reach for.
 //

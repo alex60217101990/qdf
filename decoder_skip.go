@@ -267,7 +267,7 @@ func (d *Decoder) Skip() error {
 			cnt = int(cnt64)
 			sh := d.state.shapeDeclare()
 			sh.names = make([]string, 0, cnt)
-			for i := 0; i < cnt; i++ {
+			for range cnt {
 				kb, err := d.readStringBytes()
 				if err != nil {
 					return err
@@ -293,7 +293,7 @@ func (d *Decoder) Skip() error {
 		// alone: the walk needs the base to reconstruct the value it advances
 		// the base to.
 		bases := d.state.strFieldStates(effShapeID, cnt)
-		for i := 0; i < cnt; i++ {
+		for i := range cnt {
 			if d.i < len(d.buf) && strDeltaTagAdvancesBase(d.buf[d.i]) {
 				d.strField = &bases[i]
 				_, err := d.readStringBytes()

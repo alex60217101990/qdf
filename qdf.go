@@ -527,7 +527,7 @@ var (
 //
 // The codec picker writes candidate encodings and rewinds the losers, so a
 // message whose peak sits above its output still grows once past this hint —
-// that is the pre-hint behaviour, never worse, and it is still far below the
+// that is the pre-hint behavior, never worse, and it is still far below the
 // doubling chain it replaces.
 //
 // Not clamped to maxPooledBuf: that ceiling bounds what the pool RETAINS

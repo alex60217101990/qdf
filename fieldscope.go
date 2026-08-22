@@ -71,7 +71,7 @@ func (e *Encoder) WriteStringField(i int, s string) {
 	fs := e.curFields
 	// Unsigned, so the negative case costs nothing extra: a caller outside this
 	// package can pass any int, and an out-of-range index must fall back rather
-	// than panic or write against a neighbouring field.
+	// than panic or write against a neighboring field.
 	if uint(i) >= uint(len(fs)) {
 		e.WriteString(s)
 		return

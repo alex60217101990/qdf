@@ -281,7 +281,7 @@ func (e *Encoder) writeStringField(s string, fs *strFieldState) {
 		}
 		p := frontDeltaCommonPrefix(*base, s)
 		// The delta must not merely win, it must win BIG: every emission adds
-		// bytes the decoder has to materialise, because a delta value is
+		// bytes the decoder has to materialize, because a delta value is
 		// contiguous nowhere and cannot alias the read buffer the way an
 		// interned one does. Saving two bytes of wire is not worth a full copy;
 		// halving the value is.
@@ -602,7 +602,7 @@ func strDeltaTagAdvancesBase(b byte) bool {
 //
 // A delta value is base[:pfx] + mid, contiguous nowhere: unlike tagInternStr —
 // whose bytes are a sub-slice of the read buffer and cost nothing — it must be
-// materialised. A make() per value doubled decode allocations on the access-log
+// materialized. A make() per value doubled decode allocations on the access-log
 // profile (30.9k -> 60.7k) and cost most of the decode regression.
 //
 // It goes through the same bumparena the decoder already uses for arena-backed

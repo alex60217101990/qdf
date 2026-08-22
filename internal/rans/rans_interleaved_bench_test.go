@@ -19,7 +19,7 @@ func BenchmarkRans(b *testing.B) {
 			b.Run(name, func(b *testing.B) {
 				b.SetBytes(int64(sz))
 				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
+				for range b.N {
 					_ = Encode(nil, src)
 				}
 			})
@@ -44,7 +44,7 @@ func BenchmarkRANSDecode(b *testing.B) {
 			}
 			b.Run(name, func(b *testing.B) {
 				b.SetBytes(int64(sz))
-				for i := 0; i < b.N; i++ {
+				for range b.N {
 					if _, err := Decode(blob, sz); err != nil {
 						b.Fatal(err)
 					}

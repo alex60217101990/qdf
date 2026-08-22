@@ -38,14 +38,14 @@ const (
 
 // Tag bytes.
 const (
-	// 0x00..0x7F  positive fixint
+	// 0x00..0x7F  positive fixint.
 	tagFixintMax = 0x7F
 
-	// 0x80..0x9F  fixstr (len 0..31)
+	// 0x80..0x9F  fixstr (len 0..31).
 	tagFixstr     = 0x80
 	tagFixstrMask = 0x1F
 
-	// 0xA0..0xBF  fixarr (len 0..31)
+	// 0xA0..0xBF  fixarr (len 0..31).
 	tagFixarr     = 0xA0
 	tagFixarrMask = 0x1F
 
@@ -74,7 +74,7 @@ const (
 	tagMap16   = 0xD6
 	tagMap32   = 0xD7
 
-	// 0xD8..0xDF  negfixint (-1..-8) — 3-bit body
+	// 0xD8..0xDF  negfixint (-1..-8) — 3-bit body.
 	tagNegfixint     = 0xD8
 	tagNegfixintMask = 0x07
 	negfixintMaxAbs  = 8 // values -1..-8 fit
@@ -381,13 +381,13 @@ const (
 
 	// tagColStrFrontDelta is an incrementally-coded string column inside a
 	// tagColStruct payload: the cheap counterpart to tagColStrFSST for
-	// high-cardinality text whose values resemble their neighbours (request
+	// high-cardinality text whose values resemble their neighbors (request
 	// lines differing in an id, user agents differing in a version). Each row
 	// stores what it shares with the row above instead of its own bytes.
 	//
 	// Every frontDeltaBlock (64) rows the chain resets and a row is written in
 	// full, so a reader can start at a block boundary — predicate pushdown
-	// materialises only surviving rows and would otherwise have to decode the
+	// materializes only surviving rows and would otherwise have to decode the
 	// column from the top to reach any row.
 	//
 	// Wire:

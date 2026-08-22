@@ -3,6 +3,7 @@ package qdf
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ type saRow struct {
 // container decision is upstream of this codec: a payload whose string column
 // the columnar probe accepts never reaches the row-major writer at all, and an
 // assertion through Marshal would be measuring the probe, not the packer.
-// End-to-end behaviour is covered by the round-trip tests below.
+// End-to-end behavior is covered by the round-trip tests below.
 func writeN(t *testing.T, vals []string) (wk, decl, ref int64) {
 	t.Helper()
 	e := NewEncoderWith(OptBalanced | OptStringAlphabet)
@@ -127,7 +128,7 @@ func TestStrAlphaRoundTripsEveryShape(t *testing.T) {
 			}
 			return string(b)
 		},
-		"short":    func(i int) string { return fmt.Sprintf("%d", i%7) },
+		"short":    func(i int) string { return strconv.Itoa(i % 7) },
 		"constant": func(i int) string { return "/healthz/ready/probe" },
 		"empty":    func(i int) string { return "" },
 		"mixed": func(i int) string {
@@ -185,7 +186,7 @@ func TestStrAlphaRoundTripsEveryShape(t *testing.T) {
 // a dashed UUID field cost 17.5% MORE wire under OptCompression with the bit
 // than without it and a MAC-address field 18.2% more, while the best case was
 // -0.1%. Never better, sometimes much worse — so the encoder ignores the bit
-// rather than honouring it, and the wire must come out byte-identical.
+// rather than honoring it, and the wire must come out byte-identical.
 func TestStrAlphaIsInertUnderEntropyCoding(t *testing.T) {
 	type row struct {
 		Seq  int64 `qdf:"seq"`

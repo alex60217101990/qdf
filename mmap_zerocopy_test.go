@@ -7,8 +7,9 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/alex60217101990/qdf"
 	"golang.org/x/sys/unix"
+
+	"github.com/alex60217101990/qdf"
 )
 
 // TestMmapZeroCopyDecode exercises the documented mmap + WithNoCopy pattern

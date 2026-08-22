@@ -5,7 +5,7 @@ import "slices"
 // Direct entry points for types whose MarshalQDF / UnmarshalQDF are
 // emitted by cmd/qdfgen (or hand-written). They bypass the reflect
 // descriptor cache entirely: no descOf lookup, no interface conversion,
-// no reflect.Value materialisation. The type parameter is constrained
+// no reflect.Value materialization. The type parameter is constrained
 // to the Marshaler / Unmarshaler interface so the compiler can inline
 // the method call directly.
 //
@@ -16,7 +16,7 @@ import "slices"
 // Marshal(v, OptQPack) (or the MarshalT generic counterpart) for
 // those dialects.
 
-// MarshalDirect serialises a value through its MarshalQDF method.
+// MarshalDirect serializes a value through its MarshalQDF method.
 // Skips the public Marshal entry point's any-boxing, reflect.New, and
 // descriptor lookup. Roughly 2-4× faster than Marshal for generated
 // types on small payloads, with one fewer allocation per call.
@@ -49,7 +49,7 @@ func MarshalDirect[T Marshaler](v T) ([]byte, error) {
 	return cloned, nil
 }
 
-// AppendMarshalDirect appends the serialisation of v to dst.
+// AppendMarshalDirect appends the serialization of v to dst.
 func AppendMarshalDirect[T Marshaler](dst []byte, v T) ([]byte, error) {
 	// Header must be present before the receiver's MarshalQDF runs, so
 	// emit it through a borrowed encoder (handles the headerOut flag and

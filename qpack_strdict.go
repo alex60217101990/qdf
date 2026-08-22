@@ -299,7 +299,7 @@ func dictSampleHighCard(strs []string) bool {
 		s := strs[i]
 		k := strDiscriminator(s)
 		fresh := true
-		for j := 0; j < distinct; j++ {
+		for j := range distinct {
 			if keys[j] == k && seen[j] == s {
 				fresh = false
 				break
@@ -535,7 +535,7 @@ func (d *Decoder) readStringColumnDictQ(n int) (table []string, idx []uint32, er
 // readStringColumnDictFC decodes a tagColStrDictFC block (tag at d.i): a sorted,
 // front-coded distinct table plus a per-row index slice of length n. Each table
 // entry is reconstructed as prev[:sharedPrefixLen] + suffix; all distinct strings
-// are materialised into ONE slab (a single allocation for the whole table) and
+// are materialized into ONE slab (a single allocation for the whole table) and
 // returned as views into it. Bounds mirror readStringColumnDict.
 func (d *Decoder) readStringColumnDictFC(n int) (table []string, idx []uint32, err error) {
 	d.i++ // consume tagColStrDictFC

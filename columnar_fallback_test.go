@@ -61,7 +61,7 @@ func TestStructuralColumnarPlanSeesFieldsTheSharedDescriptorHides(t *testing.T) 
 }
 
 // A type that cannot be described structurally must yield nil rather than an
-// error or a panic: the caller's contract is to fall back to today's behaviour.
+// error or a panic: the caller's contract is to fall back to today's behavior.
 func TestStructuralColumnarPlanDeclinesWhatItCannotDescribe(t *testing.T) {
 	type undescribable struct {
 		Ch chan int `qdf:"ch"`

@@ -135,7 +135,6 @@ func encodeStream(dst, src []byte, freq *[256]uint32, cum *[257]uint32) []byte {
 	pos := size
 	x := uint32(ransByteL)
 	for _, s := range slices.Backward(src) {
-
 		f := freq[s]
 		xMax := ((ransByteL >> scaleBits) << 8) * f
 		for x >= xMax {

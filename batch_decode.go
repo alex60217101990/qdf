@@ -45,7 +45,6 @@ var errBatchNeedFallback = errors.New("qdf: batch columnar fallback")
 // current QueryOption applies. Kept in the signature so the public
 // UnmarshalBatch contract does not change when a batch-relevant option lands.
 func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer, _ ...QueryOption) (int, error) {
-
 	// --- Columnar fast path -------------------------------------------------
 	// Attempt a pure-columnar decode on a pooled decoder. On success the T
 	// rows and the slab are fully populated. On the fallback sentinel (or any
@@ -721,7 +720,7 @@ func batchReadColShape(d *Decoder, plan *batchPlan, slab *batchSlab) (n, nCols i
 func scatterBatchColumn(d *Decoder, plan *batchPlan, slab *batchSlab, base unsafe.Pointer, f *batchField, kind colKind, n int) error {
 	stride := plan.stride
 	off := f.off
-	st := d.state // non-nil: readColShape initialised it
+	st := d.state // non-nil: readColShape initialized it
 
 	switch f.kind {
 	case bfStr, bfBytes:

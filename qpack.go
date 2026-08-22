@@ -77,7 +77,7 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 	n := len(s)
 	codec = qpackRaw
 	if n == 0 {
-		return
+		return codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost
 	}
 	// raw cost: tag + kind + nVarUint + 8n
 	rawCost := 2 + uvarintLen(uint64(n)) + 8*n
@@ -155,7 +155,7 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 	// saves a full bits.Len64 histogram over the column.
 	pforHdr := 3 + uvarintLen(uint64(len(s))) + uvarintLen(mn)
 	if bestCost <= pforHdr+len(s)/8 {
-		return
+		return codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost
 	}
 	if pb, pc, okp := pforPlanUnsigned(s, mn, forBits); okp && pc < bestCost {
 		codec = qpackPFor
@@ -164,7 +164,7 @@ func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first u
 		// codec so encodeSliceUint32's never-worse floor picks PFOR over native
 		// uint32-raw when PFOR is actually smaller.
 	}
-	return
+	return codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost
 }
 
 // qpackRLESizeU64 returns the on-wire byte cost of run-length-encoding
@@ -215,7 +215,7 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 	n := len(s)
 	codec = qpackRaw
 	if n == 0 {
-		return
+		return codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost
 	}
 	rawCost := 2 + uvarintLen(uint64(n)) + 8*n
 
@@ -288,7 +288,7 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 	// the first place. Skipping there forfeits nothing the wire would notice.
 	pforHdr := 3 + uvarintLen(uint64(len(s))) + uvarintLen(zigzagEncode64(mn))
 	if bestCost <= pforHdr+len(s)/8 {
-		return
+		return codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost
 	}
 	if pb, pc, okp := pforPlanSigned(s, mn, forBits); okp && pc < bestCost {
 		codec = qpackPFor
@@ -297,7 +297,7 @@ func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int
 		// never-worse floor (encodeSliceInt32 vs native int32-raw) sees PFOR's
 		// real size and does not fall back to a larger native encoding.
 	}
-	return
+	return codec, mn, forBits, first, minDelta, deltaBits, pforBits, bestCost
 }
 
 // qpackCodec identifies which QPack codec to invoke for a numeric slice.
@@ -552,7 +552,7 @@ func pickF64Codec(s []float64) (qpackCodec, int) {
 	// Projected average bits per element for Gorilla. Raw is 64.
 	// Pick Gorilla only when the projection is comfortably below
 	// raw to absorb fixed-header overhead (kind + first value +
-	// numBits varuint = ~10 bytes ≈ 80 bits amortised).
+	// numBits varuint = ~10 bytes ≈ 80 bits amortized).
 	avgBits := total / uint64(probe)
 	gorBytes := 12 + (int(avgBits)*n+7)/8
 	if avgBits+1 < 48 {

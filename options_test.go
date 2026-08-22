@@ -183,7 +183,7 @@ func optsFixtures() []struct {
 				// the decoder restores as empty (non-nil) slices. A nil
 				// slice would round-trip as empty, which is DeepEqual-
 				// false, but documents the intentional Go-stdlib-like
-				// behaviour and is not exercised here.
+				// behavior and is not exercised here.
 				return optsNumbers{
 					Monotonic: []int64{},
 					Wild:      []int64{},
@@ -305,7 +305,7 @@ func TestOptions_WireSizeRanking(t *testing.T) {
 func TestOptions_BundleAliases(t *testing.T) {
 	for _, fx := range optsFixtures() {
 		if fx.name == "combo_mixed" {
-			continue // map iteration is randomised
+			continue // map iteration is randomized
 		}
 		in := fx.gen()
 		t.Run(fx.name+"/Speed=zero", func(t *testing.T) {
@@ -419,7 +419,7 @@ func TestOptions_GorillaFiresUnderCompression(t *testing.T) {
 
 // TestOptions_TWithMatchesWith pins that MarshalT and Marshal
 // produce the same wire bytes for the same options on the same value.
-// Use a fixture with no Go map (whose iteration order is randomised
+// Use a fixture with no Go map (whose iteration order is randomized
 // and would mask the real equivalence we want to test).
 func TestOptions_TWithMatchesWith(t *testing.T) {
 	in := optsFixtures()[2].gen().([]optsEvent) // event_repeating_strings
@@ -469,7 +469,7 @@ func TestOptions_Has(t *testing.T) {
 
 // TestOptions_AppendParity pins that AppendMarshal with an empty
 // destination yields the same bytes as Marshal for every option
-// combination. Skips fixtures containing Go maps because randomised
+// combination. Skips fixtures containing Go maps because randomized
 // iteration order would produce false negatives that mask real bugs.
 func TestOptions_AppendParity(t *testing.T) {
 	for _, fx := range optsFixtures() {

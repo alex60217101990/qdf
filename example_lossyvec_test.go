@@ -122,7 +122,7 @@ func ExampleMaxRelError() {
 //     whole batch (not paid per row) — a 256-dim float32 vector lands at roughly
 //     a third of its 1 KiB raw size.
 //   - The fidelity budget is the metric the index relies on (cosine here), so
-//     nearest-neighbour results are preserved while the bytes shrink.
+//     nearest-neighbor results are preserved while the bytes shrink.
 //   - It is never-worse (a column that would not shrink stays lossless) and the
 //     default path is bit-exact, so turning the flag off restores exact vectors.
 func Example_aiEmbeddingStore() {

@@ -282,7 +282,7 @@ type encState struct { // betteralign:ignore — hot-scalar-first layout is cach
 	// adaptive-retention policy in reset(). Cold — touched once per reset.
 	retainStreak uint8
 
-	// arenaSmallStreak is the arena's own analogue of retainStreak, driven by
+	// arenaSmallStreak is the arena's own analog of retainStreak, driven by
 	// the byte volume interned per message (internarena.DefaultRetainBytes)
 	// rather than the intern-id count (maxRetainedIDs). The two signals diverge:
 	// a batch can intern < maxRetainedIDs distinct keys yet still push the arena
@@ -323,7 +323,7 @@ type shapeBinding struct {
 }
 
 // tokenShape is a (per-type token address → wire shape ID) pair, the
-// code-generated analogue of shapeBinding (which keys on *typeDesc). The token
+// code-generated analog of shapeBinding (which keys on *typeDesc). The token
 // is a stable package-level address the generated EncodeQDF passes; a linear
 // scan keeps the hot path map-free and allocation-free under -race.
 type tokenShape struct {
@@ -340,7 +340,7 @@ type tokenShape struct {
 //
 // valSlots is a pre-allocated []reflect.Value (one per key, type valType) used
 // by hasAllAndCollect to receive values via SetIterValue — no per-key heap
-// allocation. Initialised lazily on first encode of this shape.
+// allocation. Initialized lazily on first encode of this shape.
 type mapShapeBinding struct {
 	valType  reflect.Type // element type of valSlots; zero if unset
 	keys     []string
@@ -355,7 +355,7 @@ type mapShapeBinding struct {
 	busy bool
 }
 
-// ensureValueSlots initialises the pre-allocated reflect.Value holders used
+// ensureValueSlots initializes the pre-allocated reflect.Value holders used
 // for zero-alloc MapRange value collection via SetIterValue. It is a no-op
 // when slots are already allocated for the same value type; it reinitialises
 // only when the type changes (rare: two maps with identical key-sets but
@@ -410,7 +410,7 @@ const lruInvalidID = ^uint32(0)
 
 // maxInternEntries is the hard ceiling on the intern-table size. Intern ids are
 // packed into uint16 fields in the MRU ring and the LRU prev/next links, with
-// 0xFFFF reserved as the "empty / no-neighbour" sentinel (mruEmpty,
+// 0xFFFF reserved as the "empty / no-neighbor" sentinel (mruEmpty,
 // lruLink16Invalid). The largest assignable id must therefore stay below 0xFFFF.
 // The assign gate is `internLoad < maxStateEntries`, so capping maxStateEntries
 // at 0xFFFF yields a max id of 0xFFFE — one below the sentinel. A larger cap
@@ -419,7 +419,7 @@ const lruInvalidID = ^uint32(0)
 const maxInternEntries = 0xFFFF
 
 func newEncState() *encState {
-	// arena is zero-value initialised here — its slab is lazily
+	// arena is zero-value initialized here — its slab is lazily
 	// allocated on first Put (see internarena.Arena.Put).
 	e := &encState{
 		internTable: make([]internSlot, internTableInitSize),
@@ -852,7 +852,7 @@ func (e *encState) mruPush(id uint32) {
 //
 // Hand-unrolled 4-way: profiling on telemetry workloads showed the
 // scalar loop at ~17 % flat (top hotspot post the May 2026
-// series). The unroll amortises the back-edge branch, lets the CPU
+// series). The unroll amortizes the back-edge branch, lets the CPU
 // issue 4 independent loads per iteration, and keeps the typical
 // low-rank early-exit semantics. Falls back to scalar for the
 // final partial iteration when mruRingSize is not a multiple of 4
@@ -894,10 +894,12 @@ func (e *encState) mruRank(id uint32) (uint32, bool) {
 }
 
 // lruLinkInvalid encodes (prev=0xFFFF, next=0xFFFF) — an isolated
-// slot with no neighbours. Used as the append default when growing
+// slot with no neighbors. Used as the append default when growing
 // the lruLink slice.
-const lruLinkInvalid uint32 = 0xFFFF | (0xFFFF << 16)
-const lruLink16Invalid uint32 = 0xFFFF // 16-bit sentinel masked into a uint32
+const (
+	lruLinkInvalid   uint32 = 0xFFFF | (0xFFFF << 16)
+	lruLink16Invalid uint32 = 0xFFFF // 16-bit sentinel masked into a uint32
+)
 
 //go:nosplit
 func linkPrev(link uint32) uint32 { return link & 0xFFFF }
@@ -1060,7 +1062,7 @@ func (e *encState) installInternSlot(slot *internSlot, h uint64, key string) uin
 
 // internTableGrow doubles the flat hash table and rehashes every
 // occupied slot. Called from installInternSlot when the load factor
-// reaches 3/4. Amortised insert stays O(1); the denser table trades
+// reaches 3/4. Amortized insert stays O(1); the denser table trades
 // slightly longer probe chains for fewer rehashes and a smaller cache
 // footprint (a net encode win on large, intern-heavy payloads).
 func (e *encState) internTableGrow() {
@@ -1105,7 +1107,6 @@ type decColShape struct {
 // scalars stay packed together (lastID/lruHead/mruHead/mruRing) so the
 // per-emit MTF update still touches one contiguous span.
 type decState struct {
-
 	// zeroTimeBox caches the boxed `any` of the zero time.Time (the value
 	// unset time fields — DeletedAt, ExpiresAt, … — decode to en masse). It is
 	// a universal, immutable constant, so it is boxed once and shared across
@@ -1132,7 +1133,7 @@ type decState struct {
 	// alloc.
 	stringValues []string
 
-	// boxValues is the interface-boxing analogue of stringValues, indexed
+	// boxValues is the interface-boxing analog of stringValues, indexed
 	// by the same intern id and grown in lockstep (one nil placeholder per
 	// record). decodeAny boxes a repeated string's `any(s)` exactly once and
 	// caches it here; every later state-ref / MTF / pair / repeat occurrence
@@ -1501,7 +1502,7 @@ func (d *decState) lruMoveToFront(id uint32) {
 // exactly once, and every later state-ref / MTF / pair / repeat
 // read returns the cached value without alloc.
 //
-// Eager materialisation would punish single-shot decodes (Config-
+// Eager materialization would punish single-shot decodes (Config-
 // shaped workloads, ~10 distinct interns, each read once) where
 // the cache slot never gets re-read; lazy population matches what
 // the old direct-string(b) path did on first sight and adds zero
@@ -1525,13 +1526,13 @@ func (d *decState) get(id uint32) ([]byte, bool) {
 // getString returns the cached string copy of the intern record at
 // id, populating the slot on first call. Empty interned bytes
 // resolve to "" without an extra alloc — the `len(b) == 0` branch
-// short-circuits before the materialisation. Used on the state-ref
+// short-circuits before the materialization. Used on the state-ref
 // / MTF / pair / repeat decode paths so ReadString skips the
 // string(b) heap copy after the first sight.
 //
-// When arena is non-nil the first-sight materialisation is packed into the
+// When arena is non-nil the first-sight materialization is packed into the
 // bump arena instead of its own heap allocation, so a Dense/intern decode of a
-// high-cardinality string column amortises its copies the same way the plain
+// high-cardinality string column amortizes its copies the same way the plain
 // (Speed-mode) string path already does. Each interned id is still copied at
 // most once — the cached aliasing string is reused on every later reference.
 //

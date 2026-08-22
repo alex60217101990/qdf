@@ -12,9 +12,9 @@ import (
 	"unicode/utf8"
 )
 
-// data_validity_test.go: dedicated suite that verifies marshalled
+// data_validity_test.go: dedicated suite that verifies marshaled
 // data round-trips with semantic AND structural fidelity — order
-// preservation, edge-value preservation, bit-exact float behaviour,
+// preservation, edge-value preservation, bit-exact float behavior,
 // UTF-8 safety, concurrent pool safety, and pool-reuse correctness
 // across mixed Options.
 //
@@ -124,7 +124,7 @@ func TestValidity_SliceOrder_LargeSpansArr32(t *testing.T) {
 // --- Map nondeterminism + semantic equality ---------------------
 
 func TestValidity_MapSemanticEquality(t *testing.T) {
-	// Go map iteration order is randomised; semantic equality is
+	// Go map iteration order is randomized; semantic equality is
 	// the only contract we have. reflect.DeepEqual handles maps
 	// element-wise, so we only need to confirm round-trip.
 	t.Run("string_string", func(t *testing.T) {

@@ -10,7 +10,7 @@
 // package targets generic typed allocation (New[T], MakeSlice[T]),
 // none of which we use. We need exactly one operation — copy a byte
 // payload, return an id — and we want to inline the cursor into our
-// encoder state so a Put / Get pair stays a few amortised
+// encoder state so a Put / Get pair stays a few amortized
 // instructions. ~80 LOC beats a v0.0.0-pseudo-version dependency on
 // every axis but "did someone else write it for me".
 //

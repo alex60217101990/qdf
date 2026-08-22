@@ -1,6 +1,6 @@
 module github.com/alex60217101990/qdf
 
-go 1.26.6
+go 1.27.0
 
 require (
 	github.com/modern-go/reflect2 v1.0.2

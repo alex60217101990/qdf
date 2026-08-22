@@ -190,8 +190,10 @@ func TestUnmarshalKeysNoLeakIntoColumnar(t *testing.T) {
 		rows[i] = inner{Name: "row" + strconv.Itoa(i), N: int64(i), Tag: "t"}
 	}
 	m := map[string]any{"aaa": rows, "zzz": int64(7)}
-	for _, opts := range []Options{OptSpeed, OptBalanced, OptCompression,
-		OptBalanced | OptColumnIndex, OptBalanced | OptMapShape, OptBalanced | OptCanonical} {
+	for _, opts := range []Options{
+		OptSpeed, OptBalanced, OptCompression,
+		OptBalanced | OptColumnIndex, OptBalanced | OptMapShape, OptBalanced | OptCanonical,
+	} {
 		blob, err := Marshal(m, opts)
 		if err != nil {
 			t.Fatalf("%v encode: %v", opts, err)
@@ -222,8 +224,10 @@ func TestUnmarshalColumnsKeepsMapFields(t *testing.T) {
 	}
 	rows := make([]r, 24)
 	for i := range rows {
-		rows[i] = r{ID: int64(i), Name: "n" + strconv.Itoa(i),
-			Tags: map[string]string{"env": "prod", "region": "eu", "ID": "shadow"}}
+		rows[i] = r{
+			ID: int64(i), Name: "n" + strconv.Itoa(i),
+			Tags: map[string]string{"env": "prod", "region": "eu", "ID": "shadow"},
+		}
 	}
 	for _, opts := range []Options{OptSpeed, OptBalanced, OptCompression, OptBalanced | OptColumnIndex} {
 		blob, err := Marshal(rows, opts)

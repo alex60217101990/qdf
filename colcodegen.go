@@ -519,7 +519,7 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 		for i := range n {
 			s := strs[i]
 			fresh := true
-			for j := 0; j < nseen; j++ {
+			for j := range nseen {
 				if seen[j] == s {
 					fresh = false
 					break
@@ -559,7 +559,7 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 			alphaOK := true
 			for i := range n {
 				s := strs[i]
-				for k := 0; k < len(s); k++ {
+				for k := range len(s) {
 					if !alphaSeen[s[k]] {
 						if alphaCount >= qpackStrAlphaMaxAlphabet {
 							alphaOK = false

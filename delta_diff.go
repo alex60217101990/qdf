@@ -232,7 +232,7 @@ func diffMap(enc *Encoder, td *typeDesc, oldP, newP unsafe.Pointer, depth int) e
 // Re-entrancy: canonKeysBusy is held for the full duration of the typed gather
 // (set by gatherStringKeys/IntKeys/UintKeys, cleared by canonKeysRelease). Any
 // recursive call from within fn for a nested map's value sees canonKeysBusy=true
-// and gets a fresh local scratch — exactly the behaviour the gather guards
+// and gets a fresh local scratch — exactly the behavior the gather guards
 // provide, with no additional latch needed here.
 func (e *Encoder) canonSortedMapKeys(rv reflect.Value, keyType reflect.Type, fn func(reflect.Value) error) error {
 	switch keyType.Kind() {
@@ -289,7 +289,8 @@ func (e *Encoder) canonSortedMapKeys(rv reflect.Value, keyType reflect.Type, fn 
 // differ. Arrays never reach diffColumnar (they call diffElemsPositional
 // directly via diffArray).
 func diffElems(enc *Encoder, elem *typeDesc, colPlan *columnarPlan, stride uintptr,
-	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int) error {
+	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int,
+) error {
 	if oldLen == newLen && oldLen >= columnarMinElems && diffColumnarEligible(colPlan) {
 		handled, err := diffColumnar(enc, elem, colPlan, stride, oldData, newData, oldLen, depth)
 		if err != nil {
@@ -305,7 +306,8 @@ func diffElems(enc *Encoder, elem *typeDesc, colPlan *columnarPlan, stride uintp
 // diffElemsPositional is the positional element differ: one tagSlicePatch body
 // listing each changed/appended element index with its recursive op.
 func diffElemsPositional(enc *Encoder, elem *typeDesc, stride uintptr,
-	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int) error {
+	oldData unsafe.Pointer, oldLen int, newData unsafe.Pointer, newLen int, depth int,
+) error {
 	minLen := min(newLen, oldLen)
 	// elem.pod was precomputed at build (noPointersWalk of the element type) —
 	// read the field instead of walking per call. elem is always non-nil here

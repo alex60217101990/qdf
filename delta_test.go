@@ -598,7 +598,7 @@ func TestApplyRejectsTruncatedPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Truncate at every length; Apply must never panic, must return an error or nil.
-	for cut := range len(p) {
+	for cut := range p {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

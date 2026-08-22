@@ -37,7 +37,6 @@ type baseIDRow struct {
 // value, repeat, delta-eligible change, repeat again, a short (sub-minIntern)
 // value, and a repeat after that.
 func TestBaseIDCacheSurvivesEveryBaseTransition(t *testing.T) {
-
 	const stem = "com.acme.platform.worker.service."
 	rows := make([]baseIDRow, 0, 48)
 	rows = append(rows, []baseIDRow{

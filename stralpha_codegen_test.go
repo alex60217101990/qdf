@@ -19,7 +19,7 @@ type cgRec struct {
 // decodeLikeQdfgen walks a struct exactly as generated code does: read the
 // header, then EnterField / LeaveField around every field, string or not.
 //
-// This is the sixth reader of struct values, and the only one whose behaviour
+// This is the sixth reader of struct values, and the only one whose behavior
 // was argued from the shape of the API rather than exercised. A generated
 // decoder that failed to bind the field context would not error — it would
 // return a value built from another field's alphabet, or fail on a reference
