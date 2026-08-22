@@ -166,6 +166,42 @@ smaller wire.**
 
 3.2× faster encode and 2.8× faster decode than json/v2, at 2.3× less wire.
 
+### Large payload (~150 MiB source value)
+
+This is where v2's real strength shows, and it is memory rather than time.
+
+| codec | encode | allocs | alloc bytes | decode | allocs |
+|---|---|---|---|---|---|
+| `json` v1 | 58.6 ms | 250 124 | 87.3 MB | 144.7 ms | 1 023 820 |
+| `json/v2` | 55.0 ms | **100 003** | **37.0 MB** | 117.8 ms | 1 023 822 |
+| msgpack | 31.2 ms | 100 023 | 65.5 MB | 66.9 ms | 1 425 126 |
+| qdf_fast | **11.7 ms** | 18 | 28.1 MB | 23.4 ms | 875 099 |
+| qdf_dense | 12.8 ms | 20 | **17.5 MB** | **21.2 ms** | 829 782 |
+
+json/v2 cuts encode allocation count by 60% and allocated bytes by 58% against
+v1, at roughly the same time. It is the largest v2 win anywhere in this file, and
+it is the one that matters most in a service under GC pressure.
+
+Against v2: qdf_fast encodes **4.7×** faster, qdf_dense decodes **5.6×** faster
+and holds its encode working set to less than half.
+
+### QPack fixture — numeric slices
+
+| codec | encode | decode |
+|---|---|---|
+| `json` v1 | 17.5 µs | 38.1 µs |
+| `json/v2` | 17.4 µs | 29.3 µs |
+| msgpack | 21.0 µs | 28.0 µs |
+| **qdf_qpack** | **1.4 µs** | **1.5 µs** |
+
+**12.4× faster encode and 19.5× faster decode than json/v2.** This is the shape
+qdf is built for — dense numeric columns where bit-packing and
+frame-of-reference do the work that a text format cannot.
+
+Note that v2 and v1 encode this fixture at the same speed: with no maps to sort
+and no strings to escape, v2's defaults have nothing to skip. That is the
+clearest demonstration of where the v2 win comes from.
+
 **And one place qdf loses.** `qdf_compression` encodes this payload in 1330 µs
 against json/v2's 1242 µs — slower. It buys a 197 KB wire against 546 KB, so the
 trade is a good one when bytes cost more than CPU, but on encode CPU alone the
