@@ -1,6 +1,6 @@
 // embeddings demonstrates the opt-in lossy vector codec for AI embeddings.
 //
-// Embeddings don't need bit-exact storage — only their nearest-neighbour
+// Embeddings don't need bit-exact storage — only their nearest-neighbor
 // geometry has to survive. Under OptLossyVec, qdf quantizes the []float32 /
 // []float64 vector columns of a []struct to a fidelity budget you set
 // (min cosine, max relative error, or target SNR) and entropy-codes the result,

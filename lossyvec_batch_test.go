@@ -152,7 +152,7 @@ func TestVecBatchAnyFieldRoundTrip(t *testing.T) {
 	if out.Payload == nil {
 		t.Fatal("payload decoded nil")
 	}
-	// decodeAny materialises the []struct as a slice; assert the row count survived.
+	// decodeAny materializes the []struct as a slice; assert the row count survived.
 	rv, ok := out.Payload.([]any)
 	if !ok {
 		t.Fatalf("payload type %T, want []any", out.Payload)
@@ -454,10 +454,12 @@ func TestVecBatchPolarSkippedUnitNorm(t *testing.T) {
 
 // NamedVec is a named []float32 type; it must NOT be batched (a named slice type
 // could carry a custom codec), but must still round-trip via the row-major path.
-type NamedVec []float32
-type namedVecRow struct {
-	V NamedVec
-}
+type (
+	NamedVec    []float32
+	namedVecRow struct {
+		V NamedVec
+	}
+)
 
 func TestVecBatchExcludesNamedType(t *testing.T) {
 	const n, dim = 32, 64

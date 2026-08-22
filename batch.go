@@ -13,7 +13,7 @@ import (
 // bytes it points at may be overwritten (debug/race builds panic instead).
 type Str struct{ off, len uint32 }
 
-// Bytes is the []byte analogue of Str.
+// Bytes is the []byte analog of Str.
 type Bytes struct{ off, len uint32 }
 
 // Time is a pointer-free time value (time.Time carries *Location, which

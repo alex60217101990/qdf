@@ -154,7 +154,7 @@ func TestFrontCodedRoundTripOracle(t *testing.T) {
 		for i := range pool {
 			var suf strings.Builder
 			for j := 0; j < r(6); j++ {
-				suf.WriteString(string(rune('a' + r(26))))
+				suf.WriteRune(rune('a' + r(26)))
 			}
 			pool[i] = pfx + suf.String()
 			switch {

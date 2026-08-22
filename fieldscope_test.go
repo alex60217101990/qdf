@@ -49,7 +49,7 @@ func TestWriteStringFieldWithScopeEmitsTheDelta(t *testing.T) {
 }
 
 // An index outside the scope must fall back rather than panic or write against
-// a neighbouring field: WriteStringField is exported and takes an arbitrary int.
+// a neighboring field: WriteStringField is exported and takes an arbitrary int.
 func TestWriteStringFieldRejectsAnOutOfRangeIndex(t *testing.T) {
 	var tok byte
 	e := NewEncoderWith(OptBalanced)

@@ -12,7 +12,7 @@ func BenchmarkTansEncode(b *testing.B) {
 		src := mkSkewed(sz)
 		b.Run("sz"+strconv.Itoa(sz), func(b *testing.B) {
 			b.SetBytes(int64(sz))
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				_ = Encode(nil, src)
 			}
 		})
@@ -26,7 +26,7 @@ func BenchmarkTansDecode(b *testing.B) {
 		blob := Encode(nil, src)
 		b.Run("sz"+strconv.Itoa(sz), func(b *testing.B) {
 			b.SetBytes(int64(sz))
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				if _, err := Decode(blob, sz); err != nil {
 					b.Fatal(err)
 				}

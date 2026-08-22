@@ -194,7 +194,7 @@ func alpFixtureWithExceptions() []float64 {
 
 // BenchmarkWritePackedALPExc measures the ALP float64 encode path on data
 // that contains exceptions (~5% non-representable values). This is the hot
-// path Task 9 optimises: the pre-Task-9 baseline re-scanned all n elements a
+// path Task 9 optimizes: the pre-Task-9 baseline re-scanned all n elements a
 // second time to locate exceptions; head collects them during the first pass.
 func BenchmarkWritePackedALPExc(b *testing.B) {
 	s := alpFixtureWithExceptions()

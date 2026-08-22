@@ -73,7 +73,7 @@ func appendInterleaved(dst, src []byte, freq *[256]uint32, cum *[257]uint32, n i
 		binary.LittleEndian.PutUint32(s4[:], states[k])
 		dst = append(dst, s4[:]...)
 	}
-	for k := 0; k < n-1; k++ { // last region length is implied by remainder
+	for k := range n - 1 { // last region length is implied by remainder
 		dst = appendUvarint(dst, uint64(len(subs[k])))
 	}
 	for k := range n {
@@ -104,7 +104,7 @@ func parseInterleavedRegions(src []byte, n int, states *[maxInterleaveN]uint32, 
 	// region bytes here) can sum past 2^31 and wrap negative — making the guard
 	// below pass and the remainder length blow up into an out-of-range reslice.
 	var total uint64
-	for k := 0; k < n-1; k++ {
+	for k := range n - 1 {
 		v, used := uvarint(src)
 		if used <= 0 {
 			return ErrCorrupt

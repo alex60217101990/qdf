@@ -123,7 +123,7 @@ func makeWideRow(rng *rand.Rand, depth int) wideRow {
 		row.Labels = append(row.Labels, "tag")
 		row.IDs = append(row.IDs, uint64(1_700_000_000+rng.Intn(1<<16)))
 	}
-	// Initialise as empty (non-nil) so the round-trip's reflect.DeepEqual
+	// Initialize as empty (non-nil) so the round-trip's reflect.DeepEqual
 	// does not flag nil-vs-empty-slice as a wire bug. Both are valid
 	// wire encodings, but the test fixture commits to one.
 	row.Children = []wideRow{}

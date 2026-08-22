@@ -23,7 +23,9 @@ func pforTestSlicesU64() [][]uint64 {
 		return s
 	}
 	return [][]uint64{
-		{}, {5}, {5, 5, 5},
+		{},
+		{5},
+		{5, 5, 5},
 		mk(100, 1000, 1, 1<<40), // rare huge spikes
 		mk(1000, 200, 3, 1<<20), // 3% spikes
 		mk(257, 0, 0, 0),        // no spikes

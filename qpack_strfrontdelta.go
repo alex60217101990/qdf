@@ -20,7 +20,7 @@ import (
 // the length of the shared suffix, and the bytes between. Every frontDeltaBlock
 // rows the chain resets and a row is written in full, so a reader can start at
 // a block boundary instead of decoding the column from the top — predicate
-// pushdown materialises only surviving rows and must keep that property.
+// pushdown materializes only surviving rows and must keep that property.
 //
 // FSST covers the same class of data and compresses harder, but costs ~22x the
 // encode (measured 242 MB/s against Balanced's 3.5 GB/s), which is why it is

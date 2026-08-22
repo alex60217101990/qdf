@@ -182,7 +182,7 @@ func popOrMakeMap[K comparable, V any](d *Decoder, n int) map[K]V {
 // reuseOrMakeMapReflect installs at p a map of type t to decode n entries into,
 // reusing the caller's existing non-nil map (cleared) or a harvested free-list
 // map of type t, else allocating fresh via reflectutil.MakeMap. The reflect-path
-// analogue of reuseOrMakeMap, used by decodeMap. Zero-cost (just a nil check)
+// analog of reuseOrMakeMap, used by decodeMap. Zero-cost (just a nil check)
 // when there is nothing to reuse.
 func reuseOrMakeMapReflect(d *Decoder, t reflect.Type, n int, p unsafe.Pointer) {
 	if *(*unsafe.Pointer)(p) != nil { // direct-target reuse: existing map at p

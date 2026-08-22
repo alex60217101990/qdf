@@ -353,7 +353,7 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	backing := reflect.MakeSlice(reflect.SliceOf(col.elemType), present, present)
 	dataPtr := backing.UnsafePointer()
 	stride, off := plan.stride, col.offset
-	st := d.state // always non-nil: readColShape initialises it before the loop
+	st := d.state // always non-nil: readColShape initializes it before the loop
 	k := 0
 	set := func(store func(ea unsafe.Pointer, k int)) {
 		for i := range n {
@@ -475,7 +475,7 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 	// buffers (mirrors decodeNullableColumn) instead of a fresh per-call slice:
 	// s is consumed synchronously into the retained `full` before the next
 	// column reuses the scratch, so there is no retained alias.
-	st := d.state // non-nil: readColShape initialises it before this decode
+	st := d.state // non-nil: readColShape initializes it before this decode
 	switch kind.base() {
 	case colKindInt:
 		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {

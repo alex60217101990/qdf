@@ -229,7 +229,7 @@ func BenchmarkPickU64Codec_Probe(b *testing.B) {
 	}
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				_, _, _, _, _, _, _, _ = pickU64Codec(c.s)
 			}
 		})

@@ -15,7 +15,7 @@ type rawTokRow struct {
 // TestStrRaw_NeverLargerOnShortStrings pins the never-larger fix for the
 // tagColStrRaw codec on a high-cardinality SHORT-string column. WriteString
 // emits sub-minIntern strings inline (no intern, no dedup); the old estimate
-// modelled them as interned and so fired the bulk form even though the bulk
+// modeled them as interned and so fired the bulk form even though the bulk
 // header made it larger than the per-value path. After the fix the estimate
 // matches reality: for a column where bulk would bloat, it must decline.
 func TestStrRaw_NeverLargerOnShortStrings(t *testing.T) {

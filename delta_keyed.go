@@ -165,7 +165,8 @@ func diffKeyedSlice(enc *Encoder, td, elem *typeDesc, oldP, newP unsafe.Pointer,
 // key list (when the key sequence changed) followed by the per-key ops. Factored
 // out of diffKeyedSlice so the never-larger picker can build it as one candidate.
 func encodeKeyedSlicePatch(enc *Encoder, elem *typeDesc, oh, nh *sliceHeader, stride uintptr,
-	lookup keyLookup, oldKeyAt, newKeyAt func(int) string, depth int) error {
+	lookup keyLookup, oldKeyAt, newKeyAt func(int) string, depth int,
+) error {
 	orderChanged := oh.Len != nh.Len
 	if !orderChanged {
 		for i := range nh.Len {

@@ -2,7 +2,7 @@ package qdf
 
 import "testing"
 
-// Regression: a non-string-keyed map boxed in an any/interface value marshalled
+// Regression: a non-string-keyed map boxed in an any/interface value marshaled
 // successfully but failed to Unmarshal into `any` (decodeAny hard-coded string
 // keys → ErrTypeMismatch, silent data loss). It now round-trips to map[any]any.
 // A typed destination (e.g. *map[int]string) already worked and still does.
@@ -37,7 +37,7 @@ func TestDecodeAnyNonStringKeyedMap(t *testing.T) {
 			t.Fatalf("opt=%v negative key lost: %#v", opt, gn)
 		}
 
-		// typed destination still works (unchanged behaviour)
+		// typed destination still works (unchanged behavior)
 		var typed map[int]string
 		if err := Unmarshal(b, &typed); err != nil {
 			t.Fatalf("opt=%v typed decode regressed: %v", opt, err)

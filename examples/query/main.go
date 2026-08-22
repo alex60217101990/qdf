@@ -4,7 +4,7 @@
 // When a []struct is encoded columnar, qdf stores each field as its own column.
 // A WHERE predicate (WhereCmp / WhereRange / Where) is evaluated against the
 // relevant column(s), and only the matching rows — and only the columns you keep
-// — are materialised. You query the bytes instead of decoding everything first.
+// — are materialized. You query the bytes instead of decoding everything first.
 //
 //	go run ./examples/query
 package main

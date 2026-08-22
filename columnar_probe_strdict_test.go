@@ -47,7 +47,7 @@ func TestColumnarProbe_PricesStringDict(t *testing.T) {
 
 	// With columnar + the string dictionary, three low-cardinality columns
 	// over n rows cost roughly the distinct tables plus ~2 bits/row each —
-	// well under one byte per row total. Row-major (the current behaviour)
+	// well under one byte per row total. Row-major (the current behavior)
 	// spends several bytes per row, so this threshold separates the two.
 	if len(enc) >= n {
 		t.Fatalf("pure-string-enum struct encoded to %d bytes for %d rows (>= 1 byte/row) — columnar string-dict did not engage", len(enc), n)

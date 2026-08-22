@@ -74,7 +74,7 @@ func (bw *bitWriter) writeBits(v uint64, count uint8) {
 	bw.cnt = rem
 }
 
-// flush finalises the pending partial word. Returns the total bit count
+// flush finalizes the pending partial word. Returns the total bit count
 // written. The count is tracked incrementally (nbits) rather than derived from
 // len(buf) so the writer can append directly into a caller buffer that already
 // holds a header prefix.
@@ -92,7 +92,7 @@ func (bw *bitWriter) flush() int {
 	return bw.nbits
 }
 
-// finishGorillaBody finalises a Gorilla body that was written in-place into out
+// finishGorillaBody finalizes a Gorilla body that was written in-place into out
 // starting at bodyStart (no separate scratch buffer), prepending its
 // uvarint(totalBits) length via a single memmove of the body. This avoids the
 // per-call scratch []byte that grew from nil and the final copy into out.

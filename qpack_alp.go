@@ -302,7 +302,7 @@ func (e *Encoder) writePackedALPFloat64Slice(s []float64, plan alpFloatPlan) {
 // packs as a mantissa or falls to the exception list. The mantissa is computed
 // through float64 so it stays exact for values needing more than float32's 24-bit
 // significand (a float32-only round would mis-round those into extra exceptions).
-// Bit comparison (not ==) keeps -0.0/NaN/±Inf as exceptions. Centralises the one
+// Bit comparison (not ==) keeps -0.0/NaN/±Inf as exceptions. Centralizes the one
 // float32↔float64↔int64 chain the score / pack / exception passes all share.
 func alpMantissaF32(v float32, pe, ie float64) (mant int64, exact bool) {
 	I := int64(math.RoundToEven(float64(v) * pe))

@@ -377,7 +377,7 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		// per-field delta state entirely for a type that has no string field.
 		// Looking it up per struct — allocating a base and a gate slice for a
 		// type that will never use them — showed up as extra allocs/op on small
-		// payloads, where nothing amortises.
+		// payloads, where nothing amortizes.
 		for i := range fields {
 			if fields[i].desc.kind == reflect.String {
 				td.hasStrField = true

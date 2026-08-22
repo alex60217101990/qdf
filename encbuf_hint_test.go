@@ -49,7 +49,7 @@ func TestEncBufHintWireIdentity(t *testing.T) {
 	for _, n := range []int{16, 1024, 8192, 40000} {
 		v := mkHintRows(n)
 		// OptCanonical throughout: the payload carries a map[string]string, and
-		// without it Go's randomised map iteration changes the bytes every run,
+		// without it Go's randomized map iteration changes the bytes every run,
 		// which would leave this digest unable to fail for a real reason.
 		for _, base := range []Options{OptSpeed, OptBalanced, OptQPack, OptCompression} {
 			o := base | OptCanonical
@@ -151,7 +151,7 @@ func TestWideScratchSurvivesLargeColumns(t *testing.T) {
 	// memory profile of a failing run put widenI64 at 2.6% of allocation and
 	// resetForReuse at all the rest: the buffer HINT (encoder.go:524)
 	// pre-allocates cap(previous output) whenever a pooled encoder comes back
-	// with an empty buffer, so a hint left by a neighbouring test dominated the
+	// with an empty buffer, so a hint left by a neighboring test dominated the
 	// figure. Which encoder the pool returned depended on GC timing, so the
 	// verdict inverted with GOGC — off failed 5/5, GOGC=1 passed 3/3, the
 	// opposite of what a scratch-retention test should do.

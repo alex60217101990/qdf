@@ -20,6 +20,7 @@ func encodeBool(e *Encoder, p unsafe.Pointer) error {
 	e.WriteBool(*(*bool)(p))
 	return nil
 }
+
 func decodeBool(d *Decoder, p unsafe.Pointer) error {
 	v, err := d.ReadBool()
 	if err != nil {
@@ -44,6 +45,7 @@ func encodeIntN(sz int) func(*Encoder, unsafe.Pointer) error {
 		return func(e *Encoder, p unsafe.Pointer) error { e.WriteInt(*(*int64)(p)); return nil }
 	}
 }
+
 func decodeIntN(sz int) func(*Decoder, unsafe.Pointer) error {
 	switch sz {
 	case 1:
@@ -106,6 +108,7 @@ func encodeUintN(sz int) func(*Encoder, unsafe.Pointer) error {
 		return func(e *Encoder, p unsafe.Pointer) error { e.WriteUint(*(*uint64)(p)); return nil }
 	}
 }
+
 func decodeUintN(sz int) func(*Decoder, unsafe.Pointer) error {
 	switch sz {
 	case 1:
@@ -192,6 +195,7 @@ func encodeBytes(e *Encoder, p unsafe.Pointer) error {
 	e.WriteBytes(*(*[]byte)(p))
 	return nil
 }
+
 func decodeBytes(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
@@ -227,7 +231,6 @@ func encodeSlice(elem *typeDesc, stride uintptr, colPlan *columnarPlan) func(*En
 	// encode, unbounded work on the one path that gets nothing for it.
 	var genRefused atomic.Bool
 	return func(e *Encoder, p unsafe.Pointer) error {
-
 		if e.encodeNilSlice(p) { // nil slice → tagNil (distinct from empty)
 			return nil
 		}
@@ -565,7 +568,6 @@ func decodeFixedByteArray(n int) func(*Decoder, unsafe.Pointer) error {
 
 func encodeArray(elem *typeDesc, stride uintptr, n int) func(*Encoder, unsafe.Pointer) error {
 	return func(e *Encoder, p unsafe.Pointer) error {
-
 		// Depth guard mirroring Decoder.descend in decodeArray (see encodeSlice).
 		if e.maxDepth != 0 {
 			e.depth++
@@ -588,6 +590,7 @@ func encodeArray(elem *typeDesc, stride uintptr, n int) func(*Encoder, unsafe.Po
 		return nil
 	}
 }
+
 func decodeArray(elem *typeDesc, stride uintptr, n int) func(*Decoder, unsafe.Pointer) error {
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if err := d.descend(); err != nil {
@@ -651,7 +654,7 @@ func encodeMap(t reflect.Type, k, v *typeDesc) func(*Encoder, unsafe.Pointer) er
 		//
 		// SetIterKey/SetIterValue (Go 1.18+) write the current map
 		// iter entry into a pre-allocated addressable reflect.Value.
-		// Without them, reflectValueAddr would have to materialise a
+		// Without them, reflectValueAddr would have to materialize a
 		// fresh reflect.New(T).Elem() per element — 2 allocs per map
 		// entry on the previous path, O(N) total.
 		//
@@ -1062,7 +1065,7 @@ func (e *Encoder) encodeStringMapShaped(rv reflect.Value, keyType, valType refle
 	// flow, keeping the MapRange count to one on the hot fast path and
 	// eliminating all value-copy heap allocations for struct-valued maps.
 	// Callers must check !s.busy before calling (busy bindings are being
-	// iterated by an outer emitSlotsOrdered and must not be re-initialised).
+	// iterated by an outer emitSlotsOrdered and must not be re-initialized).
 	hasAllAndCollect := func(s *mapShapeBinding) bool {
 		s.ensureValueSlots(valType)
 		it := rv.MapRange()
@@ -1283,6 +1286,7 @@ func encodePtr(elem *typeDesc) func(*Encoder, unsafe.Pointer) error {
 		return elem.encode(e, raw)
 	}
 }
+
 func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) error {
 	return func(d *Decoder, p unsafe.Pointer) error {
 		if err := d.descend(); err != nil {
@@ -1319,7 +1323,7 @@ func decodePtr(t reflect.Type, elem *typeDesc) func(*Decoder, unsafe.Pointer) er
 // tagStrDelta form when it is smaller than the first-sighting one.
 //
 // Shared by every value-emitting loop in encodeStruct. Duplicating the loop per
-// path is how one of them silently keeps the old behaviour: a payload that
+// path is how one of them silently keeps the old behavior: a payload that
 // takes the declaration path on its first row and the shape-reuse path after
 // would then delta-code all rows but the first, and the base would be one row
 // out of step on decode.
@@ -2035,7 +2039,7 @@ func decodeAny(d *Decoder) (any, error) {
 		// A numeric slice encoded under OptQPack/OptBalanced/OptCompression.
 		// Without these cases decodeAny fell through to ErrBadTag, so any
 		// interface{}/map[string]any value holding such a slice failed to
-		// decode. Materialise into the matching typed slice (the values
+		// decode. Materialize into the matching typed slice (the values
 		// round-trip; the int codecs widen to 64-bit on the wire).
 		return decodeAnyPackedSlice(d)
 	case tagPackBlock:
@@ -2069,7 +2073,7 @@ func decodeAny(d *Decoder) (any, error) {
 	return nil, ErrBadTag
 }
 
-// decodeAnyPackedSlice materialises a QPack-encoded numeric slice into a typed
+// decodeAnyPackedSlice materializes a QPack-encoded numeric slice into a typed
 // slice for the generic any decode path. The tag (still at d.i) is followed by a
 // one-byte kind that selects the element family/width: integer codecs widen to
 // 64-bit (Int64/Uint64), floats stay Float32/Float64 — the four kinds the
@@ -2146,6 +2150,7 @@ func encodeTime(e *Encoder, p unsafe.Pointer) error {
 	e.WriteTimestamp(t.Unix(), uint32(t.Nanosecond()))
 	return nil
 }
+
 func decodeTime(d *Decoder, p unsafe.Pointer) error {
 	sec, nsec, err := d.ReadTimestamp()
 	if err != nil {
@@ -2164,7 +2169,7 @@ func encodeMarshaler(t reflect.Type) func(*Encoder, unsafe.Pointer) error {
 		// before the header is written.
 		//
 		// An EncoderMarshaler — generated code — writes its body into THIS
-		// encoder and honours its mode: StructShape and WriteStringField both
+		// encoder and honors its mode: StructShape and WriteStringField both
 		// respect Dense. Its bytes are not opts-invariant, so the header must
 		// state the real mode and the post-encode rANS pass may reframe them.
 		// Forcing Fast and marking customFramed for it cost a top-level
@@ -2199,6 +2204,7 @@ func encodeMarshaler(t reflect.Type) func(*Encoder, unsafe.Pointer) error {
 		return nil
 	}
 }
+
 func decodeUnmarshaler(t reflect.Type) func(*Decoder, unsafe.Pointer) error {
 	return func(d *Decoder, p unsafe.Pointer) error {
 		// Consume the 5-byte stream header when this is the top-level

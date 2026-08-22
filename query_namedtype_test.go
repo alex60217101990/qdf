@@ -5,9 +5,11 @@ import "testing"
 // namedStatus is a named type whose underlying kind is a signed integer — the
 // case that silently degraded WhereCmp/WhereRange to a `field == 0` predicate
 // before boundKind resolved the underlying kind via reflect.
-type namedStatus int32
-type namedScore uint16
-type namedLabel string
+type (
+	namedStatus int32
+	namedScore  uint16
+	namedLabel  string
+)
 
 type namedRow struct {
 	S   namedStatus

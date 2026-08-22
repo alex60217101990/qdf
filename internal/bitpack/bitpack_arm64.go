@@ -113,7 +113,7 @@ func unpackVarNEON(out []uint64, in []byte, b int) {
 	pairs := 0
 	if b >= 1 && b <= 28 {
 		var shifts [16]int64
-		for off := 0; off < 8; off++ {
+		for off := range 8 {
 			shifts[off*2+0] = -int64(off)
 			shifts[off*2+1] = -int64(off + b)
 		}

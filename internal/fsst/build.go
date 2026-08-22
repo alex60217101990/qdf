@@ -172,7 +172,7 @@ func (t *SymbolTable) fillFromKeys(keys []symKey) {
 		}
 		var s symbol
 		s.len = k.n
-		for i := 0; i < int(k.n); i++ {
+		for i := range k.n {
 			s.bytes[i] = byte(k.lo >> (8 * i))
 		}
 		s.val = k.lo // packKey already packed exactly k.n bytes

@@ -148,7 +148,7 @@ func TestBatchRowMajorTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	for k := range len(data) {
+	for k := range data {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

@@ -43,8 +43,10 @@ func TestKeyedMapShapeNoLeak(t *testing.T) {
 			items[i] = msElem{key((i + 1) % base), map[string]string{"a": "x", "b": "y"}}
 		}
 		for i := range 5 {
-			items = append(items, msElem{"NEW" + string(rune('0'+i)),
-				map[string]string{"p": "1", "q": "2", "r": "3"}})
+			items = append(items, msElem{
+				"NEW" + string(rune('0'+i)),
+				map[string]string{"p": "1", "q": "2", "r": "3"},
+			})
 		}
 		return msHolder{Items: items, Tail: map[string]string{"p": "9", "q": "2", "r": "3"}}
 	}

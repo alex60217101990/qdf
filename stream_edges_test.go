@@ -201,7 +201,7 @@ func TestStream_DenseInternTableSpansMessages(t *testing.T) {
 	}
 
 	// First message must contain the full string; subsequent ones
-	// should be smaller — the stream amortises the intern cost.
+	// should be smaller — the stream amortizes the intern cost.
 	totalLen := w.Len()
 	if totalLen >= 5*(len(common)+16) {
 		t.Fatalf("stream too large for interned dup: %d bytes (each msg should reference, not copy)", totalLen)

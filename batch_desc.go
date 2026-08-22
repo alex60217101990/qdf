@@ -34,7 +34,6 @@ type batchField struct {
 // same wire field order the normal encoder uses for the equivalent struct
 // (flattened embedded, tag-named) — see appendBatchFields.
 type batchPlan struct {
-
 	// mirrorSlicePtr pools *mirrorSlot values so repeated UnmarshalBatch calls
 	// for the same T neither reallocate the *[]mirror box nor touch
 	// reflect.Value on the hot path (the slot caches the raw slice-header
