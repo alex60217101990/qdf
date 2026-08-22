@@ -1,5 +1,15 @@
 # qdf: a schemaless Go serializer you can run `WHERE` over
 
+> **`json` on this page means `encoding/json` v1**, measured on the amd64 host
+> named in [BENCH.md](BENCH.md). Go 1.27's `encoding/json/v2` narrows some of
+> these gaps by 0–21% and, on payloads with no maps to sort and no HTML to
+> escape, by nothing at all — the v1/v2 difference is exactly the price of the
+> compatibility options, since in Go 1.27 `encoding/json` *is* json/v2 under
+> `DefaultOptionsV1`. Wire sizes are unaffected except where a nil slice or map
+> is involved. See
+> [BENCH.md](BENCH.md#json-v2-and-what-json-actually-costs).
+
+
 *A practical, byte-level deep-dive into a pure-Go binary format that is
 JSON-flexible, protobuf-dense, and lets you filter and project the encoded bytes
 without decoding them — plus a decision guide for picking the right modes, options,
