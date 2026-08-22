@@ -178,6 +178,17 @@ A concrete head-to-head on a real **Active-Directory host dump** (adalanche
 department, and object-class strings; same data through each library, typed
 structs):
 
+> Re-measured 2026-08-22 on Darwin arm64 / Apple Silicon, Go 1.27.0, with
+> `encoding/json/v2` added: **json v1 502.7 KB / 0.40 ms enc / 0.97 ms dec /
+> 10 255 allocs**, **json/v2 502.7 KB / 0.40 ms / 0.77 ms / 10 255**,
+> **qdf `OptBalanced` 121.3 KB / 0.22 ms / 0.17 ms / 2 070**. Against json/v2
+> that is **4.1× smaller wire, 4.5× faster decode, a fifth of the allocations**.
+> json/v2 buys nothing at all on encode here — `adRow` has no maps to sort and no
+> HTML to escape, so v2's faster defaults have nothing to skip. The table below
+> is the older amd64 / Go 1.26 run against v1; see
+> [docs/BENCH.md](docs/BENCH.md#json-v2-and-what-json-actually-costs) for the
+> full json/v2 comparison.
+
 | AD host dump | wire | encode | decode | decode allocs |
 | --- | ---: | ---: | ---: | ---: |
 | `encoding/json` | 532 KB | 1.5 ms | 4.9 ms | 15 851 |
