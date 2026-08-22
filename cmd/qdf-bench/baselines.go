@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"os"
 	"reflect"
@@ -24,7 +25,37 @@ type extCodec struct {
 // dec = "-".
 var baselines = []extCodec{
 	{"json", json.Marshal, json.Unmarshal},
+	{"json-v2", jsonv2Marshal, jsonv2Unmarshal},
+	{"json-v2-compat", jsonv2CompatMarshal, jsonv2CompatUnmarshal},
 	{"msgpack", msgpack.Marshal, msgpack.Unmarshal},
+}
+
+// There are three JSON rows here rather than one, and the third is the reason
+// the other two can be read honestly.
+//
+// In Go 1.27 encoding/json IS json/v2 driven by DefaultOptionsV1 — see
+// $GOROOT/src/encoding/json/v2_encode.go. So the gap between the v1 and v2 rows
+// is not a faster engine; it is the price of the v1 compatibility options. The
+// json-v2-compat row pins that down: v2 asked for v1 semantics costs what v1
+// costs, and its output is byte-identical.
+//
+// v2's defaults are faster because they stop doing three things v1 does: sorting
+// map keys, escaping HTML, and writing null (rather than [] / {}) for a nil
+// slice or map. Those are wire differences, not just speed ones, which is why
+// the size columns for the v1 and v2 rows are not interchangeable.
+//
+// v1 stays because it is what almost every published Go benchmark measures
+// against and what most deployed code runs.
+func jsonv2Marshal(v any) ([]byte, error) { return jsonv2.Marshal(v) }
+
+func jsonv2Unmarshal(data []byte, ptr any) error { return jsonv2.Unmarshal(data, ptr) }
+
+func jsonv2CompatMarshal(v any) ([]byte, error) {
+	return jsonv2.Marshal(v, json.DefaultOptionsV1())
+}
+
+func jsonv2CompatUnmarshal(data []byte, ptr any) error {
+	return jsonv2.Unmarshal(data, ptr, json.DefaultOptionsV1())
 }
 
 // benchExtTyped mirrors benchTyped for an external codec over the typed Info
