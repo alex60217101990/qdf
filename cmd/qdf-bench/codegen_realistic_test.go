@@ -19,7 +19,7 @@ import (
 func mkRealistic(n int) []Service {
 	out := make([]Service, n)
 	for k := range out {
-		// Sorted-ish identifiers: long shared prefixes between neighbours, the
+		// Sorted-ish identifiers: long shared prefixes between neighbors, the
 		// way real request paths and service names arrive.
 		id := fmt.Sprintf("%06d", k)
 		out[k] = Service{
@@ -39,6 +39,7 @@ func mkRealistic(n int) []Service {
 }
 
 func benchRealistic(b *testing.B, n int, opts qdf.Options) {
+	b.Helper()
 	plain := mkRealistic(n)
 	gen := make([]GenService, n)
 	for k := range plain {
@@ -58,7 +59,7 @@ func benchRealistic(b *testing.B, n int, opts qdf.Options) {
 		}
 	})
 	// Decode was never measured for this feature, and it is the side that has
-	// to materialise every delta and unpack every alphabet.
+	// to materialize every delta and unpack every alphabet.
 	b.Run("decode", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {

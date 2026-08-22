@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -36,7 +37,12 @@ func fetchSampleData() (dir string, cleanup func(), err error) {
 	cleanup = func() { _ = os.RemoveAll(dir) }
 
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(sampleDataTarball)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, sampleDataTarball, nil)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("build sample data request: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("download sample data: %w", err)

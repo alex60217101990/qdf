@@ -219,7 +219,7 @@ func run() int {
 		dyn = append(dyn, mi)
 	}
 
-	fmt.Printf("qdf-bench — adalanche localmachine dumps\n")
+	fmt.Println("qdf-bench — adalanche localmachine dumps")
 	fmt.Printf("build tags : %s\n", buildTagLabel())
 	fmt.Printf("files      : %d   iters/op : %d\n\n", len(files), *iters)
 
@@ -559,7 +559,7 @@ func benchOp(iters int, fn func()) (nsPerOp int64, bPerOp, allocsPerOp uint64) {
 			allocsPerOp = (m1.Mallocs - m0.Mallocs) / uint64(iters)
 		}
 	}
-	return
+	return nsPerOp, bPerOp, allocsPerOp
 }
 
 func printRow(w *tabwriter.Writer, repr, bundle, dec string, s stat) {
