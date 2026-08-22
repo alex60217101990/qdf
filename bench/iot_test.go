@@ -19,6 +19,50 @@ func BenchmarkIoT_128x512(b *testing.B) {
 	runCodecMatrix(b, v, func() *IoTBatch { return new(IoTBatch) })
 }
 
+// BenchmarkIoT_JSONText_32x256 measures the hand-written jsontext codec on the
+// same payload the matrix above uses, so its rows can be read beside them.
+//
+// This arm answers "how fast can JSON go on this shape if you remove the
+// reflection entirely" — its honest counterpart is qdf_codegen, not the reflect
+// tiers. The encoder and decoder are reused across iterations, which is the
+// point: a fresh one per message would put back the allocation this exists to
+// remove.
+func BenchmarkIoT_JSONText_32x256(b *testing.B) {
+	v := mkIoTBatch(32, 256)
+
+	enc := newJSONTextEncoder()
+	wire, err := enc.marshalIoTBatch(&v)
+	if err != nil {
+		b.Fatal(err)
+	}
+	size := len(wire)
+	payload := append([]byte(nil), wire...)
+
+	b.Run("encode/jsontext", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(size))
+		e := newJSONTextEncoder()
+		for b.Loop() {
+			if _, err := e.marshalIoTBatch(&v); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.ReportMetric(float64(size), "wire-B")
+	})
+
+	b.Run("decode/jsontext", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(size))
+		d := newJSONTextDecoder()
+		var out IoTBatch
+		for b.Loop() {
+			if err := d.unmarshalIoTBatch(payload, &out); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
 // TestIoT_Roundtrip verifies that mkIoTBatch payloads survive a
 // Marshal → Unmarshal round-trip under each qdf tier.
 func TestIoT_Roundtrip(t *testing.T) {
