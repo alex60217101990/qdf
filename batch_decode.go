@@ -111,6 +111,9 @@ func unmarshalBatchMirror(data []byte, plan *batchPlan, slab *batchSlab, rows fu
 			case bfBytes:
 				b := *(*[]byte)(unsafe.Add(rowPtr, plan.mirrorOff[fi]))
 				need += len(b)
+			default:
+				// bfScalar and bfTime are fixed-width and contribute no
+				// variable-length body to the slab.
 			}
 		}
 	}
@@ -329,7 +332,7 @@ func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows 
 	// a still-plausible (input-bounded) n could otherwise amplify a modest
 	// wire into a very large rows(n) region; this caps n*stride at
 	// maxColumnarBytes on top of the input-proportional guard above.
-	if err = checkColumnarBytes(n, plan.stride); err != nil {
+	if err := checkColumnarBytes(n, plan.stride); err != nil {
 		return 0, true, err
 	}
 	if n == 0 {

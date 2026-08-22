@@ -358,7 +358,7 @@ func TestValidity_EmbeddedStruct(t *testing.T) {
 		base
 		Name string `qdf:"name"`
 	}
-	runValidity(t, composed{base: base{ID: 7}, Name: "embedded"})
+	runValidity(t, composed{ID: 7, Name: "embedded"})
 }
 
 // --- Pool reuse across mixed Options ---------------------------
@@ -532,7 +532,7 @@ func TestValidity_NestedEmbedding(t *testing.T) {
 		mid
 		T int `qdf:"t"`
 	}
-	in := top{mid: mid{leaf: leaf{L: 1}, M: 2}, T: 3}
+	in := top{L: 1, M: 2, T: 3}
 	for _, p := range allEncodeOpts() {
 		t.Run(p.name, func(t *testing.T) {
 			b, err := Marshal(in, p.opts)

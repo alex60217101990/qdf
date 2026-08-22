@@ -129,8 +129,8 @@ func TestStrAlphaRoundTripsEveryShape(t *testing.T) {
 			return string(b)
 		},
 		"short":    func(i int) string { return strconv.Itoa(i % 7) },
-		"constant": func(i int) string { return "/healthz/ready/probe" },
-		"empty":    func(i int) string { return "" },
+		"constant": func(_ int) string { return "/healthz/ready/probe" },
+		"empty":    func(_ int) string { return "" },
 		"mixed": func(i int) string {
 			if i%3 == 0 {
 				return fmt.Sprintf("%032x", uint64(i))

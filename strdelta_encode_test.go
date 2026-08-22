@@ -81,7 +81,7 @@ func TestStrDeltaNeverGrowsTheWire(t *testing.T) {
 	shapes := map[string]func(i int) string{
 		"prefix-shared": func(i int) string { return "/api/v1/tenants/9f3a/users/" + strconv.Itoa(100000+i) },
 		"all-distinct":  func(i int) string { return strconv.Itoa(i*2654435761) + "-" + strconv.Itoa(i*40503) },
-		"constant":      func(i int) string { return "/healthz/ready/probe/endpoint" },
+		"constant":      func(_ int) string { return "/healthz/ready/probe/endpoint" },
 		"short":         func(i int) string { return strconv.Itoa(i % 7) },
 	}
 	for name, f := range shapes {
@@ -129,7 +129,7 @@ func TestStrDeltaRepeatTakesTheStateRef(t *testing.T) {
 		t.Fatalf("a repeated value cost %d bytes (tag 0x%02x); a state-ref spends one", repeat, tag)
 	}
 	if tag == tagStrDelta {
-		t.Fatalf("a repeated value took the delta form")
+		t.Fatal("a repeated value took the delta form")
 	}
 }
 

@@ -1842,6 +1842,8 @@ func decodeAny(d *Decoder) (any, error) {
 	switch tag {
 	case tagNil:
 		d.i++
+		//nolint:nilnil // decoding a wire nil into an interface value is
+		// exactly (nil, nil): there is no error and no value.
 		return nil, nil
 	case tagTrue, tagFalse:
 		return d.ReadBool()
@@ -2112,28 +2114,23 @@ func decodeAnyPackedSlice(d *Decoder) (any, error) {
 		var s []int16
 		err := decodeSliceInt16(d, unsafe.Pointer(&s))
 		return s, err
-	case qpackKindFloat64:
-		var s []float64
-		err := decodeSliceFloat64(d, unsafe.Pointer(&s))
-		return s, err
-	case qpackKindFloat32:
-		var s []float32
-		err := decodeSliceFloat32(d, unsafe.Pointer(&s))
-		return s, err
-	case qpackKindChimp64:
-		// Chimp128 (tagPackGorilla) and ALP-RD (tagPackALP) share this kind
-		// byte — they are told apart by the TAG, not the kind — so both land
-		// here and decodeSliceFloat64 dispatches on the tag it re-reads.
+	case qpackKindFloat64, qpackKindChimp64:
+		// Chimp128 (tagPackGorilla) and ALP-RD (tagPackALP) share the Chimp64
+		// kind byte — they are told apart by the TAG, not the kind — so all
+		// three land here and decodeSliceFloat64 dispatches on the tag it
+		// re-reads.
 		//
-		// Without this case a []float64 that Chimp or ALP-RD compressed could
-		// not be decoded into an interface{} at all: decodeAny reached the pack
-		// dispatch, which routed here, and here fell through to ErrBadTag. The
-		// typed path was unaffected, which is why it went unnoticed — only a
+		// Without the Chimp64 label a []float64 that Chimp or ALP-RD compressed
+		// could not be decoded into an interface{} at all: decodeAny reached the
+		// pack dispatch, which routed here, and here fell through to ErrBadTag.
+		// The typed path was unaffected, which is why it went unnoticed — only a
 		// value decoded into any / map[string]any hit it.
 		var s []float64
 		err := decodeSliceFloat64(d, unsafe.Pointer(&s))
 		return s, err
-	case qpackKindALPRD32:
+	case qpackKindFloat32, qpackKindALPRD32:
+		// Same reasoning as the Chimp64 label above, for the 32-bit mirror:
+		// ALP-RD's float32 form is told apart by the tag, not the kind.
 		var s []float32
 		err := decodeSliceFloat32(d, unsafe.Pointer(&s))
 		return s, err
