@@ -154,7 +154,7 @@ type embeddedOuter struct {
 }
 
 func TestTagMatrix_EmbeddedStruct_Flattened(t *testing.T) {
-	in := embeddedOuter{embeddedInner: embeddedInner{A: 1, B: 2}, C: 3}
+	in := embeddedOuter{A: 1, B: 2, C: 3}
 	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)

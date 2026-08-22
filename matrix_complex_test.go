@@ -78,8 +78,8 @@ type mxComplex struct {
 func newMxComplex() mxComplex {
 	n := 42
 	return mxComplex{
-		mxEmbedded: mxEmbedded{Flag: true, Note: "embedded"},
-		I8:         -128, I16: -32768, I32: -2147483648, I64: -9223372036854775808, I: -1000000,
+		Flag: true, Note: "embedded",
+		I8: -128, I16: -32768, I32: -2147483648, I64: -9223372036854775808, I: -1000000,
 		U8: 255, U16: 65535, U32: 4294967295, U64: 18446744073709551615, U: 1000000,
 		F32:    math.MaxFloat32,
 		F64:    3.141592653589793,
