@@ -11,6 +11,7 @@ type reuseNum struct {
 
 // row-major (small n) + columnar (n>=16) both exercised by varying size.
 func reuseRoundTrip(t *testing.T, n int) {
+	t.Helper()
 	in := make([]reuseNum, n)
 	for i := range in {
 		in[i] = reuseNum{A: int64(i), B: uint64(i * 2), C: float64(i) * 1.5, D: i%2 == 0}

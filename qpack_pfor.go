@@ -19,7 +19,7 @@ import (
 // whether PFOR is a sensible candidate (ok=false for n<8 or forBits<2, where
 // there is no room to patch). The exception value byte cost uses maxDelta as a
 // conservative UPPER bound, so PFOR is never chosen when it would be larger.
-func pforPlanUnsigned(s []uint64, mn uint64, forBits int) (b int, cost int, ok bool) {
+func pforPlanUnsigned(s []uint64, mn uint64, forBits int) (b, cost int, ok bool) {
 	n := len(s)
 	if n < 8 || forBits < 2 || forBits > qpackForMaxBits {
 		return 0, 0, false
@@ -115,7 +115,7 @@ func pforIsException(d uint64, b int) bool {
 
 // pforPlanSigned mirrors pforPlanUnsigned for int64 (deltas computed in
 // wrapping uint64 space relative to min, min stored zigzag).
-func pforPlanSigned(s []int64, mn int64, forBits int) (b int, cost int, ok bool) {
+func pforPlanSigned(s []int64, mn int64, forBits int) (b, cost int, ok bool) {
 	n := len(s)
 	if n < 8 || forBits < 2 || forBits > qpackForMaxBits {
 		return 0, 0, false

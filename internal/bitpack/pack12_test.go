@@ -44,6 +44,7 @@ func TestPackVarWidth_MatchesReference(t *testing.T) {
 }
 
 func benchPackWidth(b *testing.B, bitsPer int) {
+	b.Helper()
 	vals := make([]uint64, 1024)
 	mask := uint64(1)<<uint(bitsPer) - 1
 	for i := range vals {

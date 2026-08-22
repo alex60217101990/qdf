@@ -120,7 +120,7 @@ func (e *Encoder) writePackedDictInt64Slice(s []int64) {
 // caller walks the distinct values and the element count next, then
 // the bitsPer-packed body — distinct value parsing is caller-specific
 // because of signed zigzag, and bitsPer is derivable from count.
-func (d *Decoder) readPackedDictHeader(expectKind byte) (count int, bitsPer int, err error) {
+func (d *Decoder) readPackedDictHeader(expectKind byte) (count, bitsPer int, err error) {
 	if d.i >= len(d.buf) {
 		return 0, 0, ErrShortBuffer
 	}

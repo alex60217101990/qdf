@@ -10,7 +10,7 @@ import "encoding/binary"
 // arm64 && qdf_simd, so this file must define the full codec surface).
 
 //go:noescape
-func decodeHex4NEON(dst []byte, src []byte, lut *[16]byte, blocks int)
+func decodeHex4NEON(dst, src []byte, lut *[16]byte, blocks int)
 
 // DecodeHex4 fills dst from a 4-bit nibble stream src via the 16-entry LUT
 // (dst[2i]=lut[src[i]&0xf], dst[2i+1]=lut[src[i]>>4]); an odd len(dst) consumes
@@ -97,7 +97,7 @@ func packBits16NEON(out []byte, vals []uint64, n int)
 func packBits32NEON(out []byte, vals []uint64, n int)
 
 //go:noescape
-func unpackVar2NEON(out []uint64, in []byte, pairs int, twoB int, shifts *[16]int64, mask uint64)
+func unpackVar2NEON(out []uint64, in []byte, pairs, twoB int, shifts *[16]int64, mask uint64)
 
 // unpackVarNEON decodes an arbitrary width b in [1,28] using NEON: 2 values
 // per iteration (128-bit = 2 uint64 lanes). Each pair broadcasts the 8-byte

@@ -44,7 +44,7 @@ func (e *Encoder) tryWriteStringColumnRaw(strs []string) bool {
 		clear(m)
 	}
 	total := 0
-	bulkBytes := 0 // Σ (uvarint(len) + len)
+	bulkBytes := 0 // sum over strings of one length varuint plus the bytes
 	perVal := 0    // distinct: intern tag + uvarint(len) + len; repeat: state ref (>= 1)
 	for _, s := range strs {
 		l := len(s)

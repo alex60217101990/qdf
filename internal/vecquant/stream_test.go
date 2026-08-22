@@ -63,10 +63,7 @@ func TestDecodeCoordsRejectsOversizedRawLen(t *testing.T) {
 	if got != nil {
 		t.Fatal("expected nil result on error")
 	}
-	if got == nil && err != nil {
-		// Success: error was returned as expected.
-		t.Logf("correctly rejected oversized rawLen: %v", err)
-	}
+	t.Logf("correctly rejected oversized rawLen: %v", err)
 }
 
 func TestDecodeCoordsRejectsOversizedRawLenMode0(t *testing.T) {
@@ -92,9 +89,7 @@ func TestDecodeCoordsRejectsOversizedRawLenMode0(t *testing.T) {
 	if got != nil {
 		t.Fatal("expected nil result on error")
 	}
-	if got == nil && err != nil {
-		t.Logf("correctly rejected oversized rawLen (mode 0): %v", err)
-	}
+	t.Logf("correctly rejected oversized rawLen (mode 0): %v", err)
 }
 
 func TestCosetRoundTrip(t *testing.T) {

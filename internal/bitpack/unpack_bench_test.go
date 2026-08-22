@@ -13,6 +13,7 @@ import "testing"
 const unpackBenchN = 1024
 
 func benchUnpack(b *testing.B, bitsPer int) {
+	b.Helper()
 	vals := make([]uint64, unpackBenchN)
 	mask := uint64(1)<<uint(bitsPer) - 1
 	for i := range vals {
@@ -39,6 +40,7 @@ func BenchmarkUnpack14(b *testing.B) { benchUnpack(b, 14) }
 func BenchmarkUnpack20(b *testing.B) { benchUnpack(b, 20) }
 
 func benchUnpackVar(b *testing.B, bitsPer int) {
+	b.Helper()
 	vals := make([]uint64, unpackBenchN)
 	mask := uint64(1)<<uint(bitsPer) - 1
 	for i := range vals {
@@ -58,6 +60,7 @@ func BenchmarkUnpackVar11(b *testing.B) { benchUnpackVar(b, 11) }
 func BenchmarkUnpackVar13(b *testing.B) { benchUnpackVar(b, 13) }
 
 func benchUnpackWide(b *testing.B, bitsPer int) {
+	b.Helper()
 	vals := make([]uint64, unpackBenchN)
 	mask := uint64(1)<<uint(bitsPer) - 1
 	for i := range vals {

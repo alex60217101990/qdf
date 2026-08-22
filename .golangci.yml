@@ -155,10 +155,28 @@ linters:
 
     exhaustive:
       # Without this every switch carrying a default is a finding, which is most
-      # switches, and the linter gets turned off within a week. It matters here
-      # because the wire tags are a closed set: a switch over them that quietly
-      # omits one decodes that tag as garbage.
+      # switches, and the linter gets turned off within a week.
       default-signifies-exhaustive: true
+      # Three types this linter cannot model, each for a different reason. It
+      # reported nineteen findings across them and every one was checked by hand:
+      #
+      #   colKind mixes a flag bit into the enum — colKindNullable is tested with
+      #   k&colKindNullable and stripped with k&^colKindNullable, and the switches
+      #   run on k.base(), where it can never appear. residualKind is a sentinel
+      #   for "not a column at all" and is equally unreachable there.
+      #
+      #   qpackCodec switches close with a bare return rather than a default
+      #   clause: qpackConstantOverCap ends in `return false` because raw and
+      #   gorilla are not constant-expansion codecs. That is a default the linter
+      #   cannot see.
+      #
+      #   reflect.Kind has twenty-seven members and no caller handles all of
+      #   them; a predicate evaluator that leaves the match mask untouched for a
+      #   kind it does not support is saying "no rows match", deliberately.
+      #
+      # It stays enabled so a future enum without these properties is still
+      # covered.
+      ignore-enum-types: "colKind|qpackCodec|reflect\\.Kind"
 
     gocritic:
       disable-all: true
@@ -381,6 +399,11 @@ linters:
           - gosec
           - staticcheck
           - unparam
+          # A Marshaler/Unmarshaler pair is mixed receivers BY DEFINITION —
+          # marshalling does not mutate and unmarshalling must — which is what
+          # encoding/json does and what qdfgen emits. Every recvcheck finding
+          # here is that pair.
+          - recvcheck
           # A test marshals literals it wrote itself: the call cannot fail, and
           # if it somehow did the assertion below it would fail anyway.
           - errchkjson

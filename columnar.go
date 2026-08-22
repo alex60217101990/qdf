@@ -49,7 +49,7 @@ func (k colKind) isNullable() bool { return k&colKindNullable != 0 }
 
 // String returns a human-readable name for the kind, used in error messages.
 func (k colKind) String() string {
-	n := ""
+	var n string
 	switch k.base() {
 	case colKindInt:
 		n = "int"
@@ -2732,7 +2732,7 @@ func decodeHybridColumnarAny(d *Decoder) (any, error) {
 	return out, nil
 }
 
-func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte bool, ok bool) {
+func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte, ok bool) {
 	if fd.marshalerKind != 0 {
 		return 0, 0, false, false // custom marshaler → row-major
 	}

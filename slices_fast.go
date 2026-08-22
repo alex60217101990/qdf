@@ -296,7 +296,7 @@ func (e *Encoder) writeQPackInt64(s []int64) {
 
 // emitQPackInt64 writes s in the already-chosen codec form (picker output passed
 // in, so a caller that needs to inspect the choice does not pick twice).
-func (e *Encoder) emitQPackInt64(s []int64, codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits, pforBits int) {
+func (e *Encoder) emitQPackInt64(s []int64, codec qpackCodec, mn int64, forBits int, first, minDelta int64, deltaBits, pforBits int) {
 	if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
 		e.writePackedInt64Slice(s)
 		return
@@ -588,6 +588,8 @@ func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
 	return nil
 }
 
+//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
+// a generic costs an indirect call on a hot decode path.
 func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -802,6 +804,8 @@ func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
 	return nil
 }
 
+//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
+// a generic costs an indirect call on a hot decode path.
 func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
