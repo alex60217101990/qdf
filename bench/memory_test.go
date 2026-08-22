@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // BenchmarkDecode_MapHeavy_DistinctValues forces the map to have unique

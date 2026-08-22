@@ -1,9 +1,6 @@
 package unsafestr
 
-import (
-	"unsafe"
-	_ "unsafe" // for go:linkname
-)
+import "unsafe" // also required by the go:linkname directive below
 
 //go:linkname mallocgc runtime.mallocgc
 func mallocgc(size uintptr, typ unsafe.Pointer, needzero bool) unsafe.Pointer

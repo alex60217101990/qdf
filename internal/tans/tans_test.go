@@ -116,7 +116,7 @@ func FuzzRoundTrip(f *testing.F) {
 func FuzzDecode_NeverPanics(f *testing.F) {
 	f.Add([]byte{TagSingle, 0x00}, 5)
 	f.Add(Encode(nil, bytes.Repeat([]byte{4, 5, 6}, 4000)), 12000)
-	f.Fuzz(func(t *testing.T, src []byte, n int) {
+	f.Fuzz(func(_ *testing.T, src []byte, n int) {
 		if n < 0 || n > 1<<20 {
 			return
 		}

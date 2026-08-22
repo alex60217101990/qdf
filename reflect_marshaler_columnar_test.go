@@ -52,14 +52,14 @@ func TestMarshalerSliceColumnarBypass(t *testing.T) {
 	}
 
 	if cp := colPlanOf([]onlyMarshaler(nil)); cp != nil {
-		t.Errorf("[]onlyMarshaler got a columnar plan — transpose would skip MarshalQDF")
+		t.Error("[]onlyMarshaler got a columnar plan — transpose would skip MarshalQDF")
 	}
 	if cp := colPlanOf([]onlyUnmarshaler(nil)); cp != nil {
-		t.Errorf("[]onlyUnmarshaler got a columnar plan — transpose would skip UnmarshalQDF")
+		t.Error("[]onlyUnmarshaler got a columnar plan — transpose would skip UnmarshalQDF")
 	}
 	// Guard is narrow: a plain all-scalar struct slice still columnar-transposes.
 	if cp := colPlanOf([]plainScalarStruct(nil)); cp == nil {
-		t.Errorf("[]plainScalarStruct lost its columnar plan — the marshaler guard is too broad")
+		t.Error("[]plainScalarStruct lost its columnar plan — the marshaler guard is too broad")
 	}
 
 	// Behavioral check: a >=16 []onlyMarshaler under OptBalanced invokes

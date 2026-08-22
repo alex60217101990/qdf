@@ -60,40 +60,58 @@ func makeADUsers(n int) []ADUser {
 
 	// Name syllable pools -> ~750 first / ~900 last combos => names repeat
 	// only occasionally across a few-thousand-user org.
-	firstA := []string{"Al", "Bri", "Cas", "Dan", "El", "Fra", "Gab", "Han", "Iv", "Jo",
+	firstA := []string{
+		"Al", "Bri", "Cas", "Dan", "El", "Fra", "Gab", "Han", "Iv", "Jo",
 		"Kar", "Li", "Mar", "Nat", "Ol", "Pa", "Qui", "Ra", "Sa", "Ta",
-		"Um", "Vi", "Wen", "Xa", "Yu", "Za", "Be", "Ce", "Do", "Em"}
-	firstB := []string{"an", "ana", "el", "ena", "ia", "ian", "ie", "in", "ina", "is",
+		"Um", "Vi", "Wen", "Xa", "Yu", "Za", "Be", "Ce", "Do", "Em",
+	}
+	firstB := []string{
+		"an", "ana", "el", "ena", "ia", "ian", "ie", "in", "ina", "is",
 		"ius", "on", "or", "ra", "ric", "sa", "son", "ta", "us", "var",
-		"wen", "ya", "yn", "za", "o"}
-	lastA := []string{"Ander", "Bred", "Clark", "Dun", "East", "Fish", "Green", "Hart", "Iver", "Jack",
+		"wen", "ya", "yn", "za", "o",
+	}
+	lastA := []string{
+		"Ander", "Bred", "Clark", "Dun", "East", "Fish", "Green", "Hart", "Iver", "Jack",
 		"Kels", "Lan", "Mart", "Nor", "Owen", "Park", "Quin", "Reed", "Smith", "Tann",
-		"Up", "Vance", "Walk", "Xin", "York", "Zim", "Brook", "Cald", "Drake", "Ellis"}
-	lastB := []string{"son", "sen", "field", "ton", "man", "berg", "ford", "wood", "worth", "ley",
+		"Up", "Vance", "Walk", "Xin", "York", "Zim", "Brook", "Cald", "Drake", "Ellis",
+	}
+	lastB := []string{
+		"son", "sen", "field", "ton", "man", "berg", "ford", "wood", "worth", "ley",
 		"by", "dale", "stone", "well", "ham", "ric", "gard", "mann", "strom", "ski",
-		"ovic", "er", "s", "y", "o", "a", "is", "en", "ino", "ez"}
+		"ovic", "er", "s", "y", "o", "a", "is", "en", "ino", "ez",
+	}
 
-	departments := []string{"Engineering", "Sales", "Marketing", "Finance", "HR", "Legal",
+	departments := []string{
+		"Engineering", "Sales", "Marketing", "Finance", "HR", "Legal",
 		"Operations", "Support", "IT", "Security", "Research", "Procurement",
 		"Facilities", "QA", "Design", "Data", "Product", "Compliance",
-		"Payroll", "Logistics", "PR", "Training", "Audit", "Strategy"}
-	titles := []string{"Engineer", "Senior Engineer", "Staff Engineer", "Manager", "Director",
+		"Payroll", "Logistics", "PR", "Training", "Audit", "Strategy",
+	}
+	titles := []string{
+		"Engineer", "Senior Engineer", "Staff Engineer", "Manager", "Director",
 		"VP", "Analyst", "Senior Analyst", "Specialist", "Coordinator",
 		"Lead", "Architect", "Consultant", "Associate", "Administrator",
 		"Technician", "Representative", "Officer", "Supervisor", "Intern",
 		"Principal", "Advisor", "Strategist", "Auditor", "Recruiter",
 		"Accountant", "Designer", "Scientist", "Planner", "Clerk",
-		"Executive", "Partner"}
+		"Executive", "Partner",
+	}
 	companies := []string{"Contoso", "Contoso EU", "Contoso APAC", "Fabrikam", "Fabrikam Labs"}
-	offices := []string{"NYC-1", "NYC-2", "SF-1", "SF-2", "LON-1", "LON-2", "BER-1", "TOK-1",
+	offices := []string{
+		"NYC-1", "NYC-2", "SF-1", "SF-2", "LON-1", "LON-2", "BER-1", "TOK-1",
 		"SYD-1", "TOR-1", "CHI-1", "AUS-1", "SEA-1", "BOS-1", "MIA-1", "DEN-1",
-		"PAR-1", "AMS-1", "DUB-1", "SGP-1", "HKG-1", "MUM-1", "SAO-1", "MEX-1"}
-	countries := []string{"US", "GB", "DE", "FR", "JP", "AU", "CA", "BR", "IN", "SG",
-		"NL", "IE", "MX", "ES", "IT", "SE", "PL", "CH", "AE", "ZA"}
-	cities := []string{"New York", "San Francisco", "London", "Berlin", "Tokyo", "Sydney",
+		"PAR-1", "AMS-1", "DUB-1", "SGP-1", "HKG-1", "MUM-1", "SAO-1", "MEX-1",
+	}
+	countries := []string{
+		"US", "GB", "DE", "FR", "JP", "AU", "CA", "BR", "IN", "SG",
+		"NL", "IE", "MX", "ES", "IT", "SE", "PL", "CH", "AE", "ZA",
+	}
+	cities := []string{
+		"New York", "San Francisco", "London", "Berlin", "Tokyo", "Sydney",
 		"Toronto", "Chicago", "Austin", "Seattle", "Boston", "Miami",
 		"Denver", "Paris", "Amsterdam", "Dublin", "Singapore", "Mumbai",
-		"Sao Paulo", "Mexico City", "Madrid", "Milan", "Stockholm", "Zurich"}
+		"Sao Paulo", "Mexico City", "Madrid", "Milan", "Stockholm", "Zurich",
+	}
 
 	// Group DN pool: 400 distinct security groups -> moderate membership overlap.
 	const nGroups = 400

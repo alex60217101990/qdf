@@ -104,7 +104,7 @@ func TestChimpThroughUnmarshal(t *testing.T) {
 }
 
 // TestChimpHostile: mutated/truncated chimp blobs must error, never panic.
-func TestChimpHostile(t *testing.T) {
+func TestChimpHostile(_ *testing.T) {
 	in := mkSensor(512, 3)
 	enc := NewEncoder(Fast)
 	enc.writePackedChimpFloat64Slice(in)

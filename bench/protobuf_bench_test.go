@@ -3,8 +3,9 @@ package bench
 import (
 	"testing"
 
-	benchpb "github.com/alex60217101990/qdf/bench/pb"
 	"google.golang.org/protobuf/proto"
+
+	benchpb "github.com/alex60217101990/qdf/bench/pb"
 )
 
 // runProtobufArm benches proto.Marshal + proto.Unmarshal for a single

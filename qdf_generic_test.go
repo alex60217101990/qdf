@@ -59,7 +59,7 @@ func TestUnmarshalT_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(in, out) {
-		t.Fatalf("round-trip mismatch")
+		t.Fatal("round-trip mismatch")
 	}
 }
 
@@ -74,7 +74,7 @@ func TestMarshalT_PointerInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(a, b) {
-		t.Fatalf("pointer-input mismatch")
+		t.Fatal("pointer-input mismatch")
 	}
 }
 

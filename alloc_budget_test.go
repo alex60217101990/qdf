@@ -27,7 +27,7 @@ func assertAllocs(t *testing.T, name string, budget float64, fn func()) {
 		// that is not present in production. Skip with a clear
 		// message; CI runs the suite under both modes and the
 		// non-race pass enforces the real budget.
-		t.Skipf("alloc budgets are not measured under -race (sync.Pool churn instrumentation)")
+		t.Skip("alloc budgets are not measured under -race (sync.Pool churn instrumentation)")
 	}
 	got := testing.AllocsPerRun(200, fn)
 	if got > budget {

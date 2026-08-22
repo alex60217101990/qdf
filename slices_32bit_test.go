@@ -88,7 +88,7 @@ func TestQPack32BitCompresses(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(bk) != len(e) {
-			t.Fatalf("empty/single u32")
+			t.Fatal("empty/single u32")
 		}
 	}
 }

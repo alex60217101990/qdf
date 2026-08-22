@@ -142,7 +142,7 @@ func TestShrink_DecStateReleasesValuesAfterStreak(t *testing.T) {
 		t.Fatalf("decoder values not released after %d small resets: cap=%d", retainReleaseStreak, cap(d.values))
 	}
 	if d.lruLink != nil {
-		t.Fatalf("decoder lruLink not released after streak")
+		t.Fatal("decoder lruLink not released after streak")
 	}
 }
 

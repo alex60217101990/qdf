@@ -134,7 +134,7 @@ func TestColumnar_RoundTripTyped(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if !reflect.DeepEqual(in, out) {
-		t.Fatalf("round-trip mismatch")
+		t.Fatal("round-trip mismatch")
 	}
 }
 

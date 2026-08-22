@@ -95,7 +95,7 @@ func TestReset_PooledEncoderNoLeak(t *testing.T) {
 		t.Fatalf("two distinct payloads produced same wire: %x", a)
 	}
 	if string(a[5:]) == string(b[5:]) {
-		t.Fatalf("pool leaked bytes between calls")
+		t.Fatal("pool leaked bytes between calls")
 	}
 }
 
@@ -149,7 +149,7 @@ func TestPtrEdges_SliceOfPtr(t *testing.T) {
 		t.Fatalf("[2]: %v", out.PS[2])
 	}
 	if out.PS[3] != nil {
-		t.Fatalf("[3] should be nil")
+		t.Fatal("[3] should be nil")
 	}
 }
 
@@ -171,7 +171,7 @@ func TestPtrEdges_MapStringPtr(t *testing.T) {
 		t.Fatalf("k: %v", out.M["k"])
 	}
 	if out.M["nil"] != nil {
-		t.Fatalf("nil entry came back non-nil")
+		t.Fatal("nil entry came back non-nil")
 	}
 }
 

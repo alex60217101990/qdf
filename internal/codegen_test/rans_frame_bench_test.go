@@ -11,8 +11,10 @@ func benchRF(b *testing.B, n int, opts qdf.Options) {
 	rows := make([]GenRow, n)
 	for i := range rows {
 		id := fmt.Sprintf("%06d", i)
-		rows[i] = GenRow{ID: int64(i), Name: "com.acme.platform.worker.service." + id,
-			Inner: GenRowInner{X: i, Y: "/opt/acme/platform/bin/worker --shard=" + id}}
+		rows[i] = GenRow{
+			ID: int64(i), Name: "com.acme.platform.worker.service." + id,
+			Inner: GenRowInner{X: i, Y: "/opt/acme/platform/bin/worker --shard=" + id},
+		}
 	}
 	set := GenRowSet{Rows: rows}
 	wire, err := qdf.Marshal(set, opts)

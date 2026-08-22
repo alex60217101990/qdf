@@ -5,8 +5,9 @@ import (
 	"strconv"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // Map-heavy realistic payload: a service-attribute record common in tracing

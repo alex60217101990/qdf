@@ -84,7 +84,7 @@ func TestUnmarshalNested_RejectsBadConsumeCount(t *testing.T) {
 // okUnmarshaler consumes a valid prefix.
 type okUnmarshaler struct{}
 
-func (okUnmarshaler) UnmarshalQDF(src []byte) (int, error) { return 2, nil }
+func (okUnmarshaler) UnmarshalQDF(_ []byte) (int, error) { return 2, nil }
 
 // marshalOnly implements ONLY Marshaler. Its MarshalQDF writes a sentinel
 // string, distinct from the map a structural encode of the struct would emit.

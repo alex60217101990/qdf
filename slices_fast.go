@@ -588,8 +588,9 @@ func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
 	return nil
 }
 
-//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
 // a generic costs an indirect call on a hot decode path.
+//
+//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
 func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -804,8 +805,9 @@ func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
 	return nil
 }
 
-//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
 // a generic costs an indirect call on a hot decode path.
+//
+//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
 func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {

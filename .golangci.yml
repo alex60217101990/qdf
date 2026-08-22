@@ -129,9 +129,19 @@ linters:
       threshold: 200
 
     errcheck:
-      # An unchecked x := v.(T) is a panic waiting for the one input that does
-      # not match, which is the class forcetypeassert reports separately.
-      check-type-assertions: true
+      # Off after running it once and reading all 45 findings: every one was an
+      # assertion whose type is established a few lines above it, and there was
+      # no true positive in the set.
+      #
+      #   19 are pool.Get().(*T) against a sync.Pool whose New is defined beside
+      #   it. 20 are out[i].(map[string]any) on maps the same function allocated.
+      #   The rest read a sync.Map cache that only ever stores the asserted type.
+      #
+      # An unchecked assertion already panics, so the comma-ok form at those
+      # sites buys a different panic message, not safety — and 44 nolint
+      # directives would bury the one finding that ever matters. Turn it back on
+      # for a one-off audit when the shape of the caches changes.
+      check-type-assertions: false
       # `_ = f()` stays allowed: it is how you say the error is genuinely
       # uninteresting, and forbidding it only moves the silence into a nolint.
       check-blank: false
@@ -282,7 +292,11 @@ linters:
         # unchecked-type-assertion and unhandled-error are not enabled: errcheck
         # reports both, and one finding reported twice reads as two problems.
         - name: unconditional-recursion
-        - name: unexported-naming
+        # unexported-naming is not enabled. Its 49 findings were all deliberate
+        # notation: N, G, K and D as benchmark parameters, and I in qpack_alp.go,
+        # where it is the integer form from the ALP paper the codec implements.
+        # Renaming them to satisfy the convention would cost the correspondence
+        # with the reference and buy nothing.
         - name: unexported-return
         - name: unnecessary-format
         - name: unnecessary-if

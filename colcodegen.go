@@ -536,7 +536,7 @@ func stringColumnsBeneficial(internAware bool, cols ...[]string) bool {
 				perValue += 2 + len(s)
 			}
 			if internAware && !fresh {
-				rowBytes += 1
+				rowBytes++
 			} else {
 				rowBytes += 2 + len(s)
 			}

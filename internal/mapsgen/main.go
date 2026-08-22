@@ -301,7 +301,7 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "// ----- %s -----\n\n", mapTy)
 	fmt.Fprintf(buf, "func encode%s(e *Encoder, p unsafe.Pointer) error {\n", fnName)
 	fmt.Fprintf(buf, "\tm := *(*%s)(p)\n", mapTy)
-	fmt.Fprintf(buf, "\tif m == nil {\n\t\te.WriteNil()\n\t\treturn nil\n\t}\n")
+	fmt.Fprint(buf, "\tif m == nil {\n\t\te.WriteNil()\n\t\treturn nil\n\t}\n")
 	if p.K.suffix == "String" {
 		// OptMapShape fast path: recurring key-sets emit a shape header +
 		// values in canonical order via the shared generic helper.
@@ -313,13 +313,13 @@ func emitPair(buf *bytes.Buffer, p pair) {
 		// has one encoding — bytes callers are invited to hash, sign and
 		// content-address. Letting the branch depend on whether a (K,V) pair
 		// happens to have a generated fast path breaks exactly that.
-		fmt.Fprintf(buf, "\tif len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {\n")
-		fmt.Fprintf(buf, "\t\tfor _, k := range mapStringShapeOrder(e, m) {\n")
-		fmt.Fprintf(buf, "\t\t\tv := m[k]\n")
+		fmt.Fprint(buf, "\tif len(m) > 0 && e.state != nil && !e.opts.Has(OptCanonical) && e.opts.Has(OptMapShape) && e.opts.Has(OptDense) {\n")
+		fmt.Fprint(buf, "\t\tfor _, k := range mapStringShapeOrder(e, m) {\n")
+		fmt.Fprint(buf, "\t\t\tv := m[k]\n")
 		fmt.Fprintf(buf, "\t\t\t%s\n", p.V.writeBlock("v"))
-		fmt.Fprintf(buf, "\t\t}\n\t\treturn nil\n\t}\n")
+		fmt.Fprint(buf, "\t\t}\n\t\treturn nil\n\t}\n")
 	}
-	fmt.Fprintf(buf, "\te.WriteMapHeader(len(m))\n")
+	fmt.Fprint(buf, "\te.WriteMapHeader(len(m))\n")
 	// Canonical fast path: emit keys in sorted order so logically-equal maps
 	// serialize byte-identically. The key type is concrete, so slices.Sort is
 	// directly monomorphized (no reflect). Reuse the pooled canonKeys* scratch
@@ -327,45 +327,45 @@ func emitPair(buf *bytes.Buffer, p pair) {
 	// now takes precedence over the OptMapShape/OptDense shape branch above,
 	// which is gated on !OptCanonical for the reason stated there.
 	emitCanonicalEncode(buf, p)
-	fmt.Fprintf(buf, "\tfor k, v := range m {\n")
+	fmt.Fprint(buf, "\tfor k, v := range m {\n")
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.writeBlock("k")))
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.writeBlock("v")))
-	fmt.Fprintf(buf, "\t}\n\treturn nil\n}\n\n")
+	fmt.Fprint(buf, "\t}\n\treturn nil\n}\n\n")
 
 	// decode
 	fmt.Fprintf(buf, "func decode%s(d *Decoder, p unsafe.Pointer) error {\n", fnName)
-	fmt.Fprintf(buf, "\tt, err := d.peekTag()\n\tif err != nil {\n\t\treturn err\n\t}\n")
+	fmt.Fprint(buf, "\tt, err := d.peekTag()\n\tif err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tif t == tagNil {\n\t\td.i++\n\t\t*(*%s)(p) = nil\n\t\treturn nil\n\t}\n", mapTy)
 	if p.K.suffix == "String" {
 		// OptMapShape decode: a tagMapShape header carries the ordered keys;
 		// read len(names) values in that order.
-		fmt.Fprintf(buf, "\tif t == tagMapShape {\n")
-		fmt.Fprintf(buf, "\t\tnames, err := decodeMapStringShapeHeader(d)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
+		fmt.Fprint(buf, "\tif t == tagMapShape {\n")
+		fmt.Fprint(buf, "\t\tnames, err := decodeMapStringShapeHeader(d)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
 		fmt.Fprintf(buf, "\t\tm := reuseOrMakeMap[%s, %s](d, p, len(names))\n", p.K.goType, p.V.goType)
 		// UnmarshalKeys projection: consume the root filter ONCE, before the
 		// loop, so values and Skip below run unfiltered.
-		fmt.Fprintf(buf, "\t\tkf := d.takeKeyFilter()\n")
-		fmt.Fprintf(buf, "\t\tfor _, k := range names {\n")
-		fmt.Fprintf(buf, "\t\t\tif !kf.want(k) {\n\t\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}\n")
+		fmt.Fprint(buf, "\t\tkf := d.takeKeyFilter()\n")
+		fmt.Fprint(buf, "\t\tfor _, k := range names {\n")
+		fmt.Fprint(buf, "\t\t\tif !kf.want(k) {\n\t\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\t%s\n", p.V.readBlock("v"))
-		fmt.Fprintf(buf, "\t\t\tm[k] = v\n")
+		fmt.Fprint(buf, "\t\t\tm[k] = v\n")
 		fmt.Fprintf(buf, "\t\t}\n\t\t*(*%s)(p) = m\n\t\treturn nil\n\t}\n", mapTy)
 	}
-	fmt.Fprintf(buf, "\tn, err := d.ReadMapHeader()\n\tif err != nil {\n\t\treturn err\n\t}\n")
-	fmt.Fprintf(buf, "\tif err := d.CheckLength(n, 2); err != nil {\n\t\treturn err\n\t}\n")
+	fmt.Fprint(buf, "\tn, err := d.ReadMapHeader()\n\tif err != nil {\n\t\treturn err\n\t}\n")
+	fmt.Fprint(buf, "\tif err := d.CheckLength(n, 2); err != nil {\n\t\treturn err\n\t}\n")
 	fmt.Fprintf(buf, "\tm := reuseOrMakeMap[%s, %s](d, p, n)\n", p.K.goType, p.V.goType)
 	if p.K.suffix == "String" {
 		// UnmarshalKeys projection: consume the root filter ONCE, before the
 		// loop. Only string-keyed maps participate — the filter is name-based.
-		fmt.Fprintf(buf, "\tkf := d.takeKeyFilter()\n")
+		fmt.Fprint(buf, "\tkf := d.takeKeyFilter()\n")
 	}
-	fmt.Fprintf(buf, "\tfor range n {\n")
+	fmt.Fprint(buf, "\tfor range n {\n")
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.K.readKey("k")))
 	if p.K.suffix == "String" {
-		fmt.Fprintf(buf, "\t\tif !kf.want(k) {\n\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n")
+		fmt.Fprint(buf, "\t\tif !kf.want(k) {\n\t\t\tif err := d.Skip(); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n")
 	}
 	fmt.Fprintf(buf, "\t\t%s\n", indent(p.V.readBlock("v")))
-	fmt.Fprintf(buf, "\t\tm[k] = v\n")
+	fmt.Fprint(buf, "\t\tm[k] = v\n")
 	fmt.Fprintf(buf, "\t}\n\t*(*%s)(p) = m\n\treturn nil\n}\n\n", mapTy)
 }
 
@@ -401,28 +401,28 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 	// canonKeysBusy guards it: when already busy, this encoder allocates a fresh
 	// local slice; otherwise it borrows the pool and sets the guard for the
 	// duration of the emit loop (the value writes may recurse into another map).
-	fmt.Fprintf(buf, "\tif e.opts.Has(OptCanonical) {\n")
+	fmt.Fprint(buf, "\tif e.opts.Has(OptCanonical) {\n")
 	fmt.Fprintf(buf, "\t\tvar keys []%s\n", scratchElem)
-	fmt.Fprintf(buf, "\t\tcanonPooled := false\n")
-	fmt.Fprintf(buf, "\t\tif e.state != nil && !e.state.canonKeysBusy {\n")
+	fmt.Fprint(buf, "\t\tcanonPooled := false\n")
+	fmt.Fprint(buf, "\t\tif e.state != nil && !e.state.canonKeysBusy {\n")
 	fmt.Fprintf(buf, "\t\t\tkeys = e.state.%s[:0]\n", scratchField)
-	fmt.Fprintf(buf, "\t\t\tcanonPooled = true\n")
-	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprint(buf, "\t\t\tcanonPooled = true\n")
+	fmt.Fprint(buf, "\t\t} else {\n")
 	fmt.Fprintf(buf, "\t\t\tkeys = make([]%s, 0, len(m))\n", scratchElem)
-	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprint(buf, "\t\t}\n")
 	if needCast {
 		fmt.Fprintf(buf, "\t\tfor k := range m {\n\t\t\tkeys = append(keys, %s(k))\n\t\t}\n", scratchElem)
 	} else {
-		fmt.Fprintf(buf, "\t\tfor k := range m {\n\t\t\tkeys = append(keys, k)\n\t\t}\n")
+		fmt.Fprint(buf, "\t\tfor k := range m {\n\t\t\tkeys = append(keys, k)\n\t\t}\n")
 	}
-	fmt.Fprintf(buf, "\t\tslices.Sort(keys)\n")
+	fmt.Fprint(buf, "\t\tslices.Sort(keys)\n")
 	// Release the re-entrancy latch via defer so it clears on EVERY exit —
 	// including a mid-loop `return err` from a value write (the *Any pairs).
 	// An inline post-loop release leaks busy=true on the error path, pinning a
 	// pooled encoder to the fresh-allocation fallback forever. Mirrors the
 	// reflect path's `defer e.canonKeysRelease(pooled)`.
 	fmt.Fprintf(buf, "\t\tif canonPooled {\n\t\t\te.state.%s = keys\n\t\t\te.state.canonKeysBusy = true\n\t\t\tdefer func() { e.state.canonKeysBusy = false }()\n\t\t}\n", scratchField)
-	fmt.Fprintf(buf, "\t\tfor _, sk := range keys {\n")
+	fmt.Fprint(buf, "\t\tfor _, sk := range keys {\n")
 	// sk is already a per-iteration copy of the range value. Only the narrow-key
 	// variants need a real conversion (k := T(sk)); the string/wide-key variants
 	// use sk directly — a `k := sk` rename would be dead generated code.
@@ -434,27 +434,27 @@ func emitCanonicalEncode(buf *bytes.Buffer, p pair) {
 	fmt.Fprintf(buf, "\t\t\tv := m[%s]\n", keyVar)
 	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.K.writeBlock(keyVar))))
 	fmt.Fprintf(buf, "\t\t\t%s\n", indent(indent(p.V.writeBlock("v"))))
-	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\treturn nil\n\t}\n")
+	fmt.Fprint(buf, "\t\t}\n")
+	fmt.Fprint(buf, "\t\treturn nil\n\t}\n")
 }
 
 func emitDispatch(buf *bytes.Buffer) {
-	fmt.Fprintf(buf, "// installMapFastPath returns (encode, decode, true) when t matches\n")
-	fmt.Fprintf(buf, "// one of the generated typed-map shapes; otherwise (_, _, false). The\n")
-	fmt.Fprintf(buf, "// table is generated; edit internal/mapsgen/main.go to add or remove\n")
-	fmt.Fprintf(buf, "// pairs.\n")
-	fmt.Fprintf(buf, "func installMapFastPath(t reflect.Type) (\n")
-	fmt.Fprintf(buf, "\tenc func(*Encoder, unsafe.Pointer) error,\n")
-	fmt.Fprintf(buf, "\tdec func(*Decoder, unsafe.Pointer) error,\n")
-	fmt.Fprintf(buf, "\tok bool,\n) {\n")
-	fmt.Fprintf(buf, "\tswitch t {\n")
+	fmt.Fprint(buf, "// installMapFastPath returns (encode, decode, true) when t matches\n")
+	fmt.Fprint(buf, "// one of the generated typed-map shapes; otherwise (_, _, false). The\n")
+	fmt.Fprint(buf, "// table is generated; edit internal/mapsgen/main.go to add or remove\n")
+	fmt.Fprint(buf, "// pairs.\n")
+	fmt.Fprint(buf, "func installMapFastPath(t reflect.Type) (\n")
+	fmt.Fprint(buf, "\tenc func(*Encoder, unsafe.Pointer) error,\n")
+	fmt.Fprint(buf, "\tdec func(*Decoder, unsafe.Pointer) error,\n")
+	fmt.Fprint(buf, "\tok bool,\n) {\n")
+	fmt.Fprint(buf, "\tswitch t {\n")
 	for _, p := range pairs {
 		fnName := fmt.Sprintf("Map%s%s", p.K.suffix, p.V.suffix)
 		mapTy := fmt.Sprintf("map[%s]%s", p.K.goType, p.V.goType)
 		fmt.Fprintf(buf, "\tcase reflect.TypeFor[%s]():\n", mapTy)
 		fmt.Fprintf(buf, "\t\treturn encode%s, decode%s, true\n", fnName, fnName)
 	}
-	fmt.Fprintf(buf, "\t}\n\treturn nil, nil, false\n}\n")
+	fmt.Fprint(buf, "\t}\n\treturn nil, nil, false\n}\n")
 }
 
 // indent reindents a multi-line snippet so the second and later
@@ -471,10 +471,10 @@ func indent(s string) string {
 
 func main() {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "// Code generated by internal/mapsgen — DO NOT EDIT.\n")
-	fmt.Fprintf(&buf, "// Re-run via `go generate ./...` from the repository root.\n\n")
-	fmt.Fprintf(&buf, "package qdf\n\n")
-	fmt.Fprintf(&buf, "import (\n\t\"reflect\"\n\t\"slices\"\n\t\"unsafe\"\n)\n\n")
+	fmt.Fprint(&buf, "// Code generated by internal/mapsgen — DO NOT EDIT.\n")
+	fmt.Fprint(&buf, "// Re-run via `go generate ./...` from the repository root.\n\n")
+	fmt.Fprint(&buf, "package qdf\n\n")
+	fmt.Fprint(&buf, "import (\n\t\"reflect\"\n\t\"slices\"\n\t\"unsafe\"\n)\n\n")
 	for _, p := range pairs {
 		emitPair(&buf, p)
 	}

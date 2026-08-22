@@ -136,7 +136,7 @@ func TestAlphaPackFiresHex(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(got, full) {
-		t.Fatalf("round-trip mismatch")
+		t.Fatal("round-trip mismatch")
 	}
 	t.Logf("spanColumn=%d rawFloor=%d (-%.1f%%)", strBytes, rawFloor, 100*float64(rawFloor-strBytes)/float64(rawFloor))
 }
@@ -158,7 +158,7 @@ func TestAlphaPackDeclinesFullAlphabet(t *testing.T) {
 	// never contain 0xFB, so a tag scan is reliable here.
 	b := apMarshalSingle(t, vals, OptBalanced)
 	if bytes.ContainsRune(b, rune(tagColStrAlpha)) {
-		t.Fatalf("alpha-packing fired on a full-alphabet column — cannot pack below 8 bits")
+		t.Fatal("alpha-packing fired on a full-alphabet column — cannot pack below 8 bits")
 	}
 	var got []apRowS
 	if err := Unmarshal(b, &got); err != nil {
@@ -298,7 +298,7 @@ func FuzzAlphaPackHostile(f *testing.F) {
 	}
 	seed2, _ := Marshal(rows, OptBalanced)
 	f.Add(seed2)
-	f.Fuzz(func(t *testing.T, b []byte) {
+	f.Fuzz(func(_ *testing.T, b []byte) {
 		var out []apLogRow
 		_ = Unmarshal(b, &out) // must not panic / OOM
 	})

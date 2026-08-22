@@ -117,7 +117,7 @@ func TestTryDecodeBatchRowMajorDecodes(t *testing.T) {
 				t.Fatalf("tryDecodeBatchRowMajor: unexpected err %v", err)
 			}
 			if !ok {
-				t.Fatalf("tryDecodeBatchRowMajor: ok = false, want true (direct path must handle a row-major wire)")
+				t.Fatal("tryDecodeBatchRowMajor: ok = false, want true (direct path must handle a row-major wire)")
 			}
 			if gotN != n {
 				t.Fatalf("tryDecodeBatchRowMajor: n = %d, want %d", gotN, n)
@@ -220,13 +220,13 @@ func TestBatchRowMajorKindMismatch(t *testing.T) {
 		}
 	}
 	if pos < 0 {
-		t.Fatalf("could not locate the val field on the wire")
+		t.Fatal("could not locate the val field on the wire")
 	}
 	corrupt := make([]byte, len(data))
 	copy(corrupt, data)
 	corrupt[pos] = byte(tagFalse) // was tagFloat64
 	if _, err := UnmarshalBatch[batDoc](corrupt); err == nil {
-		t.Fatalf("expected a decode error for a bool where a float64 is required, got nil")
+		t.Fatal("expected a decode error for a bool where a float64 is required, got nil")
 	}
 }
 

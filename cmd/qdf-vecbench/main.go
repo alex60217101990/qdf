@@ -61,8 +61,10 @@ var qdfBudgets = []float64{0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.30}
 var bitSweep = []int{3, 4, 5, 6, 7, 8, 10}
 
 // pqBitsPerSubSweep and pqSubspacesSweep drive the PQ operating-point grid.
-var pqBitsPerSubSweep = []int{4, 6, 8}
-var pqSubspacesSweep = []int{4, 8, 16}
+var (
+	pqBitsPerSubSweep = []int{4, 6, 8}
+	pqSubspacesSweep  = []int{4, 8, 16}
+)
 
 // relErrTargets are the fixed rel-error values used for the matched headline.
 var relErrTargets = []float64{0.02, 0.05, 0.10}

@@ -3,8 +3,9 @@ package bench
 import (
 	"slices"
 
-	benchfbs "github.com/alex60217101990/qdf/bench/fbs"
 	flatbuffers "github.com/google/flatbuffers/go"
+
+	benchfbs "github.com/alex60217101990/qdf/bench/fbs"
 )
 
 // ── builder helpers ───────────────────────────────────────────────────────

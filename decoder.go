@@ -164,18 +164,6 @@ func (d *Decoder) ReadStringBytes() ([]byte, error) { return d.readStringBytes()
 // PeekTag returns the next tag byte without advancing the cursor.
 func (d *Decoder) PeekTag() (byte, error) { return d.peekTag() }
 
-// ReadStructHeader reads a struct/map header for code-generated DecodeQDF,
-// transparently handling both forms a struct takes on the wire:
-//   - a shape-interned header (tagMapShape, see Encoder.StructShape) → returns the
-//     field names in encoded order with shaped=true; the caller reads len(names)
-//     values in that order.
-//   - a plain map header (tagMap8/16/32) → returns the entry count as plainN with
-//     shaped=false; the caller reads plainN (name, value) pairs inline.
-//
-// This lets a generated decoder consume both qdfgen shape output and a plain qdf
-// map (e.g. from a non-shaped encoder, an older generated type, or the reflect
-// path under OptSpeed) without a wire-format negotiation. Exported for
-// cmd/qdfgen-generated code.
 // ShapeID reports the wire shape ID of the struct header ReadStructHeader just
 // read, or 0 if that header carried no shape.
 //
@@ -204,6 +192,18 @@ func (d *Decoder) EnterField(shapeID uint32, nFields, i int) {
 // LeaveField unbinds the field context set by EnterField.
 func (d *Decoder) LeaveField() { d.strField = nil }
 
+// ReadStructHeader reads a struct/map header for code-generated DecodeQDF,
+// transparently handling both forms a struct takes on the wire:
+//   - a shape-interned header (tagMapShape, see Encoder.StructShape) → returns the
+//     field names in encoded order with shaped=true; the caller reads len(names)
+//     values in that order.
+//   - a plain map header (tagMap8/16/32) → returns the entry count as plainN with
+//     shaped=false; the caller reads plainN (name, value) pairs inline.
+//
+// This lets a generated decoder consume both qdfgen shape output and a plain qdf
+// map (e.g. from a non-shaped encoder, an older generated type, or the reflect
+// path under OptSpeed) without a wire-format negotiation. Exported for
+// cmd/qdfgen-generated code.
 func (d *Decoder) ReadStructHeader() (names []string, plainN int, shaped bool, err error) {
 	tag, err := d.peekTag()
 	if err != nil {

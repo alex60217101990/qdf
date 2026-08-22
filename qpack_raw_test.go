@@ -175,7 +175,7 @@ func TestQPackRaw_DecoderAcceptsBothForms(t *testing.T) {
 			t.Fatalf("decode: %v", err)
 		}
 		if !reflect.DeepEqual(in, out) {
-			t.Fatalf("mismatch on form")
+			t.Fatal("mismatch on form")
 		}
 	}
 }
@@ -187,7 +187,7 @@ func TestQPackRaw_KindMismatch(t *testing.T) {
 	_ = encodeSliceUint64(enc, unsafe.Pointer(&in))
 	var out []int64
 	if err := decodeSliceInt64(NewDecoderOnBuf(enc.buf), unsafe.Pointer(&out)); err == nil {
-		t.Fatalf("expected kind mismatch error")
+		t.Fatal("expected kind mismatch error")
 	}
 }
 

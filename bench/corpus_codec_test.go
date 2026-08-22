@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // This file exercises the adaptive codec set (RLE, Gorilla XOR,

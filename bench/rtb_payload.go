@@ -55,8 +55,14 @@ func mkRTBBatch(n int) []BidRequest {
 	}
 	currencies := []string{"USD", "EUR", "GBP"}
 	adSizes := [][2]int{
-		{300, 250}, {728, 90}, {320, 50}, {160, 600},
-		{300, 600}, {970, 250}, {320, 480}, {300, 50},
+		{300, 250},
+		{728, 90},
+		{320, 50},
+		{160, 600},
+		{300, 600},
+		{970, 250},
+		{320, 480},
+		{300, 50},
 	}
 	extKeys := []string{"sstype", "ptype", "schain", "dsa", "cattax"}
 	extVals := []string{"web", "app", "display", "video", "native", "banner"}

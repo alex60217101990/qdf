@@ -206,10 +206,10 @@ func TestCorpus_AllEncodersAgree(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(aFast, aQPack) {
-		t.Fatalf("Fast vs QPack diverge")
+		t.Fatal("Fast vs QPack diverge")
 	}
 	if !reflect.DeepEqual(aFast, aDense) {
-		t.Fatalf("Fast vs Dense diverge")
+		t.Fatal("Fast vs Dense diverge")
 	}
 }
 

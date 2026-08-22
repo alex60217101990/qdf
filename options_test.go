@@ -318,7 +318,7 @@ func TestOptions_BundleAliases(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(a, b) {
-				t.Fatalf("OptSpeed differs from Options(0)")
+				t.Fatal("OptSpeed differs from Options(0)")
 			}
 		})
 		t.Run(fx.name+"/Compression≤Balanced", func(t *testing.T) {
@@ -350,7 +350,7 @@ func TestOptions_BundleAliases(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(a, b) {
-				t.Fatalf("OptBalanced bundle differs from its explicit composition")
+				t.Fatal("OptBalanced bundle differs from its explicit composition")
 			}
 		})
 	}

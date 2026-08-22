@@ -71,13 +71,13 @@ func (r *fuzzReader) f32raw() float32 {
 	return math.Float32frombits(r.u32())
 }
 
-// boundedLen takes a fuzz-driven byte and clamps it to [0, max].
-func (r *fuzzReader) boundedLen(max int) int {
+// boundedLen takes a fuzz-driven byte and clamps it to [0, limit].
+func (r *fuzzReader) boundedLen(limit int) int {
 	b := r.u8()
-	if max <= 0 {
+	if limit <= 0 {
 		return 0
 	}
-	return int(b) % (max + 1)
+	return int(b) % (limit + 1)
 }
 
 func (r *fuzzReader) str(maxLen int) string {
@@ -129,12 +129,12 @@ func FuzzRoundTrip_Int64Slice(f *testing.F) {
 			}
 			if n == 0 {
 				if len(out) != 0 {
-					t.Fatalf("empty mismatch")
+					t.Fatal("empty mismatch")
 				}
 				continue
 			}
 			if !reflect.DeepEqual(in, out) {
-				t.Fatalf("[]int64 mismatch")
+				t.Fatal("[]int64 mismatch")
 			}
 		}
 	})
@@ -165,7 +165,7 @@ func FuzzRoundTrip_Uint64Slice(f *testing.F) {
 				continue
 			}
 			if !reflect.DeepEqual(in, out) {
-				t.Fatalf("[]uint64 mismatch")
+				t.Fatal("[]uint64 mismatch")
 			}
 		}
 	})
@@ -284,7 +284,7 @@ func FuzzRoundTrip_BoolSlice(f *testing.F) {
 				continue
 			}
 			if !reflect.DeepEqual(in, out) {
-				t.Fatalf("[]bool mismatch")
+				t.Fatal("[]bool mismatch")
 			}
 		}
 	})
@@ -317,7 +317,7 @@ func FuzzRoundTrip_MapStringInt(f *testing.F) {
 				continue
 			}
 			if !reflect.DeepEqual(in, out) {
-				t.Fatalf("map mismatch")
+				t.Fatal("map mismatch")
 			}
 		}
 	})
@@ -446,10 +446,10 @@ func FuzzRoundTrip_AllModesAgree(f *testing.F) {
 			t.Fatal(err)
 		}
 		if !triadEqual(outFast, outQPack) {
-			t.Fatalf("Fast vs QPack diverge")
+			t.Fatal("Fast vs QPack diverge")
 		}
 		if !triadEqual(outFast, outDense) {
-			t.Fatalf("Fast vs Dense diverge")
+			t.Fatal("Fast vs Dense diverge")
 		}
 	})
 }

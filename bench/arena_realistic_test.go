@@ -97,6 +97,7 @@ func BenchmarkArenaReal_IoT_On(b *testing.B)  { benchArenaDataset[IoTBatch](b, i
 func BenchmarkArenaReal_Event_Off(b *testing.B) {
 	benchArenaDataset[EventBatch](b, eventBytes(), false)
 }
+
 func BenchmarkArenaReal_Event_On(b *testing.B) { benchArenaDataset[EventBatch](b, eventBytes(), true) }
 func BenchmarkArenaReal_Log_Off(b *testing.B)  { benchArenaDataset[LogBatch](b, logBytes(), false) }
 func BenchmarkArenaReal_Log_On(b *testing.B)   { benchArenaDataset[LogBatch](b, logBytes(), true) }
@@ -108,11 +109,13 @@ func BenchmarkArenaReal_Log_On(b *testing.B)   { benchArenaDataset[LogBatch](b, 
 // string column got no arena benefit at all (every first-sight intern record
 // heap-allocated); now it amortises the same way the Speed path does.
 func adBytesDense() []byte { u := makeADUsers(200); b, _ := qdf.Marshal(&u, qdf.OptBalanced); return b }
+
 func logBytesDense() []byte {
 	v := MakeLogBatch(500)
 	b, _ := qdf.Marshal(&v, qdf.OptBalanced)
 	return b
 }
+
 func iotBytesDense() []byte {
 	v := mkIoTBatch(32, 64)
 	b, _ := qdf.Marshal(&v, qdf.OptBalanced)
@@ -120,14 +123,19 @@ func iotBytesDense() []byte {
 }
 
 func BenchmarkArenaDense_AD_Off(b *testing.B) { benchArenaDataset[[]ADUser](b, adBytesDense(), false) }
-func BenchmarkArenaDense_AD_On(b *testing.B)  { benchArenaDataset[[]ADUser](b, adBytesDense(), true) }
+
+func BenchmarkArenaDense_AD_On(b *testing.B) { benchArenaDataset[[]ADUser](b, adBytesDense(), true) }
+
 func BenchmarkArenaDense_Log_Off(b *testing.B) {
 	benchArenaDataset[LogBatch](b, logBytesDense(), false)
 }
+
 func BenchmarkArenaDense_Log_On(b *testing.B) { benchArenaDataset[LogBatch](b, logBytesDense(), true) }
+
 func BenchmarkArenaDense_IoT_Off(b *testing.B) {
 	benchArenaDataset[IoTBatch](b, iotBytesDense(), false)
 }
+
 func BenchmarkArenaDense_IoT_On(b *testing.B) { benchArenaDataset[IoTBatch](b, iotBytesDense(), true) }
 
 // TestArenaDense_EqualsPlain guards that an arena decode of Dense/Compression

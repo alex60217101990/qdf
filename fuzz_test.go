@@ -38,7 +38,7 @@ func FuzzDecoder_NeverPanics(f *testing.F) {
 			f.Add(bm)
 		}
 	}
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		// Try decoding into a few different shapes. None should panic.
 		var s string
 		_ = Unmarshal(data, &s)
@@ -120,7 +120,7 @@ func TestDecoder_BadMagic(t *testing.T) {
 	bad := []byte{'X', 'Y', 'Z', 0x01, 0x00, tagNil}
 	var out any
 	if err := Unmarshal(bad, &out); err == nil {
-		t.Fatalf("expected error on bad magic, got nil")
+		t.Fatal("expected error on bad magic, got nil")
 	}
 }
 
@@ -128,7 +128,7 @@ func TestDecoder_BadVersion(t *testing.T) {
 	bad := []byte{'Q', 'D', 'F', 0xFF, 0x00, tagNil}
 	var out any
 	if err := Unmarshal(bad, &out); err == nil {
-		t.Fatalf("expected error on bad version, got nil")
+		t.Fatal("expected error on bad version, got nil")
 	}
 }
 
@@ -209,7 +209,7 @@ func TestInterop_ModesCrossDecode(t *testing.T) {
 		t.Fatalf("decode fast: %v", err)
 	}
 	if outFast.Name != in.Name {
-		t.Fatalf("fast cross-decode mismatch")
+		t.Fatal("fast cross-decode mismatch")
 	}
 	// Dense → any decoder
 	dense, _ := Marshal(in, OptBalanced)
@@ -218,6 +218,6 @@ func TestInterop_ModesCrossDecode(t *testing.T) {
 		t.Fatalf("decode dense: %v", err)
 	}
 	if outDense.Name != in.Name {
-		t.Fatalf("dense cross-decode mismatch")
+		t.Fatal("dense cross-decode mismatch")
 	}
 }

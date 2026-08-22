@@ -30,7 +30,7 @@ func TestEncodeSelectsE8WhenSmaller(t *testing.T) {
 	// a valid one and round-trip.
 	recon := bl.Decode()
 	if len(recon) != 200 || len(recon[0]) != 128 {
-		t.Fatalf("shape lost")
+		t.Fatal("shape lost")
 	}
 	if bl.Variant != VariantScalar && bl.Variant != VariantE8 {
 		t.Fatalf("bad variant %d", bl.Variant)
@@ -69,7 +69,7 @@ func TestE8NotAttemptedBelowGate(t *testing.T) {
 		t.Fatalf("expected scalar variant for pdim<16, got %d", bl.Variant)
 	}
 	if !e8Eligible(16) || e8Eligible(8) {
-		t.Fatalf("e8Eligible gate wrong")
+		t.Fatal("e8Eligible gate wrong")
 	}
 }
 
