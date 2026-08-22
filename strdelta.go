@@ -88,22 +88,13 @@ type strDeltaGate struct {
 // measured wins are (trace_id -45.4%, span_id -41.2%).
 type strFieldState struct {
 	learn *strAlphaLearn
+	base  string
 	// baseID is the intern id of the value currently in base, stored as id+1 so
 	// the zero value means "not interned" — clear() zeroes these records on
 	// reset, and 0 is a valid id. Set only where the id is already in hand;
 	// every other path that moves base clears it.
 	baseID uint32
-	base   string
 	gate   strDeltaGate
-	// alphaID is the well-known alphabet that has matched every value of this
-	// field so far, or 0 when none has been established.
-	alphaID uint8
-	// alphaOff marks a field whose characters are too varied to pack, so the
-	// membership scan is not spent on it again.
-	alphaOff bool
-	// alphaDeclared marks that this field has written its table to the wire, so
-	// later values reference it instead of repeating it.
-	alphaDeclared bool
 	// alphaWarm counts values seen before learning starts. Separate from
 	// alphaProbe on purpose: warm-up values are not probes, and counting them
 	// as such would spend the mute budget before a table could ever be
@@ -114,7 +105,16 @@ type strFieldState struct {
 	// verdict; alphaMuted stops offering them. Same shape as the delta's gate
 	// and for the same measured reason — see strAlphaProbeN.
 	alphaProbe uint16
-	alphaMuted bool
+	// alphaID is the well-known alphabet that has matched every value of this
+	// field so far, or 0 when none has been established.
+	alphaID uint8
+	// alphaOff marks a field whose characters are too varied to pack, so the
+	// membership scan is not spent on it again.
+	alphaOff bool
+	// alphaDeclared marks that this field has written its table to the wire, so
+	// later values reference it instead of repeating it.
+	alphaDeclared bool
+	alphaMuted    bool
 }
 
 // strAlphaLearn accumulates a field's alphabet as values are written — never by

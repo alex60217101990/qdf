@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 )
 
@@ -45,13 +46,7 @@ func TestDictSampleHighCardMatchesAReference(t *testing.T) {
 		n := min(len(strs), qpackStrDictSampleN)
 		var seen []string
 		for i := range n {
-			fresh := true
-			for _, p := range seen {
-				if p == strs[i] {
-					fresh = false
-					break
-				}
-			}
+			fresh := !slices.Contains(seen, strs[i])
 			if fresh {
 				seen = append(seen, strs[i])
 			}
