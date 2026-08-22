@@ -2,6 +2,7 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"strconv"
 	"testing"
 
@@ -46,6 +47,14 @@ func BenchmarkEncode_MapHeavy(b *testing.B) {
 			}
 		}
 	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := jsonv2.Marshal(v); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
@@ -82,6 +91,15 @@ func BenchmarkDecode_MapHeavy(b *testing.B) {
 		for b.Loop() {
 			var out Attrs
 			if err := json.Unmarshal(jb, &out); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var out Attrs
+			if err := jsonv2.Unmarshal(jb, &out); err != nil {
 				b.Fatal(err)
 			}
 		}
