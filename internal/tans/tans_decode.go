@@ -13,8 +13,13 @@ import (
 //	bits [31:16] = newBase  (= nextStateNumber << nbBits, ∈ [TableSize, 2*TableSize))
 type DecEntry uint32
 
-func (e DecEntry) Symbol() byte    { return byte(e) }
-func (e DecEntry) NbBits() uint8   { return uint8(e >> 8) }
+// Symbol returns the byte this entry decodes to.
+func (e DecEntry) Symbol() byte { return byte(e) }
+
+// NbBits returns how many bits the decoder must consume for this entry.
+func (e DecEntry) NbBits() uint8 { return uint8(e >> 8) }
+
+// NewBase returns the state base to add those bits to.
 func (e DecEntry) NewBase() uint32 { return uint32(e >> 16) }
 
 // buildDecTable fills decOut with the TableSize FSE decode entries.

@@ -364,7 +364,7 @@ func TestQuery_FieldNotFound(t *testing.T) {
 	rows := mkQRows(50)
 	enc, _ := Marshal(rows, OptBalanced|OptColumnIndex)
 	var got []qrow
-	err := Unmarshal(enc, &got, Where("nonesuch", func(v int) bool { return true }))
+	err := Unmarshal(enc, &got, Where("nonesuch", func(_ int) bool { return true }))
 	if !errors.Is(err, ErrFieldNotFound) {
 		t.Fatalf("err = %v, want wraps ErrFieldNotFound", err)
 	}
@@ -678,7 +678,7 @@ func FuzzQueryOrNotByteFlip(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Add(bufNoIdx)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		var out []Row
 		// Must never panic, never race, regardless of corruption.
 		_ = Unmarshal(data, &out,
