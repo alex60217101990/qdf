@@ -16,21 +16,21 @@ import (
 // ---------- TelemetryBatch (log batch with repeating attribute keys)
 
 type telemetryEvent struct {
-	TS       int64             `qdf:"ts"`
-	Service  string            `qdf:"service"`
-	Region   string            `qdf:"region"`
-	Level    string            `qdf:"level"`
-	Host     string            `qdf:"host"`
-	Msg      string            `qdf:"msg"`
-	Span     uint64            `qdf:"span"`
-	Trace    uint64            `qdf:"trace"`
-	Duration int64             `qdf:"duration_us"`
-	Tags     map[string]string `qdf:"tags"`
+	TS       int64             `qdf:"ts" json:"ts"`
+	Service  string            `qdf:"service" json:"service"`
+	Region   string            `qdf:"region" json:"region"`
+	Level    string            `qdf:"level" json:"level"`
+	Host     string            `qdf:"host" json:"host"`
+	Msg      string            `qdf:"msg" json:"msg"`
+	Span     uint64            `qdf:"span" json:"span"`
+	Trace    uint64            `qdf:"trace" json:"trace"`
+	Duration int64             `qdf:"duration_us" json:"duration_us"`
+	Tags     map[string]string `qdf:"tags" json:"tags"`
 }
 
 type telemetryBatch struct {
-	Source string           `qdf:"source"`
-	Events []telemetryEvent `qdf:"events"`
+	Source string           `qdf:"source" json:"source"`
+	Events []telemetryEvent `qdf:"events" json:"events"`
 }
 
 func makeTelemetryBatch(n int) telemetryBatch {
@@ -65,11 +65,11 @@ func makeTelemetryBatch(n int) telemetryBatch {
 // ---------- MetricSeries (timestamps + values + low-cardinality tags)
 
 type metricSeries struct {
-	Name      string    `qdf:"name"`
-	Unit      string    `qdf:"unit"`
-	Timestamp []int64   `qdf:"ts"`
-	Value     []float64 `qdf:"v"`
-	Tags      []string  `qdf:"tags"`
+	Name      string    `qdf:"name" json:"name"`
+	Unit      string    `qdf:"unit" json:"unit"`
+	Timestamp []int64   `qdf:"ts" json:"ts"`
+	Value     []float64 `qdf:"v" json:"v"`
+	Tags      []string  `qdf:"tags" json:"tags"`
 }
 
 func makeMetricSeries(n int) metricSeries {
@@ -93,18 +93,18 @@ func makeMetricSeries(n int) metricSeries {
 // ---------- WideRow (column-store row mixing every QPack-eligible type)
 
 type wideRow struct {
-	ID       uint64    `qdf:"id"`
-	Hash     []byte    `qdf:"hash"`
-	Source   string    `qdf:"source"`
-	Active   bool      `qdf:"active"`
-	Score    float64   `qdf:"score"`
-	Bools    []bool    `qdf:"bools"`
-	Counts   []int64   `qdf:"counts"`
-	Vec      []float64 `qdf:"vec"`
-	Vec32    []float32 `qdf:"vec32"`
-	Labels   []string  `qdf:"labels"`
-	IDs      []uint64  `qdf:"ids"`
-	Children []wideRow `qdf:"children"`
+	ID       uint64    `qdf:"id" json:"id"`
+	Hash     []byte    `qdf:"hash" json:"hash"`
+	Source   string    `qdf:"source" json:"source"`
+	Active   bool      `qdf:"active" json:"active"`
+	Score    float64   `qdf:"score" json:"score"`
+	Bools    []bool    `qdf:"bools" json:"bools"`
+	Counts   []int64   `qdf:"counts" json:"counts"`
+	Vec      []float64 `qdf:"vec" json:"vec"`
+	Vec32    []float32 `qdf:"vec32" json:"vec32"`
+	Labels   []string  `qdf:"labels" json:"labels"`
+	IDs      []uint64  `qdf:"ids" json:"ids"`
+	Children []wideRow `qdf:"children" json:"children"`
 }
 
 func makeWideRow(rng *rand.Rand, depth int) wideRow {

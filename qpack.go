@@ -73,7 +73,7 @@ func qpackRawWidthBytes(kind byte) int {
 // pickU64Codec analyses a []uint64 and decides which QPack codec yields
 // the smallest wire form. Cost of the scan is O(n) (min/max + delta
 // stats + RLE probe), which is dominated by the encode itself.
-func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits int, pforBits int, bestCost int) {
+func pickU64Codec(s []uint64) (codec qpackCodec, mn uint64, forBits int, first uint64, minDelta int64, deltaBits, pforBits, bestCost int) {
 	n := len(s)
 	codec = qpackRaw
 	if n == 0 {
@@ -211,7 +211,7 @@ func qpackRLESizeI64(s []int64, n int) int {
 	return hdr + body
 }
 
-func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits int, pforBits int, bestCost int) {
+func pickI64Codec(s []int64) (codec qpackCodec, mn int64, forBits int, first, minDelta int64, deltaBits, pforBits, bestCost int) {
 	n := len(s)
 	codec = qpackRaw
 	if n == 0 {

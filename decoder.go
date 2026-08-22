@@ -334,7 +334,7 @@ func (d *Decoder) Remaining() int { return len(d.buf) - d.i }
 // in the remaining input. Use before allocating per-element storage.
 //
 //go:nosplit
-func (d *Decoder) CheckLength(n int, perElem int) error {
+func (d *Decoder) CheckLength(n, perElem int) error {
 	if n < 0 {
 		return ErrInvalidLength
 	}

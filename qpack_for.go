@@ -42,7 +42,7 @@ const qpackMaxStandaloneCount = maxColumnarElems
 // qpackForSizeUnsigned estimates the wire size, in bytes, of a FOR-packed
 // encoding for n unsigned values whose delta range needs bits per slot
 // and whose minimum value is m. Used to choose between raw and FOR.
-func qpackForSizeUnsigned(n int, bitsPer int, m uint64) int {
+func qpackForSizeUnsigned(n, bitsPer int, m uint64) int {
 	// tag(1) + kind(1) + bits(1) + min varuint (1..10) + count varuint (1..5 for n<=2^28)
 	// + ceil(n*bits/8) body.
 	hdr := 3 + uvarintLen(m) + uvarintLen(uint64(n))
@@ -50,7 +50,7 @@ func qpackForSizeUnsigned(n int, bitsPer int, m uint64) int {
 	return hdr + body
 }
 
-func qpackForSizeSigned(n int, bitsPer int, m int64) int {
+func qpackForSizeSigned(n, bitsPer int, m int64) int {
 	hdr := 3 + uvarintLen(zigzagEncode64(m)) + uvarintLen(uint64(n))
 	body := (n*bitsPer + 7) >> 3
 	return hdr + body

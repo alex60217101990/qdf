@@ -219,7 +219,7 @@ func appendStrAlphaWellKnown(buf []byte, id uint8, s string) []byte {
 	return appendStrAlphaBody(buf, &set.code, set.bits, s)
 }
 
-func appendStrAlphaDeclared(buf []byte, alphabet []byte, code *[256]uint8, s string) []byte {
+func appendStrAlphaDeclared(buf, alphabet []byte, code *[256]uint8, s string) []byte {
 	buf = append(buf, tagStrAlpha, strAlphaSelDeclare)
 	buf = appendUvarint(buf, uint64(len(alphabet)))
 	buf = append(buf, alphabet...)

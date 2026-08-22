@@ -153,6 +153,8 @@ func TestFrontCodedRoundTripOracle(t *testing.T) {
 		pool := make([]string, card)
 		for i := range pool {
 			var suf strings.Builder
+			//nolint:intrange // r(6) is re-drawn every iteration here; a range
+			// over it would evaluate the bound once and change the fixture.
 			for j := 0; j < r(6); j++ {
 				suf.WriteRune(rune('a' + r(26)))
 			}
