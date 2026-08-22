@@ -234,25 +234,25 @@ func TestValidity_FloatBitExact(t *testing.T) {
 			}
 			// Bit-pattern equality — NaN != NaN under float compare.
 			if math.Float64bits(in.Nan64) != math.Float64bits(out.Nan64) {
-				t.Fatalf("Nan64 lost bit pattern")
+				t.Fatal("Nan64 lost bit pattern")
 			}
 			if math.Float64bits(in.NegZero) != math.Float64bits(out.NegZero) {
-				t.Fatalf("NegZero lost sign bit")
+				t.Fatal("NegZero lost sign bit")
 			}
 			if math.Float64bits(in.PosZero) != math.Float64bits(out.PosZero) {
-				t.Fatalf("PosZero changed")
+				t.Fatal("PosZero changed")
 			}
 			if in.PInf64 != out.PInf64 || in.NInf64 != out.NInf64 {
-				t.Fatalf("Inf round-trip lost")
+				t.Fatal("Inf round-trip lost")
 			}
 			if in.Subnorm != out.Subnorm || in.Max64 != out.Max64 {
-				t.Fatalf("extremal magnitude lost")
+				t.Fatal("extremal magnitude lost")
 			}
 			if math.Float32bits(in.Nan32) != math.Float32bits(out.Nan32) {
-				t.Fatalf("Nan32 lost bit pattern")
+				t.Fatal("Nan32 lost bit pattern")
 			}
 			if in.PInf32 != out.PInf32 {
-				t.Fatalf("PInf32 lost")
+				t.Fatal("PInf32 lost")
 			}
 		})
 	}
@@ -511,7 +511,7 @@ func TestValidity_EncoderResetClearsOpts(t *testing.T) {
 		t.Fatalf("Reset did not switch to Fast: %v", enc.mode)
 	}
 	if enc.qpack {
-		t.Fatalf("Reset did not clear qpack")
+		t.Fatal("Reset did not clear qpack")
 	}
 }
 

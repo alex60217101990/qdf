@@ -11,7 +11,8 @@ import (
 // mustMarshalQDF calls MarshalQDF and fails the test on error.
 func mustMarshalQDF(t *testing.T, v interface {
 	MarshalQDF([]byte) ([]byte, error)
-}) []byte {
+},
+) []byte {
 	t.Helper()
 	b, err := v.MarshalQDF(nil)
 	if err != nil {
@@ -23,7 +24,8 @@ func mustMarshalQDF(t *testing.T, v interface {
 // mustUnmarshalQDF calls UnmarshalQDF and fails the test on error.
 func mustUnmarshalQDF(t *testing.T, b []byte, v interface {
 	UnmarshalQDF([]byte) (int, error)
-}) {
+},
+) {
 	t.Helper()
 	if _, err := v.UnmarshalQDF(b); err != nil {
 		t.Fatalf("UnmarshalQDF: %v", err)

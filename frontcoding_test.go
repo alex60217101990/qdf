@@ -106,7 +106,7 @@ func TestFrontCodedDictDeclinesNoRegression(t *testing.T) {
 	}
 	b := fcMarshalRows(t, vals)
 	if bytes.ContainsRune(b, rune(tagColStrDictFC)) {
-		t.Fatalf("front-coding fired on a non-prefix-shared column — would regress")
+		t.Fatal("front-coding fired on a non-prefix-shared column — would regress")
 	}
 	fcRoundTrip(t, vals, b)
 }
@@ -199,7 +199,7 @@ func FuzzFrontCodedHostile(f *testing.F) {
 	}
 	seed, _ := Marshal(rows, OptBalanced)
 	f.Add(seed)
-	f.Fuzz(func(t *testing.T, b []byte) {
+	f.Fuzz(func(_ *testing.T, b []byte) {
 		var out []fcRow
 		_ = Unmarshal(b, &out) // must not panic / OOM
 	})

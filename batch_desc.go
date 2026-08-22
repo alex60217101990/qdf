@@ -181,7 +181,10 @@ func batchPlanOf(t reflect.Type) (*batchPlan, error) {
 		if p, ok := v.(*batchPlan); ok {
 			return p, nil
 		}
-		return nil, v.(error)
+		if err, ok := v.(error); ok {
+			return nil, err
+		}
+		return nil, fmt.Errorf("qdf: batch plan cache holds %T for %s", v, t)
 	}
 	p := &batchPlan{rt: t, stride: t.Size()}
 	if t.Kind() != reflect.Struct {

@@ -43,6 +43,10 @@ func (d *Decoder) Skip() error {
 		d.i++
 		return nil
 	}
+	// The intern and state-ref branches below have identical bodies today and
+	// stay apart: one registers a new entry, the other resolves an existing id,
+	// and a future change to either must not silently apply to both.
+	//nolint:revive // see above
 	switch t {
 	case tagNil, tagTrue, tagFalse:
 		d.i++
@@ -212,6 +216,7 @@ func (d *Decoder) Skip() error {
 	case tagInternStr, tagInternBin:
 		// Read+register; Skip semantics still need the state table to stay
 		// in sync with the stream.
+
 		_, err := d.readStringBytes()
 		return err
 	case tagStateRef, tagStateRepeat, tagStateMTF, tagStatePair:
@@ -447,12 +452,12 @@ func (d *Decoder) Skip() error {
 		if d.i >= len(d.buf) {
 			return ErrShortBuffer
 		}
-		d.i++                                           // d exponent
-		if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 { // forMin
+		d.i++                            // d exponent
+		_, nr = readUvarint(d.buf[d.i:]) // forMin
+		if nr <= 0 {
 			return ErrInvalidLength
-		} else {
-			d.i += nr
 		}
+		d.i += nr
 		if d.i >= len(d.buf) {
 			return ErrShortBuffer
 		}
@@ -630,11 +635,11 @@ func (d *Decoder) Skip() error {
 			return ErrBadTag
 		}
 		// min varuint
-		if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 {
+		_, nr = readUvarint(d.buf[d.i:])
+		if nr <= 0 {
 			return ErrInvalidLength
-		} else {
-			d.i += nr
 		}
+		d.i += nr
 		// body: n*b bits
 		rem := uint64(len(d.buf) - d.i)
 		if b > 0 && n64 > rem*8/uint64(b) {
@@ -651,16 +656,17 @@ func (d *Decoder) Skip() error {
 			return ErrInvalidLength
 		}
 		for range excN64 {
-			if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 {
+			// exception index, then exception value: two varuints per entry.
+			_, nrIdx := readUvarint(d.buf[d.i:])
+			if nrIdx <= 0 {
 				return ErrInvalidLength
-			} else {
-				d.i += nr
 			}
-			if _, nr := readUvarint(d.buf[d.i:]); nr <= 0 {
+			d.i += nrIdx
+			_, nrVal := readUvarint(d.buf[d.i:])
+			if nrVal <= 0 {
 				return ErrInvalidLength
-			} else {
-				d.i += nr
 			}
+			d.i += nrVal
 		}
 		return nil
 	case tagColStruct:

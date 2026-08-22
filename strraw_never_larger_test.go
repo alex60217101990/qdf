@@ -69,7 +69,7 @@ func TestStrRaw_FiresOnLongHighCardStrings(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 	if bytes.IndexByte(buf, tagColStrRaw) < 0 {
-		t.Fatalf("tagColStrRaw did NOT fire on a long high-cardinality column (regression: lost the decode-alloc win)")
+		t.Fatal("tagColStrRaw did NOT fire on a long high-cardinality column (regression: lost the decode-alloc win)")
 	}
 	var out []rawTokRow
 	if err := Unmarshal(buf, &out); err != nil {

@@ -34,7 +34,7 @@ func MakeSlice(t reflect.Type, n int, p unsafe.Pointer) {
 }
 
 // SliceData — see alloc.go for the contract.
-func SliceData(t reflect.Type, p unsafe.Pointer) unsafe.Pointer {
+func SliceData(_ reflect.Type, p unsafe.Pointer) unsafe.Pointer {
 	return *(*unsafe.Pointer)(p)
 }
 

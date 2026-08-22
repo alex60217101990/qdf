@@ -13,8 +13,8 @@ type badRow struct {
 	Ch chan int `qdf:"ch"`
 }
 
-func (v *badRow) MarshalQDF(dst []byte) ([]byte, error)      { return dst, nil }
-func (v *badRow) UnmarshalQDF(src []byte) (n int, err error) { return 0, nil }
+func (v *badRow) MarshalQDF(dst []byte) ([]byte, error)    { return dst, nil }
+func (v *badRow) UnmarshalQDF(_ []byte) (n int, err error) { return 0, nil }
 
 type goodRow struct {
 	ID   string `qdf:"id"`

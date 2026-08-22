@@ -5,8 +5,9 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // These benchmarks construct a *fresh* payload every iteration so that the

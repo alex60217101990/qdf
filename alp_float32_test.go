@@ -51,7 +51,7 @@ func TestALPFloat32Fires(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(in, out) {
-		t.Fatalf("round-trip mismatch")
+		t.Fatal("round-trip mismatch")
 	}
 	t.Logf("wire=%d raw=%d (%.1f bits/val)", len(b), raw, float64(len(b)*8)/float64(n))
 }

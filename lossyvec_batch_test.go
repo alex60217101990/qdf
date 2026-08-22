@@ -206,7 +206,7 @@ func TestVecBatchVaryingDimFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(data) > 5 && data[5] == tagVecBatchStruct {
-		t.Fatalf("varying-dim should NOT batch, but emitted 0xFE")
+		t.Fatal("varying-dim should NOT batch, but emitted 0xFE")
 	}
 	var out []vecOnlyRow
 	if err := Unmarshal(data, &out); err != nil {
@@ -232,7 +232,7 @@ func TestVecBatchOffByDefaultExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(data) > 5 && data[5] == tagVecBatchStruct {
-		t.Fatalf("no OptLossyVec but emitted 0xFE")
+		t.Fatal("no OptLossyVec but emitted 0xFE")
 	}
 	var out []vecOnlyRow
 	if err := Unmarshal(data, &out); err != nil {
@@ -320,7 +320,7 @@ func TestVecBatchBelowMinElemsNoBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(data) > 5 && data[5] == tagVecBatchStruct {
-		t.Fatalf("dim<min should not batch")
+		t.Fatal("dim<min should not batch")
 	}
 	var out []vecOnlyRow
 	if err := Unmarshal(data, &out); err != nil {
@@ -364,7 +364,7 @@ func FuzzVecBatchDecode(f *testing.F) {
 	}
 	seed, _ := Marshal(rows, OptBalanced|OptLossyVec)
 	f.Add(seed)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		var out []vecOnlyRow
 		_ = Unmarshal(data, &out) // must never panic / OOM
 	})
@@ -408,7 +408,7 @@ func TestVecBatchPolarVaryingNorm(t *testing.T) {
 	}
 	data := enc.Bytes()
 	if pm := vecBatchPolarMask(t, data); pm == 0 {
-		t.Fatalf("polar should engage on varying-norm data, polarMask=0")
+		t.Fatal("polar should engage on varying-norm data, polarMask=0")
 	}
 	var out []vecOnlyRow
 	if err := Unmarshal(data, &out); err != nil {
@@ -472,7 +472,7 @@ func TestVecBatchExcludesNamedType(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(data) > 5 && data[5] == tagVecBatchStruct {
-		t.Fatalf("named slice type must not batch (0xFE emitted)")
+		t.Fatal("named slice type must not batch (0xFE emitted)")
 	}
 	var out []namedVecRow
 	if err := Unmarshal(data, &out); err != nil {

@@ -135,10 +135,10 @@ func TestALPPickerChoosesByData(t *testing.T) {
 	}
 
 	if !containsTag(encQuant, tagPackALP) {
-		t.Errorf("quantized data: expected ALP tag on wire, not found")
+		t.Error("quantized data: expected ALP tag on wire, not found")
 	}
 	if containsTag(encSmooth, tagPackALP) {
-		t.Errorf("pure-smooth data: ALP should lose to Gorilla/raw, but ALP tag present")
+		t.Error("pure-smooth data: ALP should lose to Gorilla/raw, but ALP tag present")
 	}
 
 	// Round-trips regardless of codec.

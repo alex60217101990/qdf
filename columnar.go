@@ -608,7 +608,7 @@ func columnarProbeColumns(plan *columnarPlan, base unsafe.Pointer, n int, fsstEn
 					tableBytes += 2 + len(s)
 				}
 				if !first && s == prev {
-					perValue += 1 // tagStateRepeat
+					perValue++ // tagStateRepeat
 				} else {
 					perValue += 2 + len(s)
 				}
@@ -618,7 +618,7 @@ func columnarProbeColumns(plan *columnarPlan, base unsafe.Pointer, n int, fsstEn
 				// and will not pull the struct into columnar. The historical model
 				// (full per-value bytes) is kept for the pure/FSST paths.
 				if internAware && !fresh {
-					rowBytes += 1
+					rowBytes++
 				} else {
 					rowBytes += 2 + len(s)
 				}
@@ -1771,7 +1771,7 @@ func decodeColumnarQueryAny(d *Decoder) (any, error) {
 
 	retained, matched, err := d.runQueryColumns(sh, colLens, n,
 		func(c int) bool { return projected[c] },
-		func(c int) bool { return false },
+		func(_ int) bool { return false },
 	)
 	if err != nil {
 		return nil, err
@@ -2181,15 +2181,13 @@ func (d *Decoder) skipColumnValue(kind colKind, n int) error {
 	case colKindInt:
 		var s []int64
 		return decodeSliceInt64(d, unsafe.Pointer(&s))
-	case colKindUint:
+	case colKindUint, colKindFloat32:
+		// A float32 column travels as the uint64 bit pattern of each value.
 		var s []uint64
 		return decodeSliceUint64(d, unsafe.Pointer(&s))
 	case colKindFloat:
 		var s []float64
 		return decodeSliceFloat64(d, unsafe.Pointer(&s))
-	case colKindFloat32:
-		var s []uint64
-		return decodeSliceUint64(d, unsafe.Pointer(&s))
 	case colKindBool:
 		var s []bool
 		return decodeSliceBool(d, unsafe.Pointer(&s))

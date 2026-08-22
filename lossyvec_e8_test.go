@@ -76,6 +76,6 @@ func TestE8AutoNeverWorseVsLossless(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(out) != len(rows) {
-		t.Fatalf("rows lost")
+		t.Fatal("rows lost")
 	}
 }

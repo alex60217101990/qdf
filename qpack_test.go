@@ -76,7 +76,7 @@ func TestQPackBool_DecoderAcceptsBothForms(t *testing.T) {
 	}
 
 	if bytes.Equal(encOld.buf, encNew.buf) {
-		t.Fatalf("expected different wire bytes")
+		t.Fatal("expected different wire bytes")
 	}
 	if len(encNew.buf) >= len(encOld.buf) {
 		t.Fatalf("packed (%d) not smaller than per-element (%d)", len(encNew.buf), len(encOld.buf))
@@ -130,7 +130,7 @@ func TestQPackBool_TruncatedPayload(t *testing.T) {
 	dec := NewDecoderOnBuf(bad)
 	var out []bool
 	if err := decodeSliceBool(dec, unsafe.Pointer(&out)); err == nil {
-		t.Fatalf("expected error on truncated payload")
+		t.Fatal("expected error on truncated payload")
 	}
 }
 

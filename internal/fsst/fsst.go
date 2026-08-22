@@ -113,11 +113,10 @@ func (t *SymbolTable) buildIndex() {
 		for i := lo + 1; i < hi; i++ {
 			for j := i; j > lo; j-- {
 				a, c := &t.cands[j-1], &t.cands[j]
-				if c.length > a.length || (c.length == a.length && c.code < a.code) {
-					*a, *c = *c, *a
-				} else {
+				if c.length < a.length || (c.length == a.length && c.code >= a.code) {
 					break
 				}
+				*a, *c = *c, *a
 			}
 		}
 	}

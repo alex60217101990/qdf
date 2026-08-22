@@ -18,7 +18,7 @@ func TestOOM_HugeArr32Header(t *testing.T) {
 	buf = binary.LittleEndian.AppendUint32(buf, 0xFFFFFFFF)
 	var out []int
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge arr32 length")
+		t.Fatal("expected error on huge arr32 length")
 	}
 	if out != nil && len(out) > 1<<28 {
 		t.Fatalf("decoder allocated huge slice: %d", len(out))
@@ -30,7 +30,7 @@ func TestOOM_HugeMap32Header(t *testing.T) {
 	buf = binary.LittleEndian.AppendUint32(buf, 0xFFFFFFFF)
 	var out map[string]int
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge map32 length")
+		t.Fatal("expected error on huge map32 length")
 	}
 }
 
@@ -39,7 +39,7 @@ func TestOOM_HugeStr32Header(t *testing.T) {
 	buf = binary.LittleEndian.AppendUint32(buf, 0xFFFFFFFF)
 	var out string
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge str32 length")
+		t.Fatal("expected error on huge str32 length")
 	}
 	if len(out) > 1<<20 {
 		t.Fatalf("decoder produced huge string: %d", len(out))
@@ -51,7 +51,7 @@ func TestOOM_HugeBin32Header(t *testing.T) {
 	buf = binary.LittleEndian.AppendUint32(buf, 0xFFFFFFFF)
 	var out []byte
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge bin32 length")
+		t.Fatal("expected error on huge bin32 length")
 	}
 }
 
@@ -64,7 +64,7 @@ func TestOOM_HugeInternStr(t *testing.T) {
 	buf = append(buf, 0x7F) // terminator
 	var out string
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge intern_str length")
+		t.Fatal("expected error on huge intern_str length")
 	}
 }
 
@@ -77,7 +77,7 @@ func TestOOM_HugePackBool(t *testing.T) {
 	buf = append(buf, 0x7F)
 	var out []bool
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge pack_bool length")
+		t.Fatal("expected error on huge pack_bool length")
 	}
 }
 
@@ -90,7 +90,7 @@ func TestOOM_HugePackRaw(t *testing.T) {
 	buf = append(buf, 0x7F)
 	var out []uint64
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge pack_raw count")
+		t.Fatal("expected error on huge pack_raw count")
 	}
 }
 
@@ -103,7 +103,7 @@ func TestOOM_HugePackFor(t *testing.T) {
 	buf = append(buf, 0x7F)
 	var out []uint64
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge pack_for count")
+		t.Fatal("expected error on huge pack_for count")
 	}
 }
 
@@ -115,7 +115,7 @@ func TestOOM_HugePackDeltaFor(t *testing.T) {
 	buf = append(buf, 0x7F)
 	var out []uint64
 	if err := Unmarshal(buf, &out); err == nil {
-		t.Fatalf("expected error on huge delta_for count")
+		t.Fatal("expected error on huge delta_for count")
 	}
 }
 

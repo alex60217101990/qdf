@@ -301,7 +301,7 @@ func TestMapFast_EmptyRoundTrip(t *testing.T) {
 			}
 			got := reflect.ValueOf(out).Elem()
 			if got.IsNil() {
-				t.Fatalf("empty map decoded as nil")
+				t.Fatal("empty map decoded as nil")
 			}
 			if got.Len() != 0 {
 				t.Fatalf("empty map decoded with %d entries", got.Len())

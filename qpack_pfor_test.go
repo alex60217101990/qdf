@@ -278,10 +278,10 @@ func TestPFor_PickerChoosesByData(t *testing.T) {
 	}
 
 	if !containsTagKind(encSpikes, tagPackPFor, qpackKindUint64) {
-		t.Errorf("outlier-heavy data: expected PFOR tag on wire, not found")
+		t.Error("outlier-heavy data: expected PFOR tag on wire, not found")
 	}
 	if containsTagKind(encClean, tagPackPFor, qpackKindUint64) {
-		t.Errorf("clean data: PFOR should lose to FOR, but PFOR tag present")
+		t.Error("clean data: PFOR should lose to FOR, but PFOR tag present")
 	}
 
 	// Round-trips regardless of codec choice.

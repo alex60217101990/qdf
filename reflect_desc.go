@@ -253,7 +253,7 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 	case reflect.Int64:
 		td.encode = encodeIntN(8)
 		td.decode = decodeIntN(8)
-	case reflect.Uint:
+	case reflect.Uint, reflect.Uintptr:
 		td.encode = encodeUintN(int(t.Size())) // platform-width (see reflect.Int)
 		td.decode = decodeUintN(int(t.Size()))
 	case reflect.Uint8:
@@ -268,9 +268,6 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 	case reflect.Uint64:
 		td.encode = encodeUintN(8)
 		td.decode = decodeUintN(8)
-	case reflect.Uintptr:
-		td.encode = encodeUintN(int(t.Size())) // platform-width (see reflect.Int)
-		td.decode = decodeUintN(int(t.Size()))
 	case reflect.Float32:
 		td.encode = encodeF32
 		td.decode = decodeF32

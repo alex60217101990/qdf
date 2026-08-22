@@ -8,6 +8,8 @@ import (
 
 // ----- primitives -----
 
+// ReadNil consumes a nil value. It reports ErrTypeMismatch if the next value
+// is anything else.
 func (d *Decoder) ReadNil() error {
 	t, err := d.next()
 	if err != nil {
@@ -19,6 +21,7 @@ func (d *Decoder) ReadNil() error {
 	return nil
 }
 
+// ReadBool consumes a boolean value.
 func (d *Decoder) ReadBool() (bool, error) {
 	t, err := d.next()
 	if err != nil {
@@ -81,6 +84,8 @@ func (d *Decoder) decodeUint(t byte) (uint64, error) {
 	return 0, ErrTypeMismatch
 }
 
+// ReadInt consumes a signed integer, accepting any width the encoder chose for
+// it — the wire form is picked by magnitude, not by the Go type.
 func (d *Decoder) ReadInt() (int64, error) {
 	t, err := d.next()
 	if err != nil {
@@ -162,6 +167,7 @@ func (d *Decoder) decodeInt(t byte) (int64, error) {
 	return 0, ErrTypeMismatch
 }
 
+// ReadFloat32 consumes a 32-bit float.
 func (d *Decoder) ReadFloat32() (float32, error) {
 	t, err := d.next()
 	if err != nil {
@@ -178,6 +184,7 @@ func (d *Decoder) ReadFloat32() (float32, error) {
 	return v, nil
 }
 
+// ReadFloat64 consumes a 64-bit float.
 func (d *Decoder) ReadFloat64() (float64, error) {
 	t, err := d.next()
 	if err != nil {

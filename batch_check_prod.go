@@ -10,7 +10,7 @@ import "unsafe"
 // pointer-receiver method with an unused parameter compiles to nothing and
 // is inlined away — no branch, no load, zero cost. See batch_check_debug.go
 // for the panicking counterpart.
-func (s *batchSlab) checkEpoch(want uint32) {}
+func (s *batchSlab) checkEpoch(_ uint32) {}
 
 // str resolves a handle with no checks: 2 loads and an unsafe.String.
 func (s *batchSlab) str(h Str) string {

@@ -73,12 +73,13 @@ import (
 	"testing"
 	"time"
 
-	qdf "github.com/alex60217101990/qdf"
-	benchfbs "github.com/alex60217101990/qdf/bench/fbs"
-	benchpb "github.com/alex60217101990/qdf/bench/pb"
 	flatbuffers "github.com/google/flatbuffers/go"
 	msgpack "github.com/vmihailenco/msgpack/v5"
 	"google.golang.org/protobuf/proto"
+
+	qdf "github.com/alex60217101990/qdf"
+	benchfbs "github.com/alex60217101990/qdf/bench/fbs"
+	benchpb "github.com/alex60217101990/qdf/bench/pb"
 )
 
 // codecEntry describes a single codec arm in the memory matrix.

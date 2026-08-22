@@ -299,7 +299,7 @@ func newChangedBitmap(dst []uint64, n int) []uint64 {
 func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
 	oldData, newData unsafe.Pointer, n int, pod bool,
 ) bool {
-	any := false
+	changed := false
 	if pod {
 		for i := range n {
 			off := uintptr(i) * stride
@@ -307,10 +307,10 @@ func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
 			nb := unsafe.Slice((*byte)(unsafe.Add(newData, off)), stride)
 			if !bytes.Equal(ob, nb) {
 				bm[i>>6] |= 1 << (uint(i) & 63)
-				any = true
+				changed = true
 			}
 		}
-		return any
+		return changed
 	}
 	for ci := range plan.cols {
 		col := &plan.cols[ci]
@@ -320,11 +320,11 @@ func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
 			}
 			if !colCellEqual(col, stride, oldData, newData, i) {
 				bm[i>>6] |= 1 << (uint(i) & 63)
-				any = true
+				changed = true
 			}
 		}
 	}
-	return any
+	return changed
 }
 
 // colChangedRows appends, in ascending order, the indices where col differs

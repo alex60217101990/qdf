@@ -52,7 +52,7 @@ func TestColumnarTime_RoundTrip(t *testing.T) {
 			}
 			// The payload must have been encoded columnar.
 			if !containsByte(buf, tagColStruct) {
-				t.Fatalf("expected tagColStruct in encoded payload (columnar path not taken)")
+				t.Fatal("expected tagColStruct in encoded payload (columnar path not taken)")
 			}
 
 			var out []timeColRow

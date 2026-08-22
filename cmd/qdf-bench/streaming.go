@@ -10,8 +10,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/alex60217101990/qdf"
 	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/alex60217101990/qdf"
 )
 
 // streamCase is one streaming codec×representation: encode every value of a

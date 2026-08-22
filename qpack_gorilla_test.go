@@ -133,7 +133,7 @@ func TestGorillaSizeBetter(t *testing.T) {
 	encR.writePackedFloat64Slice(in)
 	t.Logf("gorilla=%d  raw=%d  ratio=%.2fx", len(encG.buf), len(encR.buf), float64(len(encR.buf))/float64(len(encG.buf)))
 	if len(encG.buf) >= len(encR.buf) {
-		t.Fatalf("gorilla not smaller than raw")
+		t.Fatal("gorilla not smaller than raw")
 	}
 }
 
