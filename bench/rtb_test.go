@@ -52,3 +52,32 @@ func TestRTB_Roundtrip(t *testing.T) {
 		})
 	}
 }
+
+// BenchmarkRTB_JSONText_1024 is the encode ceiling for JSON on a string-heavy
+// payload: the struct walk written out by hand, with the encoder and its buffer
+// reused between messages.
+//
+// This is the shape where qdf_compression loses encode CPU to json/v2, so
+// knowing what JSON can actually reach here — rather than what its reflection
+// path happens to cost — is the point of the arm.
+func BenchmarkRTB_JSONText_1024(b *testing.B) {
+	v := mkRTBBatch(1024)
+	enc := newJSONTextEncoder()
+	wire, err := enc.marshalRTBBatch(v)
+	if err != nil {
+		b.Fatal(err)
+	}
+	size := len(wire)
+
+	b.Run("encode/jsontext", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(size))
+		e := newJSONTextEncoder()
+		for b.Loop() {
+			if _, err := e.marshalRTBBatch(v); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.ReportMetric(float64(size), "wire-B")
+	})
+}
