@@ -62,6 +62,42 @@ func TestJSONTextCodecRoundTrips(t *testing.T) {
 	}
 }
 
+// TestJSONTextRTBRoundTrips is the same gate for the RTB codec: byte-identical
+// to encoding/json v1, and readable back by json/v2's reflection decoder.
+//
+// There is no hand-written RTB decoder — the encoder is the interesting half
+// here (it is the arm that answers "how fast can JSON encode a string-heavy
+// payload"), and a decoder would double the surface for no extra answer. So the
+// round-trip runs through json/v2 instead.
+func TestJSONTextRTBRoundTrips(t *testing.T) {
+	for _, n := range []int{1, 8, 128} {
+		v := mkRTBBatch(n)
+
+		enc := newJSONTextEncoder()
+		got, err := enc.marshalRTBBatch(v)
+		if err != nil {
+			t.Fatalf("n=%d: marshal: %v", n, err)
+		}
+
+		want, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("n=%d: reference marshal: %v", n, err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("n=%d: jsontext output differs from encoding/json: got %d bytes, want %d, first divergence at %d",
+				n, len(got), len(want), firstDiff(got, want))
+		}
+
+		var back []BidRequest
+		if err := jsonv2.Unmarshal(got, &back); err != nil {
+			t.Fatalf("n=%d: json/v2 could not read the jsontext output: %v", n, err)
+		}
+		if !reflect.DeepEqual(back, v) {
+			t.Fatalf("n=%d: json/v2 read the jsontext output into a different value", n)
+		}
+	}
+}
+
 func firstDiff(a, b []byte) int {
 	n := min(len(a), len(b))
 	for i := range n {

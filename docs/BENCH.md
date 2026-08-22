@@ -202,11 +202,39 @@ Note that v2 and v1 encode this fixture at the same speed: with no maps to sort
 and no strings to escape, v2's defaults have nothing to skip. That is the
 clearest demonstration of where the v2 win comes from.
 
-**And one place qdf loses.** `qdf_compression` encodes this payload in 1330 µs
-against json/v2's 1242 µs — slower. It buys a 197 KB wire against 546 KB, so the
-trade is a good one when bytes cost more than CPU, but on encode CPU alone the
-strongest JSON now beats qdf's heaviest tier on a string-shaped payload. That is
-worth knowing before reaching for `OptCompression` on a hot path.
+### The hand-written ceiling is not where I expected it
+
+The IoT numbers say a hand-written codec is the fastest JSON on that shape. On
+RTB it is not — and the reason is worth more than the number.
+
+| RTB encode arm | time | allocs | semantics |
+|---|---|---|---|
+| `json` v1 | 1354 µs | 10 053 | v1 |
+| `json/v2` + `DefaultOptionsV1` | 1348 µs | 10 052 | v1 |
+| `jsontext`, hand-written | **1355 µs** | **0** | v1 |
+| `json/v2` defaults | **1238 µs** | 5 043 | v2 |
+
+The hand-written codec, with the reflection gone and **zero allocations**, lands
+exactly on v1's time — and *behind* v2's defaults. It sorts map keys, because
+that is what makes its bytes comparable with the v1 row; v2's defaults do not.
+
+So on a string-heavy payload the encode cost is the **format plus the v1
+semantics**, and removing reflection buys nothing measurable. "Hand-written is
+the ceiling" holds for v1-compatible output only. It is a useful correction to
+the IoT reading, where the numeric slices gave the hand-written codec something
+real to win.
+
+### And one place qdf loses
+
+`qdf_compression` encodes RTB in 1281 µs against json/v2's 1238 µs — slower. It
+buys a 197 KB wire against 546 KB, so the trade is a good one where bytes cost
+more than CPU, but on encode CPU alone v2's defaults beat qdf's heaviest tier on
+a string-shaped payload. Worth knowing before reaching for `OptCompression` on a
+hot path — and `docs/CHOOSING.md` already gives that advice.
+
+Against the JSON arms that preserve v1 semantics, `qdf_compression` still wins
+(1281 µs against 1348–1355 µs). The loss is specifically to v2's *relaxed*
+defaults.
 
 
 ## Scenario profiles (per-call `Options` recipes)

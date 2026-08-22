@@ -358,3 +358,211 @@ func (d *jsontextDecoder) readStringMap() (map[string]string, error) {
 	_, err := d.dec.ReadToken() // }
 	return m, err
 }
+
+// ---- RTB: nested structs, a string slice, and a map per impression ----
+//
+// The shape JSON is most competitive on: mostly strings, so there is little for
+// a binary format's numeric codecs to exploit. It is also the shape where
+// qdf_compression loses encode CPU to json/v2, which makes the ceiling worth
+// knowing precisely.
+
+func (e *jsontextEncoder) writeStringSlice(s []string) error {
+	if s == nil {
+		return e.enc.WriteToken(jsontext.Null)
+	}
+	if err := e.enc.WriteToken(jsontext.BeginArray); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := e.enc.WriteToken(jsontext.String(v)); err != nil {
+			return err
+		}
+	}
+	return e.enc.WriteToken(jsontext.EndArray)
+}
+
+// field writes a name token and is the shape every writer below repeats.
+func (e *jsontextEncoder) field(name string) error {
+	return e.enc.WriteToken(jsontext.String(name))
+}
+
+func (e *jsontextEncoder) writeGeo(g *Geo) error {
+	for _, step := range []func() error{
+		func() error { return e.enc.WriteToken(jsontext.BeginObject) },
+		func() error { return e.field("country") },
+		func() error { return e.enc.WriteToken(jsontext.String(g.Country)) },
+		func() error { return e.field("lat") },
+		func() error { return e.enc.WriteToken(jsontext.Float(g.Lat)) },
+		func() error { return e.field("lon") },
+		func() error { return e.enc.WriteToken(jsontext.Float(g.Lon)) },
+		func() error { return e.field("type") },
+		func() error { return e.enc.WriteToken(jsontext.Int(int64(g.Type))) },
+		func() error { return e.enc.WriteToken(jsontext.EndObject) },
+	} {
+		if err := step(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *jsontextEncoder) writeDevice(d *Device) error {
+	if err := e.enc.WriteToken(jsontext.BeginObject); err != nil {
+		return err
+	}
+	if err := e.field("ua"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.String(d.UA)); err != nil {
+		return err
+	}
+	if err := e.field("ip"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.String(d.IP)); err != nil {
+		return err
+	}
+	if err := e.field("os"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.Int(int64(d.OS))); err != nil {
+		return err
+	}
+	if err := e.field("type"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.Int(int64(d.Type))); err != nil {
+		return err
+	}
+	if err := e.field("geo"); err != nil {
+		return err
+	}
+	if err := e.writeGeo(&d.Geo); err != nil {
+		return err
+	}
+	return e.enc.WriteToken(jsontext.EndObject)
+}
+
+func (e *jsontextEncoder) writeImpression(im *Impression) error {
+	if err := e.enc.WriteToken(jsontext.BeginObject); err != nil {
+		return err
+	}
+	if err := e.field("id"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.String(im.ID)); err != nil {
+		return err
+	}
+	if err := e.field("bid_floor"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.Float(im.BidFloor)); err != nil {
+		return err
+	}
+	if err := e.field("w"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.Int(int64(im.W))); err != nil {
+		return err
+	}
+	if err := e.field("h"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.Int(int64(im.H))); err != nil {
+		return err
+	}
+	if err := e.field("deal_ids"); err != nil {
+		return err
+	}
+	if err := e.writeStringSlice(im.DealIDs); err != nil {
+		return err
+	}
+	if err := e.field("ext"); err != nil {
+		return err
+	}
+	if err := e.writeStringMapSorted(im.Ext); err != nil {
+		return err
+	}
+	return e.enc.WriteToken(jsontext.EndObject)
+}
+
+func (e *jsontextEncoder) writeBidRequest(r *BidRequest) error {
+	if err := e.enc.WriteToken(jsontext.BeginObject); err != nil {
+		return err
+	}
+	if err := e.field("id"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.String(r.ID)); err != nil {
+		return err
+	}
+	if err := e.field("at"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.Int(int64(r.At))); err != nil {
+		return err
+	}
+	if err := e.field("tmax"); err != nil {
+		return err
+	}
+	if err := e.enc.WriteToken(jsontext.Int(int64(r.Tmax))); err != nil {
+		return err
+	}
+	if err := e.field("imp"); err != nil {
+		return err
+	}
+	if r.Imp == nil {
+		if err := e.enc.WriteToken(jsontext.Null); err != nil {
+			return err
+		}
+	} else {
+		if err := e.enc.WriteToken(jsontext.BeginArray); err != nil {
+			return err
+		}
+		for i := range r.Imp {
+			if err := e.writeImpression(&r.Imp[i]); err != nil {
+				return err
+			}
+		}
+		if err := e.enc.WriteToken(jsontext.EndArray); err != nil {
+			return err
+		}
+	}
+	if err := e.field("dev"); err != nil {
+		return err
+	}
+	if err := e.writeDevice(&r.Dev); err != nil {
+		return err
+	}
+	if err := e.field("cur"); err != nil {
+		return err
+	}
+	if err := e.writeStringSlice(r.Cur); err != nil {
+		return err
+	}
+	return e.enc.WriteToken(jsontext.EndObject)
+}
+
+// marshalRTBBatch writes a []BidRequest. The returned slice aliases the
+// encoder's buffer, like marshalIoTBatch.
+func (e *jsontextEncoder) marshalRTBBatch(v []BidRequest) ([]byte, error) {
+	e.reset()
+	if v == nil {
+		if err := e.enc.WriteToken(jsontext.Null); err != nil {
+			return nil, err
+		}
+		return bytes.TrimSuffix(e.buf.Bytes(), []byte("\n")), nil
+	}
+	if err := e.enc.WriteToken(jsontext.BeginArray); err != nil {
+		return nil, err
+	}
+	for i := range v {
+		if err := e.writeBidRequest(&v[i]); err != nil {
+			return nil, err
+		}
+	}
+	if err := e.enc.WriteToken(jsontext.EndArray); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(e.buf.Bytes(), []byte("\n")), nil
+}
