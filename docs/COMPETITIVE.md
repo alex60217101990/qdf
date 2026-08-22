@@ -1,5 +1,17 @@
 # Competitive benchmarks — qdf vs json / msgpack / protobuf / flatbuffers
 
+> **Every `json` number on this page is `encoding/json` v1, measured on the
+> amd64 host named in [docs/BENCH.md](BENCH.md).** Go 1.27's
+> `encoding/json/v2` narrows some of these gaps and none of them decisively:
+> measured here it gains **0–21% on decode** and **0–9% on encode**, and on a
+> payload with no maps to sort and no HTML to escape it gains **nothing at all**,
+> because in Go 1.27 `encoding/json` *is* json/v2 under `DefaultOptionsV1` and
+> the difference between them is exactly the price of those options. Its real win
+> is allocation — up to 60% fewer on a large payload. The full v1 / v2 /
+> hand-written-`jsontext` comparison is in
+> [BENCH.md](BENCH.md#json-v2-and-what-json-actually-costs).
+
+
 Realistic, batch-shaped payloads encoded by every codec at the **same record
 count**, so wire size and memory are directly comparable.
 
