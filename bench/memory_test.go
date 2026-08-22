@@ -2,6 +2,7 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"runtime"
 	"strconv"
 	"testing"
@@ -48,6 +49,13 @@ func BenchmarkDecode_MapHeavy_RepeatedKeys(b *testing.B) {
 			_ = json.Unmarshal(jsonBufs[i%N], &out)
 		}
 	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; b.Loop(); i++ {
+			var out map[string]string
+			_ = jsonv2.Unmarshal(jsonBufs[i%N], &out)
+		}
+	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; b.Loop(); i++ {
@@ -84,6 +92,20 @@ func BenchmarkMemory_DecodeLogBatch1k_Bytes(b *testing.B) {
 		for range runs {
 			var out LogBatch
 			_ = json.Unmarshal(jsonBytes, &out)
+		}
+		runtime.ReadMemStats(&ms)
+		b.ReportMetric(float64(ms.TotalAlloc-startAllocs)/runs, "B/decode")
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		var ms runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&ms)
+		startAllocs := ms.TotalAlloc
+		const runs = 100
+		for range runs {
+			var out LogBatch
+			_ = jsonv2.Unmarshal(jsonBytes, &out)
 		}
 		runtime.ReadMemStats(&ms)
 		b.ReportMetric(float64(ms.TotalAlloc-startAllocs)/runs, "B/decode")
@@ -142,6 +164,13 @@ func BenchmarkDecode_MapStringAny_RepeatedKeys(b *testing.B) {
 		for i := 0; b.Loop(); i++ {
 			var out map[string]any
 			_ = json.Unmarshal(jsonBufs[i%N], &out)
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; b.Loop(); i++ {
+			var out map[string]any
+			_ = jsonv2.Unmarshal(jsonBufs[i%N], &out)
 		}
 	})
 	b.Run("qdf_fast", func(b *testing.B) {

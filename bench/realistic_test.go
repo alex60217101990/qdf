@@ -2,6 +2,7 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"math/rand/v2"
 	"testing"
 
@@ -52,6 +53,15 @@ func BenchmarkEncode_UniqueLog(b *testing.B) {
 			}
 		}
 	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			v := state.next()
+			if _, err := jsonv2.Marshal(&v); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
@@ -93,6 +103,22 @@ func BenchmarkEncode_MixedTypes(b *testing.B) {
 			default:
 				v := state.next()
 				_, _ = json.Marshal(&v)
+			}
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; b.Loop(); i++ {
+			switch i & 3 {
+			case 0:
+				_, _ = jsonv2.Marshal(tiny)
+			case 1:
+				_, _ = jsonv2.Marshal(flat)
+			case 2:
+				_, _ = jsonv2.Marshal(nested)
+			default:
+				v := state.next()
+				_, _ = jsonv2.Marshal(&v)
 			}
 		}
 	})
@@ -145,6 +171,16 @@ func BenchmarkEncode_RandomSize(b *testing.B) {
 			}
 		}
 	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			n := sizes[rng.IntN(len(sizes))]
+			v := MakeWide(n)
+			if _, err := jsonv2.Marshal(v); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
@@ -176,6 +212,16 @@ func BenchmarkEncodeParallel_UniqueLog(b *testing.B) {
 			for pb.Next() {
 				v := st.next()
 				_, _ = json.Marshal(&v)
+			}
+		})
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		b.RunParallel(func(pb *testing.PB) {
+			st := newUniqueState()
+			for pb.Next() {
+				v := st.next()
+				_, _ = jsonv2.Marshal(&v)
 			}
 		})
 	})
