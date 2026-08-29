@@ -210,6 +210,18 @@ func reuseOrMakeMapReflect(d *Decoder, t reflect.Type, n int, p unsafe.Pointer) 
 // fresh) — a size bound, not a correctness limit.
 const maxRecycledMaps = 1 << 14
 
+// maxRetainedRecycledMaps bounds the free-list capacity a pooled decoder keeps
+// across resets. Below it the backing array survives, so the next harvest
+// appends into it instead of growing a fresh slice; above it the list is
+// released, because a one-off wide decode should not leave its peak footprint on
+// a decoder that returns to the pool.
+//
+// 4096 pointers is 32 KB per map type. It sits between the two numbers that
+// matter: a 1000-row telemetry batch grows its list to 1023, so ordinary batches
+// keep their backing and keep the reuse; maxRecycledMaps lets one list reach
+// 16384 (128 KB), and nothing near that should survive a return to the pool.
+const maxRetainedRecycledMaps = 1 << 12
+
 // typeDescHasMap reports whether a value of type td holds a map at any
 // struct-nesting depth (a map field, or a map reachable through nested struct
 // fields). decodeSlice computes this once per slice type so the per-decode
@@ -287,6 +299,15 @@ func (d *Decoder) dropRecycledMaps() {
 	for t, lst := range d.mapFreeList {
 		for i := range lst {
 			lst[i] = nil
+		}
+		if cap(lst) > maxRetainedRecycledMaps {
+			// A spike-sized list is released rather than kept: maxRecycledMaps
+			// lets one list reach 16384 pointers, and holding that 128 KB on a
+			// pooled decoder for the life of the pool is what the cap above
+			// exists to prevent. Keeping the capacity is an optimisation for the
+			// steady state, not a license to pin the peak.
+			delete(d.mapFreeList, t)
+			continue
 		}
 		d.mapFreeList[t] = lst[:0]
 	}
