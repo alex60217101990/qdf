@@ -14,8 +14,8 @@ type fbRow struct {
 	Name string `qdf:"name"`
 }
 
-func (v *fbRow) MarshalQDF(dst []byte) ([]byte, error)      { return dst, nil }
-func (v *fbRow) UnmarshalQDF(src []byte) (n int, err error) { return 0, nil }
+func (v *fbRow) MarshalQDF(dst []byte) ([]byte, error)    { return dst, nil }
+func (v *fbRow) UnmarshalQDF(_ []byte) (n int, err error) { return 0, nil }
 
 // The shared descriptor of such a type has no fields, so buildColumnarPlan
 // yields nil for it — that is the defect's root, asserted here rather than
@@ -61,7 +61,7 @@ func TestStructuralColumnarPlanSeesFieldsTheSharedDescriptorHides(t *testing.T) 
 }
 
 // A type that cannot be described structurally must yield nil rather than an
-// error or a panic: the caller's contract is to fall back to today's behaviour.
+// error or a panic: the caller's contract is to fall back to today's behavior.
 func TestStructuralColumnarPlanDeclinesWhatItCannotDescribe(t *testing.T) {
 	type undescribable struct {
 		Ch chan int `qdf:"ch"`

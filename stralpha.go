@@ -19,7 +19,7 @@ import (
 // this wins where the string delta loses and loses where the delta wins:
 // trace_id -45.4% (delta +5.9%), span_id -41.2% (delta +11.4%), request -23.2%
 // (delta -1.2%). A per-VALUE alphabet loses almost everywhere (+18.5% on
-// request) because the table ships with each value; amortising it per FIELD is
+// request) because the table ships with each value; amortizing it per FIELD is
 // the whole idea.
 
 // Well-known alphabet IDs. The selector byte IS the ID, so these cost nothing
@@ -99,7 +99,7 @@ const (
 //
 // The textbook hasless/hasmore pair is NOT enough here. Its ^w guard only
 // suppresses a false flag when the byte's own high bit is set, so a byte below
-// lo still borrows into its neighbour and marks it. That version reported 'A'
+// lo still borrows into its neighbor and marks it. That version reported 'A'
 // as outside [A,Z] because the '6' beside it borrowed, and it read "486733g9"
 // as lowercase hex — both caught by the cross-check against the scalar loop,
 // which is why that test exists.
@@ -219,7 +219,7 @@ func appendStrAlphaWellKnown(buf []byte, id uint8, s string) []byte {
 	return appendStrAlphaBody(buf, &set.code, set.bits, s)
 }
 
-func appendStrAlphaDeclared(buf []byte, alphabet []byte, code *[256]uint8, s string) []byte {
+func appendStrAlphaDeclared(buf, alphabet []byte, code *[256]uint8, s string) []byte {
 	buf = append(buf, tagStrAlpha, strAlphaSelDeclare)
 	buf = appendUvarint(buf, uint64(len(alphabet)))
 	buf = append(buf, alphabet...)
@@ -379,7 +379,7 @@ const (
 	//
 	// Not the delta's half, and the difference is not a preference. The delta's
 	// saving is data-dependent and often a byte or two, so a high bar is what
-	// stops it trading a full decode-side materialisation for nothing. Alpha's
+	// stops it trading a full decode-side materialization for nothing. Alpha's
 	// saving is structural — exactly 1 - bits/8 of the value, before overhead —
 	// so a halving bar rejects the case the codec exists for: a 32-character hex
 	// id packs to 19 bytes against 34, a 44% saving that is not a halving.
@@ -496,7 +496,7 @@ func (e *Encoder) tryWriteStringFieldAlphaInner(s string, fs *strFieldState, bas
 	l := fs.learn
 	// A byte this field has not seen contributes the sentinel, whose high bit
 	// survives the OR, so the settled case — every byte already known, which is
-	// what a field looks like once it has stabilised — costs one OR per byte
+	// what a field looks like once it has stabilized — costs one OR per byte
 	// and a single test, rather than a branch per byte.
 	var unknown uint8
 	for i := range len(s) {

@@ -70,102 +70,119 @@ func encodeSliceStringNil(e *Encoder, p unsafe.Pointer) error {
 	}
 	return encodeSliceString(e, p)
 }
+
 func decodeSliceStringNil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceString(d, p)
 }
+
 func encodeSliceIntNil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceInt(e, p)
 }
+
 func decodeSliceIntNil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceInt(d, p)
 }
+
 func encodeSliceInt32Nil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceInt32(e, p)
 }
+
 func decodeSliceInt32Nil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceInt32(d, p)
 }
+
 func encodeSliceInt64Nil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceInt64(e, p)
 }
+
 func decodeSliceInt64Nil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceInt64(d, p)
 }
+
 func encodeSliceUint32Nil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceUint32(e, p)
 }
+
 func decodeSliceUint32Nil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceUint32(d, p)
 }
+
 func encodeSliceUint64Nil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceUint64(e, p)
 }
+
 func decodeSliceUint64Nil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceUint64(d, p)
 }
+
 func encodeSliceFloat32Nil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceFloat32(e, p)
 }
+
 func decodeSliceFloat32Nil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceFloat32(d, p)
 }
+
 func encodeSliceFloat64Nil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceFloat64(e, p)
 }
+
 func decodeSliceFloat64Nil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
 	}
 	return decodeSliceFloat64(d, p)
 }
+
 func encodeSliceBoolNil(e *Encoder, p unsafe.Pointer) error {
 	if e.encodeNilSlice(p) {
 		return nil
 	}
 	return encodeSliceBool(e, p)
 }
+
 func decodeSliceBoolNil(d *Decoder, p unsafe.Pointer) error {
 	if d.decodeNilSlice(p) {
 		return nil
@@ -183,6 +200,7 @@ func encodeSliceString(e *Encoder, p unsafe.Pointer) error {
 	}
 	return nil
 }
+
 func decodeSliceString(d *Decoder, p unsafe.Pointer) error {
 	n, err := d.ReadArrayHeader()
 	if err != nil {
@@ -278,7 +296,7 @@ func (e *Encoder) writeQPackInt64(s []int64) {
 
 // emitQPackInt64 writes s in the already-chosen codec form (picker output passed
 // in, so a caller that needs to inspect the choice does not pick twice).
-func (e *Encoder) emitQPackInt64(s []int64, codec qpackCodec, mn int64, forBits int, first int64, minDelta int64, deltaBits, pforBits int) {
+func (e *Encoder) emitQPackInt64(s []int64, codec qpackCodec, mn int64, forBits int, first, minDelta int64, deltaBits, pforBits int) {
 	if qpackConstantOverCap(len(s), codec, forBits, deltaBits, pforBits) {
 		e.writePackedInt64Slice(s)
 		return
@@ -323,6 +341,7 @@ func encodeSliceInt(e *Encoder, p unsafe.Pointer) error {
 	}
 	return nil
 }
+
 func decodeSliceInt(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -381,7 +400,7 @@ func (e *Encoder) widenI64(s []int32) []int64 {
 	return w
 }
 
-// widenU64 is the uint32→uint64 analogue of widenI64.
+// widenU64 is the uint32→uint64 analog of widenI64.
 func (e *Encoder) widenU64(s []uint32) []uint64 {
 	if cap(e.wideU64) < len(s) {
 		e.wideU64 = make([]uint64, len(s))
@@ -555,6 +574,7 @@ func decodeSliceInt32(d *Decoder, p unsafe.Pointer) error {
 	*(*[]int32)(p) = out
 	return nil
 }
+
 func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]int64)(p)
 	if e.qpack {
@@ -567,6 +587,10 @@ func encodeSliceInt64(e *Encoder, p unsafe.Pointer) error {
 	}
 	return nil
 }
+
+// a generic costs an indirect call on a hot decode path.
+//
+//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
 func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -656,6 +680,7 @@ func decodeSliceInt64(d *Decoder, p unsafe.Pointer) error {
 	*(*[]int64)(p) = out
 	return nil
 }
+
 func encodeSliceUint32(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]uint32)(p)
 	if e.qpack {
@@ -685,6 +710,7 @@ func encodeSliceUint32(e *Encoder, p unsafe.Pointer) error {
 	}
 	return nil
 }
+
 func decodeSliceUint32(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -765,6 +791,7 @@ func decodeSliceUint32(d *Decoder, p unsafe.Pointer) error {
 	*(*[]uint32)(p) = out
 	return nil
 }
+
 func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
 	s := *(*[]uint64)(p)
 	if e.qpack {
@@ -777,6 +804,10 @@ func encodeSliceUint64(e *Encoder, p unsafe.Pointer) error {
 	}
 	return nil
 }
+
+// a generic costs an indirect call on a hot decode path.
+//
+//nolint:dupl // int64/uint64 twin: separately tested, and merging them behind
 func decodeSliceUint64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -979,6 +1010,7 @@ func encodeSliceFloat32Lossless(e *Encoder, s []float32) error {
 	}
 	return encodeSliceFloat32Impl(e, s)
 }
+
 func decodeSliceFloat32(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -1204,6 +1236,7 @@ func encodeSliceFloat64Lossless(e *Encoder, s []float64) error {
 	}
 	return encodeSliceFloat64Impl(e, s)
 }
+
 func decodeSliceFloat64(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {
@@ -1305,6 +1338,7 @@ func encodeSliceBool(e *Encoder, p unsafe.Pointer) error {
 	}
 	return nil
 }
+
 func decodeSliceBool(d *Decoder, p unsafe.Pointer) error {
 	t, err := d.peekTag()
 	if err != nil {

@@ -353,7 +353,7 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 	backing := reflect.MakeSlice(reflect.SliceOf(col.elemType), present, present)
 	dataPtr := backing.UnsafePointer()
 	stride, off := plan.stride, col.offset
-	st := d.state // always non-nil: readColShape initialises it before the loop
+	st := d.state // always non-nil: readColShape initializes it before the loop
 	k := 0
 	set := func(store func(ea unsafe.Pointer, k int)) {
 		for i := range n {
@@ -378,16 +378,9 @@ func (d *Decoder) decodeNullableColumn(base unsafe.Pointer, plan *columnarPlan, 
 			return ErrTypeMismatch
 		}
 		set(func(ea unsafe.Pointer, k int) { storeI64At(ea, col.width, s[k]) })
-	case colKindUint:
-		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
-			return err
-		}
-		s := st.colScratchU64
-		if len(s) != present {
-			return ErrTypeMismatch
-		}
-		set(func(ea unsafe.Pointer, k int) { storeU64At(ea, col.width, s[k]) })
-	case colKindFloat32:
+	case colKindUint, colKindFloat32:
+		// A float32 column travels as the uint64 bit pattern; storeU64At with
+		// width 4 writes the low 32 bits, which are the float32 bits.
 		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return err
 		}
@@ -475,7 +468,7 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 	// buffers (mirrors decodeNullableColumn) instead of a fresh per-call slice:
 	// s is consumed synchronously into the retained `full` before the next
 	// column reuses the scratch, so there is no retained alias.
-	st := d.state // non-nil: readColShape initialises it before this decode
+	st := d.state // non-nil: readColShape initializes it before this decode
 	switch kind.base() {
 	case colKindInt:
 		if err := decodeSliceInt64Into(d, &st.colScratchI64); err != nil {
@@ -494,24 +487,8 @@ func (d *Decoder) decodeNullableColumnVals(kind colKind, n int) (colVals, error)
 			}
 		}
 		cv.i64 = full
-	case colKindUint:
-		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
-			return cv, err
-		}
-		s := st.colScratchU64
-		if len(s) != present {
-			return cv, ErrTypeMismatch
-		}
-		full := make([]uint64, n)
-		k := 0
-		for i := range n {
-			if getBit(pres, i) {
-				full[i] = s[k]
-				k++
-			}
-		}
-		cv.u64 = full
-	case colKindFloat32:
+	case colKindUint, colKindFloat32:
+		// A float32 column travels as the uint64 bit pattern of each value.
 		if err := decodeSliceUint64Into(d, &st.colScratchU64); err != nil {
 			return cv, err
 		}
@@ -637,10 +614,9 @@ func (cv *colVals) scatterNullableRowInto(base unsafe.Pointer, plan *columnarPla
 	switch cv.kind.base() {
 	case colKindInt:
 		storeI64At(ea, col.width, cv.i64[src])
-	case colKindUint:
+	case colKindUint, colKindFloat32:
+		// For float32 the width is 4, so this writes *(*uint32) — the f32 bits.
 		storeU64At(ea, col.width, cv.u64[src])
-	case colKindFloat32:
-		storeU64At(ea, col.width, cv.u64[src]) // width==4 ⇒ writes *(*uint32), the f32 bits
 	case colKindFloat:
 		storeF64At(ea, col.width, cv.f64[src])
 	case colKindBool:

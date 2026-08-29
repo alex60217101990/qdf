@@ -358,7 +358,7 @@ func FuzzZoneChunkDecode(f *testing.F) {
 	if b, err := Marshal(s, OptQPack|OptZoneMap); err == nil {
 		f.Add(b)
 	}
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		var out []int64
 		_ = Unmarshal(data, &out)
 	})

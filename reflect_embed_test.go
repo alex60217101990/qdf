@@ -48,7 +48,7 @@ type embeddedPlain struct {
 }
 
 func TestEmbeddedPlainStillFlattens(t *testing.T) {
-	in := embeddedPlain{plainInner: plainInner{A: 7, B: "ok"}, C: true}
+	in := embeddedPlain{A: 7, B: "ok", C: true}
 	b, err := Marshal(in, OptBalanced)
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestEmbeddedPlainStillFlattens(t *testing.T) {
 	if err := Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.A != 7 || out.B != "ok" || out.C != true {
+	if out.A != 7 || out.B != "ok" || !out.C {
 		t.Fatalf("flattened embedded struct round-trip: got %+v want %+v", out, in)
 	}
 }

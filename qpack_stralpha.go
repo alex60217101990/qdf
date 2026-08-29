@@ -61,7 +61,7 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 	// One pass: build the alphabet (byte -> dense code), and accumulate the raw
 	// per-value floor, the total character count, fixed-length detection, and the
 	// per-value length-prefix bytes (used only if the column is not fixed-length).
-	// seen/code are stack arrays (zero-initialised, non-escaping); code[c] is only
+	// seen/code are stack arrays (zero-initialized, non-escaping); code[c] is only
 	// read for bytes already marked in seen, so it needs no separate reset.
 	var seen [256]bool
 	var code [256]uint8
@@ -161,7 +161,7 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 		// Variable or odd length: carry a pending low nibble across boundaries.
 		pos, pend := 0, -1
 		for _, s := range strs {
-			for i := 0; i < len(s); i++ {
+			for i := range len(s) {
 				c := int(code[s[i]])
 				if pend < 0 {
 					pend = c
@@ -185,7 +185,7 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 	var have uint
 	pos := 0
 	for _, s := range strs {
-		for i := 0; i < len(s); i++ {
+		for i := range len(s) {
 			acc |= uint64(code[s[i]]) << have
 			have += uint(cbits)
 			for have >= 8 {
@@ -204,7 +204,7 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 }
 
 // readStringColumnAlpha decodes a tagColStrAlpha block (tag at d.i) into the n
-// per-row strings. All characters are materialised into ONE slab (a single
+// per-row strings. All characters are materialized into ONE slab (a single
 // allocation for the whole column) and returned as views into it; the bit-
 // unpacked codes reuse the shared transient scratch. Bounds mirror the other
 // columnar string readers so a hostile header cannot drive an oversized alloc.

@@ -11,11 +11,12 @@ import (
 type bigFastMarshaler struct{ n int }
 
 func (m *bigFastMarshaler) MarshalQDF(dst []byte) ([]byte, error) {
-	for i := 0; i < m.n; i++ {
+	for range m.n {
 		dst = append(dst, 'A')
 	}
 	return dst, nil
 }
+
 func (m *bigFastMarshaler) UnmarshalQDF(src []byte) (int, error) {
 	m.n = len(src)
 	return len(src), nil

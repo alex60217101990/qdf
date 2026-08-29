@@ -11,7 +11,7 @@ import (
 // fields is structurally allowed by Go's type system but the
 // encoder must not blow the stack at runtime — the decoder rebuilds
 // the cycle on demand only if the encoder emitted it, and the test
-// suite captures the current behaviour either way (encode-error or
+// suite captures the current behavior either way (encode-error or
 // encode-success-without-OOM).
 
 // cyclicPtr is the legal form: two structs that point at each other

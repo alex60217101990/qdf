@@ -253,7 +253,7 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 	case reflect.Int64:
 		td.encode = encodeIntN(8)
 		td.decode = decodeIntN(8)
-	case reflect.Uint:
+	case reflect.Uint, reflect.Uintptr:
 		td.encode = encodeUintN(int(t.Size())) // platform-width (see reflect.Int)
 		td.decode = decodeUintN(int(t.Size()))
 	case reflect.Uint8:
@@ -268,9 +268,6 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 	case reflect.Uint64:
 		td.encode = encodeUintN(8)
 		td.decode = decodeUintN(8)
-	case reflect.Uintptr:
-		td.encode = encodeUintN(int(t.Size())) // platform-width (see reflect.Int)
-		td.decode = decodeUintN(int(t.Size()))
 	case reflect.Float32:
 		td.encode = encodeF32
 		td.decode = decodeF32
@@ -377,7 +374,7 @@ func fillDesc(td *typeDesc, t reflect.Type, ctx *buildCtx) error {
 		// per-field delta state entirely for a type that has no string field.
 		// Looking it up per struct — allocating a base and a gate slice for a
 		// type that will never use them — showed up as extra allocs/op on small
-		// payloads, where nothing amortises.
+		// payloads, where nothing amortizes.
 		for i := range fields {
 			if fields[i].desc.kind == reflect.String {
 				td.hasStrField = true

@@ -12,9 +12,9 @@ import (
 	"unicode/utf8"
 )
 
-// data_validity_test.go: dedicated suite that verifies marshalled
+// data_validity_test.go: dedicated suite that verifies marshaled
 // data round-trips with semantic AND structural fidelity — order
-// preservation, edge-value preservation, bit-exact float behaviour,
+// preservation, edge-value preservation, bit-exact float behavior,
 // UTF-8 safety, concurrent pool safety, and pool-reuse correctness
 // across mixed Options.
 //
@@ -124,7 +124,7 @@ func TestValidity_SliceOrder_LargeSpansArr32(t *testing.T) {
 // --- Map nondeterminism + semantic equality ---------------------
 
 func TestValidity_MapSemanticEquality(t *testing.T) {
-	// Go map iteration order is randomised; semantic equality is
+	// Go map iteration order is randomized; semantic equality is
 	// the only contract we have. reflect.DeepEqual handles maps
 	// element-wise, so we only need to confirm round-trip.
 	t.Run("string_string", func(t *testing.T) {
@@ -234,25 +234,25 @@ func TestValidity_FloatBitExact(t *testing.T) {
 			}
 			// Bit-pattern equality — NaN != NaN under float compare.
 			if math.Float64bits(in.Nan64) != math.Float64bits(out.Nan64) {
-				t.Fatalf("Nan64 lost bit pattern")
+				t.Fatal("Nan64 lost bit pattern")
 			}
 			if math.Float64bits(in.NegZero) != math.Float64bits(out.NegZero) {
-				t.Fatalf("NegZero lost sign bit")
+				t.Fatal("NegZero lost sign bit")
 			}
 			if math.Float64bits(in.PosZero) != math.Float64bits(out.PosZero) {
-				t.Fatalf("PosZero changed")
+				t.Fatal("PosZero changed")
 			}
 			if in.PInf64 != out.PInf64 || in.NInf64 != out.NInf64 {
-				t.Fatalf("Inf round-trip lost")
+				t.Fatal("Inf round-trip lost")
 			}
 			if in.Subnorm != out.Subnorm || in.Max64 != out.Max64 {
-				t.Fatalf("extremal magnitude lost")
+				t.Fatal("extremal magnitude lost")
 			}
 			if math.Float32bits(in.Nan32) != math.Float32bits(out.Nan32) {
-				t.Fatalf("Nan32 lost bit pattern")
+				t.Fatal("Nan32 lost bit pattern")
 			}
 			if in.PInf32 != out.PInf32 {
-				t.Fatalf("PInf32 lost")
+				t.Fatal("PInf32 lost")
 			}
 		})
 	}
@@ -358,7 +358,7 @@ func TestValidity_EmbeddedStruct(t *testing.T) {
 		base
 		Name string `qdf:"name"`
 	}
-	runValidity(t, composed{base: base{ID: 7}, Name: "embedded"})
+	runValidity(t, composed{ID: 7, Name: "embedded"})
 }
 
 // --- Pool reuse across mixed Options ---------------------------
@@ -511,7 +511,7 @@ func TestValidity_EncoderResetClearsOpts(t *testing.T) {
 		t.Fatalf("Reset did not switch to Fast: %v", enc.mode)
 	}
 	if enc.qpack {
-		t.Fatalf("Reset did not clear qpack")
+		t.Fatal("Reset did not clear qpack")
 	}
 }
 
@@ -532,7 +532,7 @@ func TestValidity_NestedEmbedding(t *testing.T) {
 		mid
 		T int `qdf:"t"`
 	}
-	in := top{mid: mid{leaf: leaf{L: 1}, M: 2}, T: 3}
+	in := top{L: 1, M: 2, T: 3}
 	for _, p := range allEncodeOpts() {
 		t.Run(p.name, func(t *testing.T) {
 			b, err := Marshal(in, p.opts)

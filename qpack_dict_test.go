@@ -129,7 +129,7 @@ func TestDict_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++
 		if _, err := dec.readPackedDictUint64Slice(); err == nil {
-			t.Fatalf("expected error on distinct=0")
+			t.Fatal("expected error on distinct=0")
 		}
 	})
 	t.Run("over_cap_distinct", func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestDict_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++
 		if _, err := dec.readPackedDictUint64Slice(); err == nil {
-			t.Fatalf("expected error on distinct > cap")
+			t.Fatal("expected error on distinct > cap")
 		}
 	})
 	t.Run("bad_kind", func(t *testing.T) {
@@ -146,7 +146,7 @@ func TestDict_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++
 		if _, err := dec.readPackedDictUint64Slice(); err == nil {
-			t.Fatalf("expected ErrTypeMismatch on bad kind")
+			t.Fatal("expected ErrTypeMismatch on bad kind")
 		}
 	})
 	t.Run("truncated_dict_values", func(t *testing.T) {
@@ -155,7 +155,7 @@ func TestDict_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++
 		if _, err := dec.readPackedDictUint64Slice(); err == nil {
-			t.Fatalf("expected error on truncated dict")
+			t.Fatal("expected error on truncated dict")
 		}
 	})
 }
@@ -190,7 +190,7 @@ func TestDict_EndToEnd(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(in.Codes, out.Codes) {
-		t.Fatalf("round-trip mismatch")
+		t.Fatal("round-trip mismatch")
 	}
 }
 
@@ -229,7 +229,7 @@ func BenchmarkPickU64Codec_Probe(b *testing.B) {
 	}
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				_, _, _, _, _, _, _, _ = pickU64Codec(c.s)
 			}
 		})
@@ -293,6 +293,6 @@ func TestDict_MidCardZeroRoundTrip(t *testing.T) {
 		t.Fatalf("i64 unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(si, out.Codes) {
-		t.Fatalf("i64 roundtrip mismatch")
+		t.Fatal("i64 roundtrip mismatch")
 	}
 }

@@ -18,6 +18,7 @@ import (
 // +144%; the profile gave it away by showing writeStringInline on a path that
 // should have been interning. This is the pattern bench/competitor.go uses.
 func benchCodegenTopLevel(b *testing.B, n int, opts qdf.Options) {
+	b.Helper()
 	plain := mkServices(n)
 	gen := make([]GenService, n)
 	for k := range plain {
@@ -45,6 +46,7 @@ func benchCodegenTopLevel(b *testing.B, n int, opts qdf.Options) {
 // pop it emits around it. The top-level shape above is driven by reflect's
 // slice encoder instead, so the two measure different code.
 func benchCodegenNested(b *testing.B, n int, opts qdf.Options) {
+	b.Helper()
 	svc := mkServices(n)
 	gsvc := make([]GenService, n)
 	for k := range svc {

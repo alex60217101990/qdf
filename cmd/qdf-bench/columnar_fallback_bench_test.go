@@ -27,6 +27,7 @@ import (
 // columnar form uses. Quoting either row without naming the build is how a
 // wrong verdict gets recorded, and one already was.
 func benchDecodeInto(b *testing.B, opts qdf.Options, n int) {
+	b.Helper()
 	wire, err := qdf.Marshal(mkServices(n), opts)
 	if err != nil {
 		b.Fatal(err)

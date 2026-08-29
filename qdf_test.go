@@ -141,7 +141,7 @@ func TestDense_ReducesSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(rows, got) {
-		t.Fatalf("dense round-trip mismatch")
+		t.Fatal("dense round-trip mismatch")
 	}
 }
 

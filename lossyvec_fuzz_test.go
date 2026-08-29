@@ -33,7 +33,7 @@ func FuzzReadLossyVec(f *testing.F) {
 		f.Add(seed)
 	}
 
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		// Decode into both a float32-field and a float64-field struct so the
 		// scalar and E8 reconstruction paths for both element types are
 		// exercised. Neither may panic or OOM on arbitrary input.

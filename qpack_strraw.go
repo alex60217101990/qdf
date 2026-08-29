@@ -44,7 +44,7 @@ func (e *Encoder) tryWriteStringColumnRaw(strs []string) bool {
 		clear(m)
 	}
 	total := 0
-	bulkBytes := 0 // Σ (uvarint(len) + len)
+	bulkBytes := 0 // sum over strings of one length varuint plus the bytes
 	perVal := 0    // distinct: intern tag + uvarint(len) + len; repeat: state ref (>= 1)
 	for _, s := range strs {
 		l := len(s)
@@ -54,7 +54,7 @@ func (e *Encoder) tryWriteStringColumnRaw(strs []string) bool {
 		if l < e.minIntern {
 			// WriteString does NOT intern sub-minIntern strings: it emits each
 			// occurrence inline (fixstr/str8/...) with no dedup. Charge that real
-			// cost per occurrence — modelling them as interned (distinct tag /
+			// cost per occurrence — modeling them as interned (distinct tag /
 			// 1-byte repeat) over-counts perVal and could fire the bulk form even
 			// though it is larger by the bulk header, breaking never-larger.
 			perVal += stringInlineHeaderLen(l) + l

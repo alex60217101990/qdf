@@ -99,7 +99,7 @@ func TestBatchFSSTDirectTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for k := range len(data) {
+	for k := range data {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

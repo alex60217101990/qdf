@@ -92,7 +92,7 @@ const polarMinCV = 0.08
 // norm stream followed by the lossy block of unit directions). ok=false when the
 // field is not batchable (varying length, shorter than lossyVecMinElems, or no
 // form beats raw).
-func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n int, stride uintptr, b vecquant.Budget) (payload []byte, polar bool, ok bool) {
+func (e *Encoder) buildVecColumnBlock(vf *vecBatchField, base unsafe.Pointer, n int, stride uintptr, b vecquant.Budget) (payload []byte, polar, ok bool) {
 	dim := -1
 	for i := range n {
 		fp := unsafe.Add(base, uintptr(i)*stride+vf.offset)

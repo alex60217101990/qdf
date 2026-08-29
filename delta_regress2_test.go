@@ -18,6 +18,7 @@ func (m mcNC) MarshalQDF(dst []byte) ([]byte, error) {
 	}
 	return dst, nil
 }
+
 func (m *mcNC) UnmarshalQDF(src []byte) (int, error) {
 	if len(src) < 4 {
 		return 0, ErrShortBuffer

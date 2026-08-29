@@ -15,7 +15,7 @@ func TestCache_Hit(t *testing.T) {
 	}
 	// Same string data pointer = same allocation reused.
 	if pointerOf(a) != pointerOf(b) {
-		t.Fatalf("expected pointer reuse on cache hit")
+		t.Fatal("expected pointer reuse on cache hit")
 	}
 }
 

@@ -11,7 +11,7 @@ func BenchmarkChimpVsGorilla(b *testing.B) {
 		b.Run("chimp/encode/n"+strconv.Itoa(sz), func(b *testing.B) {
 			b.SetBytes(int64(sz * 8))
 			enc := NewEncoder(Fast)
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				enc.Reset()
 				enc.writePackedChimpFloat64Slice(data)
 			}
@@ -19,7 +19,7 @@ func BenchmarkChimpVsGorilla(b *testing.B) {
 		b.Run("gorilla/encode/n"+strconv.Itoa(sz), func(b *testing.B) {
 			b.SetBytes(int64(sz * 8))
 			enc := NewEncoder(Fast)
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				enc.Reset()
 				enc.writePackedGorillaFloat64Slice(data)
 			}
@@ -29,7 +29,7 @@ func BenchmarkChimpVsGorilla(b *testing.B) {
 		blobC := append([]byte(nil), encC.buf...)
 		b.Run("chimp/decode/n"+strconv.Itoa(sz), func(b *testing.B) {
 			b.SetBytes(int64(sz * 8))
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				dec := NewDecoderOnBuf(blobC)
 				if _, err := dec.peekTag(); err != nil {
 					b.Fatal(err)
@@ -45,7 +45,7 @@ func BenchmarkChimpVsGorilla(b *testing.B) {
 		blobG := append([]byte(nil), encG.buf...)
 		b.Run("gorilla/decode/n"+strconv.Itoa(sz), func(b *testing.B) {
 			b.SetBytes(int64(sz * 8))
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				dec := NewDecoderOnBuf(blobG)
 				if _, err := dec.peekTag(); err != nil {
 					b.Fatal(err)

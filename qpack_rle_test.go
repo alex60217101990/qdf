@@ -124,7 +124,7 @@ func TestRLE_PickerSkipsHighEntropy(t *testing.T) {
 	}
 	got, _, _, _, _, _, _, _ := pickU64Codec(u)
 	if got == qpackRLE {
-		t.Fatalf("u64 picker: returned qpackRLE on high-entropy input")
+		t.Fatal("u64 picker: returned qpackRLE on high-entropy input")
 	}
 }
 
@@ -138,7 +138,7 @@ func TestRLE_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++ // consume tag
 		if _, err := dec.readPackedRLEUint64Slice(); err == nil {
-			t.Fatalf("expected error on zero runLen, got nil")
+			t.Fatal("expected error on zero runLen, got nil")
 		}
 	})
 	t.Run("truncated_body", func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestRLE_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++
 		if _, err := dec.readPackedRLEUint64Slice(); err == nil {
-			t.Fatalf("expected error on truncated body")
+			t.Fatal("expected error on truncated body")
 		}
 	})
 	t.Run("bad_kind", func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestRLE_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++
 		if _, err := dec.readPackedRLEUint64Slice(); err == nil {
-			t.Fatalf("expected ErrTypeMismatch on bad kind")
+			t.Fatal("expected ErrTypeMismatch on bad kind")
 		}
 	})
 	t.Run("runLen_overflow_n", func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestRLE_ErrorCases(t *testing.T) {
 		dec := NewDecoderOnBuf(buf)
 		dec.i++
 		if _, err := dec.readPackedRLEUint64Slice(); err == nil {
-			t.Fatalf("expected error on runLen > n")
+			t.Fatal("expected error on runLen > n")
 		}
 	})
 }
@@ -261,6 +261,6 @@ func TestRLE_EndToEnd(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(in.Status, out.Status) {
-		t.Fatalf("round-trip mismatch")
+		t.Fatal("round-trip mismatch")
 	}
 }

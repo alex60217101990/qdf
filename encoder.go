@@ -93,7 +93,7 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// (~140–311 µs). Retrained every fsstReuseInterval batches so the table
 	// adapts when string distributions shift. Cleared by Reset() on pool
 	// recycle so a pooled encoder never carries stale data into the next
-	// caller; survives resetForReuse() so a streaming caller amortises training.
+	// caller; survives resetForReuse() so a streaming caller amortizes training.
 	fsstCachedTbl  *fsst.SymbolTable
 	fsstBatchCount int // consecutive reuses of fsstCachedTbl since last retrain
 
@@ -344,7 +344,7 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// (not reallocated) per diff call so large new-key sets above keyedLinearMax
 	// reuse the bucket storage instead of heap-allocating per call. Kept on the
 	// Encoder (not encState) next to keyIdx so both keyed-diff scratch fields
-	// share the same cache neighbourhood. newKeyIdxBusy guards against
+	// share the same cache neighborhood. newKeyIdxBusy guards against
 	// re-entrancy: a nested keyed slice sees true and falls back to a fresh map.
 	newKeyIdx     map[string]struct{}
 	newKeyIdxBusy bool
@@ -744,15 +744,15 @@ func (e *Encoder) AdoptBuffer(b []byte) {
 
 // SetIntern overrides the Dense-mode tuning knobs. Zero values keep the
 // current setting.
-func (e *Encoder) SetIntern(min int, cap int) {
-	if min > 0 {
-		e.minIntern = min
+func (e *Encoder) SetIntern(minLen, maxEntries int) {
+	if minLen > 0 {
+		e.minIntern = minLen
 	}
-	if cap > 0 {
-		if cap > maxInternEntries {
-			cap = maxInternEntries // keep max id below the 0xFFFF uint16 sentinel
+	if maxEntries > 0 {
+		if maxEntries > maxInternEntries {
+			maxEntries = maxInternEntries // keep max id below the 0xFFFF uint16 sentinel
 		}
-		e.maxStateEntries = cap
+		e.maxStateEntries = maxEntries
 	}
 }
 
@@ -811,11 +811,13 @@ func (e *Encoder) AppendBytes(p []byte) {
 
 // ----- primitives -----
 
+// WriteNil writes a nil value.
 func (e *Encoder) WriteNil() {
 	e.writeHeader()
 	e.buf = append(e.buf, tagNil)
 }
 
+// WriteBool writes a boolean value.
 func (e *Encoder) WriteBool(v bool) {
 	e.writeHeader()
 	if v {
@@ -825,6 +827,8 @@ func (e *Encoder) WriteBool(v bool) {
 	}
 }
 
+// WriteUint writes an unsigned integer in the narrowest form that holds it:
+// small values become a single fixint byte.
 func (e *Encoder) WriteUint(v uint64) {
 	e.writeHeader()
 	switch {
@@ -841,6 +845,7 @@ func (e *Encoder) WriteUint(v uint64) {
 	}
 }
 
+// WriteInt writes a signed integer in the narrowest form that holds it.
 func (e *Encoder) WriteInt(v int64) {
 	e.writeHeader()
 	if v >= 0 {
@@ -863,6 +868,7 @@ func (e *Encoder) WriteInt(v int64) {
 	}
 }
 
+// WriteFloat32 writes a 32-bit float.
 func (e *Encoder) WriteFloat32(v float32) {
 	e.writeHeader()
 	if e.opts.Has(OptCanonical) {
@@ -871,6 +877,7 @@ func (e *Encoder) WriteFloat32(v float32) {
 	e.buf = appendU32(append(e.buf, tagFloat32), math.Float32bits(v))
 }
 
+// WriteFloat64 writes a 64-bit float.
 func (e *Encoder) WriteFloat64(v float64) {
 	e.writeHeader()
 	if e.opts.Has(OptCanonical) {

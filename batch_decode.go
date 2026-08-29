@@ -45,7 +45,6 @@ var errBatchNeedFallback = errors.New("qdf: batch columnar fallback")
 // current QueryOption applies. Kept in the signature so the public
 // UnmarshalBatch contract does not change when a batch-relevant option lands.
 func unmarshalBatchCore(data []byte, plan *batchPlan, slab *batchSlab, rows func(n int) unsafe.Pointer, _ ...QueryOption) (int, error) {
-
 	// --- Columnar fast path -------------------------------------------------
 	// Attempt a pure-columnar decode on a pooled decoder. On success the T
 	// rows and the slab are fully populated. On the fallback sentinel (or any
@@ -112,6 +111,9 @@ func unmarshalBatchMirror(data []byte, plan *batchPlan, slab *batchSlab, rows fu
 			case bfBytes:
 				b := *(*[]byte)(unsafe.Add(rowPtr, plan.mirrorOff[fi]))
 				need += len(b)
+			default:
+				// bfScalar and bfTime are fixed-width and contribute no
+				// variable-length body to the slab.
 			}
 		}
 	}
@@ -330,7 +332,7 @@ func tryDecodeBatchRowMajor(data []byte, plan *batchPlan, slab *batchSlab, rows 
 	// a still-plausible (input-bounded) n could otherwise amplify a modest
 	// wire into a very large rows(n) region; this caps n*stride at
 	// maxColumnarBytes on top of the input-proportional guard above.
-	if err = checkColumnarBytes(n, plan.stride); err != nil {
+	if err := checkColumnarBytes(n, plan.stride); err != nil {
 		return 0, true, err
 	}
 	if n == 0 {
@@ -721,7 +723,7 @@ func batchReadColShape(d *Decoder, plan *batchPlan, slab *batchSlab) (n, nCols i
 func scatterBatchColumn(d *Decoder, plan *batchPlan, slab *batchSlab, base unsafe.Pointer, f *batchField, kind colKind, n int) error {
 	stride := plan.stride
 	off := f.off
-	st := d.state // non-nil: readColShape initialised it
+	st := d.state // non-nil: readColShape initialized it
 
 	switch f.kind {
 	case bfStr, bfBytes:

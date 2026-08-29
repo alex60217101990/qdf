@@ -88,11 +88,17 @@ var (
 )
 
 // Diff computes a patch carrying only the structural difference (new − old).
+//
+// allocates, so the shadowed builtin is unreachable here.
+//
+//nolint:revive // old/new is the vocabulary of a diff API and neither body
 func Diff[T any](old, new T, opts Options) ([]byte, error) {
 	return AppendDiff(nil, old, new, opts)
 }
 
 // AppendDiff appends the patch to dst and returns the extended slice.
+//
+//nolint:revive // see Diff.
 func AppendDiff[T any](dst []byte, old, new T, opts Options) ([]byte, error) {
 	td, err := descOf(reflect.TypeFor[T]())
 	if err != nil {

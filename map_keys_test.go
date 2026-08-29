@@ -30,7 +30,7 @@ func TestMapNilVsEmpty(t *testing.T) {
 	if err := Unmarshal(data, &out); err != nil {
 		t.Fatal(err)
 	}
-	// Record actual behaviour. If the format does NOT distinguish nil
+	// Record actual behavior. If the format does NOT distinguish nil
 	// from empty, this is a design question, not a bug — log it with
 	// t.Logf and DO NOT fail; report it to the controller. If it DOES
 	// distinguish, assert it.

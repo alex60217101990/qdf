@@ -213,7 +213,7 @@ func codegenParity[P any, G any](t *testing.T, name string, lens []int,
 				t.Fatalf("%s n=%d %s codegen: %v", name, n, o.name, err)
 			}
 			if n == 1 {
-				// One element has nobody to amortise the shape declaration
+				// One element has nobody to amortize the shape declaration
 				// against: generated code always declares a shape, so under
 				// OptSpeed — where reflect declares none — it pays for it. The
 				// measured excess is ONE byte. The allowance is two, not the

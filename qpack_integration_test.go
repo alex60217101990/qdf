@@ -57,7 +57,7 @@ func TestMarshalDense_QPackRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(in, out) {
-		t.Fatalf("dense round-trip mismatch")
+		t.Fatal("dense round-trip mismatch")
 	}
 }
 
@@ -72,7 +72,7 @@ func TestMarshalQPack_RoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if !reflect.DeepEqual(in, out) {
-		t.Fatalf("qpack round-trip mismatch")
+		t.Fatal("qpack round-trip mismatch")
 	}
 }
 

@@ -6,8 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // Differential testing: qdf must agree with msgpack and encoding/json

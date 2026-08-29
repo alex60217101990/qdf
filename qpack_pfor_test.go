@@ -23,7 +23,9 @@ func pforTestSlicesU64() [][]uint64 {
 		return s
 	}
 	return [][]uint64{
-		{}, {5}, {5, 5, 5},
+		{},
+		{5},
+		{5, 5, 5},
 		mk(100, 1000, 1, 1<<40), // rare huge spikes
 		mk(1000, 200, 3, 1<<20), // 3% spikes
 		mk(257, 0, 0, 0),        // no spikes
@@ -276,10 +278,10 @@ func TestPFor_PickerChoosesByData(t *testing.T) {
 	}
 
 	if !containsTagKind(encSpikes, tagPackPFor, qpackKindUint64) {
-		t.Errorf("outlier-heavy data: expected PFOR tag on wire, not found")
+		t.Error("outlier-heavy data: expected PFOR tag on wire, not found")
 	}
 	if containsTagKind(encClean, tagPackPFor, qpackKindUint64) {
-		t.Errorf("clean data: PFOR should lose to FOR, but PFOR tag present")
+		t.Error("clean data: PFOR should lose to FOR, but PFOR tag present")
 	}
 
 	// Round-trips regardless of codec choice.

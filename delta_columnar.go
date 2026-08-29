@@ -89,7 +89,8 @@ func colKindColumnDiffSupported(col *colColumn) bool {
 // (false, err) on a real error. n == oldLen == newLen is guaranteed by the
 // caller. Exactly one body remains in enc.buf on a true return.
 func diffColumnar(enc *Encoder, elem *typeDesc, plan *columnarPlan, stride uintptr,
-	oldData, newData unsafe.Pointer, n, depth int) (bool, error) {
+	oldData, newData unsafe.Pointer, n, depth int,
+) (bool, error) {
 	if enc.state == nil {
 		enc.state = newEncState()
 	}
@@ -296,8 +297,9 @@ func newChangedBitmap(dst []uint64, n int) []uint64 {
 // skipped → no wrong data, only a wasted attribution pass (the documented POD
 // trade). A non-POD element (string/[]byte columns) must compare per column.
 func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
-	oldData, newData unsafe.Pointer, n int, pod bool) bool {
-	any := false
+	oldData, newData unsafe.Pointer, n int, pod bool,
+) bool {
+	changed := false
 	if pod {
 		for i := range n {
 			off := uintptr(i) * stride
@@ -305,10 +307,10 @@ func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
 			nb := unsafe.Slice((*byte)(unsafe.Add(newData, off)), stride)
 			if !bytes.Equal(ob, nb) {
 				bm[i>>6] |= 1 << (uint(i) & 63)
-				any = true
+				changed = true
 			}
 		}
-		return any
+		return changed
 	}
 	for ci := range plan.cols {
 		col := &plan.cols[ci]
@@ -318,18 +320,19 @@ func markChangedRows(bm []uint64, plan *columnarPlan, stride uintptr,
 			}
 			if !colCellEqual(col, stride, oldData, newData, i) {
 				bm[i>>6] |= 1 << (uint(i) & 63)
-				any = true
+				changed = true
 			}
 		}
 	}
-	return any
+	return changed
 }
 
 // colChangedRows appends, in ascending order, the indices where col differs
 // between old and new, restricted to rows already flagged in bm (iterating bm
 // via bits.TrailingZeros64 word-skip). dst is reused.
 func colChangedRows(dst []int, bm []uint64, col *colColumn,
-	stride uintptr, oldData, newData unsafe.Pointer, n int) []int {
+	stride uintptr, oldData, newData unsafe.Pointer, n int,
+) []int {
 	dst = dst[:0]
 	for w := range bm {
 		word := bm[w]
@@ -438,7 +441,8 @@ func (e *Encoder) writeStringColumnStateless(strs []string) {
 // []byte/time can also be sparse (pickColMode returns sparse when changes are
 // few), but never delta.
 func encodeSparseColumn(enc *Encoder, col *colColumn,
-	stride uintptr, oldData, newData unsafe.Pointer, rows []int) error {
+	stride uintptr, oldData, newData unsafe.Pointer, rows []int,
+) error {
 	_ = oldData
 	enc.buf = appendUvarint(enc.buf, uint64(len(rows)))
 	prev := 0
@@ -528,7 +532,8 @@ func encodeSparseColumn(enc *Encoder, col *colColumn,
 // encodeDeltaColumn writes the full-length per-row arithmetic delta column
 // (new[i] - old[i]). Unchanged cells are 0 → delta/FOR/RLE crush them.
 func encodeDeltaColumn(enc *Encoder, col *colColumn,
-	stride uintptr, oldData, newData unsafe.Pointer, n int) error {
+	stride uintptr, oldData, newData unsafe.Pointer, n int,
+) error {
 	st := enc.state
 	switch col.kind {
 	case colKindInt:

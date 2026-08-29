@@ -107,6 +107,10 @@ type Builder struct {
 	t    SymbolTable
 }
 
+// NewBuilder returns a Builder with its counters and candidate arena
+// preallocated. A Builder is reusable: Reset clears the state without giving the
+// arena back, which is why the pool in the encoder hands these out rather than
+// constructing one per column.
 func NewBuilder() *Builder {
 	return &Builder{
 		c:    newCounter(),
@@ -172,7 +176,7 @@ func (t *SymbolTable) fillFromKeys(keys []symKey) {
 		}
 		var s symbol
 		s.len = k.n
-		for i := 0; i < int(k.n); i++ {
+		for i := range k.n {
 			s.bytes[i] = byte(k.lo >> (8 * i))
 		}
 		s.val = k.lo // packKey already packed exactly k.n bytes

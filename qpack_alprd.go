@@ -178,6 +178,9 @@ func alprdCodeBits(d int) uint8 {
 // picker may choose ALP-RD only when it strictly beats the alternatives, so
 // the codec never grows the wire. ok is false when even the best plan cannot
 // beat raw.
+// relationship, and each half packs a different width against its own tests.
+//
+//nolint:dupl // float64/float32 twin: the comment above states the mirror
 func (e *Encoder) alprdPlanFloat64(s []float64) (plan alprdPlan, estBytes int, ok bool) {
 	n := len(s)
 	if n < 16 {
@@ -463,6 +466,9 @@ func (d *Decoder) skipALPRD(width int) error {
 // the dictionary's win class.
 
 // alprdPlanFloat32 mirrors alprdPlanFloat64 for []float32.
+// relationship, and each half packs a different width against its own tests.
+//
+//nolint:dupl // float64/float32 twin: the comment above states the mirror
 func (e *Encoder) alprdPlanFloat32(s []float32) (plan alprdPlan, estBytes int, ok bool) {
 	n := len(s)
 	if n < 16 {

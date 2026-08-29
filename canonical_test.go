@@ -235,7 +235,7 @@ func TestCanonicalMapStableGenerated(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(b, base) {
-				t.Fatalf("generated canonical unstable")
+				t.Fatal("generated canonical unstable")
 			}
 		}
 		// round-trip a representative one
@@ -417,7 +417,7 @@ func TestCanonicalDiffFloat32Columnar(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(pa, pb) {
-		t.Fatalf("float32 columnar diff: -0.0 patch != +0.0 patch under canonical")
+		t.Fatal("float32 columnar diff: -0.0 patch != +0.0 patch under canonical")
 	}
 }
 

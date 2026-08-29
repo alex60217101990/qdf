@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-func TestEncStateLayout(t *testing.T) {
+func TestEncStateLayout(_ *testing.T) {
 	rt := reflect.TypeFor[encState]()
 	fmt.Printf("encState: size=%d align=%d\n", rt.Size(), rt.Align())
 	for f := range rt.Fields() {
@@ -16,7 +16,7 @@ func TestEncStateLayout(t *testing.T) {
 	fmt.Printf("Encoder size: %d\n", unsafe.Sizeof(Encoder{}))
 }
 
-func TestDecStateLayout(t *testing.T) {
+func TestDecStateLayout(_ *testing.T) {
 	rt := reflect.TypeFor[decState]()
 	fmt.Printf("decState: size=%d align=%d\n", rt.Size(), rt.Align())
 	for f := range rt.Fields() {

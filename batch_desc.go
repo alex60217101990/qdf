@@ -34,7 +34,6 @@ type batchField struct {
 // same wire field order the normal encoder uses for the equivalent struct
 // (flattened embedded, tag-named) — see appendBatchFields.
 type batchPlan struct {
-
 	// mirrorSlicePtr pools *mirrorSlot values so repeated UnmarshalBatch calls
 	// for the same T neither reallocate the *[]mirror box nor touch
 	// reflect.Value on the hot path (the slot caches the raw slice-header
@@ -182,7 +181,10 @@ func batchPlanOf(t reflect.Type) (*batchPlan, error) {
 		if p, ok := v.(*batchPlan); ok {
 			return p, nil
 		}
-		return nil, v.(error)
+		if err, ok := v.(error); ok {
+			return nil, err
+		}
+		return nil, fmt.Errorf("qdf: batch plan cache holds %T for %s", v, t)
 	}
 	p := &batchPlan{rt: t, stride: t.Size()}
 	if t.Kind() != reflect.Struct {

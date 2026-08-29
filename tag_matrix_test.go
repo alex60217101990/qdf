@@ -13,15 +13,17 @@ import (
 // Named-type aliases. Each underlying type gets a wrapper struct so
 // the field name is identical across the matrix and only the type
 // shape changes.
-type namedInt int
-type namedInt64 int64
-type namedUint uint
-type namedUint64 uint64
-type namedFloat32 float32
-type namedFloat64 float64
-type namedString string
-type namedBool bool
-type namedBytes []byte
+type (
+	namedInt     int
+	namedInt64   int64
+	namedUint    uint
+	namedUint64  uint64
+	namedFloat32 float32
+	namedFloat64 float64
+	namedString  string
+	namedBool    bool
+	namedBytes   []byte
+)
 
 type namedHolder struct {
 	I   namedInt     `qdf:"i"`
@@ -135,7 +137,7 @@ func TestTagMatrix_SkipDirective(t *testing.T) {
 	}
 }
 
-// Documented behaviour: qdf flattens anonymous embedded struct
+// Documented behavior: qdf flattens anonymous embedded struct
 // fields into the parent's wire layout, matching encoding/json
 // semantics. The inner type's tagged fields surface at the outer
 // level. This applies regardless of whether the embedded type is
@@ -152,7 +154,7 @@ type embeddedOuter struct {
 }
 
 func TestTagMatrix_EmbeddedStruct_Flattened(t *testing.T) {
-	in := embeddedOuter{embeddedInner: embeddedInner{A: 1, B: 2}, C: 3}
+	in := embeddedOuter{A: 1, B: 2, C: 3}
 	buf, err := Marshal(in, OptSpeed)
 	if err != nil {
 		t.Fatal(err)

@@ -328,7 +328,7 @@ func TestMapShape_ArrayShrinksWire(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if !reflect.DeepEqual(arr, out) {
-		t.Fatalf("round-trip mismatch")
+		t.Fatal("round-trip mismatch")
 	}
 	// Wire-size guardrail. Pre-shape Dense would have spent ≈16 bytes
 	// per struct after the first (tagMap8 + 3 keys × 2-byte state-ref

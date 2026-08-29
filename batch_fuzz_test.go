@@ -26,7 +26,7 @@ func FuzzUnmarshalBatch(f *testing.F) {
 	f.Add(seed1)
 	f.Add(seed2)
 	f.Add(seed3)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		b, err := UnmarshalBatch[batDoc](data)
 		if err != nil {
 			return

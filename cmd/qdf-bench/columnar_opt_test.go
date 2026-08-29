@@ -7,7 +7,7 @@ import (
 	"github.com/alex60217101990/qdf"
 )
 
-// The bit must be its own, not an alias of a neighbour.
+// The bit must be its own, not an alias of a neighbor.
 // transposed reports whether a wire's root is one of the columnar containers.
 // Which one depends on the SHAPE — a struct with a residual field takes the
 // hybrid form (0xF7), a fully columnar-eligible one takes the pure form (0xEF) —

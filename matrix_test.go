@@ -9,7 +9,7 @@ import (
 type bundle struct {
 	name         string
 	opts         Options
-	columnarOnly bool // distinguishing behaviour only shows on []struct payloads
+	columnarOnly bool // distinguishing behavior only shows on []struct payloads
 }
 
 // matrixBundles is the single source of truth for the config matrix.

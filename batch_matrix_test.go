@@ -19,7 +19,7 @@ func TestBatchStringCodecMatrix(t *testing.T) {
 		n    int
 	}{
 		{"raw_highcard", func(i int) string { return fmt.Sprintf("id-%08x-%08x", i*2654435761, i) }, 64},
-		{"const", func(i int) string { return "constant-value" }, 64},
+		{"const", func(_ int) string { return "constant-value" }, 64},
 		{"dict_lowcard", func(i int) string { return []string{"eu", "us", "ap"}[i%3] }, 256},
 		{"frontcoded_sorted", func(i int) string { return fmt.Sprintf("path/%04d/leaf", i) }, 128},
 		{"fsst_substr", func(i int) string { return fmt.Sprintf("GET /api/v1/users/%d/profile HTTP/1.1", i) }, 128},

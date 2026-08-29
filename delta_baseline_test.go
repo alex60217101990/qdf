@@ -353,7 +353,7 @@ func TestBaselineApplyHostile(t *testing.T) {
 	}
 	seeds := make([][]byte, 0, 4+len(good))
 	seeds = append(seeds, nil, []byte{}, []byte{0x00}, []byte("not a patch at all"))
-	for i := range len(good) {
+	for i := range good {
 		trunc := make([]byte, i)
 		copy(trunc, good[:i])
 		seeds = append(seeds, trunc)

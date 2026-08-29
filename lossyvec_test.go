@@ -27,10 +27,10 @@ func TestLossyVecWireRoundTrip(t *testing.T) {
 		t.Fatalf("used %d != %d", used, len(enc))
 	}
 	if isF32 {
-		t.Fatalf("elem type flipped")
+		t.Fatal("elem type flipped")
 	}
 	if len(got) != len(vecs) || len(got[0]) != 256 {
-		t.Fatalf("shape lost")
+		t.Fatal("shape lost")
 	}
 	for i := range vecs {
 		var dot, na, nb float64
@@ -91,10 +91,10 @@ func TestLossyVecE8WireRoundTrip(t *testing.T) {
 		t.Fatalf("used %d != %d", used, len(enc))
 	}
 	if isF32 {
-		t.Fatalf("elem type flipped")
+		t.Fatal("elem type flipped")
 	}
 	if len(got) != len(vecs) || len(got[0]) != dim {
-		t.Fatalf("shape lost")
+		t.Fatal("shape lost")
 	}
 	for i := range vecs {
 		var dot, na, nb float64

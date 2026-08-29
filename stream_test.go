@@ -73,7 +73,7 @@ func TestStream_DenseSharesInternTable(t *testing.T) {
 	}
 	t.Logf("stream=%d solo=%d ratio=%.2f", streamSize, soloTotal, float64(streamSize)/float64(soloTotal))
 	if streamSize >= soloTotal {
-		t.Fatalf("expected stream encoding to be smaller than concatenated solo encodings (shared intern wins)")
+		t.Fatal("expected stream encoding to be smaller than concatenated solo encodings (shared intern wins)")
 	}
 }
 

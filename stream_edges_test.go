@@ -201,7 +201,7 @@ func TestStream_DenseInternTableSpansMessages(t *testing.T) {
 	}
 
 	// First message must contain the full string; subsequent ones
-	// should be smaller — the stream amortises the intern cost.
+	// should be smaller — the stream amortizes the intern cost.
 	totalLen := w.Len()
 	if totalLen >= 5*(len(common)+16) {
 		t.Fatalf("stream too large for interned dup: %d bytes (each msg should reference, not copy)", totalLen)
@@ -327,13 +327,13 @@ func TestStream_InertColumnIndexAndRANS(t *testing.T) {
 	// rather than asserting; a future codec addition that streams would show
 	// up here.
 	if !bytes.Equal(wantWire, inertWire) {
-		t.Logf("OBSERVED: OptBalanced and OptCompression|OptColumnIndex produce DIFFERENT stream bytes")
+		t.Log("OBSERVED: OptBalanced and OptCompression|OptColumnIndex produce DIFFERENT stream bytes")
 		t.Logf("  OptBalanced wire:   len=%d flag=0x%02x", len(wantWire), wantWire[4])
 		t.Logf("  OptComp|ColIdx wire: len=%d flag=0x%02x", len(inertWire), inertWire[4])
 		// Not a hard failure — document the divergence, but keep the flag
 		// assertions above which guard the real contract.
 	} else {
-		t.Logf("OBSERVED: streams are byte-identical (inert flags confirmed)")
+		t.Log("OBSERVED: streams are byte-identical (inert flags confirmed)")
 	}
 
 	// Both streams must decode correctly.
@@ -454,7 +454,7 @@ func TestStream_TruncatedMessage(t *testing.T) {
 			t.Fatalf("truncation@%d: got io.EOF but expected a decode error (partial message)", i)
 		}
 	}
-	t.Logf("OBSERVED truncation contract: a partial message returns ErrShortBuffer; truncation exactly at the header boundary returns io.EOF (empty stream)")
+	t.Log("OBSERVED truncation contract: a partial message returns ErrShortBuffer; truncation exactly at the header boundary returns io.EOF (empty stream)")
 }
 
 // streamWriteRec is a local record type for the Flush short-write tests.

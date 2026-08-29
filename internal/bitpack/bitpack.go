@@ -113,7 +113,7 @@ func UnpackScalar(out []uint64, in []byte, bitsPer int) {
 // PackChunk writes a chunk of values starting at element offset elemOff in
 // the output bit-stream. It is Pack generalised to write into the middle
 // of an existing buffer. bitsPer must be in [0, 56].
-func PackChunk(out []byte, vals []uint64, bitsPer int, elemOff int) {
+func PackChunk(out []byte, vals []uint64, bitsPer, elemOff int) {
 	if bitsPer == 0 || len(vals) == 0 {
 		return
 	}

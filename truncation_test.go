@@ -93,7 +93,7 @@ func decodeIntoEvery(t *testing.T, buf []byte) {
 
 func TestTruncation_NeverPanics(t *testing.T) {
 	for name, buf := range truncationPayloads(t) {
-		for i := range len(buf) {
+		for i := range buf {
 			t.Run(fmt.Sprintf("%s/prefix=%d", name, i), func(t *testing.T) {
 				decodeIntoEvery(t, buf[:i])
 			})
@@ -167,7 +167,7 @@ func TestSkip_NeverPanics(t *testing.T) {
 	// dispatch table directly so a missing case in Skip cannot lurk
 	// behind a "field was unknown" code path.
 	for name, buf := range truncationPayloads(t) {
-		for i := range len(buf) {
+		for i := range buf {
 			t.Run(fmt.Sprintf("%s/prefix=%d", name, i), func(t *testing.T) {
 				defer func() {
 					if r := recover(); r != nil {

@@ -206,7 +206,7 @@ func TestApplyArena(t *testing.T) {
 		t.Fatalf("ApplyArena: %v", err)
 	}
 	if !reflect.DeepEqual(base, neu) {
-		t.Fatalf("ApplyArena result != new")
+		t.Fatal("ApplyArena result != new")
 	}
 
 	// ApplyArena must agree with Apply byte-for-byte on the result.
@@ -215,7 +215,7 @@ func TestApplyArena(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 	if !reflect.DeepEqual(base, baseplain) {
-		t.Fatalf("ApplyArena and Apply disagree")
+		t.Fatal("ApplyArena and Apply disagree")
 	}
 
 	// The arena actually backed the replaced strings: a string-heavy patch
@@ -502,7 +502,7 @@ func TestDiffApplyMapPerKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(bigBase, bigNew) {
-		t.Fatalf("big map apply mismatch")
+		t.Fatal("big map apply mismatch")
 	}
 }
 
@@ -598,7 +598,7 @@ func TestApplyRejectsTruncatedPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Truncate at every length; Apply must never panic, must return an error or nil.
-	for cut := range len(p) {
+	for cut := range p {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -687,7 +687,7 @@ func TestDiffApplyRANSRoundTrip(t *testing.T) {
 		t.Fatalf("readPatchHeader: %v", err)
 	}
 	if h.flags&flagPatchRANS == 0 {
-		t.Logf("note: rANS did not fire (patch body may be below threshold or not entropy-reducible); test still validates the non-rANS path under OptCompression")
+		t.Log("note: rANS did not fire (patch body may be below threshold or not entropy-reducible); test still validates the non-rANS path under OptCompression")
 	} else {
 		t.Logf("rANS fired: patch=%d bytes", len(patch))
 	}

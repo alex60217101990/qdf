@@ -90,7 +90,7 @@ func TestBitsetOps(t *testing.T) {
 
 	not := notMask(a, n)
 	if getBit(not, 1) || !getBit(not, 0) || !getBit(not, 2) {
-		t.Fatalf("notMask wrong at low bits")
+		t.Fatal("notMask wrong at low bits")
 	}
 	// bits >= n must be clear so popcount is meaningful
 	if popcount(not) != n-2 {

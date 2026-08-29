@@ -76,7 +76,7 @@ func (e *Encoder) canonicalFloat64Slice(s []float64) []float64 {
 	return buf
 }
 
-// canonicalFloat32Slice is the float32 analogue of canonicalFloat64Slice.
+// canonicalFloat32Slice is the float32 analog of canonicalFloat64Slice.
 func (e *Encoder) canonicalFloat32Slice(s []float32) []float32 {
 	dirty := false
 	for _, v := range s {

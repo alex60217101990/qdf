@@ -11,7 +11,7 @@ import (
 )
 
 // Decoder reads QDF wire data from a single input buffer. Call SetInput
-// to bind a buffer and the typed Read* methods to walk it. Behaviour is
+// to bind a buffer and the typed Read* methods to walk it. Behavior is
 // undefined if the input is mutated while the decoder holds it.
 // Field order groups the pointer-bearing and 8-byte fields first, then the
 // int counters, then the 1-byte flags last so the interspersed bools do not
@@ -34,7 +34,7 @@ type Decoder struct {
 	// mapFreeList holds maps harvested from a reused []struct{map} (or []map)
 	// decode target whose per-element maps decode-slice-reuse is about to zero.
 	// Keyed by the map's reflect.Type; reuseOrMakeMap pops a recycled map
-	// instead of allocating a fresh one. Lazily initialised; cleared (entries
+	// instead of allocating a fresh one. Lazily initialized; cleared (entries
 	// dropped, backing kept) on SetInput so recycled maps never cross into a
 	// different decode target.
 	mapFreeList map[reflect.Type][]unsafe.Pointer
@@ -164,18 +164,6 @@ func (d *Decoder) ReadStringBytes() ([]byte, error) { return d.readStringBytes()
 // PeekTag returns the next tag byte without advancing the cursor.
 func (d *Decoder) PeekTag() (byte, error) { return d.peekTag() }
 
-// ReadStructHeader reads a struct/map header for code-generated DecodeQDF,
-// transparently handling both forms a struct takes on the wire:
-//   - a shape-interned header (tagMapShape, see Encoder.StructShape) → returns the
-//     field names in encoded order with shaped=true; the caller reads len(names)
-//     values in that order.
-//   - a plain map header (tagMap8/16/32) → returns the entry count as plainN with
-//     shaped=false; the caller reads plainN (name, value) pairs inline.
-//
-// This lets a generated decoder consume both qdfgen shape output and a plain qdf
-// map (e.g. from a non-shaped encoder, an older generated type, or the reflect
-// path under OptSpeed) without a wire-format negotiation. Exported for
-// cmd/qdfgen-generated code.
 // ShapeID reports the wire shape ID of the struct header ReadStructHeader just
 // read, or 0 if that header carried no shape.
 //
@@ -204,6 +192,18 @@ func (d *Decoder) EnterField(shapeID uint32, nFields, i int) {
 // LeaveField unbinds the field context set by EnterField.
 func (d *Decoder) LeaveField() { d.strField = nil }
 
+// ReadStructHeader reads a struct/map header for code-generated DecodeQDF,
+// transparently handling both forms a struct takes on the wire:
+//   - a shape-interned header (tagMapShape, see Encoder.StructShape) → returns the
+//     field names in encoded order with shaped=true; the caller reads len(names)
+//     values in that order.
+//   - a plain map header (tagMap8/16/32) → returns the entry count as plainN with
+//     shaped=false; the caller reads plainN (name, value) pairs inline.
+//
+// This lets a generated decoder consume both qdfgen shape output and a plain qdf
+// map (e.g. from a non-shaped encoder, an older generated type, or the reflect
+// path under OptSpeed) without a wire-format negotiation. Exported for
+// cmd/qdfgen-generated code.
 func (d *Decoder) ReadStructHeader() (names []string, plainN int, shaped bool, err error) {
 	tag, err := d.peekTag()
 	if err != nil {
@@ -272,7 +272,7 @@ func (d *Decoder) MarkHeaderRead() { d.headerRead = true }
 // descend enters one level of recursive decode, bounding nesting depth so a
 // hostile deeply-nested payload cannot overflow the goroutine stack (an
 // unrecoverable fatal error). Pair with a deferred ascend. maxDepth is lazily
-// initialised so every Decoder construction path is covered.
+// initialized so every Decoder construction path is covered.
 func (d *Decoder) descend() error {
 	if d.maxDepth == 0 {
 		d.maxDepth = DefaultMaxDepth
@@ -334,7 +334,7 @@ func (d *Decoder) Remaining() int { return len(d.buf) - d.i }
 // in the remaining input. Use before allocating per-element storage.
 //
 //go:nosplit
-func (d *Decoder) CheckLength(n int, perElem int) error {
+func (d *Decoder) CheckLength(n, perElem int) error {
 	if n < 0 {
 		return ErrInvalidLength
 	}

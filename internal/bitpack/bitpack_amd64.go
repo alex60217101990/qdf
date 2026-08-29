@@ -14,7 +14,7 @@ import (
 var hasAVX2 = cpu.X86.HasAVX2
 
 //go:noescape
-func decodeHex4AVX2(dst []byte, src []byte, lut *[16]byte, blocks int)
+func decodeHex4AVX2(dst, src []byte, lut *[16]byte, blocks int)
 
 // DecodeHex4 fills dst from a 4-bit nibble stream src via the 16-entry LUT
 // (dst[2i]=lut[src[i]&0xf], dst[2i+1]=lut[src[i]>>4]); an odd len(dst) consumes
@@ -170,7 +170,7 @@ func unpackBits14AVX2(out []uint64, in []byte, groups int)
 func unpackBits20AVX2(out []uint64, in []byte, pairs int)
 
 //go:noescape
-func unpackBitsVarAVX2(out []uint64, in []byte, groups int, fourB int, shifts *[32]uint64, mask uint64)
+func unpackBitsVarAVX2(out []uint64, in []byte, groups, fourB int, shifts *[32]uint64, mask uint64)
 
 // unpackBitsVar decodes an arbitrary width b in [1,14] (including the odd
 // widths that lack a fixed byte-aligned chunk). It processes 4 values per
@@ -186,8 +186,8 @@ func unpackBitsVar(out []uint64, in []byte, b int) {
 	groups := 0
 	if hasAVX2 && b >= 1 && b <= 14 {
 		var shifts [32]uint64
-		for off := 0; off < 8; off++ {
-			for k := 0; k < 4; k++ {
+		for off := range 8 {
+			for k := range 4 {
 				shifts[off*4+k] = uint64(off + k*b)
 			}
 		}
@@ -213,7 +213,7 @@ func unpackBitsVar(out []uint64, in []byte, b int) {
 }
 
 //go:noescape
-func unpackBitsVarWide2AVX2(out []uint64, in []byte, pairs int, twoB int, shifts *[16]uint64, mask uint64)
+func unpackBitsVarWide2AVX2(out []uint64, in []byte, pairs, twoB int, shifts *[16]uint64, mask uint64)
 
 // unpackBitsVarWide decodes a width b in [15,28] — too wide for four values
 // in a 64-bit window, but two values fit (7 + 2*28 < 64). It processes 2
@@ -229,7 +229,7 @@ func unpackBitsVarWide(out []uint64, in []byte, b int) {
 	pairs := 0
 	if hasAVX2 && b >= 15 && b <= 28 {
 		var shifts [16]uint64
-		for off := 0; off < 8; off++ {
+		for off := range 8 {
 			shifts[off*2+0] = uint64(off)
 			shifts[off*2+1] = uint64(off + b)
 		}
@@ -400,7 +400,7 @@ func unpackBits32(out []uint64, in []byte) {
 		}
 		return
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = uint64(binary.LittleEndian.Uint32(in[i*4:]))
 	}
 }
@@ -420,7 +420,7 @@ func unpackBits16(out []uint64, in []byte) {
 		}
 		return
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = uint64(binary.LittleEndian.Uint16(in[i*2:]))
 	}
 }
@@ -440,7 +440,7 @@ func unpackBits8(out []uint64, in []byte) {
 		}
 		return
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out[i] = uint64(in[i])
 	}
 }

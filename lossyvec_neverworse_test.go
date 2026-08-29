@@ -55,7 +55,7 @@ func TestLossyVecNeverWorseFloat64(t *testing.T) {
 	}
 	// In this hostile case the lossless form must win, so no 0xFD on the wire.
 	if bytes.IndexByte(lossy, tagColVecLossy) >= 0 {
-		t.Fatalf("expected lossless fallback (no 0xFD) for all-+Inf field; got a lossy block")
+		t.Fatal("expected lossless fallback (no 0xFD) for all-+Inf field; got a lossy block")
 	}
 
 	var out wrap
@@ -89,7 +89,7 @@ func TestLossyVecNeverWorseFloat32(t *testing.T) {
 		t.Fatalf("never-worse violated: lossy %d > lossless %d", len(lossy), len(lossless))
 	}
 	if bytes.IndexByte(lossy, tagColVecLossy) >= 0 {
-		t.Fatalf("expected lossless fallback (no 0xFD) for all-+Inf field; got a lossy block")
+		t.Fatal("expected lossless fallback (no 0xFD) for all-+Inf field; got a lossy block")
 	}
 
 	var out wrap

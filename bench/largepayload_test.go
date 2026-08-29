@@ -2,14 +2,16 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"math/rand"
 	"runtime"
 	"testing"
 	"time"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // Large-payload comparison. The builder produces a struct that
@@ -268,6 +270,16 @@ func BenchmarkLargePayload_Encode(b *testing.B) {
 			_, _ = json.Marshal(v)
 		}
 	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		// v2 defaults can differ in length from v1 (key order aside, a nil
+		// slice is [] not null), so this arm measures against its own output.
+		jsonV2Bytes, _ := jsonv2.Marshal(v)
+		b.SetBytes(int64(len(jsonV2Bytes)))
+		for b.Loop() {
+			_, _ = jsonv2.Marshal(v)
+		}
+	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
 		b.SetBytes(int64(len(mb)))
@@ -317,6 +329,14 @@ func BenchmarkLargePayload_Decode(b *testing.B) {
 		for b.Loop() {
 			var out largeBatch
 			_ = json.Unmarshal(jb, &out)
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(jb)))
+		for b.Loop() {
+			var out largeBatch
+			_ = jsonv2.Unmarshal(jb, &out)
 		}
 	})
 	b.Run("msgpack", func(b *testing.B) {

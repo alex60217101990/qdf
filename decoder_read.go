@@ -8,6 +8,8 @@ import (
 
 // ----- primitives -----
 
+// ReadNil consumes a nil value. It reports ErrTypeMismatch if the next value
+// is anything else.
 func (d *Decoder) ReadNil() error {
 	t, err := d.next()
 	if err != nil {
@@ -19,6 +21,7 @@ func (d *Decoder) ReadNil() error {
 	return nil
 }
 
+// ReadBool consumes a boolean value.
 func (d *Decoder) ReadBool() (bool, error) {
 	t, err := d.next()
 	if err != nil {
@@ -81,6 +84,8 @@ func (d *Decoder) decodeUint(t byte) (uint64, error) {
 	return 0, ErrTypeMismatch
 }
 
+// ReadInt consumes a signed integer, accepting any width the encoder chose for
+// it — the wire form is picked by magnitude, not by the Go type.
 func (d *Decoder) ReadInt() (int64, error) {
 	t, err := d.next()
 	if err != nil {
@@ -162,6 +167,7 @@ func (d *Decoder) decodeInt(t byte) (int64, error) {
 	return 0, ErrTypeMismatch
 }
 
+// ReadFloat32 consumes a 32-bit float.
 func (d *Decoder) ReadFloat32() (float32, error) {
 	t, err := d.next()
 	if err != nil {
@@ -178,6 +184,7 @@ func (d *Decoder) ReadFloat32() (float32, error) {
 	return v, nil
 }
 
+// ReadFloat64 consumes a 64-bit float.
 func (d *Decoder) ReadFloat64() (float64, error) {
 	t, err := d.next()
 	if err != nil {
@@ -208,7 +215,7 @@ func (d *Decoder) ReadFloat64() (float64, error) {
 // When the tag at the cursor resolves through the intern table —
 // tagInternStr, tagStateRef, tagStateMTF, tagStatePair, tagStateRepeat —
 // readStringBytes leaves d.state.lastID set to the entry it just
-// touched. We return the pre-materialised d.state.stringValues[id]
+// touched. We return the pre-materialized d.state.stringValues[id]
 // from that path instead of allocating a fresh `string(b)` copy on
 // every state-ref hit. Inline reads (fixstr, str8/16/32) set
 // lastID = lruInvalidID, fall through, and pay the copy as before.

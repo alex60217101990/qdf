@@ -47,7 +47,7 @@ func keyedShapes(n int) map[string][]keyedRec {
 		"full-rotation": mkKeyed("new", n),
 		"reorder-only": func() []keyedRec {
 			s := mkKeyed("old", n)
-			for i := 0; i < n/2; i++ {
+			for i := range n / 2 {
 				s[i], s[n-1-i] = s[n-1-i], s[i]
 			}
 			return s
@@ -61,7 +61,7 @@ func keyedShapes(n int) map[string][]keyedRec {
 		}(),
 		"half-rotation": func() []keyedRec {
 			s := mkKeyed("old", n)
-			for i := 0; i < n/2; i++ {
+			for i := range n / 2 {
 				s[i].ID = fmt.Sprintf("new-key-%06d", i)
 			}
 			return s

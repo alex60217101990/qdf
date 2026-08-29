@@ -57,10 +57,10 @@ func TestCodegenGate_MatchesReflectInternAware(t *testing.T) {
 		parents[i] = r.Parent
 	}
 	if !StringColumnsBeneficialHybrid(spans, parents) {
-		t.Fatalf("codegen hybrid gate declined columnar where reflect accepted it (divergence)")
+		t.Fatal("codegen hybrid gate declined columnar where reflect accepted it (divergence)")
 	}
 	if StringColumnsBeneficial(spans, parents) {
-		t.Fatalf("expected the plain gate to decline (the gap the hybrid gate closes); it accepted")
+		t.Fatal("expected the plain gate to decline (the gap the hybrid gate closes); it accepted")
 	}
 }
 
@@ -78,6 +78,6 @@ func TestCodegenGate_ConservativeStaysRowMajor(t *testing.T) {
 		cols[i] = string(b)
 	}
 	if StringColumnsBeneficialHybrid(cols) {
-		t.Fatalf("hybrid gate accepted an incompressible full-alphabet column (would bloat)")
+		t.Fatal("hybrid gate accepted an incompressible full-alphabet column (would bloat)")
 	}
 }

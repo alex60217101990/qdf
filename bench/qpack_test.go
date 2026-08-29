@@ -2,10 +2,12 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // QPack head-to-head: encode and decode a payload that exercises the
@@ -49,6 +51,12 @@ func BenchmarkQPack_Encode(b *testing.B) {
 			_, _ = json.Marshal(v)
 		}
 	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = jsonv2.Marshal(v)
+		}
+	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
@@ -88,6 +96,13 @@ func BenchmarkQPack_Decode(b *testing.B) {
 		for b.Loop() {
 			var out qpackPayload
 			_ = json.Unmarshal(jb, &out)
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var out qpackPayload
+			_ = jsonv2.Unmarshal(jb, &out)
 		}
 	})
 	b.Run("msgpack", func(b *testing.B) {

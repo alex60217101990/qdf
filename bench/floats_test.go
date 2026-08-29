@@ -2,10 +2,12 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // Float-slice heavy payload — what you'd see in ML feature vectors,
@@ -47,6 +49,14 @@ func BenchmarkEncode_Float32Vec512(b *testing.B) {
 			}
 		}
 	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := jsonv2.Marshal(v); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 	b.Run("msgpack", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
@@ -71,6 +81,14 @@ func BenchmarkEncode_Float64Vec512(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			if _, err := json.Marshal(v); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := jsonv2.Marshal(v); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -103,6 +121,15 @@ func BenchmarkDecode_Float32Vec512(b *testing.B) {
 		for b.Loop() {
 			var out Vector
 			if err := json.Unmarshal(jb, &out); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			var out Vector
+			if err := jsonv2.Unmarshal(jb, &out); err != nil {
 				b.Fatal(err)
 			}
 		}

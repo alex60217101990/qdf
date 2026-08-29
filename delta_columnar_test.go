@@ -60,8 +60,8 @@ func TestColChangedAttribution(t *testing.T) {
 	nd := unsafe.Pointer(&neu[0])
 
 	bm := newChangedBitmap(nil, 64)
-	any := markChangedRows(bm, plan, stride, od, nd, 64, false)
-	if !any {
+	changed := markChangedRows(bm, plan, stride, od, nd, 64, false)
+	if !changed {
 		t.Fatal("expected changes")
 	}
 	// Attribute column 0 (A): rows 3 and 40.
@@ -527,7 +527,7 @@ func TestColDiffApplyHostile(t *testing.T) {
 	}
 	seeds := make([][]byte, 0, 3+len(good))
 	seeds = append(seeds, nil, []byte{}, []byte{0x00})
-	for i := range len(good) {
+	for i := range good {
 		trunc := make([]byte, i)
 		copy(trunc, good[:i])
 		seeds = append(seeds, trunc)
@@ -578,7 +578,7 @@ func FuzzColDiffOracle(f *testing.F) {
 		}
 		neu := append([]ccRow(nil), old...)
 		r := seed
-		for k := 0; k < int(nMod)%n; k++ {
+		for range int(nMod) % n {
 			r = r*1103515245 + 12345
 			idx := int(uint64(r)>>33) % n
 			switch which % 3 {
@@ -681,7 +681,7 @@ func TestColDiff128ColsRoundTrip(t *testing.T) {
 	old := make([]big130Row, n)
 	neu := make([]big130Row, n)
 
-	// Initialise: field Fxxx = int64(xxx) for every row.
+	// Initialize: field Fxxx = int64(xxx) for every row.
 	for i := range old {
 		r := &old[i]
 		r.F000, r.F001, r.F002, r.F003, r.F004 = 0, 1, 2, 3, 4

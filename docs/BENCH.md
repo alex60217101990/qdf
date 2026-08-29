@@ -9,6 +9,14 @@
 Measured on Darwin amd64 / Intel i7-9750H @ 2.6 GHz. Go 1.26.0.
 `go test -bench=. -benchmem -benchtime=2s` in `bench/`.
 
+> **Two different machines live in this file.** Everything below this line, up to
+> the JSON section at the end, was measured on the amd64 host named above against
+> `encoding/json` v1. The **[json/v2 section](#json-v2-and-what-json-actually-costs)**
+> was re-measured on Darwin **arm64** / Apple Silicon, Go **1.27.0**. Absolute
+> ns/op do not transfer between the two; ratios do. The older tables are being
+> re-cut on the new host — until they are, read them for their ratios and not
+> their nanoseconds.
+
 Operating modes compared:
 
 - **qdf_fast** — default build. Reflect-based with specialized fast
@@ -79,6 +87,155 @@ coverage by `TestPool_ConcurrentEncoders` + the full `-race` test sweep.
   **8.5× faster**).
 - All build-tag combinations (default, `qdf_reflect2`, `qdf_simd`,
   both) build, test under -race, and fuzz-pass cleanly.
+
+
+## json/v2, and what JSON actually costs
+
+Go 1.27 ships `encoding/json/v2` and `encoding/json/jsontext` as stable packages
+— no `GOEXPERIMENT`. That makes the JSON side of every comparison here as fast
+as the standard library gets, so it is worth asking plainly whether qdf still
+wins. It does, and by margins that did not move much. But three things turned up
+on the way that are more interesting than the verdict.
+
+Measured on Darwin arm64 / Apple Silicon, Go 1.27.0, `-count=8`, medians.
+Raw output: `docs/superpowers/results/2026-08-22-json-v2/`.
+
+### The v2 win is semantic, not architectural
+
+In Go 1.27 `encoding/json` **is** json/v2 driven by `DefaultOptionsV1()`
+(`$GOROOT/src/encoding/json/v2_encode.go`). So the v1/v2 gap is not a faster
+engine — it is the price of the v1 compatibility options. Ask v2 for v1
+semantics and it costs what v1 costs:
+
+| arm | IoT encode | IoT decode | RTB encode | RTB decode |
+|---|---|---|---|---|
+| `json` (v1) | 679 µs | 1406 µs | 1372 µs | 2854 µs |
+| `json/v2` defaults | 661 µs | 1135 µs | 1242 µs | 2366 µs |
+| `json/v2` + `DefaultOptionsV1` | 663 µs | 1398 µs | 1365 µs | 2903 µs |
+
+v2 is faster only by no longer doing three things v1 does: sorting map keys,
+escaping HTML, and writing `null` rather than `[]` / `{}` for a nil slice or map.
+Those are wire differences too, not only speed ones:
+
+```
+v1          {"s":null,"m":null,"h":"a\u003cb\u0026c\u003ed"}
+v2 defaults {"s":[],"m":{},"h":"a<b&c>d"}
+```
+
+Where v2 does win outright is allocation: 68 encode allocations against v1's 164
+on the IoT batch, 5041 against 10052 on RTB.
+
+### JSON's cost is the format, not the reflection
+
+`bench/jsontext_codec.go` is a hand-written codec over `jsontext` — the struct
+walk that `json.Marshal` performs at run time, written out field by field, with
+the encoder and buffer reused between calls. It is the ceiling of what JSON can
+do on this shape, and its honest counterpart is `qdf_codegen`, not the reflect
+tiers.
+
+It reaches **zero allocations per encode**. And it is only ~1.5% faster than v2's
+reflection on time. Number formatting, escaping and byte-level syntax are what
+that leaves untouched — which is the reason a faster JSON library can only move
+this so far.
+
+### IoT batch — 32 devices × 256 samples
+
+| codec | encode | allocs | decode | allocs | wire |
+|---|---|---|---|---|---|
+| `json` v1 | 679 µs | 164 | 1406 µs | 1063 | 458 KB |
+| `json/v2` | 661 µs | 68 | 1135 µs | 1063 | 458 KB |
+| `jsontext` hand-written | 651 µs | **0** | 1045 µs | 864 | 458 KB |
+| msgpack | 354 µs | 47 | 482 µs | 775 | 219 KB |
+| **qdf_qpack** | **48 µs** | 2 | **38 µs** | 291 | 157 KB |
+| qdf_balanced | 51 µs | 3 | 42 µs | 188 | 155 KB |
+| qdf_compression | 388 µs | 7 | 99 µs | 184 | 126 KB |
+
+Against the **best** JSON can do: **13.5× faster encode, 27× faster decode, 2.9×
+smaller wire.**
+
+### RTB batch — 1024 bid requests
+
+| codec | encode | allocs | decode | allocs | wire |
+|---|---|---|---|---|---|
+| `json` v1 | 1372 µs | 10052 | 2854 µs | 26717 | 546 KB |
+| `json/v2` | 1242 µs | 5041 | 2366 µs | 26710 | 546 KB |
+| msgpack | 900 µs | 6076 | 1738 µs | 34662 | 418 KB |
+| **qdf_speed** | **389 µs** | 3 | 851 µs | 26254 | 426 KB |
+| qdf_balanced | 532 µs | 4 | **833 µs** | 21282 | 239 KB |
+| qdf_compression | 1330 µs | 14 | 1053 µs | 21290 | 197 KB |
+
+3.2× faster encode and 2.8× faster decode than json/v2, at 2.3× less wire.
+
+### Large payload (~150 MiB source value)
+
+This is where v2's real strength shows, and it is memory rather than time.
+
+| codec | encode | allocs | alloc bytes | decode | allocs |
+|---|---|---|---|---|---|
+| `json` v1 | 58.6 ms | 250 124 | 87.3 MB | 144.7 ms | 1 023 820 |
+| `json/v2` | 55.0 ms | **100 003** | **37.0 MB** | 117.8 ms | 1 023 822 |
+| msgpack | 31.2 ms | 100 023 | 65.5 MB | 66.9 ms | 1 425 126 |
+| qdf_fast | **11.7 ms** | 18 | 28.1 MB | 23.4 ms | 875 099 |
+| qdf_dense | 12.8 ms | 20 | **17.5 MB** | **21.2 ms** | 829 782 |
+
+json/v2 cuts encode allocation count by 60% and allocated bytes by 58% against
+v1, at roughly the same time. It is the largest v2 win anywhere in this file, and
+it is the one that matters most in a service under GC pressure.
+
+Against v2: qdf_fast encodes **4.7×** faster, qdf_dense decodes **5.6×** faster
+and holds its encode working set to less than half.
+
+### QPack fixture — numeric slices
+
+| codec | encode | decode |
+|---|---|---|
+| `json` v1 | 17.5 µs | 38.1 µs |
+| `json/v2` | 17.4 µs | 29.3 µs |
+| msgpack | 21.0 µs | 28.0 µs |
+| **qdf_qpack** | **1.4 µs** | **1.5 µs** |
+
+**12.4× faster encode and 19.5× faster decode than json/v2.** This is the shape
+qdf is built for — dense numeric columns where bit-packing and
+frame-of-reference do the work that a text format cannot.
+
+Note that v2 and v1 encode this fixture at the same speed: with no maps to sort
+and no strings to escape, v2's defaults have nothing to skip. That is the
+clearest demonstration of where the v2 win comes from.
+
+### The hand-written ceiling is not where I expected it
+
+The IoT numbers say a hand-written codec is the fastest JSON on that shape. On
+RTB it is not — and the reason is worth more than the number.
+
+| RTB encode arm | time | allocs | semantics |
+|---|---|---|---|
+| `json` v1 | 1354 µs | 10 053 | v1 |
+| `json/v2` + `DefaultOptionsV1` | 1348 µs | 10 052 | v1 |
+| `jsontext`, hand-written | **1355 µs** | **0** | v1 |
+| `json/v2` defaults | **1238 µs** | 5 043 | v2 |
+
+The hand-written codec, with the reflection gone and **zero allocations**, lands
+exactly on v1's time — and *behind* v2's defaults. It sorts map keys, because
+that is what makes its bytes comparable with the v1 row; v2's defaults do not.
+
+So on a string-heavy payload the encode cost is the **format plus the v1
+semantics**, and removing reflection buys nothing measurable. "Hand-written is
+the ceiling" holds for v1-compatible output only. It is a useful correction to
+the IoT reading, where the numeric slices gave the hand-written codec something
+real to win.
+
+### And one place qdf loses
+
+`qdf_compression` encodes RTB in 1281 µs against json/v2's 1238 µs — slower. It
+buys a 197 KB wire against 546 KB, so the trade is a good one where bytes cost
+more than CPU, but on encode CPU alone v2's defaults beat qdf's heaviest tier on
+a string-shaped payload. Worth knowing before reaching for `OptCompression` on a
+hot path — and `docs/CHOOSING.md` already gives that advice.
+
+Against the JSON arms that preserve v1 semantics, `qdf_compression` still wins
+(1281 µs against 1348–1355 µs). The loss is specifically to v2's *relaxed*
+defaults.
+
 
 ## Scenario profiles (per-call `Options` recipes)
 

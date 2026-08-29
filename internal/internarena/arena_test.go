@@ -112,7 +112,7 @@ func TestArena_LargePayloadForcesGrowth(t *testing.T) {
 // Get must return an aliased slice that reflects the underlying
 // chunk bytes. Mutating the returned slice MUST mutate the arena's
 // storage (proves alias, not copy). This is documented "do-not-do"
-// behaviour but the test guarantees the aliasing contract.
+// behavior but the test guarantees the aliasing contract.
 func TestArena_GetReturnsAlias(t *testing.T) {
 	a := &Arena{}
 	id := a.Put("mutable")
@@ -197,7 +197,7 @@ func TestArena_BytesPut(t *testing.T) {
 	}
 }
 
-// Randomised round-trip: fuzz-style coverage that mixed lengths /
+// Randomized round-trip: fuzz-style coverage that mixed lengths /
 // orderings cannot corrupt loc indexing across chunk growth.
 func TestArena_RandomRoundTrip(t *testing.T) {
 	a := &Arena{}

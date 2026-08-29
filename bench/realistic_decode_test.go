@@ -2,10 +2,12 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 // BenchmarkDecode_UniqueLog decodes a different pre-encoded entry per
@@ -32,6 +34,15 @@ func BenchmarkDecode_UniqueLog(b *testing.B) {
 		for i := 0; b.Loop(); i++ {
 			var out LogEntry
 			if err := json.Unmarshal(jsonBufs[i&(N-1)], &out); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; b.Loop(); i++ {
+			var out LogEntry
+			if err := jsonv2.Unmarshal(jsonBufs[i&(N-1)], &out); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -81,6 +92,17 @@ func BenchmarkDecodeParallel_UniqueLog(b *testing.B) {
 			for pb.Next() {
 				var out LogEntry
 				_ = json.Unmarshal(jsonBufs[i&(N-1)], &out)
+				i++
+			}
+		})
+	})
+	b.Run("json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		b.RunParallel(func(pb *testing.PB) {
+			i := 0
+			for pb.Next() {
+				var out LogEntry
+				_ = jsonv2.Unmarshal(jsonBufs[i&(N-1)], &out)
 				i++
 			}
 		})

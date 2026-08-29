@@ -2,10 +2,12 @@ package bench
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"testing"
 
-	qdf "github.com/alex60217101990/qdf"
 	msgpack "github.com/vmihailenco/msgpack/v5"
+
+	qdf "github.com/alex60217101990/qdf"
 )
 
 type qdfTier struct {
@@ -26,6 +28,13 @@ var qdfTiers = []qdfTier{
 func runCodecMatrix[T any](b *testing.B, value T, newOut func() *T) {
 	b.Helper()
 
+	// Three JSON arms, because in Go 1.27 encoding/json IS json/v2 under
+	// DefaultOptionsV1: the v1/v2 gap measures the price of the compatibility
+	// options, not a faster engine. json-v2 runs v2's own defaults (no map-key
+	// sorting, no HTML escaping, [] instead of null for a nil slice — wire
+	// differences, so its size column is not interchangeable with v1's), and
+	// json-v2-compat runs v2 asked for v1 semantics, whose output is
+	// byte-identical to v1.
 	jsonBytes, _ := json.Marshal(value)
 	b.Run("encode/json", func(b *testing.B) {
 		var buf []byte
@@ -43,6 +52,45 @@ func runCodecMatrix[T any](b *testing.B, value T, newOut func() *T) {
 		for i := 0; i < b.N; i++ {
 			out := newOut()
 			_ = json.Unmarshal(jsonBytes, out)
+		}
+	})
+
+	jsonV2Bytes, _ := jsonv2.Marshal(value)
+	b.Run("encode/json-v2", func(b *testing.B) {
+		var buf []byte
+		b.ReportAllocs()
+		b.SetBytes(int64(len(jsonV2Bytes)))
+		for i := 0; i < b.N; i++ {
+			buf, _ = jsonv2.Marshal(value)
+		}
+		_ = buf
+		b.ReportMetric(float64(len(jsonV2Bytes)), "wire-B")
+	})
+	b.Run("decode/json-v2", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(jsonV2Bytes)))
+		for i := 0; i < b.N; i++ {
+			out := newOut()
+			_ = jsonv2.Unmarshal(jsonV2Bytes, out)
+		}
+	})
+
+	b.Run("encode/json-v2-compat", func(b *testing.B) {
+		var buf []byte
+		b.ReportAllocs()
+		b.SetBytes(int64(len(jsonBytes)))
+		for i := 0; i < b.N; i++ {
+			buf, _ = jsonv2.Marshal(value, json.DefaultOptionsV1())
+		}
+		_ = buf
+		b.ReportMetric(float64(len(jsonBytes)), "wire-B")
+	})
+	b.Run("decode/json-v2-compat", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(jsonBytes)))
+		for i := 0; i < b.N; i++ {
+			out := newOut()
+			_ = jsonv2.Unmarshal(jsonBytes, out, json.DefaultOptionsV1())
 		}
 	})
 

@@ -34,7 +34,7 @@ var (
 
 // QueryError describes why a filtering/projecting decode (Unmarshal with
 // QueryOptions) could not proceed. It wraps one of ErrUnsupported,
-// ErrTypeMismatch, or ErrFieldNotFound, so callers can categorise the failure
+// ErrTypeMismatch, or ErrFieldNotFound, so callers can categorize the failure
 // with errors.Is and read the specifics with errors.As.
 type QueryError struct {
 	Err   error   // wrapped sentinel

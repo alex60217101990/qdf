@@ -72,8 +72,10 @@ func TestStructShapeDeclareReuse(t *testing.T) {
 	}
 }
 
-var shapeToken2 byte
-var shapeToken3 byte
+var (
+	shapeToken2 byte
+	shapeToken3 byte
+)
 
 // TestReadStructHeader covers both forms ReadStructHeader must accept: a
 // shape-interned header (from StructShape) and a plain map header.

@@ -11,7 +11,7 @@ import (
 )
 
 // updateGolden regenerates the testdata/golden/*.bin fixtures when set.
-// Use:  go test -run='TestGolden_' -update
+// Use:  go test -run='TestGolden_' -update.
 var updateGolden = flag.Bool("update", false, "rewrite golden testdata/golden/*.bin fixtures")
 
 // Golden-file tests pin the on-wire byte sequence for a representative
@@ -30,7 +30,7 @@ type goldenCase struct {
 	value any // encoded source; decoder gets a fresh pointer of the same type
 	zero  func() any
 	// nonDeterministic marks cases (notably Go maps) whose encoded byte
-	// sequence depends on Go's randomised iteration order. The decode-
+	// sequence depends on Go's randomized iteration order. The decode-
 	// then-compare half of the round-trip still runs; only the byte-
 	// pin half is skipped.
 	nonDeterministic bool
@@ -222,7 +222,7 @@ func TestGolden_LegacyRANSDecode(t *testing.T) {
 // TestGolden_ColIndex pins the on-wire bytes of a columnar []struct slice
 // encoded with the column-length index (OptColumnIndex). The shared
 // goldenCases table applies one Options value uniformly to every case and
-// has no per-case override, so the indexed wire — which only materialises
+// has no per-case override, so the indexed wire — which only materializes
 // when OptColumnIndex is set on a columnar struct slice — gets its own
 // fixture here. Same mechanism as the other golden tests: byte-pin plus a
 // decode round-trip read back from disk, regenerated via `go test -update`.

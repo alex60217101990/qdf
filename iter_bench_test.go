@@ -23,7 +23,7 @@ func BenchmarkEncodeShapedMap(b *testing.B) {
 		"gamma": {A: 3, B: 3.5},
 	}}
 	enc := NewEncoderWith(OptMapShape | OptDense)
-	// Warm up: first encode declares the shape and initialises valSlots;
+	// Warm up: first encode declares the shape and initializes valSlots;
 	// subsequent encodes in the loop hit the zero-alloc fast path.
 	if err := enc.EncodeValue(v); err != nil {
 		b.Fatal(err)

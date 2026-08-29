@@ -56,7 +56,10 @@ func main() {
 		}
 		independent += len(b)
 	}
-	jsonBytes, _ := json.Marshal(events)
+	jsonBytes, err := json.Marshal(events)
+	if err != nil {
+		panic(err)
+	}
 
 	// Decode the whole stream back.
 	dec := qdf.NewStreamDecoder(&sink)

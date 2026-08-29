@@ -152,8 +152,8 @@ func printCodegen(iters int, typed []*Info) {
 // printCodegenRow times one encode + decode of a whole slice (all hosts) and
 // prints a row. A round-trip equality gate runs once, outside timing.
 func printCodegenRow(w *tabwriter.Writer, payload, path string,
-	marshal func() ([]byte, error), unmarshal func([]byte) error, roundtripOK func([]byte) bool, iters int) {
-
+	marshal func() ([]byte, error), unmarshal func([]byte) error, roundtripOK func([]byte) bool, iters int,
+) {
 	buf, err := marshal()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "codegen %s/%s marshal: %v\n", payload, path, err)

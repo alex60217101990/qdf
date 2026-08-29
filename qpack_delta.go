@@ -54,7 +54,7 @@ func computeDeltaStatsU64(s []uint64) (first uint64, minDelta int64, bitsPer int
 	return first, minD, bitsPer
 }
 
-func computeDeltaStatsI64(s []int64) (first int64, minDelta int64, bitsPer int) {
+func computeDeltaStatsI64(s []int64) (first, minDelta int64, bitsPer int) {
 	if len(s) == 0 {
 		return 0, 0, 0
 	}
@@ -124,7 +124,7 @@ func (e *Encoder) writePackedDeltaForUint64Slice(s []uint64, first uint64, minDe
 	e.buf = out
 }
 
-func (e *Encoder) writePackedDeltaForInt64Slice(s []int64, first int64, minDelta int64, bitsPer int) {
+func (e *Encoder) writePackedDeltaForInt64Slice(s []int64, first, minDelta int64, bitsPer int) {
 	e.writeHeader()
 	n := len(s)
 	bodyN := 0
@@ -170,7 +170,7 @@ func (e *Encoder) writePackedDeltaForInt64Slice(s []int64, first int64, minDelta
 // count fields after a tagPackDeltaFor tag (the tag itself already
 // consumed). signedFirst is set for signed kinds; unsignedFirst for
 // unsigned kinds.
-func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsignedFirst uint64, signedFirst int64, minDelta int64, n int, body []byte, err error) {
+func (d *Decoder) readPackedDeltaForHeader(expectKind byte) (bitsPer int, unsignedFirst uint64, signedFirst, minDelta int64, n int, body []byte, err error) {
 	if d.i+2 > len(d.buf) {
 		return 0, 0, 0, 0, 0, nil, ErrShortBuffer
 	}

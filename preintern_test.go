@@ -59,7 +59,7 @@ func TestPreIntern_NoOpWithoutDense(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 	if !bytes.Contains(enc.Bytes(), []byte("hello")) {
-		t.Fatalf("Fast-mode encode did not contain the inline string payload")
+		t.Fatal("Fast-mode encode did not contain the inline string payload")
 	}
 }
 

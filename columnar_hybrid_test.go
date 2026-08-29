@@ -188,7 +188,7 @@ func TestHybridRoundTrip(t *testing.T) {
 	// TestHybridBalancedNoRegression.
 	bb, _ := Marshal(in, OptBalanced)
 	if !containsByte(bb, tagHybridColStruct) {
-		t.Fatalf("OptBalanced: compressible mixed struct must auto-fire hybrid")
+		t.Fatal("OptBalanced: compressible mixed struct must auto-fire hybrid")
 	}
 }
 

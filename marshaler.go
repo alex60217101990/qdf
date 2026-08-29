@@ -94,7 +94,7 @@ func DecodeNested(d *Decoder, u Unmarshaler) error {
 // from a QDF wire-format slice. Implementations should consume exactly one
 // value from src and return the number of bytes consumed.
 //
-// A custom UnmarshalQDF reads the Fast wire format, and Marshal honours that
+// A custom UnmarshalQDF reads the Fast wire format, and Marshal honors that
 // for a HAND-WRITTEN Marshaler: such a type emits its own Fast body and is
 // framed as Fast regardless of the Options passed, so it round-trips under any
 // Options and its wire may be read by stripping the five-byte header and
@@ -102,7 +102,7 @@ func DecodeNested(d *Decoder, u Unmarshaler) error {
 //
 // An EncoderMarshaler — generated code — is different, and the difference
 // matters to anyone reading its bytes by hand. It writes its body into the
-// caller's encoder and honours that encoder's Options, so its framing follows
+// caller's encoder and honors that encoder's Options, so its framing follows
 // them too: under OptRANS or OptCompression the body is entropy-coded and
 // everything after the header is a compressed blob, not a tag stream. Read it
 // through Unmarshal or UnmarshalDirect, which unframe first. Stripping five

@@ -35,7 +35,7 @@ func TestWriteStringInline_DenseLastIDSync(t *testing.T) {
 
 // TestInternCapClampedBelowSentinel pins that the intern-table cap can never
 // admit id 0xFFFF, which the MRU ring and LRU links reserve as their
-// empty/no-neighbour sentinel. A larger cap would let the 65536th interned
+// empty/no-neighbor sentinel. A larger cap would let the 65536th interned
 // string take id 0xFFFF and corrupt the chains.
 func TestInternCapClampedBelowSentinel(t *testing.T) {
 	e := NewEncoder(Dense)
@@ -84,7 +84,7 @@ func TestUnmarshalNested_RejectsBadConsumeCount(t *testing.T) {
 // okUnmarshaler consumes a valid prefix.
 type okUnmarshaler struct{}
 
-func (okUnmarshaler) UnmarshalQDF(src []byte) (int, error) { return 2, nil }
+func (okUnmarshaler) UnmarshalQDF(_ []byte) (int, error) { return 2, nil }
 
 // marshalOnly implements ONLY Marshaler. Its MarshalQDF writes a sentinel
 // string, distinct from the map a structural encode of the struct would emit.

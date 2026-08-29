@@ -35,11 +35,19 @@ func TestSlice16RoundTrip(t *testing.T) {
 	type rowI struct{ V []int16 }
 
 	uCases := [][]uint16{
-		nil, {}, {0}, {math.MaxUint16}, {0, math.MaxUint16, 1, 32768},
+		nil,
+		{},
+		{0},
+		{math.MaxUint16},
+		{0, math.MaxUint16, 1, 32768},
 		seqU, constU, randU,
 	}
 	iCases := [][]int16{
-		nil, {}, {0}, {math.MinInt16}, {math.MaxInt16},
+		nil,
+		{},
+		{0},
+		{math.MinInt16},
+		{math.MaxInt16},
 		{math.MinInt16, -1, 0, 1, math.MaxInt16},
 		seqI, constI, randI,
 	}
