@@ -669,7 +669,7 @@ func unmarshalQuery(data []byte, out any, qp *queryPlan) error {
 	dec.query = qp
 	dec.noCopy = qp.noCopy
 	dec.arena = qp.arena
-	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
+	dec.dropRecycledMaps() // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
 	}
@@ -706,7 +706,7 @@ func unmarshalKeys(data []byte, out any, keys []string) error {
 	dec.selectFields = nil
 	dec.selectKeys = keys
 	dec.query = nil
-	clear(dec.mapFreeList)
+	dec.dropRecycledMaps()
 	if dec.state != nil {
 		dec.state.reset()
 	}
@@ -732,7 +732,7 @@ func unmarshal(data []byte, out any, fields []string, noCopy bool, arena *Arena)
 	dec.selectFields = fields
 	dec.selectKeys = nil
 	dec.query = nil        // parity with UnmarshalT / SetInput: never inherit a prior query decode's plan from the shared pool
-	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
+	dec.dropRecycledMaps() // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
 	}
