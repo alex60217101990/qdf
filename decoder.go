@@ -78,6 +78,12 @@ type Decoder struct {
 	// largest column seen; bounded on return to pool.
 	deltaScratch []uint64
 
+	// recycledMaps is how many pointers the per-type lists hold in total.
+	// dropRecycledMaps keeps the lists (and their capacity) but empties them, so
+	// len(mapFreeList) can no longer answer "is anything recycled?" — the keys
+	// outlive their contents on purpose.
+	recycledMaps int
+
 	i int
 
 	// depth / maxDepth bound recursive decode nesting. The wire dictates
@@ -298,7 +304,7 @@ func (d *Decoder) SetInput(buf []byte) {
 	d.selectFields = nil
 	d.selectKeys = nil
 	d.query = nil
-	clear(d.mapFreeList) // drop recycled maps; keep the backing allocated
+	d.dropRecycledMaps() // drop recycled maps; keep the backing allocated
 	if d.state != nil {
 		d.state.reset()
 	}

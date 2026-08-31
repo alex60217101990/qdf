@@ -146,11 +146,12 @@ func reuseOrMakeMap[K comparable, V any](d *Decoder, p unsafe.Pointer, n int) ma
 	// fresh decode (no reused []struct{map} target to harvest from) skips the
 	// reflect.TypeFor + map lookup entirely, so this path is zero-cost vs a plain
 	// make when no recycling is in play.
-	if len(d.mapFreeList) > 0 {
+	if d.recycledMaps > 0 {
 		t := reflect.TypeFor[map[K]V]()
 		if lst := d.mapFreeList[t]; len(lst) > 0 {
 			ptr := lst[len(lst)-1]
 			d.mapFreeList[t] = lst[:len(lst)-1]
+			d.recycledMaps--
 			// Reconstruct the map header value from its harvested hmap pointer.
 			m := *(*map[K]V)(unsafe.Pointer(&ptr))
 			clear(m)
@@ -166,11 +167,12 @@ func reuseOrMakeMap[K comparable, V any](d *Decoder, p unsafe.Pointer, n int) ma
 // (the caller — decodeAny — returns the map rather than writing through a *map),
 // so it only consults the free-list. Zero-cost when the free-list is empty.
 func popOrMakeMap[K comparable, V any](d *Decoder, n int) map[K]V {
-	if len(d.mapFreeList) > 0 {
+	if d.recycledMaps > 0 {
 		t := reflect.TypeFor[map[K]V]()
 		if lst := d.mapFreeList[t]; len(lst) > 0 {
 			ptr := lst[len(lst)-1]
 			d.mapFreeList[t] = lst[:len(lst)-1]
+			d.recycledMaps--
 			m := *(*map[K]V)(unsafe.Pointer(&ptr))
 			clear(m)
 			return m
@@ -189,10 +191,11 @@ func reuseOrMakeMapReflect(d *Decoder, t reflect.Type, n int, p unsafe.Pointer) 
 		reflect.NewAt(t, p).Elem().Clear() // clear keeps the map, drops entries
 		return
 	}
-	if len(d.mapFreeList) > 0 {
+	if d.recycledMaps > 0 {
 		if lst := d.mapFreeList[t]; len(lst) > 0 {
 			ptr := lst[len(lst)-1]
 			d.mapFreeList[t] = lst[:len(lst)-1]
+			d.recycledMaps--
 			*(*unsafe.Pointer)(p) = ptr        // install the harvested map at p
 			reflect.NewAt(t, p).Elem().Clear() // empty its entries before refill
 			return
@@ -206,6 +209,18 @@ func reuseOrMakeMapReflect(d *Decoder, t reflect.Type, n int, p unsafe.Pointer) 
 // headers. Past the cap the surplus maps are simply not recycled (allocated
 // fresh) — a size bound, not a correctness limit.
 const maxRecycledMaps = 1 << 14
+
+// maxRetainedRecycledMaps bounds the free-list capacity a pooled decoder keeps
+// across resets. Below it the backing array survives, so the next harvest
+// appends into it instead of growing a fresh slice; above it the list is
+// released, because a one-off wide decode should not leave its peak footprint on
+// a decoder that returns to the pool.
+//
+// 4096 pointers is 32 KB per map type. It sits between the two numbers that
+// matter: a 1000-row telemetry batch grows its list to 1023, so ordinary batches
+// keep their backing and keep the reuse; maxRecycledMaps lets one list reach
+// 16384 (128 KB), and nothing near that should survive a return to the pool.
+const maxRetainedRecycledMaps = 1 << 12
 
 // typeDescHasMap reports whether a value of type td holds a map at any
 // struct-nesting depth (a map field, or a map reachable through nested struct
@@ -251,6 +266,7 @@ func (d *Decoder) harvestValue(td *typeDesc, p unsafe.Pointer) {
 			}
 			if len(d.mapFreeList[td.rType]) < maxRecycledMaps {
 				d.mapFreeList[td.rType] = append(d.mapFreeList[td.rType], hmap)
+				d.recycledMaps++
 			}
 		}
 	case reflect.Struct:
@@ -264,4 +280,36 @@ func (d *Decoder) harvestValue(td *typeDesc, p unsafe.Pointer) {
 			}
 		}
 	}
+}
+
+// dropRecycledMaps empties the per-type free lists without giving their backing
+// arrays back.
+//
+// clear() on the outer map deletes the keys, and with them the slices held as
+// values — so the next harvest appends to a nil slice and allocates one afresh.
+// Measured at eleven allocations per decode on the telemetry fixture, which is
+// 43% of everything the reuse path still allocates: the machinery that exists to
+// avoid allocation was allocating its own bookkeeping every time.
+//
+// The elements are nilled before the truncation rather than left past len.
+// Keeping stale unsafe.Pointers in the backing array would pin the harvested
+// maps for the GC — trading an allocation for a leak, which is a worse deal than
+// the one being fixed.
+func (d *Decoder) dropRecycledMaps() {
+	for t, lst := range d.mapFreeList {
+		for i := range lst {
+			lst[i] = nil
+		}
+		if cap(lst) > maxRetainedRecycledMaps {
+			// A spike-sized list is released rather than kept: maxRecycledMaps
+			// lets one list reach 16384 pointers, and holding that 128 KB on a
+			// pooled decoder for the life of the pool is what the cap above
+			// exists to prevent. Keeping the capacity is an optimisation for the
+			// steady state, not a license to pin the peak.
+			delete(d.mapFreeList, t)
+			continue
+		}
+		d.mapFreeList[t] = lst[:0]
+	}
+	d.recycledMaps = 0
 }

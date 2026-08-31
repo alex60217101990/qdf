@@ -331,7 +331,7 @@ func (s *StreamDecoder) Decode(out any) error {
 	// harvested but did not reuse, so a recycled map never crosses frames. Runs
 	// BEFORE decode, so this frame's own harvest (into the same out — the common
 	// streaming reuse) still recycles normally.
-	clear(s.dec.mapFreeList)
+	s.dec.dropRecycledMaps()
 	start := s.dec.i
 	if err := decodeReflect(s.dec, out); err != nil {
 		// The cursor is left partway through the frame and the dense state is
@@ -433,7 +433,7 @@ func (s *StreamDecoder) Reset(r io.Reader) {
 	s.dec.mode = Fast
 	s.dec.colIndex = false
 	s.dec.colMaxLen = 0
-	clear(s.dec.mapFreeList)
+	s.dec.dropRecycledMaps()
 	// keyIdx keys alias the prior stream's base data (keyTokenAt); clear so a
 	// reused StreamDecoder does not GC-pin it across Reset (mirrors mapFreeList).
 	clear(s.dec.keyIdx)

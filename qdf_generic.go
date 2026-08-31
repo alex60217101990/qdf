@@ -2,7 +2,6 @@ package qdf
 
 import (
 	"reflect"
-	"slices"
 	"unsafe"
 )
 
@@ -21,49 +20,24 @@ import (
 // call site; opts copies by value, so the call adds zero heap
 // allocations over MarshalT itself.
 func MarshalT[T any](v T, opts Options) ([]byte, error) {
-	enc := encPool.Get().(*Encoder)
-	enc.Reset()
-	enc.applyOpts(opts)
+	enc := acquireEnc(opts, nil)
 	if err := encodeT(enc, &v); err != nil {
-		putEnc(enc, &encPool)
+		abortMarshal(enc)
 		return nil, err
 	}
-	enc.maybeApplyRANS(0)
-	// Mirror marshalDict: hand a spike-sized backing straight to the caller
-	// instead of cloning it (putEnc would drop it past maxPooledBuf anyway), so
-	// MarshalT stays allocation-equivalent to Marshal on large payloads.
-	var out []byte
-	if cap(enc.buf) > marshalDetachThreshold {
-		out = enc.buf
-		enc.noteDetached(out)
-		enc.buf = nil
-	} else {
-		out = slices.Clone(enc.buf)
-	}
-	putEnc(enc, &encPool) // cap a spike-sized buffer / widening scratch before pooling
-	return out, nil
+	return finishMarshal(enc), nil
 }
 
 // AppendMarshalT is the generic equivalent of AppendMarshal.
 func AppendMarshalT[T any](dst []byte, v T, opts Options) ([]byte, error) {
-	enc := encPool.Get().(*Encoder)
-	enc.Reset()
-	enc.applyOpts(opts)
+	enc := acquireEnc(opts, nil)
 	start := len(dst)
 	enc.buf = dst
 	if err := encodeT(enc, &v); err != nil {
-		// Detach the caller's dst before pooling: putEnc only nils buf past
-		// maxPooledBuf, so a normal-sized dst would stay aliased in the pooled
-		// encoder and the next encode would overwrite the caller's backing array.
-		enc.buf = nil
-		putEnc(enc, &encPool)
+		abortAppend(enc)
 		return dst, err
 	}
-	enc.maybeApplyRANS(start)
-	out := enc.buf
-	enc.buf = nil
-	putEnc(enc, &encPool) // cap a spike-sized widening scratch before pooling
-	return out, nil
+	return finishAppend(enc, start), nil
 }
 
 // UnmarshalT is the generic equivalent of Unmarshal. The destination
@@ -92,7 +66,7 @@ func UnmarshalT[T any](data []byte, out *T) error {
 	dec.selectFields = nil
 	dec.selectKeys = nil
 	dec.query = nil
-	clear(dec.mapFreeList) // drop maps recycled by a prior decode into a different target
+	dec.dropRecycledMaps() // drop maps recycled by a prior decode into a different target
 	if dec.state != nil {
 		dec.state.reset()
 	}
