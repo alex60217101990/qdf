@@ -4,5 +4,5 @@ go 1.27.0
 
 require (
 	github.com/modern-go/reflect2 v1.0.2
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 )
