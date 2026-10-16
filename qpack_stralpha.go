@@ -37,16 +37,26 @@ const alphaMinDistinctPct = 70
 // columns alpha targets (hex/uuid/base32 — 16+ chars) clear this comfortably.
 const alphaProbeMinAvgLen = 8
 
-// tryWriteStringColumnAlpha attempts to emit strs as a tagColStrAlpha block.
-// It returns true when the alphabet-packed form was written (and is strictly
-// smaller than the raw per-value floor), false when the caller should fall
-// through to the next codec. The alphabet scan is a single pass that bails the
-// moment the alphabet exceeds 64 distinct bytes, so non-restricted columns pay
-// only a short prefix scan before falling through unchanged.
-func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
+// alphaPlan is what measureStringColumnAlpha learned and the emit needs. The
+// byte->code map is not kept: it is rebuilt from alphabet in a <=64-step loop.
+type alphaPlan struct {
+	alphabet  [qpackStrAlphaMaxAlphabet]byte
+	a         int
+	cbits     int
+	bodyBytes int
+	firstLen  int
+	fixedLen  bool
+}
+
+// measureStringColumnAlpha returns the exact tagColStrAlpha block size for
+// strs, or ok=false when the codec does not apply or cannot beat the raw
+// per-value floor. The alphabet scan is a single pass that bails the moment the
+// alphabet exceeds 64 distinct bytes, so non-restricted columns pay only a
+// short prefix scan. On ok, e.sc().alphaPlan holds what emitStringColumnAlpha needs.
+func (e *Encoder) measureStringColumnAlpha(strs []string) (int, bool) {
 	n := len(strs)
 	if n < qpackStrDictMinElems {
-		return false
+		return 0, false
 	}
 
 	// Cheap high-cardinality gate first (shared with the dict pre-bail): a low-card
@@ -55,16 +65,14 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 	// that — so bail before the full alphabet scan. alpha wants HIGH cardinality,
 	// the inverse of the dict bail (same 64-row window / 70% threshold).
 	if !dictSampleHighCard(strs) {
-		return false
+		return 0, false
 	}
 
 	// One pass: build the alphabet (byte -> dense code), and accumulate the raw
 	// per-value floor, the total character count, fixed-length detection, and the
 	// per-value length-prefix bytes (used only if the column is not fixed-length).
-	// seen/code are stack arrays (zero-initialized, non-escaping); code[c] is only
-	// read for bytes already marked in seen, so it needs no separate reset.
+	// seen is a stack array (zero-initialized, non-escaping).
 	var seen [256]bool
-	var code [256]uint8
 	var alphabet [qpackStrAlphaMaxAlphabet]byte
 	a := 0
 	totalChars := 0
@@ -86,10 +94,9 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 			c := s[i]
 			if !seen[c] {
 				if a >= qpackStrAlphaMaxAlphabet {
-					return false // alphabet too large to pack below 8 bits/char
+					return 0, false // alphabet too large to pack below 8 bits/char
 				}
 				seen[c] = true
-				code[c] = uint8(a)
 				alphabet[a] = c
 				a++
 			}
@@ -98,7 +105,7 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 	if a < 2 {
 		// a == 0 (all-empty) or a == 1 (single distinct byte): no positional
 		// packing is possible/useful — the const/raw paths handle these.
-		return false
+		return 0, false
 	}
 	cbits := bitsForDistinct(a) // ceil(log2 a), >= 1 since a >= 2
 
@@ -114,9 +121,23 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 	// of the per-value/raw path this codec replaces, so this guarantees the wire
 	// never grows when the codec fires.
 	if overhead+bodyBytes >= rawFloor {
-		return false
+		return 0, false
 	}
+	e.sc().alphaPlan = alphaPlan{alphabet: alphabet, a: a, cbits: cbits, bodyBytes: bodyBytes, firstLen: firstLen, fixedLen: fixedLen}
+	return overhead + bodyBytes, true
+}
 
+// emitStringColumnAlpha writes the block the last successful
+// measureStringColumnAlpha planned.
+func (e *Encoder) emitStringColumnAlpha(strs []string) {
+	n := len(strs)
+	p := &e.sc().alphaPlan
+	a, cbits, bodyBytes, firstLen, fixedLen := p.a, p.cbits, p.bodyBytes, p.firstLen, p.fixedLen
+	alphabet := &p.alphabet
+	var code [256]uint8
+	for i := range a {
+		code[alphabet[i]] = uint8(i)
+	}
 	e.writeHeader()
 	out := e.buf
 	out = append(out, tagColStrAlpha)
@@ -156,7 +177,7 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 				}
 			}
 			e.buf = out
-			return true
+			return
 		}
 		// Variable or odd length: carry a pending low nibble across boundaries.
 		pos, pend := 0, -1
@@ -176,7 +197,7 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 			body[pos] = byte(pend)
 		}
 		e.buf = out
-		return true
+		return
 	}
 	// General LSB-first bit-writer over the char codes — identical layout to
 	// bitpack.Pack, so bitpack.Unpack reverses it on decode (codes are < a <=
@@ -200,7 +221,6 @@ func (e *Encoder) tryWriteStringColumnAlpha(strs []string) bool {
 		body[pos] = byte(acc)
 	}
 	e.buf = out
-	return true
 }
 
 // readStringColumnAlpha decodes a tagColStrAlpha block (tag at d.i) into the n

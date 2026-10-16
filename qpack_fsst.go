@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"sync"
+	"unsafe"
 
 	"github.com/alex60217101990/qdf/internal/fsst"
 	"github.com/alex60217101990/qdf/internal/unsafestr"
@@ -19,13 +20,119 @@ const (
 	// per-column probe training off the OptCompression hot path.
 	fsstProbeRounds = 1
 	// fsstReuseInterval is the number of consecutive batches that reuse the
-	// cached FSST symbol table (fsstCachedTbl) before retraining. Matches
+	// cached FSST symbol table (fsstCache, per column) before retraining. Matches
 	// retainReleaseStreak (8) so a steady workload holds its table across 8
 	// batches before a full retrain checks whether the string distribution has
 	// shifted. Only applies to streaming encoders (same Encoder reused across
 	// calls); pool-backed Marshal resets the cache on every acquire.
 	fsstReuseInterval = 8
 )
+
+// fsstCacheMax bounds the per-column table cache. A table is ~15 KB, so this
+// caps what one encoder can pin; a message with more FSST columns than this
+// simply trains the overflow fresh, which is what every column did before the
+// cache existed.
+const fsstCacheMax = 32
+
+// strColScratch is the string-column picker's state, kept off the Encoder.
+type strColScratch struct {
+	// fsstCache holds the FSST tables trained on recent batches when no
+	// user-supplied fsstDict is set, ONE PER COLUMN (keyed by fsstKey). Reused
+	// across consecutive same-encoder batches to skip the per-batch Build cost
+	// (~140–311 µs), retrained every fsstReuseInterval uses so a table follows a
+	// drifting distribution. Keyed rather than single-slot because a single
+	// slot handed column A's table to every later column of the same message:
+	// measured +123% wire on the access corpus under OptCompression. Emptied by
+	// Reset() on pool recycle; survives resetForReuse() so a streaming caller
+	// amortizes training.
+	fsstCache []fsstCacheEntry
+	// fsstScratchTbl keeps a keyless column's freshly trained table past the
+	// builder's return to the pool. fsstPicked / fsstDecompTotal carry the
+	// measured block from measureStringColumnFSST to emitStringColumnFSST.
+	fsstScratchTbl  *fsst.SymbolTable
+	fsstPicked      *fsst.SymbolTable
+	fsstDecompTotal int
+	// alphaPlan carries a measured tagColStrAlpha block to its emit.
+	alphaPlan alphaPlan
+	// The rest of a measured tagColStrFrontDelta block (its length stream is
+	// in Encoder.frontDeltaLens), carried to its emit.
+	frontDeltaMid    int
+	frontDeltaSize   int
+	frontDeltaSuffix bool
+}
+
+// sc returns the picker state, allocating it on first use.
+func (e *Encoder) sc() *strColScratch {
+	if e.strCol == nil {
+		e.strCol = new(strColScratch)
+	}
+	return e.strCol
+}
+
+// fsstCacheEntry is one column's cached table: key is the column's stable
+// identity (columnarPlan.colIdentity), uses counts the reuses since the table was last trained.
+type fsstCacheEntry struct {
+	key  unsafe.Pointer
+	tbl  *fsst.SymbolTable
+	uses int
+}
+
+// fsstCacheSlot returns the cache entry for e.fsstKey, claiming a fresh one on
+// first sight. nil when there is no key, or the cache is full.
+func (e *Encoder) fsstCacheSlot() *fsstCacheEntry {
+	k := e.fsstKey
+	if k == nil {
+		return nil
+	}
+	sc := e.sc()
+	for i := range sc.fsstCache {
+		if sc.fsstCache[i].key == k {
+			return &sc.fsstCache[i]
+		}
+	}
+	n := len(sc.fsstCache)
+	if n == fsstCacheMax {
+		return nil
+	}
+	if n < cap(sc.fsstCache) {
+		// Reclaim a slot dropFSSTCache emptied: its tbl storage is reused by the
+		// CloneInto that follows.
+		sc.fsstCache = sc.fsstCache[:n+1]
+	} else {
+		sc.fsstCache = append(sc.fsstCache, fsstCacheEntry{})
+	}
+	ent := &sc.fsstCache[n]
+	// uses at the interval forces the caller to train: a reclaimed slot still
+	// holds the previous column's table (kept only for its storage).
+	ent.key, ent.uses = k, fsstReuseInterval
+	return ent
+}
+
+// fsstRetainSlots is how many slots keep their table storage across Reset. A
+// table is ~15 KB (255 symbols of 32 B, 255 candidates of 24 B, a 1 KB index),
+// so keeping all fsstCacheMax would let a pooled encoder pin ~480 KB that the
+// encoder before this cache never held past Reset.
+const fsstRetainSlots = 4
+
+// dropFSSTCache forgets every cached table. The key goes so a recycled encoder
+// never pairs one caller's column with another's table (fsstCacheSlot marks a
+// reclaimed slot untrained); the storage stays for the first fsstRetainSlots
+// slots, so their next training reuses it, and is released for the rest.
+func (e *Encoder) dropFSSTCache() {
+	sc := e.strCol
+	if sc == nil {
+		return // never used: nothing to drop, and nothing to allocate
+	}
+	all := sc.fsstCache[:cap(sc.fsstCache)]
+	for i := range all {
+		if i < fsstRetainSlots {
+			all[i].key = nil
+		} else {
+			all[i] = fsstCacheEntry{}
+		}
+	}
+	sc.fsstCache = sc.fsstCache[:0]
+}
 
 // fsstBuilderPool reuses FSST training scratch across the per-column probe
 // estimates and encode attempts, so a column where FSST is evaluated but not
@@ -39,48 +146,89 @@ var fsstBuilderPool = sync.Pool{New: func() any { return fsst.NewBuilder() }}
 // newSymbolTable call would otherwise make.
 var fsstTablePool = sync.Pool{New: func() any { return &fsst.SymbolTable{} }}
 
-// tryWriteStringColumnFSST trains an FSST table on strs, compresses them, and
-// emits a tagColStrFSST block — but only when the block is strictly smaller
-// than the raw per-value size (sum(len)+n framing). It is invoked only after
-// the dictionary codec has bailed (i.e. high-cardinality columns), where the
-// per-value path is dominated by the raw bytes, so raw size is a sound
-// never-larger baseline. Returns true iff the block was written.
-func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
+// fsstEstimateSample is how many evenly spaced rows estimateStringColumnFSST
+// trains and compresses. Big enough that the coarse table finds a column's
+// common substrings, small enough to cost a few percent of a full Build.
+const fsstEstimateSample = 64
+
+// estimateStringColumnFSST predicts the tagColStrFSST block size for strs from
+// a coarse table trained on an evenly spaced sample, scaling the sample's
+// compressed bytes to the column. It is PESSIMISTIC on text — measured 1.1–2.6x
+// the real block, because a table trained on 64 rows misses substrings that
+// recur across the whole column — and close to exact on random IDs. The picker
+// relies on that direction: it skips the full Build only when even this
+// estimate cannot beat a codec already measured exactly.
+func (e *Encoder) estimateStringColumnFSST(strs []string) int {
+	n := len(strs)
+	k := min(n, fsstEstimateSample)
+	var sample [fsstEstimateSample][]byte
+	for i := range k {
+		sample[i] = unsafestr.Bytes(strs[i*n/k])
+	}
+	tbl := e.fsstDict
+	var bld *fsst.Builder
+	if tbl == nil {
+		bld = fsstBuilderPool.Get().(*fsst.Builder)
+		tbl = bld.BuildRounds(sample[:k], fsstProbeRounds)
+	}
+	body := 0
+	for i := range k {
+		cl := tbl.CompressedLen(sample[i])
+		body += cl + uvarintLen(uint64(cl))
+	}
+	est := body*n/k + tbl.SerializedSize()
+	if bld != nil {
+		fsstBuilderPool.Put(bld)
+	}
+	return est
+}
+
+// measureStringColumnFSST trains (or reuses) a table for strs, compresses them
+// into the encoder's FSST staging, and returns the exact block size. ok is false
+// when FSST cannot beat the raw per-value size (sum(len)+n framing) — a sound
+// floor because FSST is only reached on high-cardinality columns, where the
+// per-value path is dominated by the raw bytes. On ok the staging and
+// e.sc().fsstPicked stay valid until the next measure, for emitStringColumnFSST.
+func (e *Encoder) measureStringColumnFSST(strs []string) (int, bool) {
 	n := len(strs)
 	if n < fsstMinElems {
-		return false
+		return 0, false
 	}
 
 	// A pre-trained dictionary (FSSTDict.Marshal) skips the per-batch training,
 	// which is the dominant FSST encode cost; otherwise train on this column.
 	tbl := e.fsstDict
 	if tbl == nil {
-		// Streaming cache: reuse the table trained on a recent batch to skip
-		// the Build() cost (~140–311 µs) when the same Encoder is reused across
-		// consecutive batches. We retrain every fsstReuseInterval batches so the
-		// table adapts to drifting distributions. The wire format is unchanged:
-		// the table is always fully serialized (MarshalTo below) so the decoder
-		// needs no protocol changes — caching is encoder-side only.
-		if e.fsstCachedTbl != nil && e.fsstBatchCount < fsstReuseInterval {
-			tbl = e.fsstCachedTbl
-			e.fsstBatchCount++
+		// Streaming cache: reuse the table this same column trained on a recent
+		// batch to skip the Build() cost (~140–311 µs), retraining every
+		// fsstReuseInterval uses so the table follows a drifting distribution.
+		// The wire format is unchanged: the table is always fully serialized, so
+		// caching is encoder-side only.
+		ent := e.fsstCacheSlot()
+		if ent != nil && ent.uses < fsstReuseInterval {
+			tbl = ent.tbl
+			ent.uses++
 		} else {
-			// (Re)train: build via the pooled builder (reuses counter/cand scratch),
-			// then clone to an independent copy before the builder is returned to
-			// the pool. bld.Build returns a table aliasing bld's internal storage;
-			// that alias is invalidated the next time any goroutine calls Build on
-			// the same Builder. Clone() copies the three fields (symbols, cands,
-			// first) into a fresh allocation that survives beyond this call.
 			samples := e.state.fsstSamples[:0]
 			for _, s := range strs {
 				samples = append(samples, unsafestr.Bytes(s))
 			}
 			e.state.fsstSamples = samples
+			// bld.Build returns a table aliasing bld's internal storage, which the
+			// next Build on that Builder invalidates — and the builder goes back to
+			// the pool before the emit — so the table is copied out, into storage
+			// the encoder keeps (no allocation once warm).
 			bld := fsstBuilderPool.Get().(*fsst.Builder)
-			defer fsstBuilderPool.Put(bld)
-			tbl = bld.Build(samples)
-			e.fsstCachedTbl = tbl.Clone() // independent copy; bld safe to pool
-			e.fsstBatchCount = 0
+			trained := bld.Build(samples)
+			if ent != nil {
+				ent.tbl = trained.CloneInto(ent.tbl)
+				ent.uses = 0
+				tbl = ent.tbl
+			} else {
+				e.sc().fsstScratchTbl = trained.CloneInto(e.sc().fsstScratchTbl)
+				tbl = e.sc().fsstScratchTbl
+			}
+			fsstBuilderPool.Put(bld)
 		}
 	}
 
@@ -104,19 +252,24 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 	for _, cl := range compLens {
 		size += uvarintLen(uint64(cl)) + cl
 	}
-	// Never-larger baseline: raw per-value bytes + one framing byte each.
-	// decompTotal is the sum of len(s) over strs (accumulated in the encode
-	// loop above), identical to a separate raw-total pass.
 	if size >= decompTotal+n {
-		return false
+		return 0, false
 	}
+	e.sc().fsstPicked = tbl
+	e.sc().fsstDecompTotal = decompTotal
+	return size, true
+}
 
+// emitStringColumnFSST writes the block the last successful
+// measureStringColumnFSST staged, without compressing again.
+func (e *Encoder) emitStringColumnFSST(n int) {
+	comp, compLens := e.state.fsstScratch, e.state.fsstLens
 	e.writeHeader()
 	out := e.buf
 	out = append(out, tagColStrFSST)
-	out = tbl.MarshalTo(out) // serialize the table straight into the output
+	out = e.sc().fsstPicked.MarshalTo(out) // serialize the table straight into the output
 	out = appendUvarint(out, uint64(n))
-	out = appendUvarint(out, uint64(decompTotal))
+	out = appendUvarint(out, uint64(e.sc().fsstDecompTotal))
 	pos := 0
 	for _, cl := range compLens {
 		out = appendUvarint(out, uint64(cl))
@@ -124,7 +277,7 @@ func (e *Encoder) tryWriteStringColumnFSST(strs []string) bool {
 		pos += cl
 	}
 	e.buf = out
-	return true
+	e.sc().fsstPicked = nil // the table may be a cache slot; do not hold it past the emit
 }
 
 // readStringColumnFSST decodes a tagColStrFSST block (tag at d.i) into n

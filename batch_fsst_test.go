@@ -51,7 +51,10 @@ func TestBatchFSSTDirectParity(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if n >= 64 {
+			// Only at 1000: at 64 rows the table costs more than it saves, and
+			// front-delta packs these sequential URLs to under half FSST's size
+			// (1332 vs 2823 B), so the picker rightly chooses it.
+			if n >= 1000 {
 				// Columnar wire (batch fast path) carrying an FSST string column.
 				d := &Decoder{buf: data}
 				tag, perr := d.peekTag()
@@ -118,10 +121,10 @@ func TestBatchFSSTDirectTruncated(t *testing.T) {
 // is reused across consecutive batches (the "streaming" pattern: one encoder,
 // many batches). Unlike BenchmarkFSSTEncodeCompressible which pulls a fresh
 // encoder from the pool each iteration, this bench keeps one encoder warm so
-// the fsstCachedTbl optimisation can eliminate Build() training on batches 1–7
+// the per-column fsstCache can eliminate Build() training on batches 1–7
 // out of every 8.
 //
-// Run this bench interleaved against the baseline (before adding fsstCachedTbl)
+// Run this bench interleaved against the baseline (before adding the FSST table cache)
 // to measure the training-avoidance gain.
 func BenchmarkBatchFSSTStream(b *testing.B) {
 	rows := mkFSSTSrc(512)
@@ -132,18 +135,18 @@ func BenchmarkBatchFSSTStream(b *testing.B) {
 			b.Fatal(err)
 		}
 		if bytes.IndexByte(data, tagColStrFSST) < 0 {
-			b.Skip("Body column did not FSST-code: bench would not exercise fsstCachedTbl")
+			b.Skip("Body column did not FSST-code: bench would not exercise fsstCache")
 		}
 	}
 
-	// One dedicated encoder per bench run: resetForReuse preserves fsstCachedTbl
+	// One dedicated encoder per bench run: resetForReuse preserves fsstCache
 	// across iterations so the cache warms up after the first iteration.
 	enc := NewEncoderWith(OptBalanced | OptFSST)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		enc.resetForReuse() // partial reset: fsstCachedTbl survives
+		enc.resetForReuse() // partial reset: fsstCache survives
 		if err := enc.EncodeValue(rows); err != nil {
 			b.Fatal(err)
 		}

@@ -27,27 +27,67 @@ func (e *Encoder) writeStringColumn(strs []string) {
 	if e.tryWriteStringColumnDict(strs) {
 		return
 	}
-	// FSST runs first (when enabled): on substring-sharing text (URLs, paths, log
-	// lines) it beats positional packing, and it declines (never-larger) on random
-	// restricted-alphabet IDs — no shared substrings — so those fall through to
-	// alphabet-packing next. Alpha-packing sits before raw: on a restricted-
-	// alphabet high-cardinality column (hex/base32/base64/decimal IDs) it stores
-	// ceil(log2 |A|) bits/char instead of 8. Its own never-larger gate declines
-	// (cheaply, after a one-pass alphabet scan that bails the moment |A| exceeds
-	// 64) on everything else, so non-ID columns keep their existing form with no
-	// wire/CPU regression.
-	if e.fsst && e.tryWriteStringColumnFSST(strs) {
-		return
+	// FSST (when enabled), alphabet packing and front-delta are each measured
+	// exactly and the SMALLEST is emitted. Each one's own gate already requires
+	// beating the raw per-value floor, so whichever wins is never larger.
+	//
+	// Taking the first codec to clear that floor, as this used to, depended on
+	// the order happening to put the winner first, and it did not. Measured on
+	// whole messages: FSST took hex ID columns from alpha (+11% OTLP wire under
+	// OptCompression) and alpha took prefix-sharing columns from front-delta.
+	//
+	// Alpha's scan stops at the 65th distinct byte and front-delta's projection
+	// decides from a sample, so both are cheap where they lose. Each measure
+	// stages its result in its own scratch, so the winner is written without
+	// being computed again.
+	const (
+		pickNone = iota
+		pickFSST
+		pickAlpha
+		pickFrontDelta
+	)
+	pick, best := pickNone, 0
+	alphaSz, alphaOK := e.measureStringColumnAlpha(strs)
+	if alphaOK {
+		pick, best = pickAlpha, alphaSz
 	}
-	if e.tryWriteStringColumnAlpha(strs) {
-		return
+	// A packed alpha block means dictSampleHighCard already passed, and its size
+	// is the bar front-delta's projection has to clear.
+	fdLimit := math.MaxInt
+	if alphaOK {
+		fdLimit = best
 	}
-	// Front-delta sits after alpha and before raw. Alpha must go first: hex and
-	// base64 identifiers share no prefixes (their characters are random) but
-	// alpha halves them, so intercepting those here would trade a 2x win for
-	// nothing. What reaches this line is high-cardinality text over an
-	// unrestricted alphabet — values that resemble the row above them.
-	if e.tryWriteStringColumnFrontDelta(strs) {
+	if sz, ok := e.measureStringColumnFrontDelta(strs, fdLimit, alphaOK); ok && (pick == pickNone || sz < best) {
+		pick, best = pickFrontDelta, sz
+	}
+	// FSST last, because its full table training (0.2–0.9 ms a column) is the
+	// one measure that is expensive. On a column alphabet packing takes at <= 4
+	// bits a character — hex IDs — FSST lost in every measured case while paying
+	// that training, so there the full measure runs only when the sample
+	// estimate, which overstates FSST's size, still undercuts the best so far.
+	// Wider alphabets keep the full measure: there FSST wins often and by a lot
+	// (access log lines: 22640 against 80344 B), and the estimate is too
+	// pessimistic to gate them without losing those wins.
+	if e.fsst {
+		try := true
+		if alphaOK && e.sc().alphaPlan.cbits <= 4 {
+			try = e.estimateStringColumnFSST(strs) < best
+		}
+		if try {
+			if sz, ok := e.measureStringColumnFSST(strs); ok && (pick == pickNone || sz < best) {
+				pick = pickFSST
+			}
+		}
+	}
+	switch pick {
+	case pickFSST:
+		e.emitStringColumnFSST(len(strs))
+		return
+	case pickAlpha:
+		e.emitStringColumnAlpha(strs)
+		return
+	case pickFrontDelta:
+		e.emitStringColumnFrontDelta(strs)
 		return
 	}
 	if e.tryWriteStringColumnRaw(strs) {

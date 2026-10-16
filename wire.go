@@ -272,7 +272,7 @@ const (
 	// selector 0xFF     the table this field declared earlier
 	//
 	// The body packs each character's code LSB-first, exactly as
-	// tryWriteStringColumnAlpha does for a whole column.
+	// emitStringColumnAlpha does for a whole column.
 	tagStrAlpha = 0xF5
 
 	tagColStrDict = 0xF5

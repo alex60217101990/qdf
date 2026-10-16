@@ -1,6 +1,7 @@
 package qdf
 
 import (
+	"math"
 	"reflect"
 	"strconv"
 	"testing"
@@ -59,7 +60,7 @@ func TestFrontDeltaCommonSuffix(t *testing.T) {
 func TestFrontDeltaProjectDeclines(t *testing.T) {
 	// Too few rows to be worth a block header.
 	short := []string{"aaaa", "aaab", "aaac"}
-	if _, ok := frontDeltaProject(short); ok {
+	if _, ok := frontDeltaProject(short, math.MaxInt, false); ok {
 		t.Error("accepted a column below frontDeltaMinElems")
 	}
 
@@ -68,7 +69,7 @@ func TestFrontDeltaProjectDeclines(t *testing.T) {
 	for i := range rnd {
 		rnd[i] = strconv.Itoa(i*2654435761) + "-" + strconv.Itoa(i*40503)
 	}
-	if _, ok := frontDeltaProject(rnd); ok {
+	if _, ok := frontDeltaProject(rnd, math.MaxInt, false); ok {
 		t.Error("accepted a column with nothing to share")
 	}
 }
@@ -79,7 +80,7 @@ func TestFrontDeltaProjectPicksMode(t *testing.T) {
 	for i := range pfx {
 		pfx[i] = "/api/v2/resource/" + strconv.Itoa(i)
 	}
-	mode, ok := frontDeltaProject(pfx)
+	mode, ok := frontDeltaProject(pfx, math.MaxInt, false)
 	if !ok {
 		t.Fatal("declined a prefix-sharing column")
 	}
@@ -92,7 +93,7 @@ func TestFrontDeltaProjectPicksMode(t *testing.T) {
 	for i := range both {
 		both[i] = "GET /api/v2/item/" + strconv.Itoa(i*7919) + " HTTP/1.1"
 	}
-	mode, ok = frontDeltaProject(both)
+	mode, ok = frontDeltaProject(both, math.MaxInt, false)
 	if !ok {
 		t.Fatal("declined a column sharing both ends")
 	}
@@ -221,7 +222,7 @@ func TestFrontDeltaDeclinesLowCardinality(t *testing.T) {
 		for i := range allEqual {
 			allEqual[i] = "the same value every row"
 		}
-		if _, ok := frontDeltaProject(allEqual); ok {
+		if _, ok := frontDeltaProject(allEqual, math.MaxInt, false); ok {
 			t.Errorf("n=%d: accepted an all-identical column", n)
 		}
 
@@ -231,7 +232,7 @@ func TestFrontDeltaDeclinesLowCardinality(t *testing.T) {
 		for i := range fewDistinct {
 			fewDistinct[i] = vals[i%len(vals)]
 		}
-		if _, ok := frontDeltaProject(fewDistinct); ok {
+		if _, ok := frontDeltaProject(fewDistinct, math.MaxInt, false); ok {
 			t.Errorf("n=%d: accepted a low-cardinality column", n)
 		}
 	}
