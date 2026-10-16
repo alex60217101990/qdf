@@ -58,18 +58,40 @@ func TestStrRaw_NeverLargerOnShortStrings(t *testing.T) {
 func TestStrRaw_FiresOnLongHighCardStrings(t *testing.T) {
 	const n = 200
 	rows := make([]rawTokRow, n)
+	// Long, high-cardinality tokens with nothing for another codec to take:
+	// printable bytes from a ~90-symbol alphabet (alpha bails past 64), no
+	// shared prefix or suffix (front-delta declines), no repeats (dict bails).
+	// The previous tokens all ended in "-zzqxij", a shared suffix front-delta
+	// rightly took once the picker started choosing the smallest codec.
+	x := uint64(0x9E3779B97F4A7C15)
 	for i := range rows {
-		// Long, high-cardinality, NON-substring-sharing tokens (reversed digits
-		// + per-row salt) so dict/FSST can't compress and the raw bulk form wins.
-		s := strconv.FormatInt(int64(i*2654435761&0x7fffffff), 36) + "-" + strconv.FormatInt(int64(i)*0x9e3779b1&0x7fffffff, 36) + "-zzqxij"
-		rows[i] = rawTokRow{Seq: int64(i), TS: int64(i * 1000), Tok: s}
+		var b [24]byte
+		for j := range b {
+			x ^= x << 13
+			x ^= x >> 7
+			x ^= x << 17
+			b[j] = byte(33 + x%90)
+		}
+		rows[i] = rawTokRow{Seq: int64(i), TS: int64(i * 1000), Tok: string(b[:])}
 	}
+	// The picker's verdict, read at the block's own first byte. Searching the
+	// whole Marshal output for the tag byte, as this used to, passed with the
+	// raw codec disabled: 0xF8 turns up in the integer columns.
+	toks := make([]string, n)
+	for i := range rows {
+		toks[i] = rows[i].Tok
+	}
+	e := NewEncoderWith(OptBalanced)
+	e.writeHeader()
+	at := len(e.buf)
+	e.writeStringColumn(toks)
+	if got := e.buf[at]; got != tagColStrRaw {
+		t.Fatalf("tok column is block %#x, want tagColStrRaw: lost the one-slab decode on a long high-cardinality column", got)
+	}
+
 	buf, err := Marshal(rows, OptBalanced)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
-	}
-	if bytes.IndexByte(buf, tagColStrRaw) < 0 {
-		t.Fatal("tagColStrRaw did NOT fire on a long high-cardinality column (regression: lost the decode-alloc win)")
 	}
 	var out []rawTokRow
 	if err := Unmarshal(buf, &out); err != nil {

@@ -53,7 +53,12 @@ type alphaPlan struct {
 // per-value floor. The alphabet scan is a single pass that bails the moment the
 // alphabet exceeds 64 distinct bytes, so non-restricted columns pay only a
 // short prefix scan. On ok, e.sc().alphaPlan holds what emitStringColumnAlpha needs.
-func (e *Encoder) measureStringColumnAlpha(strs []string) (int, bool) {
+//
+// highCard is dictSampleHighCard(strs), which the caller already has. limit is
+// a size another codec already reached: the scan stops as soon as the packed
+// body alone is bound to reach it, which on a prefix-sharing column front-delta
+// has taken is a handful of characters in rather than every byte of the column.
+func (e *Encoder) measureStringColumnAlpha(strs []string, highCard bool, limit int) (int, bool) {
 	n := len(strs)
 	if n < qpackStrDictMinElems {
 		return 0, false
@@ -64,7 +69,7 @@ func (e *Encoder) measureStringColumnAlpha(strs []string) (int, bool) {
 	// references than as packed chars, and the raw-floor gate below would not catch
 	// that — so bail before the full alphabet scan. alpha wants HIGH cardinality,
 	// the inverse of the dict bail (same 64-row window / 70% threshold).
-	if !dictSampleHighCard(strs) {
+	if !highCard {
 		return 0, false
 	}
 
@@ -74,6 +79,14 @@ func (e *Encoder) measureStringColumnAlpha(strs []string) (int, bool) {
 	// seen is a stack array (zero-initialized, non-escaping).
 	var seen [256]bool
 	var alphabet [qpackStrAlphaMaxAlphabet]byte
+	// The body costs totalChars*bits(|A|) bits whatever the alphabet turns out
+	// to be, and |A| only grows, so each time a new character raises the width
+	// the body's floor is known. One pass over the lengths buys that bound.
+	allChars := 0
+	for _, s := range strs {
+		allChars += len(s)
+	}
+	nextWidthAt := 2 // alphabet size at which the code width next increases
 	a := 0
 	totalChars := 0
 	rawFloor := 0
@@ -99,6 +112,12 @@ func (e *Encoder) measureStringColumnAlpha(strs []string) (int, bool) {
 				seen[c] = true
 				alphabet[a] = c
 				a++
+				if a > nextWidthAt {
+					nextWidthAt <<= 1
+					if (allChars*bitsForDistinct(a)+7)>>3 >= limit {
+						return 0, false // the body alone already loses to limit
+					}
+				}
 			}
 		}
 	}

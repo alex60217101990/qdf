@@ -46,18 +46,34 @@ func fcRoundTrip(t *testing.T, vals []string, b []byte) {
 // and the front-coded form is strictly smaller than the plain dictionary.
 func TestFrontCodedDictFires(t *testing.T) {
 	// SID-like: 200 distinct values sharing a long common prefix, over 4000 rows.
-	const distinct, rows = 200, 4000
+	// 100 distinct, not 200: at 200 the index needs 8 bits a row, which ties the
+	// dictionary's never-worse floor (n bytes) and the dictionary is rejected
+	// before a table is ever written.
+	const distinct, rows = 100, 4000
 	pool := make([]string, distinct)
 	for i := range pool {
 		pool[i] = fmt.Sprintf("S-1-5-21-3623811015-3361044348-30300820-%d", 1000+i)
 	}
 	vals := make([]string, rows)
+	// Each value repeats four rows running, so the dictionary's 64-row
+	// high-cardinality bail sees 16 distinct values and keeps going. The old
+	// (i*7)%distinct order put 64 distinct values in the first 64 rows: the
+	// dictionary bailed, no front-coded table was ever written, and the check
+	// below passed anyway — it used bytes.ContainsRune, which searches for the
+	// UTF-8 encoding of U+00FA, and the row-major wire happened to contain it.
 	for i := range vals {
-		vals[i] = pool[(i*7)%distinct]
+		vals[i] = pool[(i/4)%distinct]
 	}
 
 	b := fcMarshalRows(t, vals)
-	if !bytes.ContainsRune(b, rune(tagColStrDictFC)) {
+	d := NewDecoderOnBuf(b)
+	if err := d.readHeader(); err != nil {
+		t.Fatal(err)
+	}
+	if root, _ := d.peekTag(); root != tagColStruct {
+		t.Fatalf("want a columnar container, got root tag %#x: the dictionary never runs row-major", root)
+	}
+	if bytes.IndexByte(b, tagColStrDictFC) < 0 {
 		t.Fatalf("expected tagColStrDictFC (0x%02x) in wire — front-coding did not fire", tagColStrDictFC)
 	}
 	fcRoundTrip(t, vals, b)

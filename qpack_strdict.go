@@ -54,6 +54,7 @@ var strDictEmitted atomic.Int64
 // back to per-value WriteString. Encode-side scratch is reused across
 // columns to avoid per-column allocation.
 func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
+	e.strColCardKnown = false
 	n := len(strs)
 	if n < qpackStrDictMinElems {
 		return false
@@ -100,7 +101,9 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 				table = append(table, s)
 				if len(table) == 1 {
 					gp = len(s)
-				} else {
+				} else if gp >= 2 {
+					// gp only shrinks, and below 2 front-coding is off for good,
+					// so there is nothing left to measure.
 					gp = commonPrefixLen(table[0][:gp], s)
 				}
 				break
@@ -113,10 +116,16 @@ func (e *Encoder) tryWriteStringColumnDict(strs []string) bool {
 		idx = append(idx, uint64(id))
 		// High-cardinality bail: after the sample, if the column is mostly
 		// distinct it will not dict-compress — stop before scanning the rest.
-		if i+1 == qpackStrDictSampleN && len(table)*100 > qpackStrDictSampleN*qpackStrDictSampleMaxPct {
-			e.state.colDictTable = table
-			e.state.colScratchU64 = idx
-			return false
+		if i+1 == qpackStrDictSampleN {
+			// The same distinct count over the same rows dictSampleHighCard
+			// computes — keep it for the codecs that would ask again.
+			high := len(table)*100 > qpackStrDictSampleN*qpackStrDictSampleMaxPct
+			e.strColCardKnown, e.strColHighCard = true, high
+			if high {
+				e.state.colDictTable = table
+				e.state.colScratchU64 = idx
+				return false
+			}
 		}
 	}
 	e.state.colDictTable = table
@@ -309,21 +318,24 @@ func dictSampleHighCard(strs []string) bool {
 			seen[distinct] = s
 			keys[distinct] = k
 			distinct++
+			// The count only grows, so once past the bar the answer is in. On
+			// the all-distinct columns this gate exists for, that halves the
+			// quadratic scan.
+			if distinct*100 > sampleN*qpackStrDictSampleMaxPct {
+				return true
+			}
+		} else if (distinct+sampleN-i-1)*100 <= sampleN*qpackStrDictSampleMaxPct {
+			return false // even every remaining row fresh would not reach it
 		}
 	}
 	return distinct*100 > sampleN*qpackStrDictSampleMaxPct
 }
 
 // commonPrefixLen returns the length of the longest byte prefix shared by a and
-// b. Used by the front-coded string-dictionary codec.
-func commonPrefixLen(a, b string) int {
-	n := min(len(a), len(b))
-	i := 0
-	for i < n && a[i] == b[i] {
-		i++
-	}
-	return i
-}
+// b. Used by the front-coded string-dictionary codec. It is the word-at-a-time
+// frontDeltaCommonPrefix: the byte loop it replaced was 9% of a 64-row
+// columnar encode, run once per distinct value while the table is built.
+func commonPrefixLen(a, b string) int { return frontDeltaCommonPrefix(a, b) }
 
 // readStringColumn decodes a string column of n values written by
 // writeStringColumn: a tagColStrDict dictionary block, a tagColStrFSST block,

@@ -47,18 +47,27 @@ func (e *Encoder) writeStringColumn(strs []string) {
 		pickFrontDelta
 	)
 	pick, best := pickNone, 0
-	alphaSz, alphaOK := e.measureStringColumnAlpha(strs)
-	if alphaOK {
+	// Both alpha and front-delta want only high-cardinality columns, judged on
+	// the same 64-row sample the dictionary just looked at; reuse its verdict
+	// and compute it here only when the dictionary stopped before that check.
+	highCard := e.strColHighCard
+	if !e.strColCardKnown {
+		highCard = dictSampleHighCard(strs)
+	}
+	// Front-delta first: its projection is the cheaper of the two to run where
+	// it loses, and its size then caps the alphabet scan. Alpha keeps ties.
+	fdSz, fdOK := 0, false
+	if highCard {
+		fdSz, fdOK = e.measureStringColumnFrontDelta(strs, math.MaxInt, true)
+	}
+	alphaLimit := math.MaxInt
+	if fdOK {
+		pick, best = pickFrontDelta, fdSz
+		alphaLimit = fdSz + 1 // a tie still goes to alpha
+	}
+	alphaSz, alphaOK := e.measureStringColumnAlpha(strs, highCard, alphaLimit)
+	if alphaOK && (pick == pickNone || alphaSz <= best) {
 		pick, best = pickAlpha, alphaSz
-	}
-	// A packed alpha block means dictSampleHighCard already passed, and its size
-	// is the bar front-delta's projection has to clear.
-	fdLimit := math.MaxInt
-	if alphaOK {
-		fdLimit = best
-	}
-	if sz, ok := e.measureStringColumnFrontDelta(strs, fdLimit, alphaOK); ok && (pick == pickNone || sz < best) {
-		pick, best = pickFrontDelta, sz
 	}
 	// FSST last, because its full table training (0.2–0.9 ms a column) is the
 	// one measure that is expensive. On a column alphabet packing takes at <= 4
