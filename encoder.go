@@ -340,6 +340,12 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// keyIdxBusy marks keyIdx as borrowed by an in-progress keyed-slice diff so a
 	// nested keyed slice routes to a fresh local map instead of clobbering it.
 	keyIdxBusy bool
+	// strColCardKnown / strColHighCard carry the string dictionary's 64-row
+	// cardinality verdict to the codecs measured after it, which ask the same
+	// question of the same rows (dictSampleHighCard): set by
+	// tryWriteStringColumnDict whenever its sample check ran.
+	strColCardKnown bool
+	strColHighCard  bool
 
 	// newKeyIdx is a reused seen-map for hasDupNewKeys (delta_keyed.go), cleared
 	// (not reallocated) per diff call so large new-key sets above keyedLinearMax

@@ -594,22 +594,28 @@ func columnarProbeColumns(plan *columnarPlan, base unsafe.Pointer, n int, fsstEn
 			// Distinct values are tracked in a stack array with a linear scan,
 			// not a map: the sample is <= columnarProbeSample, so the set is
 			// tiny and a map would heap-allocate buckets on every probed column.
+			// A 64-bit discriminator is compared before the string, as
+			// dictSampleHighCard does: on an all-distinct column the full string
+			// compares were most of the probe's cost.
 			var seen [columnarProbeSample]string
+			var seenKey [columnarProbeSample]uint64
 			nseen := 0
 			var tableBytes, perValue, sampleChars int
 			prev := ""
 			first := true
 			for i := range sample {
 				s := loadStringField(base, plan.stride, col, i)
+				k := strDiscriminator(s)
 				fresh := true
 				for j := range nseen {
-					if seen[j] == s {
+					if seenKey[j] == k && seen[j] == s {
 						fresh = false
 						break
 					}
 				}
 				if fresh && nseen < len(seen) {
 					seen[nseen] = s
+					seenKey[nseen] = k
 					nseen++
 					tableBytes += 2 + len(s)
 				}

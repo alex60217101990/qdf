@@ -156,8 +156,16 @@ func frontDeltaProject(strs []string, limit int, highCard bool) (frontDeltaMode,
 		back += uvarintLen(uint64(p)) + uvarintLen(uint64(q)) +
 			uvarintLen(uint64(len(s)-p-q)) + (len(s) - p - q)
 		prev = s
-		if i == frontDeltaBlock-1 && sample > frontDeltaBlock && min(front, back)*n/frontDeltaBlock >= limit {
-			return 0, false
+		if i == frontDeltaBlock-1 && sample > frontDeltaBlock {
+			// After one anchor block the projection is already telling: stop if
+			// it cannot undercut limit, or cannot clear the same raw margin the
+			// final verdict below demands. That second test is what keeps a
+			// column of random IDs — no prefixes, nothing to share — at 64
+			// comparisons when no other codec has set a limit yet.
+			proj, rawProj := min(front, back)*n/frontDeltaBlock, raw*n/frontDeltaBlock
+			if proj >= limit || proj+rawProj>>frontDeltaMinGainShift >= rawProj {
+				return 0, false
+			}
 		}
 	}
 
