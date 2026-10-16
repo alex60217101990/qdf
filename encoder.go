@@ -87,15 +87,16 @@ type Encoder struct { // betteralign:ignore — hand-tuned for SIZE (200 vs 232 
 	// immutable; it is never mutated by the encoder.
 	fsstDict *fsst.SymbolTable
 
-	// fsstCachedTbl holds the FSST symbol table trained on the most recent
-	// batch when no user-supplied fsstDict is set. Reused across consecutive
-	// same-encoder batches to eliminate the per-batch Build training cost
-	// (~140–311 µs). Retrained every fsstReuseInterval batches so the table
-	// adapts when string distributions shift. Cleared by Reset() on pool
-	// recycle so a pooled encoder never carries stale data into the next
-	// caller; survives resetForReuse() so a streaming caller amortizes training.
-	fsstCachedTbl  *fsst.SymbolTable
-	fsstBatchCount int // consecutive reuses of fsstCachedTbl since last retrain
+	// strCol holds the string-column picker's per-encoder state: the per-column
+	// FSST table cache and what each codec's measure stages for its emit. Behind
+	// a pointer, allocated on first use and kept across Reset, so the Encoder
+	// stays the size it was before the picker needed any of it (the fields were
+	// inline once and cost +3.7% on a Balanced encode that never reads them).
+	strCol *strColScratch
+	// fsstKey names the column writeStringColumn is about to emit (its stable
+	// colColumn identity), set by the columnar caller around the call. nil means
+	// the caller has no stable column identity, and the table is trained fresh.
+	fsstKey unsafe.Pointer
 
 	// chimpScr is the lazily allocated, epoch-stamped Chimp128 hash-window
 	// scratch (~192 KiB). Stamping makes stale slots self-invalidating, so
@@ -504,8 +505,7 @@ func (e *Encoder) Reset() {
 	e.fsstDict = nil
 	// Drop the streaming FSST table cache so a pooled encoder does not carry
 	// stale table data into the next caller's workload.
-	e.fsstCachedTbl = nil
-	e.fsstBatchCount = 0
+	e.dropFSSTCache()
 }
 
 // resetForReuse clears the per-message / per-stream encoder state — the output

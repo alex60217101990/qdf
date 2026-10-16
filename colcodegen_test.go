@@ -277,15 +277,26 @@ func TestStringColumn_RawFallback_Fast(t *testing.T) {
 	e.EnsureHeader()
 	n := 300
 	in := make([]string, n)
+	// Values that no cheaper codec can take, so raw is what is left: printable
+	// bytes over a ~90-symbol alphabet (alpha bails past 64), with no prefix or
+	// suffix shared row to row (front-delta declines). The previous fixture
+	// shared a "unique-" prefix and went to alpha/front-delta; the test still
+	// passed because it searched the whole buffer for the tag byte and found it
+	// inside the packed body.
 	for i := range in {
-		in[i] = "unique-" + string(rune('a'+i%26)) + string(rune('0'+i%10)) + string(rune('A'+(i*7)%26))
+		var b [12]byte
+		x := uint32(i)*2654435761 + 12345
+		for j := range b {
+			x ^= x << 13
+			x ^= x >> 17
+			x ^= x << 5
+			b[j] = byte(33 + x%90)
+		}
+		in[i] = string(b[:])
 	}
 	e.WriteColStructHeader(n, []string{"s"}, []byte{4})
 	e.WriteStringColumn(in)
 	buf := e.Bytes()
-	if !bytes.Contains(buf, []byte{tagColStrRaw}) {
-		t.Fatal("high-cardinality string column should use tagColStrRaw under Fast")
-	}
 	d := NewDecoderOnBuf(buf)
 	if err := d.readHeader(); err != nil {
 		t.Fatal(err)
@@ -293,6 +304,9 @@ func TestStringColumn_RawFallback_Fast(t *testing.T) {
 	cn, _, _, err := d.ReadColStructHeader()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if d.buf[d.i] != tagColStrRaw {
+		t.Fatalf("high-cardinality string column should use tagColStrRaw under Fast, got tag 0x%02x", d.buf[d.i])
 	}
 	got, err := d.ReadStringColumn(cn)
 	if err != nil {

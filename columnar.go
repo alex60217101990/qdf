@@ -120,6 +120,12 @@ const residualKind colKind = 0xFF
 //   - (buildColumnarPlan nil)  : no eligible field at all — full row-major
 type columnarPlan struct {
 	cols []colColumn
+	// colSrc, set only on a derived (hybrid) plan, is each column's entry in the
+	// per-type cached plan it was derived from. A derived plan lives in encoder
+	// scratch refilled every batch, so &cols[c] names whichever field landed in
+	// slot c this time; colSrc[c] names the same field every batch — the
+	// identity the per-column FSST cache keys on.
+	colSrc []*colColumn
 	// colNames / colKinds mirror cols[].name / cols[].kind as standalone slices,
 	// precomputed once at build so encodeColumnar hands them to the shape
 	// lookup/declare without rebuilding a transient pair every batch. The plan is
@@ -786,7 +792,10 @@ func (e *Encoder) encodeColumnar(plan *columnarPlan, base unsafe.Pointer, n int)
 	colStart := len(e.buf)
 	for c := range plan.cols {
 		col := &plan.cols[c]
-		if err := e.encodeOneColumn(plan, base, col, n); err != nil {
+		e.fsstKey = plan.colIdentity(c)
+		err := e.encodeOneColumn(plan, base, col, n)
+		e.fsstKey = nil
+		if err != nil {
 			return err
 		}
 		if e.colIndex {
@@ -936,7 +945,10 @@ func (e *Encoder) encodeHybridColumnar(plan *columnarPlan, base unsafe.Pointer, 
 
 	// Eligible columns, transposed.
 	for c := range plan.cols {
-		if err := e.encodeOneColumn(plan, base, &plan.cols[c], n); err != nil {
+		e.fsstKey = plan.colIdentity(c)
+		err := e.encodeOneColumn(plan, base, &plan.cols[c], n)
+		e.fsstKey = nil
+		if err != nil {
 			return err
 		}
 	}
@@ -2795,6 +2807,23 @@ func classifyColKind(fd *typeDesc) (ck colKind, width uintptr, isByte, ok bool) 
 // order from field offsets would be a second source of truth that can drift
 // from whatever the plan builder did; walking the source hybrid list and
 // flipping the demoted entries to residualKind cannot.
+// colIdentityPtr is colIdentity as a *colColumn, for building colSrc.
+func (plan *columnarPlan) colIdentityPtr(c int) *colColumn {
+	if plan.colSrc != nil {
+		return plan.colSrc[c]
+	}
+	return &plan.cols[c]
+}
+
+// colIdentity is the stable identity of column c's field: the cached plan's
+// entry, whichever plan this is.
+func (plan *columnarPlan) colIdentity(c int) unsafe.Pointer {
+	if plan.colSrc != nil {
+		return unsafe.Pointer(plan.colSrc[c])
+	}
+	return unsafe.Pointer(&plan.cols[c])
+}
+
 func (e *Encoder) derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPlan {
 	// A pure plan carries no hybrid lists — buildColumnarPlan fills them only
 	// when the type has residual fields — so the walk below has to be given
@@ -2834,6 +2863,7 @@ func (e *Encoder) derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPl
 	out.hybridNames = srcNames // names never change, only kinds do
 	out.hybridKinds = append(out.hybridKinds[:0], srcKinds...)
 	out.cols = out.cols[:0]
+	out.colSrc = out.colSrc[:0]
 	out.residual = out.residual[:0]
 	out.hasStringCol = false
 
@@ -2849,6 +2879,7 @@ func (e *Encoder) derivePartialPlan(plan *columnarPlan, keep []bool) *columnarPl
 		ci++
 		if keep[ci-1] {
 			out.cols = append(out.cols, col)
+			out.colSrc = append(out.colSrc, plan.colIdentityPtr(ci-1))
 			if col.kind == colKindString && !col.isByte {
 				out.hasStringCol = true
 			}

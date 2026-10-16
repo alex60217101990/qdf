@@ -321,6 +321,18 @@ func (t *SymbolTable) Clone() *SymbolTable {
 	return c
 }
 
+// CloneInto is Clone that reuses dst's backing arrays, so a caller retraining
+// into the same slot does not reallocate. A nil dst falls back to Clone.
+func (t *SymbolTable) CloneInto(dst *SymbolTable) *SymbolTable {
+	if dst == nil {
+		return t.Clone()
+	}
+	dst.first = t.first
+	dst.symbols = append(dst.symbols[:0], t.symbols...)
+	dst.cands = append(dst.cands[:0], t.cands...)
+	return dst
+}
+
 // UnmarshalInto parses a symbol table from b into t, reusing t's existing
 // slice backing arrays. It is equivalent to UnmarshalSymbolTable but avoids
 // the intermediate [][]byte allocation, making it suitable for pooled callers.

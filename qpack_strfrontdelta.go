@@ -2,6 +2,7 @@ package qdf
 
 import (
 	"encoding/binary"
+	"math"
 	"math/bits"
 	"slices"
 
@@ -116,7 +117,13 @@ func frontDeltaCommonSuffix(a, b string, skip int) int {
 // Both modes are scored in the same pass, from the same comparison, and the
 // winner is the one with fewer bytes — the shape alpScoreExp already uses to
 // choose between two ALP reconstructions.
-func frontDeltaProject(strs []string) (frontDeltaMode, bool) {
+//
+// limit is a block size already measured exactly for another codec: a
+// projection that cannot undercut it is a loss even when it beats raw, so it
+// stops after the first anchor block (64 rows) if the extrapolation is already
+// over, and at the end if the whole sample is. highCard says the caller has
+// already run dictSampleHighCard and it passed.
+func frontDeltaProject(strs []string, limit int, highCard bool) (frontDeltaMode, bool) {
 	n := len(strs)
 	if n < frontDeltaMinElems {
 		return 0, false
@@ -128,7 +135,7 @@ func frontDeltaProject(strs []string) (frontDeltaMode, bool) {
 	// would say otherwise, because raw is not what such a column would actually
 	// get. Without this gate an all-identical column is claimed here and comes
 	// out larger than the const form it belongs in.
-	if !dictSampleHighCard(strs) {
+	if !highCard && !dictSampleHighCard(strs) {
 		return 0, false
 	}
 	sample := min(n, frontDeltaSampleN)
@@ -149,11 +156,17 @@ func frontDeltaProject(strs []string) (frontDeltaMode, bool) {
 		back += uvarintLen(uint64(p)) + uvarintLen(uint64(q)) +
 			uvarintLen(uint64(len(s)-p-q)) + (len(s) - p - q)
 		prev = s
+		if i == frontDeltaBlock-1 && sample > frontDeltaBlock && min(front, back)*n/frontDeltaBlock >= limit {
+			return 0, false
+		}
 	}
 
 	best, mode := front, frontDeltaFrontOnly
 	if back < best {
 		best, mode = back, frontDeltaFrontBack
+	}
+	if best*n/sample >= limit {
+		return 0, false
 	}
 	// Require a real margin, not a byte or two: the sample is an estimate.
 	return mode, best+raw>>frontDeltaMinGainShift < raw
@@ -169,10 +182,23 @@ func frontDeltaProject(strs []string) (frontDeltaMode, bool) {
 // compared before a byte is emitted, so a column whose tail behaves unlike its
 // head cannot make the wire grow.
 func (e *Encoder) tryWriteStringColumnFrontDelta(strs []string) bool {
-	n := len(strs)
-	mode, ok := frontDeltaProject(strs)
-	if !ok {
+	if _, ok := e.measureStringColumnFrontDelta(strs, math.MaxInt, false); !ok {
 		return false
+	}
+	e.emitStringColumnFrontDelta(strs)
+	return true
+}
+
+// measureStringColumnFrontDelta returns the exact tagColStrFrontDelta block
+// size, staging the length stream in e.frontDeltaLens for the emit. ok is false
+// when the sample projection declines — against the raw per-value floor, or
+// against limit, a size another codec already achieved — or the exact total
+// cannot beat the raw floor. highCard is frontDeltaProject's.
+func (e *Encoder) measureStringColumnFrontDelta(strs []string, limit int, highCard bool) (int, bool) {
+	n := len(strs)
+	mode, ok := frontDeltaProject(strs, limit, highCard)
+	if !ok {
+		return 0, false
 	}
 	withSuffix := mode == frontDeltaFrontBack
 
@@ -206,12 +232,20 @@ func (e *Encoder) tryWriteStringColumnFrontDelta(strs []string) bool {
 	e.frontDeltaLens = lens
 
 	hdr := 2 + uvarintLen(uint64(n)) + uvarintLen(uint64(totalMid))
-	if hdr+lenBytes+totalMid >= rawFloor {
-		return false // exact total lost: leave the column to the next codec
+	size := hdr + lenBytes + totalMid
+	if size >= rawFloor {
+		return 0, false // exact total lost: leave the column to the next codec
 	}
+	e.sc().frontDeltaSuffix, e.sc().frontDeltaMid, e.sc().frontDeltaSize = withSuffix, totalMid, size
+	return size, true
+}
 
+// emitStringColumnFrontDelta writes the block the last successful
+// measureStringColumnFrontDelta staged.
+func (e *Encoder) emitStringColumnFrontDelta(strs []string) {
+	n, withSuffix, totalMid, lens := len(strs), e.sc().frontDeltaSuffix, e.sc().frontDeltaMid, e.frontDeltaLens
 	e.writeHeader()
-	out := slices.Grow(e.buf, hdr+lenBytes+totalMid)
+	out := slices.Grow(e.buf, e.sc().frontDeltaSize)
 	out = append(out, tagColStrFrontDelta)
 	out = appendUvarint(out, uint64(n))
 	var flags byte
@@ -232,7 +266,6 @@ func (e *Encoder) tryWriteStringColumnFrontDelta(strs []string) bool {
 		out = append(out, s[p:len(s)-q]...)
 	}
 	e.buf = out
-	return true
 }
 
 // readStringColumnFrontDelta decodes a tagColStrFrontDelta block. d.i points at

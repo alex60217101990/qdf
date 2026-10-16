@@ -260,7 +260,11 @@ func TestCodegenIsNeverLargerThanReflect(t *testing.T) {
 // widen. Closing it is separate work on the container decision, recorded as a
 // known open problem.
 func TestCodegenColumnarWindowIsAKnownGap(t *testing.T) {
-	const knownWorstRatio = 1.6
+	// 1.57x until the string-column picker started taking the smallest codec
+	// rather than the first to beat raw: that moved reflect at n=64 from 7205 to
+	// 6874 B while codegen stayed at 11288, so the gap grew by reflect getting
+	// better, not codegen getting worse.
+	const knownWorstRatio = 1.65
 	for _, n := range []int{16, 17, 29, 30, 64} {
 		plain := mkServices(n)
 		gen := make([]GenService, n)
