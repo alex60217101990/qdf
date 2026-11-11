@@ -78,7 +78,7 @@ jobs:
       # --- main: append to history + publish the trend dashboard ---
       - name: store benchmark result (push to gh-pages)
         if: github.event_name == 'push'
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1
         with:
           name: qdf Go Benchmarks
           tool: go
@@ -110,7 +110,7 @@ jobs:
       # --- PR: comment-only regression alert, never push, never fail ---
       - name: compare benchmark result (PR alert)
         if: github.event_name == 'pull_request' && steps.ghpages.outputs.exists == 'true'
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1
         with:
           name: qdf Go Benchmarks
           tool: go
